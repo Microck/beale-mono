@@ -58,7 +58,8 @@ enum BealeAppServerContract {
     static let controlVersion = 1
     static let sessionLaunchVersion = 2
     static let appServerProtocolVersion = 1
-    static let appServerContractVersion = 30
+    static let appServerContractVersion = 46
+    static let contractTimestamp = "2026-10-09T21:24:54.000Z"
     static let memoryNotificationSchemaVersion = 3
     static let workspaceMemorySchemaVersion = 4
 
@@ -105,6 +106,9 @@ struct AppServerHealth: Decodable, Sendable {
             throw AppServerClientError.incompatible(
                 "Control version \(controlVersion) is not supported by this app."
             )
+        }
+        guard contractTimestamp == BealeAppServerContract.contractTimestamp else {
+            throw AppServerClientError.incompatible("The app-server control contract is out of date.")
         }
         let missing = BealeAppServerContract.requiredCapabilities.subtracting(capabilities)
         guard missing.isEmpty else {

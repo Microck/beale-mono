@@ -236,7 +236,7 @@ final class AppServerContractTests: XCTestCase {
                 health: AppServerHealth(
                     ok: true,
                     controlVersion: BealeAppServerContract.controlVersion,
-                    contractTimestamp: "test",
+                    contractTimestamp: BealeAppServerContract.contractTimestamp,
                     capabilities: Array(BealeAppServerContract.requiredCapabilities)
                 ),
                 providerCatalog: AppServerProviderCatalog(
@@ -289,7 +289,7 @@ final class AppServerContractTests: XCTestCase {
             {
               "ok": true,
               "controlVersion": 1,
-              "contractTimestamp": "2026-08-22T01:44:44.447Z",
+              "contractTimestamp": "2026-10-09T21:24:54.000Z",
               "capabilities": [
                 "session.typed-launch.v2",
                 "session.exit-diagnostics",
@@ -330,12 +330,12 @@ final class AppServerContractTests: XCTestCase {
                 "version": "0.1.0",
                 "buildId": "build-current"
               },
-              "contractVersion": 28,
+              "contractVersion": 46,
               "schemas": {
                 "protocol": 1,
                 "session": 1,
                 "memorySummary": 13,
-                "finding": 5,
+                "finding": 6,
                 "campaignGraph": 5,
                 "goalSuggestions": 1
               },
@@ -365,12 +365,12 @@ final class AppServerContractTests: XCTestCase {
                 "version": "0.1.0",
                 "buildId": "build-old"
               },
-              "contractVersion": 27,
+              "contractVersion": 45,
               "schemas": {
                 "protocol": 1,
                 "session": 1,
                 "memorySummary": 13,
-                "finding": 5,
+                "finding": 6,
                 "campaignGraph": 5,
                 "goalSuggestions": 1
               },
@@ -387,8 +387,18 @@ final class AppServerContractTests: XCTestCase {
         let health = AppServerHealth(
             ok: true,
             controlVersion: 1,
-            contractTimestamp: "test",
+            contractTimestamp: BealeAppServerContract.contractTimestamp,
             capabilities: ["host.control.v1"]
+        )
+        XCTAssertThrowsError(try health.validateCompatibility())
+    }
+
+    func testRejectsPreviousHealthContract() throws {
+        let health = AppServerHealth(
+            ok: true,
+            controlVersion: BealeAppServerContract.controlVersion,
+            contractTimestamp: "2026-10-08T00:00:00.000Z",
+            capabilities: Array(BealeAppServerContract.requiredCapabilities)
         )
         XCTAssertThrowsError(try health.validateCompatibility())
     }
@@ -1006,8 +1016,7 @@ final class AppServerContractTests: XCTestCase {
                       "agentPath": "/root/parser_reviewer",
                       "provider": "openai-codex",
                       "model": "gpt-5.6-sol",
-                      "status": "running",
-                      "topicName": "parser-review"
+                      "status": "running"
                     }
                   },
                   {
@@ -1052,7 +1061,6 @@ final class AppServerContractTests: XCTestCase {
         XCTAssertEqual(summaries[0].latestMessage, "Confirmed the downstream parser consumer.")
         XCTAssertEqual(summaries[0].provider, "openai-codex")
         XCTAssertEqual(summaries[0].model, "gpt-5.6-sol")
-        XCTAssertEqual(summaries[0].topicName, "parser-review")
     }
 
     func testDecodesPathFreeHeatBearingMemoryFeed() throws {

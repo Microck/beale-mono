@@ -33,6 +33,7 @@
 
 #### Changed
 
+- Beale iOS now pins app-server control contract v46 and rejects an older health contract before connecting.
 - New Research selects one execution machine per session: Local or one base VM, including bases from saved app servers. The selected base is cloned for the session.
 - The per-workspace Require a VM control now appears in the workspace Settings form alongside its other general settings, rather than in Fleet.
 - Fleet now has its own destination below Plugins in the left navigation rail. Its configuration, app servers, and virtual machines remain local to the current Beale instance.
