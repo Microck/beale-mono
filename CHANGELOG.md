@@ -42,6 +42,17 @@
 - Kept Discovery, Chaining, Reporting, and Longshot as New Research suggestion categories. They shape generated ideas and optional prompt expansion without assigning a session workflow or constraining the agent's flow.
 - Agents now keep reusable research documentation in `references/research/`, with citations to canonical records and evidence.
 
+- New Research selects one execution machine per session: Local or one base VM, including bases from saved app servers. The selected base is cloned for the session.
+- The per-workspace Require a VM control now appears in the workspace Settings form alongside its other general settings, rather than in Fleet.
+- Fleet now has its own destination below Plugins in the left navigation rail. Its configuration, app servers, and virtual machines remain local to the current Beale instance.
+- The macOS development Electron bundle now signs with Beale's bundle identifier so Local Network permission applies to the app-server's SSH helper.
+- Fleet settings now separates Fleet and Virtual Machines into two settings forms. Each VM has a compact row and a configuration dialog for its SSH, base, privilege, clone, and lifecycle controls.
+- Kept Discovery, Chaining, Reporting, and Longshot as New Research suggestion categories. They shape generated ideas and optional prompt expansion without assigning a session workflow or constraining the agent's flow.
+- Agents now keep reusable research documentation in `references/research/`, with citations to canonical records and evidence.
+
+- The desktop renderer now reconnects to a workspace already open in the main process after a renderer reload, so an active browser session does not strand the app on the workspace picker.
+- A failed workspace switch now retains the previous workspace instead of leaving the desktop without a foreground workspace.
+- Browser context open requests are repeated briefly while the renderer reconnects, so a request made during a reload can still attach to its saved context.
 - The workspace editor, bottom panel, and research sidebar header buttons are available in New Research for an open workspace.
 - The Automations sidebar replaces its redundant All Automations row with Schedule a Job, opening New Research with the repeat schedule menu focused or a workspace picker when no workspace is active.
 - Sidebar session rows no longer show relative ages; long names fade at the right edge instead of ending with ellipses.
