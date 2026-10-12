@@ -3717,6 +3717,20 @@ async function prepareRuntimeConfigInputs(input: {
     : mergedWorkspaceContext;
   return { resolvedRuntimeTools, runtimeTools, workspaceContext };
 }
+function readFleetRemoteShell(): { sshArgs: string[]; guestPlatform: 'win32' | 'darwin' | 'linux'; guestCwd: string } | null {
+  const raw = process.env.BEALE_FLEET_REMOTE_SHELL;
+  if (!raw) return null;
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' || !('sshArgs' in parsed) || !('guestPlatform' in parsed) || !('guestCwd' in parsed)
+    || !Array.isArray(parsed.sshArgs) || parsed.sshArgs.length > 32
+    || !parsed.sshArgs.every((arg: unknown) => typeof arg === 'string' && arg.length <= 4096)
+    || (parsed.guestPlatform !== 'win32' && parsed.guestPlatform !== 'darwin' && parsed.guestPlatform !== 'linux')
+    || typeof parsed.guestCwd !== 'string' || !parsed.guestCwd || parsed.guestCwd.length > 4096) {
+    throw new Error('Invalid Fleet remote shell configuration.');
+  }
+  return { sshArgs: parsed.sshArgs as string[], guestPlatform: parsed.guestPlatform, guestCwd: parsed.guestCwd };
+}
+
 async function createRuntimeConfig(args: {
   prompt?: string | undefined;
   sessionId?: string | undefined;
@@ -3762,6 +3776,7 @@ async function createRuntimeConfig(args: {
   cleanup?: () => Promise<void>;
 }> {
   const workspaceRoot = args.workspaceRoot ?? process.cwd();
+  const fleetRemoteShell = readFleetRemoteShell();
   const resolvedResearchProfile = args.resolvedResearchProfile ?? await resolveResearchProfile({
     workspaceRoot,
   });
@@ -4060,6 +4075,7 @@ async function createRuntimeConfig(args: {
     }
     const tool = createShellTool({
       workspaceRoot,
+      ...(fleetRemoteShell ? { remote: fleetRemoteShell } : {}),
       ...(scratch ? { defaultWorkingDirectory: scratch } : {}),
       ...(args.shellAuthorizer ? { authorize: args.shellAuthorizer } : {}),
       ...(runtimeTools.shellOptionsPath

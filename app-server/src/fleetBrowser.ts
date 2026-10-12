@@ -52,12 +52,12 @@ function send(socket: WebSocket, value: unknown): void {
   }
 }
 
-/** Browser state stays on the session VM; this class only relays pixels and control. */
+/** Relays pixels and control for a session browser on this app-server host. */
 export class FleetBrowserService {
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly launching = new Map<string, Promise<BrowserSession>>();
 
-  public constructor(private readonly endpointOverride?: (sessionId: string) => Promise<string>) {}
+  public constructor(private readonly endpointOverride?: (sessionId: string) => Promise<string | null>) {}
 
   public tokenFor(sessionId: string): string {
     safeSessionId(sessionId);
@@ -87,7 +87,7 @@ export class FleetBrowserService {
     const socketBase = new URL(baseUrl);
     socketBase.protocol = socketBase.protocol === 'https:' ? 'wss:' : 'ws:';
     const mapped = targets.map((target) => ({ id: target.id, type: target.type, title: target.title,
-      url: target.url, description: 'Fleet VM browser page',
+      url: target.url, description: 'Fleet browser page',
       webSocketDebuggerUrl: `${socketBase.origin}/v1/fleet-browser/${encodeURIComponent(sessionId)}/devtools/page/${encodeURIComponent(target.id)}?token=${session.token}` }));
     if (kind === 'list') return mapped;
     const first = mapped[0];
@@ -221,8 +221,8 @@ export class FleetBrowserService {
 
   private async launch(sessionId: string, session: BrowserSession): Promise<BrowserSession> {
     if (this.endpointOverride) {
-      session.endpoint = await this.endpointOverride(sessionId);
-      return session;
+      const endpoint = await this.endpointOverride(sessionId);
+      if (endpoint) { session.endpoint = endpoint; return session; }
     }
     const profile = join(ROOT, 'sessions', sessionId, 'profile');
     mkdirSync(profile, { recursive: true, mode: 0o700 });

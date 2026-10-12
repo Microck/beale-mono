@@ -3558,7 +3558,7 @@ export class WorkspaceService {
       ...(input.collaboration ? { collaboration: normalizeResearchCollaboration(input.collaboration) } : {})
     };
     if (!runtime) throw new Error('No Beale workspace is open');
-    if (normalizedInput.machineId && normalizedInput.machineId !== 'local'
+    if (normalizedInput.machineId?.startsWith('vm:')
       && normalizeRepeatSchedule(normalizedInput.budget.repeatSchedule).type !== 'none') {
       throw new Error('Repeating research sessions are not available on Fleet VMs. Choose No repeat or Local.');
     }

@@ -13,6 +13,8 @@ const catalog: FleetRemoteCatalog = {
   workspaces: [{ id: 'registry-example', workspaceId: 'workspace-example', name: 'ExampleCo Research', runCount: 1 }],
   sessions: [{ id: 'session-example', workspaceId: 'workspace-example', title: 'Inspect example service', status: 'running', prompt: 'Inspect example.test', updatedAt: '2026-01-01T00:00:00.000Z', automation: false }],
   machines: [],
+  browsers: [{ id: 'in-agent', name: 'In-Agent Browser', kind: 'embedded', enabled: true }],
+  workspaceTargets: { 'workspace-example': ['local', 'browser:in-agent'] },
   requiredWorkspaceIds: [],
   optionalWorkspaceIds: [],
   hasBaseVm: false

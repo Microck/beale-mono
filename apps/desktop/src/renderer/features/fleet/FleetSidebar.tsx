@@ -1,10 +1,11 @@
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
-import { Monitor, Network, ServerCog } from 'lucide-react';
+import { Globe2, Monitor, Network, ServerCog } from 'lucide-react';
 
 const sections = [
   { id: 'fleet-configuration-heading', label: 'Fleet', icon: Network },
   { id: 'fleet-app-servers-heading', label: 'App Servers', icon: ServerCog },
-  { id: 'fleet-machines-heading', label: 'Virtual Machines', icon: Monitor }
+  { id: 'fleet-machines-heading', label: 'Virtual Machines', icon: Monitor },
+  { id: 'fleet-browsers-heading', label: 'Browsers', icon: Globe2 }
 ] as const;
 
 export function FleetSidebar({ collapsed, onResizePointerDown }: {

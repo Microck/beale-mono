@@ -27,7 +27,10 @@ test('connected primary sessions request one remote browser and attach with a se
   const fleet = new FleetService(join(root, 'fleet.json'), 'darwin', { async run() { return '[]'; }, launch() {} });
   fleet.connectedRemoteAppServer = async () => ({ id: 'server-example', name: 'Example',
     url: 'https://worker.example.test', operatorToken: 'synthetic-operator-token' });
-  fleet.callRemote = async () => ({ enabled: true, role: 'primary', requiredWorkspaceIds: [], optionalWorkspaceIds: [], machines: [] });
+  fleet.callRemote = async () => ({ enabled: true, role: 'primary', requiredWorkspaceIds: [], optionalWorkspaceIds: [],
+    workspaceTargets: { 'workspace-example': ['local', 'vm:run:tart:example-vm'] },
+    browsers: [{ id: 'in-agent', enabled: true }],
+    machines: [{ id: 'tart:example-vm', canRun: true, canClone: false, state: 'running' }] });
   const previousFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     requests.push({ url: String(url), body: JSON.parse(init.body) });
@@ -43,6 +46,9 @@ test('connected primary sessions request one remote browser and attach with a se
       url: 'wss://worker.example.test/v1/sessions/session-example/browser', token: 'synthetic-session-token',
     });
     assert.equal(requests[1].url, 'https://worker.example.test/v1/sessions/session-example/attachments');
+    await fleet.remoteLaunch('server-example', 'workspace-example', 'Research the example scope.', 'vm:run:tart:example-vm');
+    assert.equal(requests[2].body.launch.machineId, 'vm:run:tart:example-vm');
+    assert.equal('fleetOwnerMachineId' in requests[2].body.launch, false);
   } finally { globalThis.fetch = previousFetch; rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -63,7 +69,7 @@ test('remote session history requests canonical pages before the current event',
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('Fleet registers only operator-designated bases and never runs one directly', async () => {
+test('Fleet lets an operator enable run and clone independently for a VM', async () => {
   const root = mkdtempSync(join(tmpdir(), 'beale-fleet-test-'));
   const machines = new Map([['example-base', false]]);
   const launched = [];
@@ -87,17 +93,22 @@ test('Fleet registers only operator-designated bases and never runs one directly
     const path = join(root, 'fleet.json');
     const fleet = new FleetService(path, 'darwin', runner);
     assert.equal((await fleet.state()).machines[0]?.base, false);
-    await assert.rejects(fleet.clone('tart:example-base', 'example-copy'), /registered base/);
-    await fleet.configure({ action: 'set-machine', machineId: 'tart:example-base', base: true, privilege: 'elevated', sshUser: 'example' });
-    await assert.rejects(fleet.start('tart:example-base'), /runnable/);
+    await assert.rejects(fleet.clone('tart:example-base', 'example-copy'), /Can Clone/);
+    await fleet.configure({ action: 'set-machine', machineId: 'tart:example-base', base: true,
+      canRun: false, canClone: true, privilege: 'elevated', sshUser: 'example' });
+    await assert.rejects(fleet.start('tart:example-base'), /Can Run/);
     const cloned = await fleet.clone('tart:example-base', 'example-copy');
     assert.equal(cloned.machines.find((machine) => machine.name === 'example-copy')?.base, false);
     assert.equal(cloned.machines.find((machine) => machine.name === 'example-copy')?.privilege, 'elevated');
     await fleet.start('tart:example-copy');
     assert.deepEqual(launched, [{ command: 'tart', args: ['run', 'example-copy', '--no-graphics'] }]);
     await fleet.configure({ action: 'set-machine', machineId: 'tart:example-copy', sshUser: 'example' });
-    await fleet.configure({ action: 'select-machine', workspaceId: 'workspace-example', machineId: 'tart:example-base' });
-    assert.equal((await fleet.state()).lastMachineByWorkspace['workspace-example'], 'tart:example-base');
+    await fleet.configure({ action: 'set-machine', machineId: 'tart:example-base', canRun: true, canClone: true, base: false });
+    await fleet.configure({ action: 'set-workspace-targets', workspaceId: 'workspace-example',
+      targetIds: ['vm:run:tart:example-base', 'vm:clone:tart:example-base'] });
+    await fleet.configure({ action: 'select-machine', workspaceId: 'workspace-example', machineId: 'vm:run:tart:example-base' });
+    assert.equal((await fleet.state()).lastMachineByWorkspace['workspace-example'], 'vm:run:tart:example-base');
+    await assert.rejects(fleet.configure({ action: 'select-machine', workspaceId: 'workspace-example', machineId: 'local' }), /runnable/);
     const owner = { machineId: 'machine-example', sessionId: 'session-example' };
     const [first, again] = await Promise.all([
       fleet.cloneForSession('tart:example-base', owner), fleet.cloneForSession('tart:example-base', owner),
@@ -114,6 +125,37 @@ test('Fleet registers only operator-designated bases and never runs one directly
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('Fleet prepares direct VM shell access from the primary and releases its reservation', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'beale-fleet-shell-test-'));
+  let running = false;
+  const calls = [];
+  const runner = {
+    async run(command, args) {
+      calls.push({ command, args });
+      if (command === 'tart' && args[0] === 'list') return JSON.stringify([{ Name: 'example-vm', Running: running }]);
+      if (command === 'tart' && args[0] === 'ip') return '192.0.2.10\n';
+      if (command === 'ssh' && args.at(-1) === 'pwd') return '/Users/example\n';
+      throw new Error('Unexpected Fleet command.');
+    },
+    launch(command, args) { assert.equal(command, 'tart'); running = true; },
+  };
+  try {
+    const fleet = new FleetService(join(root, 'fleet.json'), 'darwin', runner);
+    await fleet.configure({ action: 'set-machine', machineId: 'tart:example-vm', canRun: true,
+      canClone: false, guestPlatform: 'darwin', sshUser: 'example' });
+    await fleet.configure({ action: 'set-workspace-targets', workspaceId: 'workspace-example',
+      targetIds: ['vm:run:tart:example-vm'] });
+    const prepared = await fleet.prepareSessionTarget('vm:run:tart:example-vm', 'workspace-example', 'session-example');
+    assert.equal(prepared.machineId, 'tart:example-vm');
+    assert.equal(prepared.guestCwd, '/Users/example');
+    assert.equal(prepared.sshArgs.at(-1), 'example@192.0.2.10');
+    assert.equal(calls.some(({ command }) => command === 'ssh'), true);
+    await fleet.releaseSessionTarget(prepared.machineId, 'session-example');
+    assert.equal((await fleet.state()).machines[0].owner, null);
+    assert.equal(running, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('Fleet tests draft SSH settings without saving them or starting a base', async () => {
@@ -152,7 +194,7 @@ test('Fleet tests draft SSH settings without saving them or starting a base', as
     assert.ok(calls.some((call) => call.command === 'tart' && call.args.includes('agent')));
     assert.ok(ssh.args.includes(`UserKnownHostsFile=${join(root, 'known_hosts')}`));
     assert.ok(ssh.args.includes('StrictHostKeyChecking=accept-new'));
-    assert.ok(ssh.args.some((arg) => arg.endsWith('/example-key')));
+    assert.ok(ssh.args.some((arg) => arg.endsWith('example-key')));
     rejectAgent = true;
     assert.equal((await fleet.testSsh({ machineId: 'tart:example-worker', sshHost: '', sshUser: 'example' })).success, true);
     assert.ok(calls.some((call) => call.command === 'tart' && call.args.includes('--wait') && !call.args.includes('agent')));

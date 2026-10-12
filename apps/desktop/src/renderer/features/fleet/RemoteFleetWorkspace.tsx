@@ -83,10 +83,19 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   const workspace = catalog?.workspaces.find((item) => item.workspaceId === workspaceId);
   const session = catalog?.sessions.find((item) => item.id === sessionId && item.workspaceId === workspaceId);
   const browserAvailable = Boolean(session && !['completed', 'failed', 'stopped'].includes(session.status));
-  const required = Boolean(workspaceId && catalog && (catalog.requiredWorkspaceIds.includes(workspaceId)
-    || !catalog.optionalWorkspaceIds.includes(workspaceId) && catalog.hasBaseVm));
-  const runnable = catalog?.machines.filter((machine) => !machine.owner) ?? [];
-  useEffect(() => { setMachineId(required ? runnable[0]?.id ?? '' : 'local'); }, [serverId, workspaceId, required]);
+  const allowedTargets = new Set(workspaceId ? catalog?.workspaceTargets[workspaceId] ?? ['local', 'browser:in-agent'] : []);
+  const targets = [
+    { id: 'local', name: 'Local', ready: true },
+    ...(catalog?.browsers.filter((browser) => browser.enabled).map((browser) => ({
+      id: `browser:${browser.id}`, name: browser.name, ready: true,
+    })) ?? []),
+    ...(catalog?.machines.flatMap((machine) => [
+      ...(machine.canRun ? [{ id: `vm:run:${machine.id}`, name: `${machine.name} · Run`, ready: machine.sshConfigured && machine.state !== 'unknown' && !machine.owner }] : []),
+      ...(machine.canClone ? [{ id: `vm:clone:${machine.id}`, name: `${machine.name} · Clone`, ready: machine.sshConfigured && machine.state === 'stopped' && !machine.owner }] : []),
+    ]) ?? []),
+  ].filter((target) => allowedTargets.has(target.id));
+  const targetKey = targets.map((target) => `${target.id}:${target.ready}`).join('|');
+  useEffect(() => { setMachineId(targets.find((target) => target.ready)?.id ?? targets[0]?.id ?? ''); }, [serverId, workspaceId, targetKey]);
   const mergedDetail = useMemo(() => mergeRemoteSessionHistory(detail, olderPages), [detail, olderPages]);
   const runDetail = useMemo(() => remoteRunDetail(mergedDetail), [mergedDetail]);
   const events = useMemo(() => runDetail ? buildTraceDisplayEventsForAgentPath(runDetail, null) : [], [runDetail]);
@@ -164,13 +173,12 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
         </div>}
       </> : workspace && !automations ? <><p>{workspace.runCount} sessions on this app server.</p>
         <label className="fleet-vm-dialog-field"><span>New Research prompt</span><textarea value={prompt} onChange={(event) => setPrompt(event.currentTarget.value)} rows={7} placeholder="Describe the authorized research task." /></label>
-        <label className="fleet-vm-dialog-field"><span>Machine</span><select value={machineId} onChange={(event) => setMachineId(event.currentTarget.value)}>
-          {!required ? <option value="local">Local</option> : null}
-          {required && runnable.length === 0 ? <option value="">No configured base VM</option> : null}
-          {runnable.map((machine) => <option key={machine.id} value={machine.id}>{machine.name} ({machine.sshConfigured ? 'clone for session' : 'set SSH user in Fleet'})</option>)}
+        <label className="fleet-vm-dialog-field"><span>Target</span><select value={machineId} onChange={(event) => setMachineId(event.currentTarget.value)}>
+          {targets.length === 0 ? <option value="">No workspace targets</option> : null}
+          {targets.map((target) => <option key={target.id} value={target.id} disabled={!target.ready}>{target.name}{target.ready ? '' : ' (configure in Fleet)'}</option>)}
         </select></label>
         {launchError ? <p className="settings-form-error" role="alert">{launchError}</p> : null}
-        <button type="button" className="primary-button" disabled={starting || !prompt.trim() || !machineId} onClick={() => void start()}>{starting ? 'Starting…' : 'Start Research'}</button>
+        <button type="button" className="primary-button" disabled={starting || !prompt.trim() || !targets.find((target) => target.id === machineId)?.ready} onClick={() => void start()}>{starting ? 'Starting…' : 'Start Research'}</button>
       </> : <p>{catalog ? (automations ? 'Choose an automation.' : 'Choose a workspace or session.') : 'Loading remote app server…'}</p>}
     </div>
   </section>;

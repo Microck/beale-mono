@@ -37,6 +37,58 @@ import {
 const allowShell = async (request) => approvedAuthorization(request);
 const execFileAsync = promisify(execFile);
 
+test('Fleet remote shell applies guest core-directory deletion guards before SSH', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'beale-remote-shell-test-'));
+  try {
+    const registry = createResearchToolRegistry([createShellTool({
+      workspaceRoot: root, authorize: allowShell,
+      remote: { sshArgs: ['example@192.0.2.10'], guestPlatform: 'linux', guestCwd: '/home/example' },
+    })]);
+    const result = await registry.execute({
+      id: 'remote_protected_delete', actionClass: 'experiment', toolName: 'shell.run',
+      input: { utility: 'rm', args: ['-rf', '/'] },
+    });
+    assert.equal(result.result.status, 'error');
+    assert.match(result.result.error.message, /Folder delete guard blocked rm/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('Fleet shell routes authorized commands through the configured remote transport', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'beale-remote-transport-test-'));
+  try {
+    const registry = createResearchToolRegistry([createShellTool({
+      workspaceRoot: root, authorize: allowShell,
+      remote: { sshExecutable: process.execPath,
+        sshArgs: ['-e', 'process.stdout.write(process.argv[1] ?? "")'],
+        guestPlatform: 'linux', guestCwd: '/home/example' },
+    })]);
+    const result = await registry.execute({
+      id: 'remote_command', actionClass: 'inspect', toolName: 'shell.run',
+      input: { utility: 'printf', args: ['example'] },
+    });
+    assert.equal(result.result.status, 'complete');
+    assert.match(result.result.output.stdout, /sh -lc/);
+    assert.match(result.result.output.stdout, /printf/);
+    assert.match(result.result.output.stdout, /home\/example/);
+    const windowsRegistry = createResearchToolRegistry([createShellTool({
+      workspaceRoot: root, authorize: allowShell,
+      remote: { sshExecutable: process.execPath,
+        sshArgs: ['-e', 'process.stdout.write(process.argv[1] ?? "")'],
+        guestPlatform: 'win32', guestCwd: 'C:\\Users\\example' },
+    })]);
+    const windows = await windowsRegistry.execute({
+      id: 'remote_windows_command', actionClass: 'inspect', toolName: 'shell.run',
+      input: { command: 'Write-Output example' },
+    });
+    assert.equal(windows.result.status, 'complete');
+    const encoded = windows.result.output.stdout.match(/-EncodedCommand ([A-Za-z0-9+/=]+)/)?.[1];
+    assert.ok(encoded);
+    const decoded = Buffer.from(encoded, 'base64').toString('utf16le');
+    assert.match(decoded, /Set-Location -LiteralPath 'C:\\Users\\example'/);
+    assert.match(decoded, /Write-Output example/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 function approvedAuthorization(request) {
   return {
     approvalRequestId: "fixture_" + request.actionId,

@@ -60,6 +60,7 @@ export interface ShellToolOptions {
   platform?: NodeJS.Platform;
   wsl?: WslShellOptions;
   windowsPowerShell?: WindowsPowerShellOptions;
+  remote?: { sshArgs: readonly string[]; guestPlatform: 'win32' | 'darwin' | 'linux'; guestCwd: string; sshExecutable?: string };
 }
 
 interface RequestedShellInvocation {
@@ -104,7 +105,7 @@ interface ProtectedDirectory {
   includeDescendants: boolean;
 }
 
-function shellParameters(platform: NodeJS.Platform): NonNullable<ResearchExecutableTool["parameters"]> {
+function shellParameters(platform: NodeJS.Platform, remote = false): NonNullable<ResearchExecutableTool["parameters"]> {
   const windows = platform === "win32";
   return {
     type: "object",
@@ -112,9 +113,10 @@ function shellParameters(platform: NodeJS.Platform): NonNullable<ResearchExecuta
     properties: {
       command: {
         type: "string",
-        description: windows
+        description: windows && !remote
           ? "Complete PowerShell command. Set runtime to wsl to explicitly use an installed Linux distribution. Supports pipelines, chaining, redirects, and other shell syntax. Do not combine with utility or args."
-          : "Complete host shell command. Supports pipelines, chaining, redirects, and other shell syntax. Do not combine with utility or args.",
+          : windows ? "Complete PowerShell command in the selected VM. Supports pipelines, chaining, redirects, and other shell syntax."
+            : "Complete shell command. Supports pipelines, chaining, redirects, and other shell syntax. Do not combine with utility or args.",
       },
       utility: {
         type: "string",
@@ -127,14 +129,16 @@ function shellParameters(platform: NodeJS.Platform): NonNullable<ResearchExecuta
       },
       cwd: {
         type: "string",
-        description: "Working directory. Relative paths resolve from the research workspace.",
+        description: remote ? "Working directory inside the selected VM. Defaults to the guest login directory."
+          : "Working directory. Relative paths resolve from the research workspace.",
       },
       stdin: { type: "string" },
       timeoutMs: { type: "number" },
       runtime: {
         type: "string",
-        enum: windows ? ["host", "wsl"] : ["host"],
-        description: windows
+        enum: windows && !remote ? ["host", "wsl"] : ["host"],
+        description: remote ? "Execution runs inside the selected Fleet VM."
+          : windows
           ? "Execution runtime. Commands and direct utilities default to the Windows host; host command form uses PowerShell. Select wsl explicitly for Linux tools."
           : "Execution runtime. Commands and direct utilities run on the host.",
       },
@@ -152,8 +156,8 @@ function shellDescription(platform: NodeJS.Platform): string {
 
 export function createShellTool(options: ShellToolOptions): ResearchExecutableTool {
   const workspaceRoot = resolve(options.workspaceRoot);
-  const platform = options.platform ?? process.platform;
-  const parameters = shellParameters(platform);
+  const platform = options.remote?.guestPlatform ?? options.platform ?? process.platform;
+  const parameters = shellParameters(platform, Boolean(options.remote));
   const maxOutputBytes = positiveInteger(options.maxOutputBytes, DEFAULT_MAX_OUTPUT_BYTES);
   const protectedDirectories = defaultProtectedDirectories(workspaceRoot, options.protectedDirectories);
   let cachedWslSupport: WslSupport | null | undefined;
@@ -170,7 +174,9 @@ export function createShellTool(options: ShellToolOptions): ResearchExecutableTo
     descriptor: {
       name: "shell.run",
       transportName: "shell_run",
-      description: shellDescription(platform),
+      description: options.remote
+        ? `Run a ${platform === 'win32' ? 'PowerShell' : 'POSIX shell'} command or direct utility inside the selected Fleet VM over SSH. Shell safety authorization, utility policy, and core-directory deletion guards apply before execution. Use repository.search for literal discovery when available.`
+        : shellDescription(platform),
       actionClasses: ["search", "inspect", "analyze", "experiment"],
       sideEffects: "process",
       requiredPermissions: ["process:spawn"],
@@ -179,8 +185,9 @@ export function createShellTool(options: ShellToolOptions): ResearchExecutableTo
         provider: "appServer.built_in",
         safetyProfile: "host-utility-policy",
         networkPolicy: "host-recorded-command-intent",
-        shellRuntimes: platform === "win32" ? ["host", "wsl"] : ["host"],
+        shellRuntimes: options.remote ? ["host"] : platform === "win32" ? ["host", "wsl"] : ["host"],
         defaultCommandRuntime: platform === "win32" ? "powershell" : "host",
+        ...(options.remote ? { executionTarget: 'fleet-vm' } : {}),
         defaultBudget: { maxToolCalls: 1 },
       },
     },
@@ -189,15 +196,15 @@ export function createShellTool(options: ShellToolOptions): ResearchExecutableTo
       const startedAt = nowIso();
       try {
         const requested = readShellInvocation(action.input);
-        const invocation = resolveShellInvocation({
-          requested,
-          requestedRuntime: readShellRuntime(action.input.runtime),
-          requestedCwd: action.input.cwd ?? options.defaultWorkingDirectory,
-          workspaceRoot,
-          platform,
-          wslSupport,
-          windowsPowerShell,
-        });
+        const requestedRuntime = readShellRuntime(action.input.runtime);
+        if (options.remote && requestedRuntime === 'wsl') throw new Error('WSL is unavailable for a Fleet VM target.');
+        const invocation = options.remote
+          ? resolveRemoteInvocation(requested, action.input.cwd, options.remote.guestCwd, platform)
+          : resolveShellInvocation({
+              requested, requestedRuntime,
+              requestedCwd: action.input.cwd ?? options.defaultWorkingDirectory,
+              workspaceRoot, platform, wslSupport, windowsPowerShell,
+            });
         const stdin = readOptionalString(action.input.stdin, "stdin");
         const timeoutMs = Math.min(
           positiveInteger(
@@ -218,7 +225,9 @@ export function createShellTool(options: ShellToolOptions): ResearchExecutableTo
             `Shell utility ${policyUtility} is disabled by the harness-wide Shell Options policy.`,
           );
         }
-        if (invocation.wsl) {
+        if (options.remote) {
+          assertRemoteFolderDeleteAllowed(invocation.policyUtility, invocation.policyArgs, invocation.cwd, platform, options.remote.guestCwd);
+        } else if (invocation.wsl) {
           await assertWslFolderDeleteAllowed(
             invocation.policyUtility,
             invocation.policyArgs,
@@ -226,7 +235,7 @@ export function createShellTool(options: ShellToolOptions): ResearchExecutableTo
             invocation.wsl.distribution,
             protectedDirectories,
           );
-        } else {
+        } else if (!options.remote) {
           await assertFolderDeleteAllowed(
             invocation.policyUtility,
             invocation.policyArgs,
@@ -296,6 +305,7 @@ export function createShellTool(options: ShellToolOptions): ResearchExecutableTo
             timeoutMs: Math.max(1, deadline - Date.now()),
             maxOutputBytes,
             authorization,
+            ...(options.remote ? { remote: options.remote } : {}),
             ...(context?.signal ? { signal: context.signal } : {}),
           });
         } finally {
@@ -306,6 +316,20 @@ export function createShellTool(options: ShellToolOptions): ResearchExecutableTo
       }
     },
   };
+}
+
+function assertRemoteFolderDeleteAllowed(utility: string, args: readonly string[], cwd: string, platform: NodeJS.Platform, guestHome: string): void {
+  const pathApi = platform === 'win32' ? win32 : posix;
+  const protectedRoots = platform === 'win32'
+    ? [pathApi.parse(cwd).root, guestHome, 'C:\\Windows', 'C:\\Program Files', 'C:\\Program Files (x86)']
+    : ['/', guestHome, '/Applications', '/Library', '/System', '/bin', '/boot', '/dev', '/etc', '/lib', '/opt', '/proc', '/root', '/run', '/sbin', '/sys', '/usr'];
+  const targets = destructiveDirectoryTargets(utility, args, cwd, pathApi.resolve);
+  for (const raw of targets) {
+    const target = pathApi.resolve(cwd, raw);
+    if (protectedRoots.some((root) => root && target.toLowerCase() === pathApi.resolve(root).toLowerCase())) {
+      throw new Error(`Folder delete guard blocked ${utility} from targeting protected directory ${target}.`);
+    }
+  }
 }
 
 async function assertWslFolderDeleteAllowed(
@@ -664,6 +688,7 @@ async function runUtility(input: {
   maxOutputBytes: number;
   authorization: ShellAuthorizationDecision;
   signal?: AbortSignal;
+  remote?: { sshArgs: readonly string[]; guestPlatform: 'win32' | 'darwin' | 'linux'; guestCwd: string; sshExecutable?: string };
 }): Promise<ResearchToolExecutionResult> {
   return new Promise((resolvePromise) => {
     let settled = false;
@@ -672,8 +697,10 @@ async function runUtility(input: {
     let stopping = false;
     let forceStop: ReturnType<typeof setTimeout> | undefined;
     const output = createOutputCollector(input.maxOutputBytes);
-    const child = spawn(input.utility, input.args, {
-      cwd: input.cwd,
+    const remoteCommand = input.remote ? remoteShellCommand(input.utility, input.args, input.cwd, input.remote.guestPlatform) : null;
+    const child = spawn(input.remote ? input.remote.sshExecutable ?? 'ssh' : input.utility,
+      input.remote ? [...input.remote.sshArgs, remoteCommand!] : input.args, {
+      ...(input.remote ? {} : { cwd: input.cwd }),
       env: shellEnvironment(),
       detached: process.platform !== "win32",
       shell: false,
@@ -733,6 +760,7 @@ async function runUtility(input: {
         args: redactShellArguments(input.args),
         cwd: input.cwd,
         runtime: input.runtime,
+        ...(input.remote ? { executionTarget: 'fleet-vm' } : {}),
         ...(input.wsl ? { wsl: input.wsl } : {}),
         authorization: input.authorization,
       }));
@@ -749,6 +777,7 @@ async function runUtility(input: {
         args: redactShellArguments(input.args),
         cwd: input.cwd,
         runtime: input.runtime,
+        ...(input.remote ? { executionTarget: 'fleet-vm' } : {}),
         ...(input.wsl ? { wsl: input.wsl } : {}),
         exitCode,
         signal,
@@ -783,6 +812,17 @@ async function runUtility(input: {
     if (input.stdin !== undefined) child.stdin.end(input.stdin);
     else child.stdin.end();
   });
+}
+
+function remoteShellCommand(utility: string, args: readonly string[], cwd: string, platform: NodeJS.Platform): string {
+  if (platform === 'win32') {
+    const quote = (value: string): string => `'${value.replace(/'/gu, "''")}'`;
+    const script = `$ErrorActionPreference='Stop'; Set-Location -LiteralPath ${quote(cwd)}; & ${quote(utility)} ${args.map(quote).join(' ')}; exit $LASTEXITCODE`;
+    return `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(script, 'utf16le').toString('base64')}`;
+  }
+  const quote = (value: string): string => `'${value.replace(/'/gu, "'\\''")}'`;
+  const script = `cd ${quote(cwd)} && ${[utility, ...args].map(quote).join(' ')}`;
+  return `sh -lc ${quote(script)}`;
 }
 
 function defaultUtilityTimeoutMs(utility: string, args: readonly string[]): number {
@@ -891,6 +931,19 @@ function readShellRuntime(value: unknown): ShellRuntime | undefined {
   if (value === undefined) return undefined;
   if (value === "host" || value === "wsl") return value;
   throw new Error("shell.run runtime must be host or wsl.");
+}
+
+function resolveRemoteInvocation(requested: RequestedShellInvocation, rawCwd: unknown, defaultCwd: string, platform: NodeJS.Platform): ResolvedShellInvocation {
+  if (rawCwd !== undefined && (typeof rawCwd !== 'string' || !rawCwd.trim() || rawCwd.includes('\0'))) {
+    throw new Error('shell.run cwd must be a non-empty guest path.');
+  }
+  const cwd = typeof rawCwd === 'string' ? rawCwd : defaultCwd;
+  const utility = requested.kind === 'command' ? platform === 'win32' ? 'powershell.exe' : '/bin/sh' : requested.utility;
+  const args = requested.kind === 'command'
+    ? platform === 'win32' ? ['-NoProfile', '-NonInteractive', '-Command', requested.args[1] ?? ''] : requested.args
+    : requested.args;
+  return { runtime: 'host', utility, args, policyUtility: utility, policyArgs: args,
+    displayUtility: requested.kind === 'command' ? 'VM shell' : requested.utility, cwd };
 }
 
 function resolveShellInvocation(input: {
