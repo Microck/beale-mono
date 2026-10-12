@@ -703,7 +703,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.restartFleetGuestAppServer, (_event, machineId: string) => workspaceService.restartFleetGuestAppServer(machineId));
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteMachines, () => workspaceService.getFleetRemoteMachines());
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteCatalog, (_event, serverId: string) => workspaceService.getFleetRemoteCatalog(serverId));
-  ipcMain.handle(IPC_CHANNELS.getFleetRemoteSession, (_event, serverId: string, workspaceId: string, sessionId: string) => workspaceService.getFleetRemoteSession(serverId, workspaceId, sessionId));
+  ipcMain.handle(IPC_CHANNELS.getFleetRemoteSession, (_event, serverId: string, workspaceId: string, sessionId: string, beforeEventId?: string) => workspaceService.getFleetRemoteSession(serverId, workspaceId, sessionId, beforeEventId));
   ipcMain.handle(IPC_CHANNELS.startFleetRemoteSession, (_event, serverId: string, workspaceId: string, promptMarkdown: string, machineId: string) => workspaceService.startFleetRemoteSession(serverId, workspaceId, promptMarkdown, machineId));
   ipcMain.handle(IPC_CHANNELS.controlFleetRemoteSession, (_event, serverId: string, sessionId: string, type: 'pause' | 'resume' | 'stop' | 'steer', instruction?: string) => workspaceService.controlFleetRemoteSession(serverId, sessionId, type, instruction));
   ipcMain.handle(IPC_CHANNELS.configureFleet, (_event, input: Record<string, unknown>) => workspaceService.configureFleet(input));

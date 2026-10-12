@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import type { FleetRemoteCatalog } from '@beale/app-server-runtime/protocol';
-import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
+import { WorkspaceSidebar } from '../workspaces/WorkspaceSidebar';
+import { CommentaryView } from '../commentary/CommentaryView';
 import { FleetBrowserSideView } from '../research/FleetBrowserSideView';
+import { buildTraceDisplayEventsForAgentPath } from '../../view-models/traceDisplay';
+import { mergeRemoteSessionHistory, remoteRunDetail, remoteRunStatus, remoteSessionHistoryPage, remoteWorkspaceRegistry } from './remoteFleetProjection';
+import type { RemoteSessionHistoryPage } from './remoteFleetProjection';
 
 export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, selectedSessionId, automations, collapsed, serverSelector, onSelect, onResizePointerDown }: {
   catalog: FleetRemoteCatalog | null;
@@ -15,24 +19,29 @@ export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, s
   onSelect: (workspaceId: string, sessionId: string | null) => void;
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
 }): JSX.Element {
-  const sessions = catalog?.sessions.filter((session) => !automations || session.automation) ?? [];
-  return <aside className="sidebar collection-sidebar" aria-label={`${serverName} ${automations ? 'automations' : 'workspaces'} sidebar`} aria-hidden={collapsed} inert={collapsed}>
-    <div className="sidebar-section collection-sidebar-section">
-      <div className="sidebar-server-heading"><div className="sidebar-wordmark">{automations ? 'Automations' : 'Beale'}</div>{serverSelector}</div>
-      <MainSideScrollRegion className="sidebar-list-scroll-region" listClassName="sidebar-list-scroll" updateKey={`${catalog?.serverId ?? ''}:${selectedWorkspaceId ?? ''}:${selectedSessionId ?? ''}:${automations}`}>
-        <nav className="collection-sidebar-list sidebar-list-scroll-content" aria-label="Remote research">
-          {!catalog ? <p className="collection-sidebar-empty">Loading remote app server…</p> : null}
-          {!automations ? catalog?.workspaces.map((workspace) => <button type="button" className={`workspace-item collection-sidebar-item${selectedWorkspaceId === workspace.workspaceId && !selectedSessionId ? ' active' : ''}`} key={workspace.workspaceId} onClick={() => onSelect(workspace.workspaceId, null)}>{workspace.name}</button>) : null}
-          <div className="collection-sidebar-list-heading">{automations ? 'Scheduled research' : 'Sessions'}</div>
-          {sessions.length === 0 && catalog ? <p className="collection-sidebar-empty">No {automations ? 'automations' : 'sessions'} found.</p> : null}
-          {sessions.map((session) => <button type="button" className={`workspace-item collection-sidebar-item${selectedSessionId === session.id ? ' active' : ''}`} key={`${session.workspaceId}:${session.id}`} onClick={() => onSelect(session.workspaceId, session.id)} title={session.title}>
-            <span className="collection-sidebar-item-copy"><span>{session.title}</span><small>{session.status} · {catalog?.workspaces.find((workspace) => workspace.workspaceId === session.workspaceId)?.name ?? session.workspaceId}</small></span>
-          </button>)}
-        </nav>
-      </MainSideScrollRegion>
-    </div>
-    <div className="sidebar-resize-handle" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={onResizePointerDown} />
-  </aside>;
+  const registry = remoteWorkspaceRegistry(catalog && automations
+    ? { ...catalog, sessions: catalog.sessions.filter((session) => session.automation) }
+    : catalog, catalog?.serverId ?? serverName);
+  return <WorkspaceSidebar
+    serverSelector={serverSelector}
+    busy={false}
+    collapsed={collapsed}
+    error={null}
+    workspaceRegistry={registry}
+    workspaceRegistryLoading={!catalog}
+    selectedRunId={selectedSessionId}
+    selectedWorkspaceId={selectedWorkspaceId}
+    snapshot={null}
+    automationsActive={automations}
+    remote
+    onAddWorkspace={() => undefined}
+    onImportWorkspace={() => undefined}
+    onOpenWorkspace={(workspace) => onSelect(workspace.workspaceId, null)}
+    onOpenResearchSession={(workspace, session) => onSelect(workspace.workspaceId, session.runId)}
+    onResizePointerDown={onResizePointerDown}
+    onStartNewResearch={() => selectedWorkspaceId && onSelect(selectedWorkspaceId, null)}
+    onStartNewResearchForWorkspace={(workspace) => onSelect(workspace.workspaceId, null)}
+  />;
 }
 
 export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceId, sessionId, automations, error, onLaunched }: {
@@ -46,19 +55,21 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   onLaunched: (workspaceId: string, sessionId: string) => void;
 }): JSX.Element {
   const [detail, setDetail] = useState<unknown>(null);
+  const [olderPages, setOlderPages] = useState<RemoteSessionHistoryPage[]>([]);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const [machineId, setMachineId] = useState('local');
   const [starting, setStarting] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
-  const [steering, setSteering] = useState('');
   const [controlBusy, setControlBusy] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
   const [browserSelection, setBrowserSelection] = useState<string | null>(null);
   const browserOpen = browserSelection === `${serverId}:${sessionId ?? ''}`;
   useEffect(() => { setBrowserSelection(null); }, [serverId, sessionId]);
   useEffect(() => {
-    if (!workspaceId || !sessionId) { setDetail(null); return; }
+    setDetail(null);
+    setOlderPages([]);
+    if (!workspaceId || !sessionId) return;
     let active = true;
     const refresh = (): void => {
       void window.beale.getFleetRemoteSession(serverId, workspaceId, sessionId)
@@ -76,7 +87,10 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
     || !catalog.optionalWorkspaceIds.includes(workspaceId) && catalog.hasBaseVm));
   const runnable = catalog?.machines.filter((machine) => !machine.owner) ?? [];
   useEffect(() => { setMachineId(required ? runnable[0]?.id ?? '' : 'local'); }, [serverId, workspaceId, required]);
-  const eventTexts = sessionEventTexts(detail);
+  const mergedDetail = useMemo(() => mergeRemoteSessionHistory(detail, olderPages), [detail, olderPages]);
+  const runDetail = useMemo(() => remoteRunDetail(mergedDetail), [mergedDetail]);
+  const events = useMemo(() => runDetail ? buildTraceDisplayEventsForAgentPath(runDetail, null) : [], [runDetail]);
+  const runStatus = runDetail?.run.status ?? remoteRunStatus(session?.status ?? '');
   const start = async (): Promise<void> => {
     if (!workspaceId || !prompt.trim() || starting) return;
     setStarting(true);
@@ -88,37 +102,66 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
     } catch (caught) { setLaunchError(message(caught)); }
     finally { setStarting(false); }
   };
-  const control = async (type: 'pause' | 'resume' | 'stop' | 'steer'): Promise<void> => {
+  const control = async (type: 'pause' | 'resume' | 'stop' | 'steer', instruction?: string): Promise<void> => {
     if (!sessionId || controlBusy) return;
     setControlBusy(true);
     setControlError(null);
     try {
-      await window.beale.controlFleetRemoteSession(serverId, sessionId, type, type === 'steer' ? steering : undefined);
-      if (type === 'steer') setSteering('');
+      if (type === 'resume' && instruction?.trim()) {
+        await window.beale.controlFleetRemoteSession(serverId, sessionId, 'steer', instruction);
+      }
+      await window.beale.controlFleetRemoteSession(serverId, sessionId, type, type === 'steer' ? instruction : undefined);
     } catch (caught) { setControlError(message(caught)); }
     finally { setControlBusy(false); }
   };
-  return <section className="remote-fleet-workspace" aria-label={`${serverName} research`}>
+  return <section className={`remote-fleet-workspace${session ? ' remote-fleet-session' : ''}`} aria-label={`${serverName} research`}>
     <div className="remote-fleet-content">
-      <p className="remote-fleet-eyebrow">{serverName}</p>
-      <h1>{session?.title ?? workspace?.name ?? (automations ? 'Automations' : 'Research')}</h1>
+      {!session ? <><p className="remote-fleet-eyebrow">{serverName}</p>
+        <h1>{workspace?.name ?? (automations ? 'Automations' : 'Research')}</h1></> : null}
       {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
-      {session ? <><p>{session.status} · {workspace?.name}</p>{detailError ? <p className="settings-form-error" role="alert">{detailError}</p> : null}
-        {session.status !== 'completed' && session.status !== 'failed' && session.status !== 'stopped' ? <div className="remote-fleet-controls">
-          <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => void control('pause')}>Pause</button>
-          <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => void control('resume')}>Resume</button>
-          <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => void control('stop')}>Stop</button>
-          <input aria-label="Steering instruction" value={steering} onChange={(event) => setSteering(event.currentTarget.value)} placeholder="Steer this session" />
-          <button type="button" className="secondary-button" disabled={controlBusy || !steering.trim()} onClick={() => void control('steer')}>Send</button>
-        </div> : null}
+      {session ? <>{detailError ? <p className="settings-form-error" role="alert">{detailError}</p> : null}
         {controlError ? <p className="settings-form-error" role="alert">{controlError}</p> : null}
         {browserAvailable ? <div className="remote-fleet-view-switch" aria-label="Remote session view">
           <button type="button" className="secondary-button" aria-pressed={!browserOpen} onClick={() => setBrowserSelection(null)}>Commentary</button>
           <button type="button" className="secondary-button" aria-pressed={browserOpen} onClick={() => setBrowserSelection(`${serverId}:${sessionId ?? ''}`)}>Browser</button>
+          {runStatus === 'active' ? <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => void control('pause')}>Pause</button> : null}
+          {runStatus === 'paused' ? <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => void control('resume')}>Resume</button> : null}
         </div> : null}
         {browserAvailable && browserOpen && sessionId ? <div className="remote-fleet-browser">
           <FleetBrowserSideView runId={sessionId} remoteServerId={serverId} visible />
-        </div> : eventTexts.length ? <div className="remote-fleet-events">{eventTexts.map((value, index) => <article key={`${index}:${value.slice(0, 20)}`}><pre>{value}</pre></article>)}</div> : <p>{detail ? 'No commentary yet.' : 'Loading session…'}</p>}
+        </div> : <div className="main-session-grid session-main-only" data-session-view-state="session">
+          <CommentaryView
+            busy={controlBusy}
+            detail={runDetail}
+            events={events}
+            onLoadOlderHistory={async () => {
+              const beforeEventId = runDetail?.historyCursor?.beforeEventId;
+              if (!workspaceId || !sessionId || !beforeEventId) return false;
+              try {
+                const page = remoteSessionHistoryPage(await window.beale.getFleetRemoteSession(serverId, workspaceId, sessionId, beforeEventId));
+                if (!page || page.events.length === 0) return false;
+                setOlderPages((current) => [page, ...current]);
+                return true;
+              } catch (caught) {
+                setDetailError(message(caught));
+                return false;
+              }
+            }}
+            providerModelCatalog={[]}
+            selectedRunId={sessionId}
+            showBackToMain={false}
+            searchHighlightQuery=""
+            responseSuggestionsEnabled={false}
+            onBackToMain={() => undefined}
+            onRequestToolCallDetail={async (toolCall) => toolCall}
+            onSessionAction={(action) => {
+              if (action.type === 'pause' || action.type === 'resume' || action.type === 'stop' || action.type === 'steer') {
+                void control(action.type, action.type === 'steer' ? action.instruction : action.type === 'resume' ? action.instruction : undefined);
+              } else setControlError('This session action is unavailable on the remote app server.');
+            }}
+            onSteerInstruction={(_runId, instruction) => void control(runStatus === 'paused' ? 'resume' : 'steer', instruction)}
+          />
+        </div>}
       </> : workspace && !automations ? <><p>{workspace.runCount} sessions on this app server.</p>
         <label className="fleet-vm-dialog-field"><span>New Research prompt</span><textarea value={prompt} onChange={(event) => setPrompt(event.currentTarget.value)} rows={7} placeholder="Describe the authorized research task." /></label>
         <label className="fleet-vm-dialog-field"><span>Machine</span><select value={machineId} onChange={(event) => setMachineId(event.currentTarget.value)}>
@@ -133,13 +176,4 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   </section>;
 }
 
-function sessionEventTexts(value: unknown): string[] {
-  if (!record(value) || !record(value.result) || !Array.isArray(value.result.events)) return [];
-  return value.result.events.flatMap((event: unknown) => {
-    if (!record(event) || !record(event.payload) || !record(event.payload.record)) return [];
-    const text = event.payload.record.contentMarkdown;
-    return typeof text === 'string' && text.trim() ? [text] : [];
-  });
-}
-function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }

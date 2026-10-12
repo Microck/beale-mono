@@ -1004,8 +1004,8 @@ export class WorkspaceService {
     return invokeAppServerOperation({ operation: 'fleet.remote_catalog', input: { serverId } });
   }
 
-  public getFleetRemoteSession(serverId: string, workspaceId: string, sessionId: string): Promise<unknown> {
-    return invokeAppServerOperation({ operation: 'fleet.remote_session', input: { serverId, workspaceId, sessionId } });
+  public getFleetRemoteSession(serverId: string, workspaceId: string, sessionId: string, beforeEventId?: string): Promise<unknown> {
+    return invokeAppServerOperation({ operation: 'fleet.remote_session', input: { serverId, workspaceId, sessionId, ...(beforeEventId ? { beforeEventId } : {}) } });
   }
 
   public startFleetRemoteSession(serverId: string, workspaceId: string, promptMarkdown: string, machineId: string): Promise<{ sessionId: string }> {

@@ -2411,7 +2411,7 @@ export interface BealeApi {
   restartFleetGuestAppServer(machineId: string): Promise<void>;
   getFleetRemoteMachines(): Promise<import('@beale/app-server-runtime/protocol').FleetMachine[]>;
   getFleetRemoteCatalog(serverId: string): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteCatalog>;
-  getFleetRemoteSession(serverId: string, workspaceId: string, sessionId: string): Promise<unknown>;
+  getFleetRemoteSession(serverId: string, workspaceId: string, sessionId: string, beforeEventId?: string): Promise<unknown>;
   startFleetRemoteSession(serverId: string, workspaceId: string, promptMarkdown: string, machineId: string): Promise<{ sessionId: string }>;
   controlFleetRemoteSession(serverId: string, sessionId: string, type: 'pause' | 'resume' | 'stop' | 'steer', instruction?: string): Promise<void>;
   configureFleet(input: Record<string, unknown>): Promise<import('@beale/app-server-runtime/protocol').FleetState>;
