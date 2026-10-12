@@ -3429,6 +3429,10 @@ body.is-resizing-research-side .main-session-grid {
   padding: 10px;
 }
 
+.workspace-targets-panel {
+  align-content: start;
+}
+
 .workspace-dashboard-panel[hidden] {
   display: none;
 }

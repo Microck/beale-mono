@@ -27,7 +27,7 @@ export function WorkspaceTargetsPanel({ workspaceId, disabled }: { workspaceId: 
   };
   const targets = state ? availableFleetTargets(state) : [];
   const allowed = new Set(state ? configuredWorkspaceTargets(state, workspaceId) : []);
-  return <section aria-label="Workspace targets" className="workspace-dashboard-panel settings-form" id="workspace-dashboard-targets-panel" role="tabpanel">
+  return <section aria-label="Workspace targets" className="workspace-dashboard-panel workspace-targets-panel settings-form" id="workspace-dashboard-targets-panel" role="tabpanel">
     <header className="settings-form-heading"><h2>Targets</h2><p>Choose which machines and browsers appear in New Research for this workspace.</p></header>
     <fieldset className="settings-form-squircle" disabled={disabled || saving || !state}>
       <div className="settings-form-control-list">
