@@ -141,6 +141,7 @@
 
 #### Fixed
 
+- Remote app-server selection now uses Beale's workspace and session sidebar, workspace and session header titles, and styled commentary view. Remote commentary includes tool activity and paged older history.
 - New Research loads local VM choices before remote discovery completes and includes bases from reachable saved app servers even when another peer fails. Remote inventory reads have a bounded timeout.
 - The New Research Machine menu shows readiness dots and single-line options; clicking a VM name selects that VM.
 - Fleet VM rows now distinguish a saved primary-side SSH user from SSH setup inside the guest. Registered bases enable the default workspace VM requirement even before that user is saved in Beale.
@@ -1302,6 +1303,8 @@
 
 #### Fixed
 
+- Remote session reads can request earlier canonical event pages for Desktop commentary history.
+- Remote primary connections now identify an older app-server build and direct the operator to rebuild and restart it; remote restart also checks the replacement host's contract before reporting success.
 - Required pre-session checkpoints now ignore generated `build/` and `.libs/` trees, remove previously tracked files in those trees from Git, and retain the working files locally. Checkpoint launch failures preserve the specific diagnostic in the session summary instead of showing only a generic startup failure.
 - File-authority checkpoints now publish topic snapshots produced by typed topic operations and legacy topic migration after verifying them against canonical storage; direct topic file creation and edits remain blocked.
 - Runbook executions now attempt remaining selected cleanup cells after a proof cell fails, record their results, and preserve the failed run outcome.

@@ -3,7 +3,23 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { FleetService } from '../dist/fleet.js';
+import { BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION } from '@beale/app-server-runtime/protocol';
+import { FleetService, assertCompatibleRemoteAppServerDescriptor } from '../dist/fleet.js';
+
+test('remote primary compatibility identifies stale and newer runtime builds', () => {
+  assert.doesNotThrow(() => assertCompatibleRemoteAppServerDescriptor({
+    ok: true, controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
+    contractTimestamp: BEALE_APP_SERVER_CONTRACT_TIMESTAMP,
+  }));
+  assert.throws(() => assertCompatibleRemoteAppServerDescriptor({
+    ok: true, controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
+    contractTimestamp: '2000-01-01T00:00:00.000Z',
+  }), /older control contract.*Run pnpm build on that machine/u);
+  assert.throws(() => assertCompatibleRemoteAppServerDescriptor({
+    ok: true, controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
+    contractTimestamp: '2099-01-01T00:00:00.000Z',
+  }), /newer control contract.*Update and restart this Beale installation/u);
+});
 
 test('connected primary sessions request one remote browser and attach with a session token', async () => {
   const root = mkdtempSync(join(tmpdir(), 'beale-fleet-browser-primary-'));
@@ -28,6 +44,23 @@ test('connected primary sessions request one remote browser and attach with a se
     });
     assert.equal(requests[1].url, 'https://worker.example.test/v1/sessions/session-example/attachments');
   } finally { globalThis.fetch = previousFetch; rmSync(root, { recursive: true, force: true }); }
+});
+
+test('remote session history requests canonical pages before the current event', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'beale-fleet-history-'));
+  const fleet = new FleetService(join(root, 'fleet.json'), 'darwin', { async run() { return '[]'; }, launch() {} });
+  fleet.connectedRemoteAppServer = async () => ({ id: 'server-example', name: 'Example',
+    url: 'https://worker.example.test', operatorToken: 'synthetic-operator-token' });
+  const paths = [];
+  fleet.remoteGet = async (_server, path) => { paths.push(path); return { result: { events: [] } }; };
+  try {
+    await fleet.remoteSession('server-example', 'workspace-example', 'session-example');
+    await fleet.remoteSession('server-example', 'workspace-example', 'session-example', 'event-example');
+    assert.deepEqual(paths, [
+      '/v1/workspaces/workspace-example/sessions/session-example/update?tail=true&limit=200&maxBytes=1000000',
+      '/v1/workspaces/workspace-example/sessions/session-example/events?beforeEventId=event-example&limit=200&maxBytes=1000000'
+    ]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('Fleet registers only operator-designated bases and never runs one directly', async () => {

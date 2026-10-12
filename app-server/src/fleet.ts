@@ -225,6 +225,12 @@ export class FleetService {
       redirect: 'error', signal: AbortSignal.timeout(90_000),
     });
     if (!response.ok) throw new Error(`The remote app-server restart supervisor refused the request (HTTP ${response.status}).`);
+    try {
+      await this.validateRemoteAppServer(server.url, server.operatorToken);
+    } catch (error) {
+      throw new Error(`The remote app server restarted, but ${boundedError(error)}`);
+    }
+    this.validatedRemotePeers.delete(serverId);
     return { restarted: true };
   }
 
@@ -291,9 +297,12 @@ export class FleetService {
       hasBaseVm: fleetState.machines.some((machine) => machine.base) };
   }
 
-  public async remoteSession(serverId: string, workspaceId: string, sessionId: string): Promise<unknown> {
+  public async remoteSession(serverId: string, workspaceId: string, sessionId: string, beforeEventId: string | null = null): Promise<unknown> {
     const server = await this.connectedRemoteAppServer(serverId);
-    return this.remoteGet(server, `${BEALE_APP_SERVER_WORKSPACES_PATH}/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/update?tail=true&limit=200`);
+    const path = `${BEALE_APP_SERVER_WORKSPACES_PATH}/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`;
+    return beforeEventId
+      ? this.remoteGet(server, `${path}/events?beforeEventId=${encodeURIComponent(beforeEventId)}&limit=200&maxBytes=1000000`)
+      : this.remoteGet(server, `${path}/update?tail=true&limit=200&maxBytes=1000000`);
   }
 
   public async remoteBrowserAttach(serverId: string, sessionId: string): Promise<{ url: string; token: string }> {
@@ -359,10 +368,7 @@ export class FleetService {
     });
     if (!response.ok) throw new Error(`Remote app-server authentication failed (${response.status}).`);
     const descriptor: unknown = await response.json();
-    if (!isRecord(descriptor) || descriptor.ok !== true
-      || descriptor.contractTimestamp !== BEALE_APP_SERVER_CONTRACT_TIMESTAMP) {
-      throw new Error('The remote app server has an incompatible control contract.');
-    }
+    assertCompatibleRemoteAppServerDescriptor(descriptor);
   }
 
   public async reserve(machineId: string, owner: { machineId: string; sessionId: string; workspaceId?: string }): Promise<FleetState> {
@@ -726,6 +732,25 @@ export class FleetService {
     writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
     chmodSync(temporary, 0o600);
     renameSync(temporary, this.path);
+  }
+}
+
+export function assertCompatibleRemoteAppServerDescriptor(descriptor: unknown): void {
+  if (!isRecord(descriptor) || descriptor.ok !== true) {
+    throw new Error('The remote app server returned an invalid descriptor.');
+  }
+  const timestamp = descriptor.contractTimestamp;
+  if (typeof timestamp === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(timestamp)
+    && timestamp !== BEALE_APP_SERVER_CONTRACT_TIMESTAMP) {
+    const detail = `(remote ${timestamp}; local ${BEALE_APP_SERVER_CONTRACT_TIMESTAMP})`;
+    if (timestamp < BEALE_APP_SERVER_CONTRACT_TIMESTAMP) {
+      throw new Error(`The remote app server is running an older control contract ${detail}. Run pnpm build on that machine, then restart its app-server.`);
+    }
+    throw new Error(`The remote app server is running a newer control contract ${detail}. Update and restart this Beale installation.`);
+  }
+  if (timestamp !== BEALE_APP_SERVER_CONTRACT_TIMESTAMP
+    || descriptor.controlVersion !== BEALE_APP_SERVER_CONTROL_VERSION) {
+    throw new Error('The remote app server has an incompatible control contract. Rebuild and restart the remote app-server.');
   }
 }
 
