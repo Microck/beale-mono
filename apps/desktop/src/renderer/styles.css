@@ -6047,6 +6047,21 @@ button.session-summary-item:hover:not(:disabled),
   gap: 5px;
 }
 
+.research-side-view-close-error {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  padding: 6px 9px;
+  background: var(--panel-raised);
+  color: var(--red);
+  font-size: 0.8rem;
+}
+
+.research-browser-context-close-error {
+  color: var(--red);
+}
+
 .research-side-nested-header {
   min-width: 0;
   width: 100%;

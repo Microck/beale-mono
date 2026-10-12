@@ -141,6 +141,7 @@
 
 #### Fixed
 
+- Closing a named Browser context tab now asks whether to close only the tab or remove the context and clear its stored session data. Closing the Default tab only hides it; collapsing the research sidebar or restarting its renderer retains contexts.
 - Remote app-server selection now uses Beale's workspace and session sidebar, workspace and session header titles, and styled commentary view. Remote commentary includes tool activity and paged older history.
 - New Research loads local VM choices before remote discovery completes and includes bases from reachable saved app servers even when another peer fails. Remote inventory reads have a bounded timeout.
 - The New Research Machine menu shows readiness dots and single-line options; clicking a VM name selects that VM.
@@ -148,8 +149,8 @@
 - Workspace checkpoints retain oversized untracked macOS executables in investigation directories at their existing paths, with tracked integrity manifests and exact local Git exclusions, so compiled harnesses no longer block later checkpoints.
 - Repository Auditor workflows now recognize inventoried files beneath declared scope directories on Windows, allowing the inventory step to advance.
 - Workflow Run All now uses the effective Lead provider and model shown in Provider settings when their defaults have not been explicitly saved.
-- Collapsed session and workspace summaries now provide controls to reopen every existing Browser context after its last tab is closed.
-- Embedded Browser context labels and last visited pages now survive Beale restarts. Browser contexts use persistent, isolated session storage, and reopening a tab restores its last page. Browser pages stay mounted while the research sidebar is collapsed; closing a tab retains its context, while explicitly removing a context clears its stored session data. Earlier in-memory contexts and sign-ins cannot be recovered after a prior restart.
+- Collapsed session and workspace summaries now provide controls to reopen retained Browser contexts after the sidebar collapses or the Default tab closes.
+- Embedded Browser context labels and last visited pages now survive Beale restarts. Browser contexts use persistent, isolated session storage, and reopening a tab restores its last page. Browser pages stay mounted while the research sidebar is collapsed. Earlier in-memory contexts and sign-ins cannot be recovered after a prior restart.
 - Closing an embedded Browser CDP connection after its page is destroyed no longer crashes the Beale main process and interrupts the research session.
 - Workspace checkpoints now retain untracked SQLite artifacts outside Git with integrity manifests, including database files without an extension. Manual commits report SQLite content separately from credential material.
 - Sessions that fail before producing transcript events now show their stored failure reason in the commentary, and app-server response errors retain their leading diagnostic text.
