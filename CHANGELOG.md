@@ -137,6 +137,7 @@
 
 #### Fixed
 
+- Beale reloads its main window after an unexpected renderer process exit and records the exit reason in a local diagnostic log. Repeated exits stop automatic reloads and show a restart message.
 - Closing a named Browser context tab now asks whether to close only the tab or remove the context and clear its stored session data. Closing the Default tab only hides it; collapsing the research sidebar or restarting its renderer retains contexts.
 - Remote app-server selection now uses Beale's workspace and session sidebar, workspace and session header titles, and styled commentary view. Remote commentary includes tool activity and paged older history.
 - New Research loads checked workspace targets from the local Fleet configuration without fetching remote VM inventories. The target menu shows readiness for each choice.

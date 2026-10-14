@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, session, shell } from 'electron';
 import { installPreBealeEnvironmentAliases } from '@beale/research-agent/legacy-compatibility';
 import type { IpcMainInvokeEvent } from 'electron';
-import { existsSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { installUndiciTypeOfServiceCompatibility } from '@beale/app-server-runtime/node-network-compatibility';
@@ -63,6 +63,7 @@ import {
   unlockProviderApiKeysForAppServerStartup
 } from './providerCredentialStore';
 import { restoreAndFocusWindow } from './windowLifecycle';
+import { rendererRecoveryDecision } from './rendererRecovery';
 import { IosDeviceCaptureService } from './iosDeviceCaptureService';
 import { getWorkspaceEditorCatalogForHost, openWorkspaceInEditor } from './workspaceEditors';
 import { resolveContentLink } from './contentLinks';
@@ -165,9 +166,33 @@ function createWindow(): void {
     }
   });
   mainWindow = window;
+  let recentRendererExits: number[] = [];
+  let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  window.webContents.on('render-process-gone', (_event, details) => {
+    if (details.reason === 'clean-exit') return;
+    recordRendererExit(details.reason, details.exitCode);
+    const decision = rendererRecoveryDecision(recentRendererExits, Date.now());
+    recentRendererExits = decision.recentExits;
+    if (recoveryTimer) clearTimeout(recoveryTimer);
+    if (decision.reloadAfterMs === null) {
+      void dialog.showMessageBox(window, {
+        type: 'error',
+        title: 'Beale window stopped',
+        message: 'The Beale window stopped repeatedly.',
+        detail: 'Restart Beale to reopen the window. Research sessions remain on the app-server.',
+        buttons: ['OK']
+      });
+      return;
+    }
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = null;
+      if (!window.isDestroyed() && mainWindow === window) window.webContents.reload();
+    }, decision.reloadAfterMs);
+  });
   const webContentsId = window.webContents.id;
   window.webContents.on('destroyed', () => workspaceTerminalService?.closeOwner(webContentsId));
   window.on('closed', () => {
+    if (recoveryTimer) clearTimeout(recoveryTimer);
     if (mainWindow === window) mainWindow = null;
   });
   window.setBackgroundColor('#00000000');
@@ -199,6 +224,18 @@ function createWindow(): void {
     window.loadFile(join(__dirname, '../renderer/index.html'));
   }
   installApplicationMenu();
+}
+
+function recordRendererExit(reason: string, exitCode: number): void {
+  try {
+    const directory = join(app.getPath('userData'), 'logs');
+    mkdirSync(directory, { recursive: true });
+    appendFileSync(join(directory, 'renderer-exits.jsonl'), `${JSON.stringify({
+      at: new Date().toISOString(), reason, exitCode
+    })}\n`, { mode: 0o600 });
+  } catch {
+    process.stderr.write(`Beale renderer exited (${reason}, ${exitCode}).\n`);
+  }
 }
 
 function setWindowBackgroundEffect(window: BrowserWindow, value: unknown): void {
