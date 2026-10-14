@@ -60,6 +60,8 @@ import {
   RepositoryResearchSession,
   ResearchResourceCatalog,
   createResearchResourceTool,
+  SurfaceStore,
+  createSurfaceTools,
   createResearchResourceScopeAuthorizer,
   reviewResearchResourceFirstTouch,
   createResearchAgentFlowCapture,
@@ -2241,6 +2243,7 @@ export async function main(
           collaborationConfig,
           runtimeConfig.getContinuityContext,
           promptTemplate,
+          runtimeConfig.surfaceStore,
         );
       }
       const sessionTitleRoute = args.mock
@@ -2265,6 +2268,7 @@ export async function main(
         workspaceContext: runtimeConfig.workspaceContext,
         agentInstructions,
         campaignContext: createCampaignModelContext(runtimeConfig.campaignContext),
+        surfaceContext: runtimeConfig.surfaceStore.modelContext(),
         continuityContext: runtimeConfig.continuityContext,
         ...inspectionState,
         ...(runtimeConfig.tools.length > 0 ? { tools: runtimeConfig.tools } : {}),
@@ -2428,6 +2432,7 @@ function createRealAgentExecutor(
   collaboration?: ResearchCollaborationConfig,
   getContinuityContext?: () => unknown,
   promptTemplate?: string,
+  surfaceStore?: SurfaceStore,
 ): ResearchAgentExecutor {
   const authenticationPreferences = readProviderAuthenticationPreferences();
   const providerSessionId = args.sessionId?.trim() || resumableState?.providerSessionId;
@@ -2440,6 +2445,7 @@ function createRealAgentExecutor(
     ...(args.maxTokens ? { maxTokens: args.maxTokens } : {}),
     ...(modelConfig.effort ? { reasoning: modelConfig.effort } : {}),
     ...(toolRegistry ? { toolRegistry } : {}),
+    ...(surfaceStore ? { surfaceStore } : {}),
   };
   const runAlternateSubagent = collaboration && collaboration.mode !== "solo"
     ? createProviderNeutralSubagentRunner({
@@ -2466,6 +2472,7 @@ function createRealAgentExecutor(
       ...(modelConfig.effort ? { reasoning: modelConfig.effort } : {}),
       ...(args.maxTokens ? { maxTokens: args.maxTokens } : {}),
       ...(toolRegistry ? { toolRegistry } : {}),
+      ...(surfaceStore ? { surfaceStore } : {}),
       researchProfile: resolvedResearchProfile.profile,
       ...(promptTemplate !== undefined ? { promptTemplate } : {}),
       workflowId,
@@ -2493,6 +2500,7 @@ function createRealAgentExecutor(
       workspaceRoot: args.workspaceRoot,
       ...(modelConfig.effort ? { reasoning: modelConfig.effort } : {}),
       ...(toolRegistry ? { toolRegistry } : {}),
+      ...(surfaceStore ? { surfaceStore } : {}),
       researchProfile: resolvedResearchProfile.profile,
       ...(promptTemplate !== undefined ? { promptTemplate } : {}),
       workflowId,
@@ -3764,6 +3772,7 @@ async function createRuntimeConfig(args: {
   capture: Record<string, unknown>;
   dispositionRecorder: ResearchDispositionRecorder;
   memoryGraph: MemoryGraphStore;
+  surfaceStore: SurfaceStore;
   executeRunbook?: (request: {
     runbookId: string;
     cellId?: string;
@@ -3833,6 +3842,12 @@ async function createRuntimeConfig(args: {
     workspaceId: workspaceContext.memoryContext?.workspaceId ?? `workspace:${workspaceRoot}`,
     explicitResources: workspaceContext.resources ?? [],
   });
+  const surfaceStore = new SurfaceStore({
+    databasePath: memoryGraph.databasePath,
+    workspaceId: workspaceContext.memoryContext?.workspaceId ?? `workspace:${workspaceRoot}`,
+    ...(args.sessionId ? { sessionId: args.sessionId } : {}),
+    resources: resourceCatalog,
+  });
   const resourceToolOptions = {
     catalog: resourceCatalog,
     ...(workspaceContext.researchKitId ? { researchKitId: workspaceContext.researchKitId } : {}),
@@ -3847,6 +3862,10 @@ async function createRuntimeConfig(args: {
   const resourceTool = createResearchResourceTool(resourceToolOptions);
   executableTools.push(resourceTool);
   toolDescriptors.push(resourceTool.descriptor);
+  const surfaceTools = createSurfaceTools(surfaceStore);
+  executableTools.push(...surfaceTools);
+  toolDescriptors.push(...surfaceTools.map((tool) => tool.descriptor));
+  cleanupCallbacks.push(async () => surfaceStore.close());
   cleanupCallbacks.push(async () => resourceCatalog.close());
   const repositoryResearchSession = new RepositoryResearchSession({
     ...(workspaceContext.researchKitId ? { researchKitId: workspaceContext.researchKitId } : {}),
@@ -4266,6 +4285,7 @@ async function createRuntimeConfig(args: {
     runtimeTools,
     dispositionRecorder,
     memoryGraph,
+    surfaceStore,
     ...(executeRunbook ? { executeRunbook } : {}),
     capture: createRuntimeCapture({
       families,

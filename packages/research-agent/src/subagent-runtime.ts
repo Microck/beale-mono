@@ -3,6 +3,7 @@ import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import type { SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { createResearchEventId, nowIso } from "./ids.js";
 import type { ResearchEvent } from "./types.js";
+import type { SurfaceStore } from "./surfaces.js";
 export const SUBAGENT_COLLABORATION_TOOLS = [
   { name: "spawn_agent", description: "Spawn a bounded child session for independent work." },
   { name: "send_message", description: "Queue a message for an existing agent." },
@@ -63,6 +64,7 @@ export interface CreateSubagentManagerOptions {
   run(request: SubagentRunRequest): Promise<SubagentRunResult>;
   onActivity?: (activity: SubagentActivity) => void | Promise<void>;
   onToolEvent?: (event: ResearchEvent) => void | Promise<void>;
+  surfaceStore?: SurfaceStore;
   filterTools?: (
     agent: { id: string; path: string; depth: number; root: boolean },
     tools: readonly AgentTool[],
@@ -98,6 +100,7 @@ export interface SubagentActivity {
   roomTitle?: string;
   roomKind?: string;
   role?: string;
+  surfaceId?: string;
   authorAgentPath?: string;
   recipientAgentPath?: string;
   message?: string;
@@ -125,6 +128,7 @@ interface SubagentSession {
   roomTitle: string | null;
   roomKind: string | null;
   role: string | null;
+  surfaceId: string | null;
   status: SubagentStatus;
   createdAt: string;
   startedAt?: string;
@@ -249,7 +253,8 @@ export class SubagentManager {
       roomTitle: null,
       roomKind: null,
       role: null,
-          status: "running",
+      surfaceId: null,
+      status: "running",
       createdAt: new Date().toISOString(),
       startedAt: new Date().toISOString(),
       messages: [],
@@ -394,6 +399,8 @@ export class SubagentManager {
         roomTitle: session.roomTitle,
         roomKind: session.roomKind,
         role: session.role,
+        surfaceId: this.options.surfaceStore?.current(session.id)?.id ?? session.surfaceId,
+        assignedSurfaceId: session.surfaceId,
         createdAt: session.createdAt,
         startedAt: session.startedAt ?? null,
         completedAt: session.completedAt ?? null,
@@ -443,11 +450,12 @@ export class SubagentManager {
         : "Spawn one bounded subagent. The child shares workspace research documents and the authorized tool policy. Parent history is not inherited unless fork_turns is explicitly set to all or a positive integer string.",
       {
         type: "object",
-        required: ["task_name", "message", ...(roleIds.length > 0 ? ["role"] : [])],
+        required: ["task_name", "message", ...(this.options.surfaceStore ? ["surface_id"] : []), ...(roleIds.length > 0 ? ["role"] : [])],
         additionalProperties: false,
         properties: {
           task_name: { type: "string", description: "Lowercase letters, digits, and underscores." },
           message: { type: "string", description: "Concrete bounded task for the child." },
+          ...(this.options.surfaceStore ? { surface_id: { type: "string", description: "Existing resource root or discovered child surface assigned to this subagent. The agent may change focus later with surface.focus." } } : {}),
           provider: { type: "string", description: "Optional enabled collaborator provider ID. The route must support the requested Advanced role. An exact provider/model route is also accepted for compatibility. Omit to let app-server select a diverse compatible provider." },
           fork_turns: { type: "string", description: "none, all, or a positive integer string. Defaults to none." },
           model: { type: "string", description: "Optional enabled model ID for partial or fresh inheritance. Pass the provider ID separately." },
@@ -633,6 +641,7 @@ export class SubagentManager {
         ...value,
         task_name: taskName,
         message: requiredString(value.message, `members[${index}].message`),
+        ...(this.options.surfaceStore ? { surface_id: requiredString(value.surface_id, `members[${index}].surface_id`) } : {}),
         role: requiredString(value.role, `members[${index}].role`),
         fork_turns: optionalString(value.fork_turns) ?? "none",
         room_name: roomName,
@@ -710,6 +719,8 @@ export class SubagentManager {
     }
 
     const message = requiredString(input.message, "message");
+    const surfaceId = this.options.surfaceStore ? requiredString(input.surface_id, "surface_id") : null;
+    if (surfaceId) this.options.surfaceStore?.require(surfaceId, true);
     const forkTurns = normalizeForkTurns(optionalString(input.fork_turns) ?? "none");
     const providerOverride = optionalString(input.provider);
     const modelOverride = optionalString(input.model);
@@ -762,6 +773,7 @@ export class SubagentManager {
       roomTitle,
       roomKind,
       role,
+      surfaceId,
       status: "pending",
       createdAt: new Date().toISOString(),
       messages: inheritedMessages,
@@ -773,6 +785,10 @@ export class SubagentManager {
       roomCursors: new Map(),
     };
     this.sessions.set(id, child);
+    if (surfaceId) {
+      try { this.options.surfaceStore?.focus(id, surfaceId, "spawn assignment"); }
+      catch (error) { this.sessions.delete(id); throw error; }
+    }
     if (roomName) this.rooms.get(roomName)?.memberIds.push(id);
     if (!deferLaunch) {
       this.launch(child, message, inheritedMessages);
@@ -787,6 +803,7 @@ export class SubagentManager {
       room_title: child.roomTitle,
       room_kind: child.roomKind,
       role: child.role,
+      surface_id: child.surfaceId,
       reasoning_effort: child.reasoning ?? null,
       fork_turns: forkTurns,
       fresh_subagent_context: child.freshSubagentContext,
@@ -1027,6 +1044,8 @@ export class SubagentManager {
           room_title: session.roomTitle,
           room_kind: session.roomKind,
           role: session.role,
+          surface_id: this.options.surfaceStore?.current(session.id)?.id ?? session.surfaceId,
+          assigned_surface_id: session.surfaceId,
           output: session.status === "completed" ? session.output ?? "" : null,
           error: session.error ?? null,
         })),
@@ -1147,8 +1166,15 @@ export class SubagentManager {
 
   private delegationPrompt(session: SubagentSession, prompt: string): string {
     const role = session.role ? this.delegationRoles.get(session.role) : undefined;
-    if (!role) return prompt;
+    const surface = this.options.surfaceStore?.current(session.id) ?? (session.surfaceId ? this.options.surfaceStore?.get(session.surfaceId) : null);
+    const assignment = surface ? [
+      `Assigned surface: ${this.options.surfaceStore?.path(surface.id)} (${surface.id}).`,
+      "You may move to another surface with surface.focus; record the move when it happens.",
+      ...(!surface.foundation ? ["This surface needs its one-time foundation: bug history, coverage map, and basic threat model. Record uncertainty and gaps rather than inventing completeness."] : []),
+    ] : [];
+    if (!role) return [...assignment, prompt].join("\n\n");
     return [
+      ...assignment,
       `Delegation role: ${role.label}`,
       `Responsibility: ${role.instruction}`,
       "Stay within this responsibility and return the result to the delegating agent. Do not silently take on another role.",
@@ -1298,6 +1324,7 @@ export class SubagentManager {
       provider: session.provider,
       model: session.model,
       reasoningEffort: session.reasoning ?? null,
+      ...(session.surfaceId ? { surfaceId: this.options.surfaceStore?.current(session.id)?.id ?? session.surfaceId } : {}),
       ...(session.roomName ? {
         roomName: session.roomName,
         roomTitle: session.roomTitle ?? titleFromRoomName(session.roomName),

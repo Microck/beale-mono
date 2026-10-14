@@ -42,6 +42,7 @@ export * from "./resource-prior-art.js";
 export * from "./public-document-tools.js";
 export * from "./repository-research-tools.js";
 export * from "./research-resources.js";
+export * from "./surfaces.js";
 export * from "./research-kit-guidance.js";
 export * from "./resource-scope-review.js";
 export * from "./shell-tool.js";

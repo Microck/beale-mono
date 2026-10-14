@@ -649,6 +649,38 @@ test("Auto-Review sends a clear destructive risk to one human override", async (
   assert.match(requested[0].reviewReason, /Recursively deletes/);
 });
 
+test("Auto-Review override expires and releases an unanswered approval waiter", async () => {
+  const requested = [];
+  const resolved = [];
+  let waiterAborted = false;
+  const authorize = createShellSafetyAuthorizer({
+    getMode: () => "auto_review",
+    getReviewerSelection: () => ({
+      provider: "openai-codex",
+      model: "gpt-6-luna",
+      reasoningEffort: "low",
+    }),
+    requestManualApproval: (_request, signal) => new Promise(() => {
+      signal.addEventListener("abort", () => {
+        waiterAborted = true;
+      }, { once: true });
+    }),
+    onRequested: (event) => requested.push(event),
+    onResolved: (event) => resolved.push(event),
+    overrideTimeoutMs: 20,
+    models: fixtureModels('{"decision":"denied","reason":"Requires researcher review."}', []),
+  });
+
+  const decision = await authorize(BASE_REQUEST);
+  assert.equal(waiterAborted, true);
+  assert.equal(requested.length, 1);
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0].approvalRequestId, requested[0].approvalRequestId);
+  assert.equal(decision.decision, "denied");
+  assert.equal(decision.source, "policy");
+  assert.match(decision.reason, /expired without a researcher decision/);
+});
+
 test("Auto-Review fails closed with sanitized diagnostics for missing, malformed, oversized, and timed-out reviews", async () => {
   const reviewer = {
     provider: "openai-codex",

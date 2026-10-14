@@ -68,6 +68,7 @@ export const advancedSubagentRuntimeFactory: SubagentRuntimeFactory = {
       run: options.run,
       ...(options.onActivity ? { onActivity: options.onActivity } : {}),
       ...(options.onToolEvent ? { onToolEvent: options.onToolEvent } : {}),
+      ...(options.surfaceStore ? { surfaceStore: options.surfaceStore } : {}),
     };
     return new SubagentManager(managerOptions);
   },

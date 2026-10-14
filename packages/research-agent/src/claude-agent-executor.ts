@@ -17,6 +17,7 @@ import {
 } from "./auth-routing.js";
 import { researchProfileHash, researchProfileWorkflow, type ResearchProfile } from "./research-profile.js";
 import { createResearchSystemPrompt } from "./system-prompt.js";
+import type { SurfaceStore } from "./surfaces.js";
 import { createCollaborationSystemGuidance } from "./collaboration-guidance.js";
 import {
   createSubagentRuntime,
@@ -54,6 +55,7 @@ export interface CreateClaudeAgentExecutorOptions {
   reasoning?: string;
   maxTokens?: number;
   toolRegistry?: ResearchToolRegistry;
+  surfaceStore?: SurfaceStore;
   researchProfile: ResearchProfile;
   promptTemplate?: string;
   workflowId?: string;
@@ -284,6 +286,7 @@ export function createClaudeAgentExecutor(options: CreateClaudeAgentExecutorOpti
             ...(options.reasoning ? { rootReasoning: options.reasoning as never } : {}),
             ...(collaboration ? { collaboration } : {}),
             signal: abortController.signal,
+            ...(options.surfaceStore ? { surfaceStore: options.surfaceStore } : {}),
             run: (request) => {
               if (!options.runAlternateSubagent) throw new Error("No provider-neutral channel collaborator is configured.");
               return options.runAlternateSubagent(request, input);
