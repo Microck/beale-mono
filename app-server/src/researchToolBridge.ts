@@ -3,11 +3,13 @@ import {
   MemoryGraphStore,
   ResearchClaimStore,
   ResearchResourceCatalog,
+  SurfaceStore,
   ReportStore,
   RunbookStore,
   createFindingTools,
   createMemoryGraphTools,
   createResearchResourceTool,
+  createSurfaceTools,
   createReportTools,
   createResearchStorageLayout,
   createResearchToolRegistry,
@@ -223,6 +225,14 @@ async function createResearchToolBridgeRuntime(
       explicitResources: binding.resources ?? []
     });
     close.unshift(() => resources.close());
+    const surfaces = new SurfaceStore({
+      databasePath: storage.databasePath,
+      workspaceId: input.workspaceId,
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      resources
+    });
+    close.unshift(() => surfaces.close());
+    tools.push(...createSurfaceTools(surfaces));
     tools.push(createResearchResourceTool({
       catalog: resources,
       ...(binding.researchKitId ? { researchKitId: binding.researchKitId } : {}),

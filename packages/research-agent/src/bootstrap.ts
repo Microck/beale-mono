@@ -19,6 +19,7 @@ import {
 import { createId, createResearchEventId, nowIso } from "./ids.js";
 import { fallbackResearchFinalDisposition, type ResearchFinalDisposition } from "./session-disposition-tool.js";
 import type { CampaignModelContext } from "./knowledge-types.js";
+import type { SurfaceModelContext } from "./surfaces.js";
 import {
   normalizeResearchProfile,
   resolveResearchProfile,
@@ -50,6 +51,7 @@ export interface RunResearchAgentInput {
   modelWorkspaceContext?: ResearchModelWorkspaceContext;
   agentInstructions?: ResearchAgentInstructions;
   campaignContext?: CampaignModelContext;
+  surfaceContext?: SurfaceModelContext;
   continuityContext?: unknown;
   events?: readonly ResearchEvent[];
   tools?: readonly ResearchToolDescriptor[];
@@ -83,6 +85,7 @@ export interface RunResearchAgentResult {
   workspaceContext: ResearchWorkspaceContext;
   modelWorkspaceContext: ResearchModelWorkspaceContext;
   campaignContext?: CampaignModelContext;
+  surfaceContext?: SurfaceModelContext;
   modelSelectedSkills: readonly ResearchModelSkillContext[];
   availableTools: readonly ResearchAvailableToolContext[];
   selectedSkills: readonly ResearchSelectedSkill[];
@@ -154,6 +157,7 @@ export async function runResearchAgent(
     prompt: input.prompt,
     workspace: modelWorkspaceContext,
     campaign: input.campaignContext,
+    surface: input.surfaceContext,
     selectedSkills: modelSelectedSkills,
     researchProfile: {
       id: resolvedResearchProfile.profile.id,
@@ -173,6 +177,7 @@ export async function runResearchAgent(
     contextSections: [
       { label: "workspace", content: modelWorkspaceContext },
       ...(input.campaignContext ? [{ label: "campaign", content: input.campaignContext }] : []),
+      ...(input.surfaceContext ? [{ label: "surfaces", content: input.surfaceContext }] : []),
       ...(input.continuityContext ? [{ label: "continuity", content: input.continuityContext }] : []),
       {
         label: "selected_skills",
@@ -204,6 +209,7 @@ export async function runResearchAgent(
       workspaceContext: modelWorkspaceContext,
       memoryContext: [],
       ...(input.campaignContext ? { campaignContext: input.campaignContext } : {}),
+      ...(input.surfaceContext ? { surfaceContext: input.surfaceContext } : {}),
       selectedSkills: modelSelectedSkills,
       availableTools,
       collaborationTools,
@@ -289,6 +295,7 @@ export async function runResearchAgent(
     workspaceContext,
     modelWorkspaceContext,
     ...(input.campaignContext ? { campaignContext: input.campaignContext } : {}),
+    ...(input.surfaceContext ? { surfaceContext: input.surfaceContext } : {}),
     availableTools,
     modelSelectedSkills,
     selectedSkills,
@@ -309,6 +316,7 @@ function compiledContextMetrics(input: {
   prompt: string;
   workspace: unknown;
   campaign?: unknown;
+  surface?: unknown;
   selectedSkills: readonly unknown[];
   researchProfile: unknown;
   researchIntent: ResearchRunIntent | undefined;
@@ -321,6 +329,7 @@ function compiledContextMetrics(input: {
     workspace: serializedCharacters(input.workspace),
     memory: 0,
     campaign: serializedCharacters(input.campaign),
+    surface: serializedCharacters(input.surface),
     selectedSkills: serializedCharacters(input.selectedSkills),
     researchProfile: serializedCharacters(input.researchProfile),
     researchIntent: serializedCharacters(input.researchIntent),

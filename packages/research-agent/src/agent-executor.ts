@@ -58,6 +58,7 @@ import {
   type ResearchFocusToolKind,
 } from "./research-focus-guard.js";
 import { createResearchSystemPrompt } from "./system-prompt.js";
+import type { SurfaceStore } from "./surfaces.js";
 import {
   type MemoryTypeDescriptionsInput,
 } from "./memory-taxonomy.js";
@@ -97,6 +98,7 @@ export interface CreatePiAgentExecutorOptions {
   initialMessages?: readonly AgentMessage[];
   models?: Pick<Models, "getModel" | "streamSimple">;
   toolRegistry?: ResearchToolRegistry;
+  surfaceStore?: SurfaceStore;
   toolExecution?: ToolExecutionMode;
   getSteeringMessages?: () => Promise<AgentMessage[]>;
   waitForSteeringMessages?: (signal?: AbortSignal) => Promise<AgentMessage[]>;
@@ -424,6 +426,7 @@ export function createPiAgentExecutor(
             ...(options.subagents ? { limits: options.subagents } : {}),
             ...(collaboration ? { collaboration } : {}),
             ...(input.signal ? { signal: input.signal } : {}),
+            ...(options.surfaceStore ? { surfaceStore: options.surfaceStore } : {}),
             run: (request) => request.provider === "anthropic" && options.runAlternateSubagent
               ? options.runAlternateSubagent(request, input)
               : runSession(request),

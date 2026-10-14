@@ -281,6 +281,11 @@ function rebuild(database: DatabaseSync, options: WorkspacePublicationOptions, i
     affected += insertRows(database, "app_server_research_resources", rows.map((row) => baseRow(row, ["touches"])));
     affected += insertRows(database, "app_server_research_resource_touches", rows.flatMap((row) => nested(row, "touches")));
     affected += insertRows(database, "resource_prior_art", priorArtRows(root, index, resources));
+    affected += insertRows(database, "app_server_surface_roots", nested(resources, "surfaceRoots"));
+    affected += insertRows(database, "app_server_surfaces", nested(resources, "surfaces"));
+    affected += insertRows(database, "app_server_surface_touches", nested(resources, "surfaceTouches"));
+    affected += insertRows(database, "app_server_surface_focus", nested(resources, "surfaceFocus"));
+    affected += insertRows(database, "app_server_surface_focus_events", nested(resources, "surfaceFocusEvents"));
   }
   const executions = canonicalPaths(index, /^evidence\/execution-[^/]+\.json$/u).map((path) => readJson(root, path, options.workspaceId));
   affected += insertRows(database, "app_server_runbook_executions", executions.map((row) => baseRow(row, ["cells"])));
@@ -321,6 +326,11 @@ function prune(database: DatabaseSync, workspaceId: string): number {
   affected += deleteWhere(database, "campaign_track_consolidations", "workspace_id=?", workspaceId);
   affected += deleteWhere(database, "app_server_research_resources", "workspace_id=?", workspaceId);
   affected += deleteWhere(database, "resource_prior_art", "workspace_id=?", workspaceId);
+  affected += deleteWhere(database, "app_server_surface_focus_events", "workspace_id=?", workspaceId);
+  affected += deleteWhere(database, "app_server_surface_focus", "workspace_id=?", workspaceId);
+  affected += deleteWhere(database, "app_server_surface_touches", "workspace_id=?", workspaceId);
+  affected += deleteWhere(database, "app_server_surfaces", "workspace_id=?", workspaceId);
+  affected += deleteWhere(database, "app_server_surface_roots", "workspace_id=?", workspaceId);
 
   if (tableExists(database, "memory_node_workspaces")) {
     const memoryIds = (database.prepare("SELECT node_id AS id FROM memory_node_workspaces WHERE workspace_id=?").all(workspaceId) as Array<{ id: string }>).map((row) => row.id);

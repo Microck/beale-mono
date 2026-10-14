@@ -14,6 +14,7 @@ import type {
   ResearchEvent,
 } from "./types.js";
 import { advancedSubagentRuntimeFactory } from "./advanced-subagent-runtime.js";
+import type { SurfaceStore } from "./surfaces.js";
 
 export {
   SUBAGENT_COLLABORATION_TOOLS,
@@ -56,6 +57,7 @@ export interface CreateSubagentRuntimeOptions {
   run(request: SubagentRunRequest): Promise<SubagentRunResult>;
   onActivity?: (activity: SubagentActivity) => void | Promise<void>;
   onToolEvent?: (event: ResearchEvent) => void | Promise<void>;
+  surfaceStore?: SurfaceStore;
 }
 
 export interface SubagentRuntimeFactory {
@@ -96,6 +98,7 @@ export const simpleSubagentRuntimeFactory: SubagentRuntimeFactory = {
       run: options.run,
       ...(options.onActivity ? { onActivity: options.onActivity } : {}),
       ...(options.onToolEvent ? { onToolEvent: options.onToolEvent } : {}),
+      ...(options.surfaceStore ? { surfaceStore: options.surfaceStore } : {}),
     };
     return new SubagentManager(managerOptions);
   },

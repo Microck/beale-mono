@@ -1273,6 +1273,7 @@
 
 #### Added
 
+- Added resource-rooted research surfaces with agent-created child surfaces, one-time workspace-wide touch, bug-history/coverage/threat-model foundations, bounded lookup, and recorded agent focus changes. Subagent spawns now require a surface assignment; workspace publication retains the surface tree and movement history.
 - VM targets keep the research worker, canonical storage, and provider credentials on the primary app-server. Shell commands execute over SSH in the chosen VM; no guest app-server installation is needed for new VM sessions. Fleet configuration migrates to version 3 with workspace target lists, browser settings, and independent VM run and clone options. Clients and hosts must rebuild for the updated control contract.
 - External browser targets launch a session-specific CDP profile and close it with the session.
 - A separate localhost restart supervisor can replace the app-server process when its control plane is unavailable. Managed Tailscale remote access publishes the supervisor on a separate HTTPS port.
@@ -1298,6 +1299,7 @@
 
 #### Fixed
 
+- Unanswered Auto-Review shell overrides now expire after five minutes, deny the command, and release the waiting agent so collaboration can continue.
 - Remote session reads can request earlier canonical event pages for Desktop commentary history.
 - Remote primary connections now identify an older app-server build and direct the operator to rebuild and restart it; remote restart also checks the replacement host's contract before reporting success.
 - Required pre-session checkpoints now ignore generated `build/` and `.libs/` trees, remove previously tracked files in those trees from Git, and retain the working files locally. Checkpoint launch failures preserve the specific diagnostic in the session summary instead of showing only a generic startup failure.
