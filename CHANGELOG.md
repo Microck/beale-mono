@@ -141,6 +141,7 @@
 
 #### Fixed
 
+- xAI subscription sign-in now runs device authorization in a desktop-owned local child process and displays the verification URL and code in Provider Settings.
 - New Research loads local VM choices before remote discovery completes and includes bases from reachable saved app servers even when another peer fails. Remote inventory reads have a bounded timeout.
 - The New Research Machine menu shows readiness dots and single-line options; clicking a VM name selects that VM.
 - Fleet VM rows now distinguish a saved primary-side SSH user from SSH setup inside the guest. Registered bases enable the default workspace VM requirement even before that user is saved in Beale.

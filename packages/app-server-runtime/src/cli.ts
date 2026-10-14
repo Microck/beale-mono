@@ -26,6 +26,11 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     }
     if (isUtilityCommand(argv)) {
       if (argv[0] === 'auth' && argv[1] === 'login') {
+        if (argv[2] === 'xai' && argv.length === 3 && process.env.BEALE_DESKTOP_INTERACTIVE_AUTH === '1') {
+          const { runDesktopProviderLogin } = await import('./desktop-provider-login.js');
+          await runDesktopProviderLogin('xai');
+          return;
+        }
         throw new Error('Interactive provider login is owned by the Beale desktop app; this app-server client cannot prompt for credentials.');
       }
       const { runAppServerUtilityClient } = await import('./app-server-client.js');

@@ -9,6 +9,7 @@ import {
   parseAppServerAuthVerification,
   parseAppServerModelCatalog,
   parseProviderOAuthInstructions,
+  providerAuthProcessEnvironment,
   resolveBundledClaudeCliExecutable,
   resolveClaudeCliExecutable,
   zcodeCliInvocation,
@@ -187,6 +188,11 @@ describe('research provider auth parsing', () => {
       verificationUri: 'https://auth.x.ai/device?code=ABCD-EFGH',
       userCode: 'ABCD-EFGH'
     });
+  });
+
+  it('authorizes only the desktop xAI login child to run interactive auth locally', () => {
+    expect(providerAuthProcessEnvironment('xai').BEALE_DESKTOP_INTERACTIVE_AUTH).toBe('1');
+    expect(providerAuthProcessEnvironment('anthropic').BEALE_DESKTOP_INTERACTIVE_AUTH).toBeUndefined();
   });
 
   it('parses Pi model catalogs with model-specific effort levels', () => {

@@ -20,6 +20,7 @@ const MODEL_PROVIDERS: readonly ResearchModelProviderId[] = ['openai-codex', 'an
 const EFFORT_LEVELS: readonly ResearchModelEffortLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const STATUS_TIMEOUT_MS = 10_000;
 const INITIAL_OAUTH_OUTPUT_MS = 2_500;
+const XAI_DEVICE_CODE_TIMEOUT_MS = 30_000;
 const MAX_AUTH_OUTPUT_CHARS = 16_000;
 const MAX_MODEL_CATALOG_OUTPUT_CHARS = 4 * 1024 * 1024;
 const EXTERNAL_AUTH_TIMEOUT_MS = 5 * 60_000;
@@ -173,7 +174,8 @@ export class ResearchProviderAuthService {
 
     const output = await collectInitialAuthOutput(
       child,
-      providerId === 'anthropic' && claudeInvocation ? 'Claude CLI authentication' : 'app-server auth'
+      providerId === 'anthropic' && claudeInvocation ? 'Claude CLI authentication' : 'app-server auth',
+      providerId === 'xai'
     );
     const instructions = safeAuthOutput(output);
     const parsed = parseProviderOAuthInstructions(instructions);
@@ -444,7 +446,8 @@ function collectCommandOutput(
 
 function collectInitialAuthOutput(
   child: ChildProcessWithoutNullStreams,
-  failureLabel: string
+  failureLabel: string,
+  requireDeviceCode = false
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     let output = '';
@@ -466,12 +469,18 @@ function collectInitialAuthOutput(
       const parsed = parseProviderOAuthInstructions(output);
       if (parsed.verificationUri && parsed.userCode) finish();
     };
-    const timer = setTimeout(finish, INITIAL_OAUTH_OUTPUT_MS);
+    const timer = setTimeout(() => {
+      if (!requireDeviceCode) return finish();
+      child.kill();
+      fail('xAI did not provide a device sign-in code in time. Try again.');
+    }, requireDeviceCode ? XAI_DEVICE_CODE_TIMEOUT_MS : INITIAL_OAUTH_OUTPUT_MS);
     child.stdout.on('data', append);
     child.stderr.on('data', append);
     child.once('error', (error) => fail(error.message));
     child.once('exit', (code) => {
-      if (code === 0) finish();
+      if (code === 0 && requireDeviceCode && !parseProviderOAuthInstructions(output).userCode) {
+        fail('xAI sign-in finished without a device code.');
+      } else if (code === 0) finish();
       else fail(safeAuthOutput(output || `${failureLabel} exited with status ${String(code)}.`));
     });
   });
@@ -720,8 +729,10 @@ function providerApiKeyEnvironmentVariable(
   return 'OPENROUTER_API_KEY';
 }
 
-function providerAuthProcessEnvironment(providerId: ResearchProviderId): NodeJS.ProcessEnv {
+export function providerAuthProcessEnvironment(providerId: ResearchProviderId): NodeJS.ProcessEnv {
   const env = appServerProcessEnvironment();
+  delete env.BEALE_DESKTOP_INTERACTIVE_AUTH;
+  if (providerId === 'xai') env.BEALE_DESKTOP_INTERACTIVE_AUTH = '1';
   if (providerId === 'zai' && process.versions.electron) env.ELECTRON_RUN_AS_NODE = '1';
   return env;
 }
