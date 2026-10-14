@@ -144,6 +144,7 @@ export class AppServerHostService {
   private readonly fleetRemote: FleetRemoteController;
   private readonly fleetWorkspace: FleetWorkspaceStore;
   private readonly fleetBroker: FleetModelBrokerQueue;
+  private readonly fleetSessionMachines = new Map<string, string>();
   private readonly invokeProtocol: ProtocolInvoker;
   private readonly databaseCoordinator: AppServerWorkerDatabaseCoordinator;
   private providerSemanticsPromise: Promise<{
@@ -171,6 +172,13 @@ export class AppServerHostService {
   }
 
   public brokerToken(sessionId: string): string | null { return this.fleetBroker.token(sessionId); }
+
+  public async releaseSessionTarget(sessionId: string): Promise<void> {
+    const machineId = this.fleetSessionMachines.get(sessionId);
+    if (!machineId) return;
+    this.fleetSessionMachines.delete(sessionId);
+    await this.fleet.releaseSessionTarget(machineId, sessionId);
+  }
 
   public brokerSubmit(sessionId: string, token: string, request: ModelBrokerRequest): void {
     this.fleetBroker.submit(sessionId, token, request);
@@ -233,7 +241,9 @@ export class AppServerHostService {
       if (request.operation === 'fleet.state') return this.fleet.state();
       if (request.operation === 'fleet.remote_machines') return this.fleet.remoteMachines();
       if (request.operation === 'fleet.remote_catalog') return this.fleet.remoteCatalog(nonEmpty(input.serverId) ?? '');
-      if (request.operation === 'fleet.remote_session') return this.fleet.remoteSession(nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '', nonEmpty(input.sessionId) ?? '');
+      if (request.operation === 'fleet.remote_session') return this.fleet.remoteSession(
+        nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '', nonEmpty(input.sessionId) ?? '', nonEmpty(input.beforeEventId)
+      );
       if (request.operation === 'fleet.remote_browser_attach') return this.fleet.remoteBrowserAttach(nonEmpty(input.serverId) ?? '', nonEmpty(input.sessionId) ?? '');
       if (request.operation === 'fleet.remote_launch') return this.fleet.remoteLaunch(nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '', nonEmpty(input.promptMarkdown) ?? '', nonEmpty(input.machineId) ?? 'local');
       if (request.operation === 'fleet.remote_control') return this.fleet.remoteControl(nonEmpty(input.serverId) ?? '', nonEmpty(input.sessionId) ?? '', nonEmpty(input.type) ?? '', nonEmpty(input.instruction));
@@ -587,7 +597,19 @@ export class AppServerHostService {
   ): Promise<PreparedAppServerSession> {
     const sessionId = request.sessionId ?? generatedSessionId;
     const workspace = this.requireWorkspace(request.launch.workspaceId);
-    await this.fleetRemote.validateLocal(workspace.workspaceId, request.launch.mode ?? null);
+    const targetId = request.launch.machineId ?? 'local';
+    if (request.launch.mode !== 'quick-chat' && !request.launch.continuation) {
+      const state = await this.fleet.state();
+      const allowed = state.workspaceTargets[workspace.workspaceId] ?? ['local', 'browser:in-agent'];
+      if (!allowed.includes(targetId)) throw new Error('This target is not enabled for the workspace.');
+      if (targetId !== 'local' && !state.enabled) throw new Error('Fleet is disabled on this Beale instance.');
+      if (targetId.startsWith('browser:') && !state.browsers.some((browser) => browser.enabled && `browser:${browser.id}` === targetId)) {
+        throw new Error('The selected browser is unavailable in Fleet.');
+      }
+      if (targetId !== 'local' && !targetId.startsWith('browser:') && !targetId.startsWith('vm:')) {
+        throw new Error('Select a configured workspace target.');
+      }
+    }
     const attemptId = request.launch.attemptId ?? `attempt-${randomUUID()}`;
     const requestedProfileId = request.launch.researchProfileId?.trim();
     if (requestedProfileId && requestedProfileId !== workspace.researchProfileId) {
@@ -716,7 +738,11 @@ export class AppServerHostService {
       ...(daybreakBlue ? { daybreakBlue: true } : {}),
       profileId
     });
-    await this.ensureCanonicalSession({
+    const remoteShell = targetId.startsWith('vm:')
+      ? await this.fleet.prepareSessionTarget(targetId, workspace.workspaceId, sessionId, !request.launch.continuation)
+      : null;
+    try {
+      await this.ensureCanonicalSession({
       sessionId,
       attemptId,
       workspace,
@@ -733,7 +759,12 @@ export class AppServerHostService {
       continuation: Boolean(continuation),
       restartLaunch,
       ...(continuation?.resumeAttemptId ? { parentAttemptId: continuation.resumeAttemptId } : {})
-    });
+      });
+    } catch (error) {
+      if (remoteShell) await this.fleet.releaseSessionTarget(remoteShell.machineId, sessionId).catch(() => undefined);
+      throw error;
+    }
+    if (remoteShell) this.fleetSessionMachines.set(sessionId, remoteShell.machineId);
     return {
       sessionId,
       attemptId,
@@ -773,6 +804,7 @@ export class AppServerHostService {
           }
         },
         shellSafetyMode: request.launch.shellSafetyMode?.trim() || 'auto_review',
+        ...(remoteShell ? { remoteShell: { sshArgs: remoteShell.sshArgs, guestPlatform: remoteShell.guestPlatform, guestCwd: remoteShell.guestCwd } } : {}),
         ...(existsSync(this.registry.shellOptionsPath) ? { shellOptionsPath: this.registry.shellOptionsPath } : {}),
         ...(collaborationConfigPath ? { collaborationConfigPath } : {}),
         ...(promptTemplatePath ? { promptTemplatePath } : {}),
@@ -1113,6 +1145,7 @@ export class AppServerHostService {
     attemptId: string;
     state: 'completed' | 'failed' | 'stopped';
   }): Promise<void> {
+    await this.releaseSessionTarget(input.sessionId);
     const workspace = this.requireWorkspace(input.request.launch.workspaceId);
     const storage = this.registry.storageForProfile(workspace.researchProfileId || 'security-research');
     const current = await this.invokeProtocol<AppServerSessionSummaryProjection>('session.get', {
@@ -1858,6 +1891,7 @@ function restartLaunchDescriptor(
       || request.launch.introspection.runtimeMode === 'standard',
     launch: {
       workspaceId: request.launch.workspaceId,
+      ...(request.launch.machineId ? { machineId: request.launch.machineId } : {}),
       promptMarkdown: request.launch.promptMarkdown,
       ...(request.launch.goal ? { goal: request.launch.goal } : {}),
       provider: {
@@ -1899,7 +1933,8 @@ function dueAutomation(
   const metadata = isRecord(session.metadata) ? session.metadata : {};
   const storedRun = isRecord(metadata.bealeRun) ? metadata.bealeRun : {};
   const budget = isRecord(storedRun.budget) ? storedRun.budget : {};
-  if (typeof budget.machineId === 'string' && budget.machineId !== 'local') return null;
+  const targetId = typeof budget.machineId === 'string' ? budget.machineId : 'local';
+  if (targetId !== 'local' && !targetId.startsWith('browser:')) return null;
   const schedule = automationInterval(budget.repeatSchedule);
   if (!schedule) return null;
   const latestStartedAt = latestAutomationAttemptStartedAt(session.attempts) ?? nonEmpty(session.createdAt);
@@ -1930,6 +1965,7 @@ function dueAutomation(
       sessionId,
       launch: {
         workspaceId,
+        ...(targetId.startsWith('browser:') ? { machineId: targetId } : {}),
         promptMarkdown,
         ...(goalEnabled ? { goal: { objective: goalObjective } } : {}),
         ...(providerId || model || reasoningEffort || fastMode || daybreakBlue ? {

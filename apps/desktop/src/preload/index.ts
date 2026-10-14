@@ -277,8 +277,8 @@ const api: BealeApi = {
   getFleetRemoteCatalog(serverId: string): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteCatalog> {
     return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteCatalog, serverId);
   },
-  getFleetRemoteSession(serverId: string, workspaceId: string, sessionId: string): Promise<unknown> {
-    return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteSession, serverId, workspaceId, sessionId);
+  getFleetRemoteSession(serverId: string, workspaceId: string, sessionId: string, beforeEventId?: string): Promise<unknown> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteSession, serverId, workspaceId, sessionId, beforeEventId);
   },
   startFleetRemoteSession(serverId: string, workspaceId: string, promptMarkdown: string, machineId: string): Promise<{ sessionId: string }> {
     return ipcRenderer.invoke(IPC_CHANNELS.startFleetRemoteSession, serverId, workspaceId, promptMarkdown, machineId);

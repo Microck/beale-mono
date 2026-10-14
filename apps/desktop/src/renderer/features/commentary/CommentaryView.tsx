@@ -83,7 +83,8 @@ export const CommentaryView = memo(function CommentaryView({
   onInitialInstruction,
   onShellApprovalDecision = () => undefined,
   onSessionAction,
-  onSteerInstruction
+  onSteerInstruction,
+  onRequestToolCallDetail
 }: {
   busy: boolean;
   state?: CommentaryViewState;
@@ -123,6 +124,7 @@ export const CommentaryView = memo(function CommentaryView({
   onShellApprovalDecision?: (decision: PolicyReviewDecision) => void;
   onSessionAction: (action: SteeringAction) => void;
   onSteerInstruction: (runId: string, instruction: string, modelSelection: ResearchModelSelection) => void;
+  onRequestToolCallDetail?: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall>;
 }): JSX.Element | null {
   const repositoryMetadata = useMemo(() => commentaryRepositoryMetadataForScope(activeScope), [activeScope]);
   const messages = useMemo(() => devInstrumentation.time('commentary.buildMessages', () => {
@@ -205,6 +207,7 @@ export const CommentaryView = memo(function CommentaryView({
   const newResearch = state === 'new-research';
 
   const requestToolCallDetail = useCallback(async (toolCall: CommentaryToolCall): Promise<CommentaryToolCall> => {
+    if (onRequestToolCallDetail) return onRequestToolCallDetail(toolCall);
     const currentDetail = detailRef.current;
     if (!selectedRunId || !currentDetail) throw new Error('Session detail is unavailable.');
     const traceEventIds = [toolCall.requestTraceEventId, toolCall.observationTraceEventId]
@@ -212,7 +215,7 @@ export const CommentaryView = memo(function CommentaryView({
     const result = await window.beale.getRunMessageDetail({ runId: selectedRunId, traceEventIds });
     if (result.runId !== selectedRunId) throw new Error('Received tool detail for a different session.');
     return hydrateCommentaryToolCall(toolCall, result.traceEvents, currentDetail);
-  }, [selectedRunId]);
+  }, [onRequestToolCallDetail, selectedRunId]);
 
   useDevRenderProbe('commentary.list', () => ({
     messages: messages.length,

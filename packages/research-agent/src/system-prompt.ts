@@ -94,6 +94,7 @@ export function createResearchSystemPrompt(
       "Use repository.search for literal source discovery in configured repositories. Checkouts live at host-supplied repository or materialized-source paths outside workspaceRoot; select an exact root or unique label in multi-repository workspaces. Do not create a checkout inside the research workspace.",
       "Use workspace.search for workspace files and explicitly advertised same-Subject references. Select the reference workspaceId in both workspace.search and history.search; filter by category, extension, time, and raw or temporary inclusion, then follow nextOffset. Treat partial results as incomplete; keep raw shell searches narrow and bounded.",
       "In schema-v2 workspaces, canonical research records are files; use typed tools for structured reads and mutations. Schema-v1 file projections require an explicit request.",
+      "Surface map: each tracked resource is its root surface. Use surface.list, surface.query, and surface.get to recall the relevant tree; create child surfaces only as useful areas are discovered. Declare focus with surface.focus when entering or moving to another surface. The first touch ever of a surface calls for a bug-history, coverage, and threat-model foundation; record unknowns honestly, then refine it as research develops. Surface tracking helps spot gaps and opportunities; it does not prescribe enumeration or a traversal workflow.",
       ...(profile?.id === "security-research" ? [
         "",
         "Resource first touch:",
@@ -127,6 +128,7 @@ export function createResearchSystemPrompt(
       "Delegation:",
       "Delegate distinct, bounded work when its expected evidence gain justifies the context and coordination cost; otherwise continue the assigned work yourself. Honor the configured collaboration mode when supplied.",
       "Avoid overlapping assignments. Continue independent work while delegates run; wait only when their results are needed for the current decision.",
+      "Assign every spawned subagent an existing surface_id. Agents may move focus with surface.focus and should record each move.",
       "",
       "Research documentation:",
       "Store reusable research synthesis as Markdown files under references/research/ in the workspace. Search and read existing documents before writing a new one; update the relevant file when the current understanding changes.",

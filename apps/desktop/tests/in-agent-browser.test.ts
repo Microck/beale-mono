@@ -10,7 +10,7 @@ import { BrowserCdpSession } from '../../../packages/research-agent/src/browser-
 import { allowedBrowserCommand, allowedBrowserUrl, InAgentBrowserBridge } from '../src/main/inAgentBrowserBridge';
 import { browserContextLabel, DEFAULT_BROWSER_CONTEXT } from '../src/shared/browserContexts';
 import { browserNavigationUrl, BrowserSideView } from '../src/renderer/features/research/BrowserSideView';
-import { ResearchSidePanel, ResearchSideViewChooser, ResearchSideViewTabs, availableResearchSideViews, researchSideNavigationReducer, researchSideViewsForProfile } from '../src/renderer/features/research/MemorySidePanel';
+import { BrowserContextCloseDialog, ResearchSidePanel, ResearchSideViewChooser, ResearchSideViewTabs, availableResearchSideViews, removeBrowserContextForClosedTab, requiresBrowserContextCloseConfirmation, researchSideNavigationReducer, researchSideViewsForProfile } from '../src/renderer/features/research/MemorySidePanel';
 
 describe('in-agent browser', () => {
   it('offers Browser in the expanded chooser and tab picker', () => {
@@ -28,6 +28,7 @@ describe('in-agent browser', () => {
     }));
     expect(tabs).toContain('aria-selected="true"');
     expect(tabs).toContain('Close Browser Default');
+    expect(tabs).not.toContain('aria-haspopup="dialog"');
     expect(tabs).toContain('class="research-browser-context-pill"');
     expect(tabs).toContain('aria-label="Rename Browser context Default"');
     const browser = renderToStaticMarkup(createElement(BrowserSideView, { visible: true, partition: DEFAULT_BROWSER_CONTEXT.partition, label: 'Default', lastUrl: DEFAULT_BROWSER_CONTEXT.lastUrl }));
@@ -74,6 +75,37 @@ describe('in-agent browser', () => {
       }));
       expect(summary).toContain('aria-label="Open Browser Default"');
     }
+  });
+
+  it('asks how to close a named context tab and removes it only after Continue', async () => {
+    const removed: string[] = [];
+    const removeContext = async (id: string): Promise<void> => { removed.push(id); };
+    expect(requiresBrowserContextCloseConfirmation('memory')).toBe(false);
+    expect(requiresBrowserContextCloseConfirmation('browser:default')).toBe(false);
+    expect(requiresBrowserContextCloseConfirmation('browser:context-example')).toBe(true);
+    const namedTabs = renderToStaticMarkup(createElement(ResearchSideViewTabs, {
+      activeView: 'browser:context-example', openViews: ['browser:context-example'],
+      browserContextLabels: { 'browser:context-example': 'Example' },
+      onActivate: () => undefined, onClose: () => undefined, onOpen: () => undefined
+    }));
+    expect(namedTabs).toContain('aria-haspopup="dialog"');
+    const dialog = renderToStaticMarkup(createElement(BrowserContextCloseDialog, {
+      label: 'Example', busy: false, error: '',
+      onCancel: () => undefined, onCloseTab: () => undefined, onRemove: () => undefined
+    }));
+    expect(dialog).toContain('Close Browser context Example?');
+    expect(dialog).toContain('Close Tab Only');
+    expect(dialog).toContain('Continue');
+    expect(dialog).toContain('clear its stored site data');
+    await removeBrowserContextForClosedTab('memory', 'remove-context', removeContext);
+    await removeBrowserContextForClosedTab('browser:default', 'remove-context', removeContext);
+    await removeBrowserContextForClosedTab('browser:context-example', 'close-tab', removeContext);
+    expect(removed).toEqual([]);
+    await removeBrowserContextForClosedTab('browser:context-example', 'remove-context', removeContext);
+    expect(removed).toEqual(['context-example']);
+    await expect(removeBrowserContextForClosedTab('browser:context-example', 'remove-context', async () => {
+      throw new Error('Storage could not be cleared.');
+    })).rejects.toThrow('Storage could not be cleared.');
   });
 
   it('accepts web URLs and rejects local and privileged schemes', () => {

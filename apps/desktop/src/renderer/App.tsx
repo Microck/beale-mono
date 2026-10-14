@@ -64,6 +64,7 @@ import { TopBar } from './app/TopBar';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { RemoteFleetSidebar, RemoteFleetWorkspace } from './features/fleet/RemoteFleetWorkspace';
+import { remoteWorkspaceRegistry } from './features/fleet/remoteFleetProjection';
 import { FleetSidebar } from './features/fleet/FleetSidebar';
 import { FleetSettingsView } from './features/settings/FleetSettingsView';
 import { QuickChatDock, type QuickChatDescriptor } from './features/quick-chat/QuickChatDock';
@@ -2086,6 +2087,11 @@ export function App(): JSX.Element {
   ) : null;
   const navigationDestination = resolveAppNavigationDestination({ settingsOpen, fleetOpen, automationsOpen, pluginsOpen });
   const selectedFleetServer = fleetServers.find((server) => server.id === selectedFleetServerId);
+  const remoteWorkspace = selectedFleetServerId === 'local'
+    ? null : remoteCatalog?.workspaces.find((workspace) => workspace.workspaceId === remoteWorkspaceId);
+  const remoteSession = selectedFleetServerId === 'local'
+    ? null : remoteCatalog?.sessions.find((session) => session.id === remoteSessionId && session.workspaceId === remoteWorkspaceId);
+  const remoteRegistry = selectedFleetServerId === 'local' ? null : remoteWorkspaceRegistry(remoteCatalog, selectedFleetServerId);
   const serverSelector = <select className="sidebar-server-selector" aria-label="App server" value={selectedFleetServerId} onChange={(event) => {
     setSelectedFleetServerId(event.currentTarget.value);
     setRemoteCatalog(null);
@@ -2103,13 +2109,13 @@ export function App(): JSX.Element {
       <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
-        workspaceOpen={Boolean(snapshot)}
+        workspaceOpen={selectedFleetServerId === 'local' && Boolean(snapshot)}
         newResearchLabel={snapshot?.researchProfile.profile.presentation?.newResearchLabel ?? 'New Research'}
         newResearchDisabled={busy}
-        workspaces={workspaceRegistry?.workspaces ?? []}
-        workspaceRegistryLoading={startupPhase === 'shell' || startupPhase === 'registry'}
-        rightSidenavAvailable={headerResearchControlsAvailable}
-        rightSidenavExpanded={rightSidenavExpanded && headerResearchControlsAvailable}
+        workspaces={selectedFleetServerId === 'local' ? workspaceRegistry?.workspaces ?? [] : remoteRegistry?.workspaces ?? []}
+        workspaceRegistryLoading={selectedFleetServerId === 'local' ? startupPhase === 'shell' || startupPhase === 'registry' : !remoteCatalog}
+        rightSidenavAvailable={selectedFleetServerId === 'local' && headerResearchControlsAvailable}
+        rightSidenavExpanded={selectedFleetServerId === 'local' && rightSidenavExpanded && headerResearchControlsAvailable}
         contextualTitleVisible={!settingsOpen && !fleetOpen && !reportsOpen && !automationsOpen && !pluginsOpen}
         staticContextTitle={settingsOpen
           ? { primary: 'Agent Settings', secondary: settingsSectionLabel(settingsSection), icon: settingsSectionHeaderIcon(settingsSection) }
@@ -2129,15 +2135,19 @@ export function App(): JSX.Element {
                 ? { primary: 'Plugins', secondary: 'Installed Plugins', icon: 'plugins' }
               : null}
         platform={windowControlPlatform}
-        workspaceName={workspaceDraft && !newResearchOpen ? 'New Workspace' : currentWorkspaceName}
-        workspaceViewTitle={newResearchOpen
+        workspaceName={selectedFleetServerId !== 'local'
+          ? remoteWorkspace?.name ?? 'No Workspace Selected'
+          : workspaceDraft && !newResearchOpen ? 'New Workspace' : currentWorkspaceName}
+        workspaceViewTitle={selectedFleetServerId !== 'local' ? null : newResearchOpen
           ? snapshot?.researchProfile.profile.presentation?.newResearchLabel ?? 'New Research'
           : workspaceDraft ? workspaceDashboardViewName : (snapshot && !selectedRunId ? workspaceDashboardViewName : null)}
-        activeRunDetail={activeRunHeaderDetail}
+        activeRunDetail={selectedFleetServerId !== 'local' && remoteSession
+          ? { run: { id: remoteSession.id, title: remoteSession.title, promptMarkdown: remoteSession.prompt } }
+          : activeRunHeaderDetail}
         profilingEnabled={profilingState?.enabled ?? false}
-        bottomPanelAvailable={headerResearchControlsAvailable}
-        bottomPanelOpen={bottomPanelVisible}
-        workspaceEditors={headerResearchControlsAvailable ? workspaceEditors : null}
+        bottomPanelAvailable={selectedFleetServerId === 'local' && headerResearchControlsAvailable}
+        bottomPanelOpen={selectedFleetServerId === 'local' && bottomPanelVisible}
+        workspaceEditors={selectedFleetServerId === 'local' && headerResearchControlsAvailable ? workspaceEditors : null}
         onOpenProfiling={openProfiling}
         onOpenSessionOverview={activeRunDetail && activeSessionOverviewRun ? openSessionOverview : undefined}
         onToggleBottomPanel={toggleBottomPanel}
@@ -2146,7 +2156,10 @@ export function App(): JSX.Element {
         onToggleRightSidenav={toggleRightSidenav}
         onToggleSidebar={toggleSidebar}
         onStartNewResearch={startNewResearch}
-        onStartNewResearchForWorkspace={startNewResearchForWorkspace}
+        onStartNewResearchForWorkspace={selectedFleetServerId === 'local' ? startNewResearchForWorkspace : (workspace) => {
+          setRemoteWorkspaceId(workspace.workspaceId);
+          setRemoteSessionId(null);
+        }}
         onOpenQuickChat={openQuickChat}
       />
       {sessionOverviewOpen && activeRunDetail && activeSessionOverviewRun ? (

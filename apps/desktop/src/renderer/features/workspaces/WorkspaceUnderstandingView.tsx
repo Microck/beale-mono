@@ -36,13 +36,13 @@ import type { SessionHeat, SessionHeatPreferences } from '../../view-models/sess
 import { errorMessage } from '../../lib/errors';
 import { renderTraceProseText } from '../traces/traceMarkup';
 import { WorkspaceDirectoriesField } from './WorkspaceDirectoriesWidget';
-import { WorkspaceVmRequirement } from './WorkspaceVmRequirement';
+import { WorkspaceTargetsPanel } from './WorkspaceTargetsPanel';
 import { CampaignBoardView, CampaignGraphView } from './CampaignGraphView';
 import { ResourcePriorArtView } from './ResourcePriorArtView';
 
 const WORKSPACE_ACTIVITY_DAY_COUNT = 365;
 const DAY_DURATION_MS = 24 * 60 * 60 * 1_000;
-const WORKSPACE_DASHBOARD_VIEWS = ['campaign', 'resources', 'rules', 'utilities', 'overview', 'kit'] as const;
+const WORKSPACE_DASHBOARD_VIEWS = ['campaign', 'resources', 'rules', 'utilities', 'targets', 'overview', 'kit'] as const;
 const WORKSPACE_CAMPAIGN_VIEWS = ['trail', 'board', 'memory', 'runbooks', 'reports'] as const;
 
 type WorkspaceTopLevelView = typeof WORKSPACE_DASHBOARD_VIEWS[number];
@@ -51,6 +51,7 @@ export type WorkspaceDashboardView = WorkspaceTopLevelView | Exclude<WorkspaceCa
 
 const WORKSPACE_DASHBOARD_VIEW_ICONS: Record<WorkspaceTopLevelView, typeof Info> = {
   overview: Settings,
+  targets: Server,
   campaign: GitBranch,
   resources: Boxes,
   kit: RefreshCw,
@@ -384,6 +385,8 @@ export function WorkspaceUnderstandingView({
         workspacePath={workspacePath}
         workspaceDirectories={workspaceDirectories ?? (workspacePath ? [workspacePath] : [])}
       /> : null}
+
+      {activeView === 'targets' ? <WorkspaceTargetsPanel workspaceId={workspaceId} disabled={busy} /> : null}
 
       {activeView === 'resources' ? <WorkspaceResearchSurface
         onEditStateChange={setResourceEditState}
@@ -957,7 +960,6 @@ function WorkspaceOverviewPanel({
                 }}
                 onRemove={(directory) => onChangeDirectories(workspaceDirectories.filter((item) => workspaceDirectoryKey(item) !== workspaceDirectoryKey(directory)))}
               />
-              <WorkspaceVmRequirement workspaceId={workspaceId} disabled={busy} />
               <div className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
                 <div className="workspace-guidance-field-heading">
                   <span className="settings-form-control-copy">

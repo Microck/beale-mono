@@ -29,7 +29,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onStartNewResearch,
   onOpenQuickChat = () => undefined,
   onStartNewResearchForWorkspace,
-  serverSelector
+  serverSelector,
+  selectedWorkspaceId,
+  remote = false
 }: {
   busy: boolean;
   collapsed: boolean;
@@ -52,6 +54,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onOpenQuickChat?: () => void;
   onStartNewResearchForWorkspace: (workspace: WorkspaceRegistryEntry) => void;
   serverSelector?: ReactNode;
+  selectedWorkspaceId?: string | null;
+  remote?: boolean;
 }): JSX.Element {
   useDevRenderProbe('sidebar.workspaces', () => ({
     collapsed,
@@ -200,12 +204,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
             </div>
           ) : null}
         </div>
-        <div className="sidebar-quick-actions">
+        {!remote ? <div className="sidebar-quick-actions">
           <button type="button" className="sidebar-utility-button sidebar-quick-chat" title="Open a quick chat" onClick={onOpenQuickChat}>
             <Zap size={15} />
             <span>Quick Chat</span>
           </button>
-        </div>
+        </div> : null}
       </div>
       <div className="sidebar-section workspace-list">
         <div className={`section-row workspace-list-header${sessionSearchOpen ? ' search-open' : ''}`}>
@@ -245,7 +249,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                 <Search size={15} />
               </button>
             ) : null}
-            <div className="workspace-list-add-menu-anchor" ref={workspaceAddMenuRef}>
+            {!remote ? <div className="workspace-list-add-menu-anchor" ref={workspaceAddMenuRef}>
               <button
                 type="button"
                 className={`workspace-list-add-button${workspaceCreationActive ? ' active' : ''}`}
@@ -277,7 +281,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                   </button>
                 </div>
               ) : null}
-            </div>
+            </div> : null}
           </div>
         </div>
         <MainSideScrollRegion
@@ -293,7 +297,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               <span className="workspace-session-empty">No matching sessions.</span>
             ) : null}
             {workspaceRows.map(({ workspace, sessions }) => {
-              const workspaceLoaded = snapshot?.workspace.workspacePath === workspace.workspacePath;
+              const workspaceLoaded = selectedWorkspaceId !== undefined
+                ? selectedWorkspaceId === workspace.workspaceId
+                : snapshot?.workspace.workspacePath === workspace.workspacePath;
               const newResearchSessionActive = workspaceLoaded && newResearchActive && !workspaceCreationActive;
               const dashboardActive = workspaceLoaded && selectedRunId === null && !workspaceCreationActive && !newResearchActive && !automationsActive && !pluginsActive;
               const sessionsExpanded = expandedWorkspaceIds.has(workspace.id);
@@ -311,7 +317,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                       <SessionLeadingIndicator session={session} />
                       <span className="workspace-session-title">{promptSessionTitle(session)}</span>
                     </button>
-                    <button
+                    {!remote ? <button
                       type="button"
                       className="sidebar-row-archive-button"
                       title={`Archive session ${promptSessionTitle(session)}`}
@@ -322,7 +328,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
                       }}
                     >
                       <Archive size={13} aria-hidden="true" />
-                    </button>
+                    </button> : null}
                   </div>
                 );
               };

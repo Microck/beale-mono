@@ -23,6 +23,7 @@ import type {
   TraceEventRecord
 } from '@shared/types';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
+import { Modal } from '../../app/Modal';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { ProviderIcon } from '../../app/ProviderIcon';
 import { ModelAuthors } from '../../app/ModelAuthors';
@@ -213,6 +214,20 @@ export function isLastOpenResearchSideView(
   view: ResearchSideView
 ): boolean {
   return openViews.length === 1 && openViews[0] === view;
+}
+
+export function requiresBrowserContextCloseConfirmation(view: ResearchSideView): boolean {
+  return isBrowserSideView(view) && view !== browserSideViewId(DEFAULT_BROWSER_CONTEXT.id);
+}
+
+export async function removeBrowserContextForClosedTab(
+  view: ResearchSideView,
+  action: 'close-tab' | 'remove-context',
+  removeContext: (id: string) => Promise<void>
+): Promise<void> {
+  if (action === 'remove-context' && requiresBrowserContextCloseConfirmation(view)) {
+    await removeContext(view.slice('browser:'.length));
+  }
 }
 
 function initialResearchSideNavigation(
@@ -734,7 +749,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     dispatchNavigation({ type: 'activate', view });
   };
 
-  const closeDetails = (view: ResearchSideView): void => {
+  const closeDetails = async (view: ResearchSideView, action: 'close-tab' | 'remove-context'): Promise<void> => {
+    await removeBrowserContextForClosedTab(view, action, (id) => window.beale.removeBrowserContext(id));
     if (view === 'memory') {
       setSelectedNodeId(null);
       setSelectedClaimIdState(null);
@@ -1592,7 +1608,7 @@ export function ResearchSideViewTabs({
   enabledViews?: readonly ResearchSideView[];
   openViews: readonly ResearchSideView[];
   onActivate: (view: ResearchSideView) => void;
-  onClose: (view: ResearchSideView) => void;
+  onClose: (view: ResearchSideView, action: 'close-tab' | 'remove-context') => Promise<void> | void;
   onOpen: (view: ResearchSideView) => void;
   onCreateBrowserContext?: (label: string) => Promise<void>;
   onRenameBrowserContext?: (id: string, label: string) => Promise<void>;
@@ -1604,6 +1620,10 @@ export function ResearchSideViewTabs({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [contextLabel, setContextLabel] = useState('');
   const [contextError, setContextError] = useState('');
+  const [closeError, setCloseError] = useState('');
+  const [closingView, setClosingView] = useState<ResearchSideView | null>(null);
+  const [pendingCloseView, setPendingCloseView] = useState<ResearchSideView | null>(null);
+  const closingRef = useRef(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const availableViews = availableResearchSideViews(openViews, enabledViews);
 
@@ -1627,8 +1647,31 @@ export function ResearchSideViewTabs({
     if (availableViews.length === 0 && !onCreateBrowserContext) setPickerOpen(false);
   }, [availableViews.length, onCreateBrowserContext]);
 
+  useEffect(() => {
+    if (pendingCloseView && !enabledViews.includes(pendingCloseView)) {
+      setPendingCloseView(null);
+      setCloseError('');
+    }
+  }, [enabledViews, pendingCloseView]);
+
+  const closeView = (view: ResearchSideView, action: 'close-tab' | 'remove-context'): void => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setClosingView(view);
+    setCloseError('');
+    void Promise.resolve().then(() => onClose(view, action)).then(() => {
+      setPendingCloseView(null);
+    }, (cause: unknown) => {
+      setCloseError(cause instanceof Error ? cause.message : String(cause));
+    }).finally(() => {
+      closingRef.current = false;
+      setClosingView(null);
+    });
+  };
+
   return (
-    <header className="research-side-view-header">
+    <>
+      <header className="research-side-view-header">
       <div className="research-side-view-tabs research-side-view-tabs-scrollable" role="tablist" aria-label={`Open ${viewSpaceLabel.toLocaleLowerCase()} detail views`}>
         {openViews.map((view) => (
           <div className={`research-side-view-tab ${activeView === view ? 'active' : ''}`} key={view}>
@@ -1654,14 +1697,21 @@ export function ResearchSideViewTabs({
               type="button"
               className="research-side-view-tab-close"
               aria-label={`Close ${researchSideViewLabel(view, labels)}${isBrowserSideView(view) ? ` ${browserContextLabels?.[view] ?? 'Default'}` : ''}`}
+              aria-haspopup={requiresBrowserContextCloseConfirmation(view) ? 'dialog' : undefined}
               title={`Close ${researchSideViewLabel(view, labels)}${isBrowserSideView(view) ? ` ${browserContextLabels?.[view] ?? 'Default'}` : ''}`}
-              onClick={() => onClose(view)}
+              disabled={closingView !== null}
+              onClick={() => {
+                setCloseError('');
+                if (requiresBrowserContextCloseConfirmation(view)) setPendingCloseView(view);
+                else closeView(view, 'close-tab');
+              }}
             >
               <X size={13} aria-hidden="true" />
             </button>
           </div>
         ))}
       </div>
+      {closeError && !pendingCloseView ? <span className="research-side-view-close-error" role="alert">{closeError}</span> : null}
       {availableViews.length > 0 || onCreateBrowserContext ? (
         <div className={`research-side-view-picker ${pickerOpen ? 'open' : ''}`} ref={pickerRef}>
           <button
@@ -1716,7 +1766,51 @@ export function ResearchSideViewTabs({
         </div>
       ) : null}
       {trailing ? <div className="research-side-view-trailing">{trailing}</div> : null}
-    </header>
+      </header>
+      {pendingCloseView ? (
+        <BrowserContextCloseDialog
+          label={browserContextLabels?.[pendingCloseView] ?? 'Unnamed'}
+          busy={closingView !== null}
+          error={closeError}
+          onCancel={() => { setPendingCloseView(null); setCloseError(''); }}
+          onCloseTab={() => closeView(pendingCloseView, 'close-tab')}
+          onRemove={() => closeView(pendingCloseView, 'remove-context')}
+        />
+      ) : null}
+    </>
+  );
+}
+
+export function BrowserContextCloseDialog({
+  label,
+  busy,
+  error,
+  onCancel,
+  onCloseTab,
+  onRemove
+}: {
+  label: string;
+  busy: boolean;
+  error: string;
+  onCancel: () => void;
+  onCloseTab: () => void;
+  onRemove: () => void;
+}): JSX.Element {
+  return (
+    <Modal
+      title={`Close Browser context ${label}?`}
+      closeDisabled={busy}
+      onClose={onCancel}
+      footer={(
+        <>
+          <button className="secondary-button" type="button" autoFocus disabled={busy} onClick={onCloseTab}>Close Tab Only</button>
+          <button className="primary-button" type="button" disabled={busy} onClick={onRemove}>Continue</button>
+        </>
+      )}
+    >
+      <p>Close the tab and keep this browser context for later, or continue to remove the context and clear its stored site data.</p>
+      {error ? <p className="research-browser-context-close-error" role="alert">{error}</p> : null}
+    </Modal>
   );
 }
 

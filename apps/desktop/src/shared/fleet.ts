@@ -1,27 +1,52 @@
-import type { FleetMachine, FleetState } from '@beale/app-server-runtime/protocol';
+import type { FleetState } from '@beale/app-server-runtime/protocol';
 
-export function fleetVmRequired(state: FleetState, workspaceId: string): boolean {
-  if (state.role !== 'primary' || !state.enabled) return false;
-  if (state.requiredWorkspaceIds.includes(workspaceId)) return true;
-  if (state.optionalWorkspaceIds.includes(workspaceId)) return false;
-  return [...state.machines, ...state.remoteMachines].some((machine) => machine.base);
+export interface FleetTargetChoice {
+  id: string;
+  name: string;
+  ready: boolean;
+  detail: string;
 }
 
-export function runnableFleetMachines(state: FleetState): FleetMachine[] {
-  if (state.role !== 'primary' || !state.enabled) return [];
-  return [...(state.available ? state.machines : []), ...state.remoteMachines]
-    .filter((machine) => machine.base && machine.state === 'stopped')
-    .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+export function configuredWorkspaceTargets(state: FleetState, workspaceId: string): string[] {
+  return state.workspaceTargets[workspaceId] ?? ['local', 'browser:in-agent'];
+}
+
+export function availableFleetTargets(state: FleetState): FleetTargetChoice[] {
+  const targets: FleetTargetChoice[] = [
+    { id: 'local', name: 'Local', ready: true, detail: 'Run on this machine' },
+  ];
+  if (state.enabled) {
+    targets.push(...state.browsers.filter((browser) => browser.enabled).map((browser) => ({
+      id: `browser:${browser.id}`, name: browser.name, ready: true,
+      detail: browser.kind === 'embedded' ? 'In-Agent Browser' : 'Separate CDP profile',
+    })));
+    if (state.role === 'primary') {
+      for (const machine of state.machines) {
+        if (machine.canRun) targets.push({
+          id: `vm:run:${machine.id}`, name: `${machine.name} · Run`,
+          ready: machine.sshConfigured && machine.state !== 'unknown', detail: 'Run commands in this VM',
+        });
+        if (machine.canClone) targets.push({
+          id: `vm:clone:${machine.id}`, name: `${machine.name} · Clone`,
+          ready: machine.sshConfigured && machine.state === 'stopped', detail: 'Clone for this session',
+        });
+      }
+    }
+  }
+  return targets;
+}
+
+export function allowedFleetTargets(state: FleetState, workspaceId: string): FleetTargetChoice[] {
+  const allowed = new Set(configuredWorkspaceTargets(state, workspaceId));
+  return availableFleetTargets(state).filter((target) => allowed.has(target.id));
 }
 
 export function defaultFleetMachineId(state: FleetState, workspaceId: string): string | null {
-  if (!fleetVmRequired(state, workspaceId)) return 'local';
-  const machines = runnableFleetMachines(state);
+  const targets = allowedFleetTargets(state, workspaceId);
   const previous = state.lastMachineByWorkspace[workspaceId];
-  return machines.find((machine) => machine.id === previous)?.id ?? machines[0]?.id ?? null;
+  return targets.find((target) => target.id === previous)?.id ?? targets.find((target) => target.ready)?.id ?? targets[0]?.id ?? null;
 }
 
-export function isAllowedFleetMachine(state: FleetState, workspaceId: string, machineId: string): boolean {
-  if (machineId === 'local') return !fleetVmRequired(state, workspaceId);
-  return runnableFleetMachines(state).some((machine) => machine.id === machineId);
+export function isAllowedFleetMachine(state: FleetState, workspaceId: string, targetId: string): boolean {
+  return allowedFleetTargets(state, workspaceId).some((target) => target.id === targetId);
 }

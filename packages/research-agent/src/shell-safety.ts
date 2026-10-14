@@ -127,6 +127,7 @@ export interface CreateShellSafetyAuthorizerOptions {
   models?: Pick<Models, "getModel" | "completeSimple">;
   completeClaudeText?: typeof completeClaudeAgentText;
   reviewTimeoutMs?: number;
+  overrideTimeoutMs?: number;
   maxReviewInputBytes?: number;
   researchProfileName?: string;
   reviewContext?: ShellReviewTrustedContext;
@@ -136,6 +137,7 @@ export interface CreateShellSafetyAuthorizerOptions {
 // Shell review is a small, schema-constrained classification, but provider
 // queueing can add a few seconds when several research sessions are active.
 const DEFAULT_REVIEW_TIMEOUT_MS = 45_000;
+const DEFAULT_OVERRIDE_TIMEOUT_MS = 5 * 60_000;
 const AUTO_REVIEW_FAILURE_COOLDOWN_MS = 60_000;
 const DEFAULT_MAX_REVIEW_INPUT_BYTES = 64 * 1024;
 const MAX_REVIEW_OUTPUT_TOKENS = 1_024;
@@ -524,20 +526,45 @@ export function createShellSafetyAuthorizer(
           reviewReason,
           reviewer,
         };
+        const overrideController = new AbortController();
+        const overrideSignal = signal
+          ? AbortSignal.any([signal, overrideController.signal])
+          : overrideController.signal;
+        let overrideExpired = false;
+        let overrideTimer: ReturnType<typeof setTimeout> | undefined;
         try {
-          const pendingDecision = options.requestManualApproval(pendingRequest, signal);
-          await options.onRequested?.({
-            type: "shell_authorization_requested",
-            approvalRequestId,
-            actionId: request.actionId,
-            approvalKind: pendingRequest.approvalKind,
-            mode,
-            command,
-            network,
-            reviewer,
-            reviewReason,
+          const pendingDecision = options.requestManualApproval(pendingRequest, overrideSignal);
+          const requestedDecision = (async () => {
+            await options.onRequested?.({
+              type: "shell_authorization_requested",
+              approvalRequestId,
+              actionId: request.actionId,
+              approvalKind: pendingRequest.approvalKind,
+              mode,
+              command,
+              network,
+              reviewer,
+              reviewReason,
+            });
+            return pendingDecision;
+          })();
+          const expiry = new Promise<ManualShellApprovalResult>((resolve) => {
+            overrideTimer = setTimeout(() => {
+              overrideExpired = true;
+              resolve({ decision: "denied", reason: "Auto-Review override expired." });
+              overrideController.abort();
+            }, options.overrideTimeoutMs ?? DEFAULT_OVERRIDE_TIMEOUT_MS);
           });
-          const manual = await pendingDecision;
+          const manual = await Promise.race([requestedDecision, expiry]);
+          if (overrideExpired) {
+            return resolveDecision({
+              decision: "denied",
+              source: "policy",
+              reason: "Auto-Review override expired without a researcher decision.",
+              reviewer,
+              ...(review.usage ? { usage: review.usage } : {}),
+            });
+          }
           return resolveDecision({
             decision: manual.decision,
             source: "human",
@@ -548,6 +575,7 @@ export function createShellSafetyAuthorizer(
             ...(review.usage ? { usage: review.usage } : {}),
           });
         } catch {
+          overrideController.abort();
           return resolveDecision({
             decision: "denied",
             source: "policy",
@@ -555,6 +583,8 @@ export function createShellSafetyAuthorizer(
             reviewer,
             ...(review.usage ? { usage: review.usage } : {}),
           });
+        } finally {
+          if (overrideTimer) clearTimeout(overrideTimer);
         }
       }
       return resolveDecision({

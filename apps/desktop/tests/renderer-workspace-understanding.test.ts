@@ -490,9 +490,11 @@ describe('workspace dashboard', () => {
     expect(html).toContain('<span>Resources</span>');
     expect(html).toContain('<span>Rules</span>');
     expect(html).toContain('<span>Utilities</span>');
+    expect(html).toContain('<span>Targets</span>');
     expect(html.indexOf('<span>Rules</span>')).toBeLessThan(html.indexOf('<span>Utilities</span>'));
     expect(html.indexOf('<span>Campaign</span>')).toBeLessThan(html.indexOf('<span>Resources</span>'));
     expect(html.indexOf('<span>Utilities</span>')).toBeLessThan(html.indexOf('<span>Settings</span>'));
+    expect(html.indexOf('<span>Targets</span>')).toBeLessThan(html.indexOf('<span>Settings</span>'));
     expect(html.indexOf('<span>Settings</span>')).toBeLessThan(html.indexOf('<span>Apple Security Bounty</span>'));
     expect(html).toContain('lucide-settings');
     expect(html).toContain('lucide-boxes');
@@ -503,7 +505,7 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('<span>HackerOne</span>');
     expect(html).not.toContain('<span>MSRC Windows</span>');
     expect(html).toContain('lucide-refresh-cw');
-    expect(html.match(/workspace-dashboard-tab-icon/g)).toHaveLength(6);
+    expect(html.match(/workspace-dashboard-tab-icon/g)).toHaveLength(7);
     expect(html).not.toContain('aria-label="Campaign views"');
     expect(html).toContain('aria-controls="workspace-dashboard-overview-panel" aria-selected="true"');
     expect(html).not.toContain('id="workspace-dashboard-campaign-activity-panel"');

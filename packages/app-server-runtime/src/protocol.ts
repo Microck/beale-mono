@@ -44,7 +44,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-09T21:24:54.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-12T11:58:50.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -465,6 +465,9 @@ export interface FleetMachine {
   backend: FleetBackend;
   state: FleetMachineState;
   base: boolean;
+  canRun: boolean;
+  canClone: boolean;
+  guestPlatform: 'win32' | 'darwin' | 'linux';
   privilege: "standard" | "elevated";
   sshConfigured: boolean;
   sshIdentityConfigured: boolean;
@@ -478,6 +481,13 @@ export interface FleetAppServer {
   id: string;
   name: string;
   url: string;
+}
+
+export interface FleetBrowser {
+  id: string;
+  name: string;
+  kind: 'embedded' | 'external';
+  enabled: boolean;
 }
 
 export interface FleetRemoteSessionSummary {
@@ -495,6 +505,8 @@ export interface FleetRemoteCatalog {
   workspaces: Array<{ id: string; workspaceId: string; name: string; runCount: number }>;
   sessions: FleetRemoteSessionSummary[];
   machines: FleetMachine[];
+  browsers: FleetBrowser[];
+  workspaceTargets: Record<string, string[]>;
   requiredWorkspaceIds: string[];
   optionalWorkspaceIds: string[];
   hasBaseVm: boolean;
@@ -538,6 +550,8 @@ export interface FleetState {
   machines: FleetMachine[];
   remoteMachines: FleetMachine[];
   appServers: FleetAppServer[];
+  browsers: FleetBrowser[];
+  workspaceTargets: Record<string, string[]>;
   primary: { name: string; sshHost: string | null } | null;
   requiredWorkspaceIds: string[];
   optionalWorkspaceIds: string[];

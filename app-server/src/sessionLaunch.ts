@@ -63,6 +63,7 @@ export interface ResolvedAppServerSessionLaunch {
     shellReview?: { models: Readonly<Record<string, string>>; effort: string };
   };
   shellSafetyMode: string;
+  remoteShell?: { sshArgs: readonly string[]; guestPlatform: 'win32' | 'darwin' | 'linux'; guestCwd: string };
   shellOptionsPath?: string;
   collaborationConfigPath?: string;
   promptTemplatePath?: string;
@@ -208,6 +209,8 @@ export function appServerSessionEnvironment(
     env.BEALE_INTROSPECTION_URL = launch.introspection.url;
     env.BEALE_INTROSPECTION_TOKEN = launch.introspection.token;
   }
+  if (launch.remoteShell) env.BEALE_FLEET_REMOTE_SHELL = JSON.stringify(launch.remoteShell);
+  else delete env.BEALE_FLEET_REMOTE_SHELL;
   if (!env.APP_SERVER_CODEX_AUTH_FILE?.trim()) {
     const codexAuthFile = resolveAppServerCodexAuthFile(environment);
     if (codexAuthFile) env.APP_SERVER_CODEX_AUTH_FILE = codexAuthFile;

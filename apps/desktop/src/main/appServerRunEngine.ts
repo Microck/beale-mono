@@ -589,12 +589,13 @@ export class AppServerRunEngine {
   }): Promise<void> {
     const { active, request } = params;
     const machineId = machineIdFromRun(active.context.run);
+    const localHost = usesLocalAppServer(machineId);
     const collaborators = Array.isArray(request.launch.collaboration?.providers)
       ? request.launch.collaboration.providers.filter((entry): entry is { provider: string; model: string; enabled: true } =>
         typeof entry === 'object' && entry !== null && entry.enabled === true
           && typeof entry.provider === 'string' && typeof entry.model === 'string')
           .map((entry) => ({ providerId: entry.provider, modelId: entry.model })) : [];
-    const prepared = await invokeAppServerOperation<FleetPreparedSession>({
+    const prepared = localHost ? null : await invokeAppServerOperation<FleetPreparedSession>({
       operation: 'fleet.prepare',
       input: { workspaceId: request.launch.workspaceId, runId: active.context.run.id,
         machineId, mode: active.context.run.mode,
@@ -607,23 +608,25 @@ export class AppServerRunEngine {
         fastMode: request.launch.provider?.fastMode === true,
         daybreakBlue: request.launch.provider?.daybreakBlue === true }
     });
-    if (active.stopped && machineId !== 'local') { this.finishPrelaunchStop(active); return; }
-    const record = machineId === 'local'
+    if (active.stopped && !localHost) { this.finishPrelaunchStop(active); return; }
+    const record = localHost
       ? await ensureBealeAppServerRunning()
-      : fleetRemoteRecord(prepared);
+      : fleetRemoteRecord(prepared!);
     if (this.isStale(active)) {
       return;
     }
     active.appServerRecord = record;
-    if (active.stopped && machineId !== 'local') { this.finishPrelaunchStop(active); return; }
-    const guestRequest = machineId === 'local' ? request : {
+    if (active.stopped && !localHost) { this.finishPrelaunchStop(active); return; }
+    const guestRequest = localHost
+      ? { ...request, launch: { ...request.launch, machineId } }
+      : {
       ...request, launch: { ...request.launch, introspection: undefined,
-        machineId: prepared.remoteMachineId ?? prepared.machineId,
-        ...(prepared.ownerMachineId ? { fleetOwnerMachineId: prepared.ownerMachineId } : {}),
-        ...(prepared.brokerAuthenticationPreferences
-          ? { brokerAuthenticationPreferences: prepared.brokerAuthenticationPreferences } : {}),
-        ...(prepared.brokerRiskAcknowledgements
-          ? { brokerRiskAcknowledgements: prepared.brokerRiskAcknowledgements } : {}),
+        machineId: prepared!.remoteMachineId ?? prepared!.machineId,
+        ...(prepared!.ownerMachineId ? { fleetOwnerMachineId: prepared!.ownerMachineId } : {}),
+        ...(prepared!.brokerAuthenticationPreferences
+          ? { brokerAuthenticationPreferences: prepared!.brokerAuthenticationPreferences } : {}),
+        ...(prepared!.brokerRiskAcknowledgements
+          ? { brokerRiskAcknowledgements: prepared!.brokerRiskAcknowledgements } : {}),
       }
     };
     const started = await startAppServerSession(record, guestRequest);
@@ -681,7 +684,7 @@ export class AppServerRunEngine {
   private async recordForRun(run: RunRecord | null): Promise<BealeAppServerDiscovery> {
     if (!run) return ensureBealeAppServerRunning();
     const machineId = machineIdFromRun(run);
-    if (machineId === 'local') return ensureBealeAppServerRunning();
+    if (usesLocalAppServer(machineId)) return ensureBealeAppServerRunning();
     const connection = await invokeAppServerOperation<FleetPreparedSession>({
       operation: 'fleet.connect', input: { machineId, runId: run.id }
     });
@@ -705,7 +708,7 @@ export class AppServerRunEngine {
       const state = entry?.state ?? null;
       const exitCode = entry?.exitCode ?? null;
       if (entry?.diagnostic) active.lastProcessDiagnostic = entry.diagnostic;
-      if (machineIdFromRun(active.context.run) !== 'local') {
+      if (!usesLocalAppServer(machineIdFromRun(active.context.run))) {
         try {
           const result = await invokeAppServerOperation<{ imported: number; conflicts: number; candidateRecords: number }>({
             operation: 'fleet.complete', input: { runId: active.context.run.id }
@@ -793,7 +796,7 @@ export class AppServerRunEngine {
     }
     try {
       if (active && !active.appServerRecord) {
-        if (machineIdFromRun(active.context.run) === 'local') {
+        if (usesLocalAppServer(machineIdFromRun(active.context.run))) {
           const record = await ensureBealeAppServerRunning();
           await stopAppServerSession(record, runId);
         }
@@ -867,7 +870,7 @@ export class AppServerRunEngine {
     try {
       const record = await this.recordForRun(run);
       const entry = await fetchAppServerSession(record, runId);
-      if (machineIdFromRun(run) !== 'local' && (!entry || TERMINAL_APP_SERVER_STATES.has(entry.state))) {
+      if (!usesLocalAppServer(machineIdFromRun(run)) && (!entry || TERMINAL_APP_SERVER_STATES.has(entry.state))) {
         const canonical = await fetchAppServerCanonicalResult<AppServerSessionUpdate>(record,
           `/v1/workspaces/${encodeURIComponent(this.db.getWorkspaceId())}/sessions/${encodeURIComponent(runId)}/update?limit=1`);
         const terminal = canonical.session.status;
@@ -1676,7 +1679,7 @@ export class AppServerRunEngine {
         let entry = active.appServerRecord && active.appServerSessionId
           ? await fetchAppServerSession(active.appServerRecord, active.appServerSessionId)
           : null;
-        if (!entry && machineIdFromRun(active.context.run) !== 'local' && active.appServerSessionId) {
+        if (!entry && !usesLocalAppServer(machineIdFromRun(active.context.run)) && active.appServerSessionId) {
           try {
             const record = await this.recordForRun(active.context.run);
             const attachment = await attachAppServerSession(record, active.appServerSessionId);
@@ -2945,6 +2948,10 @@ interface FleetPreparedSession {
 function machineIdFromRun(run: RunRecord): string {
   return typeof run.budget.machineId === 'string' && run.budget.machineId.trim()
     ? run.budget.machineId : 'local';
+}
+
+function usesLocalAppServer(targetId: string): boolean {
+  return targetId === 'local' || targetId.startsWith('vm:') || targetId.startsWith('browser:');
 }
 
 function fleetRemoteRecord(endpoint: FleetPreparedSession): BealeAppServerDiscovery {

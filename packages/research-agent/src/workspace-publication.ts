@@ -209,7 +209,7 @@ export function publishWorkspaceResearch(options: WorkspacePublicationOptions): 
         files[path] = content;
       }
     }
-    if (has('app_server_research_resources') || has('resource_prior_art')) {
+    if (has('app_server_research_resources') || has('resource_prior_art') || has('app_server_surfaces')) {
       const resources = owned('app_server_research_resources');
       const priorArt = publishPriorArtRows(owned('resource_prior_art'), files);
       files['references/resources.json'] = json({
@@ -220,6 +220,11 @@ export function publishWorkspaceResearch(options: WorkspacePublicationOptions): 
           touches: rows('app_server_research_resource_touches', 'resource_id = ?', [String(resource.id)]),
         })),
         priorArt,
+        surfaceRoots: owned('app_server_surface_roots'),
+        surfaces: owned('app_server_surfaces'),
+        surfaceTouches: owned('app_server_surface_touches'),
+        surfaceFocus: owned('app_server_surface_focus'),
+        surfaceFocusEvents: owned('app_server_surface_focus_events'),
       });
     }
     const executions = owned("app_server_runbook_executions");

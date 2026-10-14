@@ -289,7 +289,7 @@ final class AppServerContractTests: XCTestCase {
             {
               "ok": true,
               "controlVersion": 1,
-              "contractTimestamp": "2026-10-09T21:24:54.000Z",
+              "contractTimestamp": "2026-10-12T11:58:50.000Z",
               "capabilities": [
                 "session.typed-launch.v2",
                 "session.exit-diagnostics",

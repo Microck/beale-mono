@@ -1799,6 +1799,16 @@ test("rejects a client profile that differs from the registered workspace profil
   );
 });
 
+test('app-server rejects session targets outside the workspace allowlist', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-target-allowlist-'));
+  temporaryDirectories.push(directory);
+  const service = new AppServerHostService({ registry: hostRegistryFixture(directory) });
+  const request = sessionLaunchRequest(directory, { sessionId: 'session-target-allowlist' });
+  await assert.rejects(service.prepareSession({ ...request, launch: {
+    ...request.launch, machineId: 'vm:run:tart:example-vm',
+  } }, 'session-target-allowlist'), /not enabled for the workspace/);
+});
+
 test("app-server preserves OpenAI Fast mode and Daybreak Blue through restart metadata and runtime arguments", async () => {
   const directory = mkdtempSync(join(tmpdir(), "beale-app-server-fast-mode-"));
   temporaryDirectories.push(directory);

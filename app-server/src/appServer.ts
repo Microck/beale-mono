@@ -67,6 +67,7 @@ import {
 } from './sessionRecovery.js';
 import { AppServerWorkerDatabaseCoordinator } from './workerDatabaseBroker.js';
 import { FleetBrowserService } from './fleetBrowser.js';
+import { FleetBrowserSessionManager } from './fleetBrowserSessions.js';
 
 installUndiciTypeOfServiceCompatibility();
 
@@ -206,7 +207,8 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     ? null
     : options.automationScheduler ?? {};
   const sessions = new Map<string, SessionRuntime>();
-  const fleetBrowser = new FleetBrowserService();
+  const fleetBrowserSessions = new FleetBrowserSessionManager();
+  const fleetBrowser = new FleetBrowserService(async (sessionId) => fleetBrowserSessions.endpoint(sessionId));
   const fleetProxySessions = new Map<string, { endpoint: { url: string; operatorToken: string }; clientTokens: Set<string>; completed: boolean;
     workspaceId: string | null; prompt: string; state: string; startedAt: string }>();
   const introspectionBindings = new Map<string, ResidentIntrospectionBinding>();
@@ -852,7 +854,12 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
   ): Promise<StartedSession> {
     const normalized = normalizeSessionRequest(input);
     let request = normalized.request;
-    if (request.launch.machineId && request.launch.machineId !== 'local' && request.launch.fleetOwnerMachineId) {
+    if (sessions.has(normalized.sessionId) && !isTerminal(sessions.get(normalized.sessionId)!.state)) {
+      throw new HttpError(409, `Session ${normalized.sessionId} already exists.`);
+    }
+    if (request.launch.machineId && !request.launch.machineId.startsWith('vm:')
+      && !request.launch.machineId.startsWith('browser:')
+      && request.launch.machineId !== 'local' && request.launch.fleetOwnerMachineId) {
       const fleetState = await hostCall(() => hostService.executeOperation({ operation: 'fleet.state' })) as { role?: unknown };
       if (fleetState.role === 'primary') {
         const endpoint = await hostCall(() => hostService.executeOperation({ operation: 'fleet.prepare', input: {
@@ -913,6 +920,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
         return result;
       } catch (error) {
         if (residentIntrospectionToken) introspectionBindings.delete(residentIntrospectionToken);
+        await hostService.releaseSessionTarget?.(normalized.sessionId).catch(() => undefined);
         throw error;
       }
     })();
@@ -963,6 +971,8 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
       const diagnostic = runtime.diagnostic ?? detail;
       runtime.diagnostic = boundedDiagnostic(diagnostic);
       await recordSessionLaunchFailure(runtime, diagnostic);
+      await fleetBrowserSessions.close(sessionId).catch(() => undefined);
+      await hostService.recordSessionTerminalState?.({ request: runtime.request, sessionId, attemptId, state: 'failed' }).catch(() => undefined);
       throw new HttpError(502, `app-server session failed to start: ${diagnostic}`);
     }
   }
@@ -1127,8 +1137,12 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     attemptWasInitial = false
   ): Promise<void> {
     const { args, env } = prepareAppServerSessionLaunch(prepared.launch);
-    if (runtime.request.launch.browserRelay === true
-      || (runtime.request.launch.machineId && runtime.request.launch.machineId !== 'local')) {
+    delete env.BEALE_FLEET_BROWSER_ENDPOINT;
+    const targetId = runtime.request.launch.machineId ?? 'local';
+    if (targetId.startsWith('browser:') && targetId !== 'browser:in-agent') {
+      env.BEALE_FLEET_BROWSER_ENDPOINT = await fleetBrowserSessions.launch(runtime.sessionId, targetId.slice(8));
+      if (runtime.request.launch.browserRelay === true) fleetBrowser.tokenFor(runtime.sessionId);
+    } else if (runtime.request.launch.browserRelay === true) {
       const token = fleetBrowser.tokenFor(runtime.sessionId);
       env.BEALE_FLEET_BROWSER_ENDPOINT = `http://127.0.0.1:${address.port}/v1/fleet-browser/${encodeURIComponent(runtime.sessionId)}?token=${token}`;
     }
@@ -1428,6 +1442,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     runtime.exitCode = exitCode;
     runtime.state = state;
     runtime.diagnostic = state === 'failed' ? boundedDiagnostic(diagnostic ?? '') : null;
+    void fleetBrowserSessions.close(runtime.sessionId).catch(() => undefined);
     teardownRuntime(runtime, state === 'completed' ? 1000 : 1011);
     notifyChange();
     void recordSessionTerminalState(runtime, state);
@@ -1736,6 +1751,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
   async function close(): Promise<void> {
     closing = true;
     fleetBrowser.close();
+    await fleetBrowserSessions.closeAll();
     hostService.stopFleetModelBrokers?.();
     if (automationTimer) clearInterval(automationTimer);
     automationTimer = null;

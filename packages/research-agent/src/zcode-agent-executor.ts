@@ -16,6 +16,7 @@ import {
   type SubagentRuntimeFactory,
 } from "./subagent-orchestration.js";
 import { createResearchSystemPrompt } from "./system-prompt.js";
+import type { SurfaceStore } from "./surfaces.js";
 import {
   getToolTransportName,
   projectModelToolResult,
@@ -44,6 +45,7 @@ export interface CreateZCodeAgentExecutorOptions {
   workspaceRoot: string;
   reasoning?: string;
   toolRegistry?: ResearchToolRegistry;
+  surfaceStore?: SurfaceStore;
   researchProfile: ResearchProfile;
   promptTemplate?: string;
   workflowId?: string;
@@ -162,6 +164,7 @@ export function createZCodeAgentExecutor(options: CreateZCodeAgentExecutorOption
             ...(options.reasoning ? { rootReasoning: options.reasoning as never } : {}),
             ...(collaboration ? { collaboration } : {}),
             signal: abortController.signal,
+            ...(options.surfaceStore ? { surfaceStore: options.surfaceStore } : {}),
             run: (request) => {
               if (!options.runAlternateSubagent) throw new Error("No provider-neutral channel collaborator is configured.");
               return options.runAlternateSubagent(request, input);

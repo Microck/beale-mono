@@ -1004,8 +1004,8 @@ export class WorkspaceService {
     return invokeAppServerOperation({ operation: 'fleet.remote_catalog', input: { serverId } });
   }
 
-  public getFleetRemoteSession(serverId: string, workspaceId: string, sessionId: string): Promise<unknown> {
-    return invokeAppServerOperation({ operation: 'fleet.remote_session', input: { serverId, workspaceId, sessionId } });
+  public getFleetRemoteSession(serverId: string, workspaceId: string, sessionId: string, beforeEventId?: string): Promise<unknown> {
+    return invokeAppServerOperation({ operation: 'fleet.remote_session', input: { serverId, workspaceId, sessionId, ...(beforeEventId ? { beforeEventId } : {}) } });
   }
 
   public startFleetRemoteSession(serverId: string, workspaceId: string, promptMarkdown: string, machineId: string): Promise<{ sessionId: string }> {
@@ -3558,7 +3558,7 @@ export class WorkspaceService {
       ...(input.collaboration ? { collaboration: normalizeResearchCollaboration(input.collaboration) } : {})
     };
     if (!runtime) throw new Error('No Beale workspace is open');
-    if (normalizedInput.machineId && normalizedInput.machineId !== 'local'
+    if (normalizedInput.machineId?.startsWith('vm:')
       && normalizeRepeatSchedule(normalizedInput.budget.repeatSchedule).type !== 'none') {
       throw new Error('Repeating research sessions are not available on Fleet VMs. Choose No repeat or Local.');
     }
