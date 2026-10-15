@@ -9,8 +9,8 @@ import { isManagedToolPluginId, MANAGED_TOOL_PLUGINS, type ResearchPluginCatalog
 import { WORKSPACE_PRIMARY_DIRECTORY_MISSING_MESSAGE } from '../shared/ipc';
 import { fleetBrowserViewerTargetId } from '../shared/fleet';
 import { findingRevisionContext } from './findingRevisionContext';
-import { AppServerReadTransportError, invokeAppServerOperation } from './bealeAppServerClient';
-import { decodeClaimBoardTransitionRequest, type FleetSshTestInput, type FleetSshTestResult, type FleetState, type ResourcePriorArtPage, type ResourcePriorArtDetail, type ResourcePriorArtListInput } from '@beale/app-server-runtime/protocol';
+import { AppServerReadTransportError, fetchBealeProviderUsageLimits, invokeAppServerOperation } from './bealeAppServerClient';
+import { decodeClaimBoardTransitionRequest, type BealeProviderLimitId, type BealeProviderUsageLimits, type FleetSshTestInput, type FleetSshTestResult, type FleetState, type ResourcePriorArtPage, type ResourcePriorArtDetail, type ResourcePriorArtListInput } from '@beale/app-server-runtime/protocol';
 import {
   WorkspaceDatabase,
   type ProjectSourceCoveragePathRecord,
@@ -2851,6 +2851,10 @@ export class WorkspaceService {
     return (await this.researchProviderAuth.getStatuses()).map((status) => (
       this.researchProviderStatusWithStoredCredential(status)
     ));
+  }
+
+  public getProviderUsageLimits(providerId: BealeProviderLimitId, refresh = false): Promise<BealeProviderUsageLimits> {
+    return fetchBealeProviderUsageLimits(providerId, refresh);
   }
 
   private researchProviderStatusWithStoredCredential(status: ResearchProviderStatus): ResearchProviderStatus {

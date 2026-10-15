@@ -2174,6 +2174,7 @@ export function App(): JSX.Element {
       ) : null}
       <AppNavigationRail
         active={navigationDestination}
+        providerAuthRevision={`${openAiStatus?.subscriptionConfigured ?? ''}:${researchProviderStatuses.map((provider) => `${provider.id}:${provider.subscriptionConfigured}`).join(',')}`}
         onOpenHome={openHome}
         onOpenAutomations={openAutomations}
         onOpenPlugins={openPlugins}

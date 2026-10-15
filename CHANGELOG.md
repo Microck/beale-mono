@@ -6,6 +6,7 @@
 
 #### Added
 
+- Provider settings now show reported subscription limits, including a Session Limit when available, weekly allowance, remaining percentage, reset time, and manual refresh. Provider usage rings occupy the bottom of the left rail, with Settings in the upper icon group, per-provider tooltips, and a 20-minute refresh. The updated control contract timestamp requires rebuilt Desktop and app-server binaries.
 - Fleet settings detect installed CDP-compatible browsers on Windows and macOS, with In-Agent Browser first. External browser targets launch a separate session profile.
 - Sessions opened on another connected primary app server now relay that primary's browser frames and researcher input into the remote session view, including sessions running directly on the primary. Session tokens authorize the browser stream. Control contract v46 requires rebuilt clients and hosts.
 - Fleet can restart local and same-tailnet primary app-server processes through an independent supervisor. Contract v42 requires rebuilt clients and hosts.
@@ -1278,6 +1279,7 @@
 
 #### Added
 
+- Added an authenticated provider-limits read for OpenAI Codex, xAI, and Anthropic with host-only credential probes, a five-minute cache, and sanitized responses. Other providers report unsupported limits.
 - Added resource-rooted research surfaces with agent-created child surfaces, one-time workspace-wide touch, bug-history/coverage/threat-model foundations, bounded lookup, and recorded agent focus changes. Subagent spawns now require a surface assignment; workspace publication retains the surface tree and movement history.
 - VM targets keep the research worker, canonical storage, and provider credentials on the primary app-server. Shell commands execute over SSH in the chosen VM; no guest app-server installation is needed for new VM sessions. Fleet configuration migrates to version 3 with workspace target lists, browser settings, and independent VM run and clone options. Clients and hosts must rebuild for the updated control contract.
 - External browser targets launch a session-specific CDP profile and close it with the session.

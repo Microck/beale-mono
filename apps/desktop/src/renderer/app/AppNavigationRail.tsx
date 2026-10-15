@@ -1,6 +1,8 @@
-import { memo } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { CalendarClock, House, Plug, ServerCog, Settings } from 'lucide-react';
+import { CalendarClock, House, Plug, Server, Settings } from 'lucide-react';
+import type { BealeProviderUsageLimits, ResearchModelProviderId } from '@shared/types';
+import { ProviderIcon } from './ProviderIcon';
 
 export type AppNavigationDestination = 'home' | 'automations' | 'plugins' | 'settings' | 'fleet';
 
@@ -9,8 +11,77 @@ const outlineIcons = {
   automations: CalendarClock,
   plugins: Plug,
   settings: Settings,
-  fleet: ServerCog
+  fleet: Server
 };
+
+const limitProviderNames: Record<ResearchModelProviderId, string> = {
+  'openai-codex': 'OpenAI',
+  xai: 'xAI',
+  anthropic: 'Anthropic',
+  zai: 'Z.ai',
+  openrouter: 'OpenRouter'
+};
+
+const limitProviderOrder: readonly ResearchModelProviderId[] = ['openai-codex', 'xai', 'anthropic', 'zai', 'openrouter'];
+const LIMIT_REFRESH_INTERVAL_MS = 20 * 60_000;
+
+function shortLimitLabel(label: string): string {
+  return label.endsWith(' Limit') ? label.slice(0, -' Limit'.length) : label;
+}
+
+function resetLabel(resetsAt: string | null, remainingPercent: number): string {
+  if (!resetsAt) return `${remainingPercent}% left`;
+  const date = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(resetsAt));
+  return `${remainingPercent}% left | ${date}`;
+}
+
+export function ProviderLimitTooltip({ limit }: { limit: BealeProviderUsageLimits }): JSX.Element {
+  const providerName = limitProviderNames[limit.providerId];
+  return (
+    <div className="app-navigation-limits-menu" id={`app-navigation-limit-${limit.providerId}`} role="tooltip">
+      <div className="app-navigation-limits-provider-name">{providerName}</div>
+      {limit.windows.map((window) => {
+        const remainingPercent = Math.round(100 - window.usedPercent);
+        return (
+          <div className="app-navigation-limits-row" key={window.id}>
+            <span className="app-navigation-limits-label">{shortLimitLabel(window.label)}</span>
+            <div className="app-navigation-limits-track" role="progressbar" aria-label={`${providerName} ${window.label} remaining`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={remainingPercent}>
+              <span style={{ width: `${remainingPercent}%` }} />
+            </div>
+            <span className="app-navigation-limits-reset">{resetLabel(window.resetsAt, remainingPercent)}</span>
+          </div>
+        );
+      })}
+      <div className="app-navigation-limits-updated">Last Update {new Date(limit.checkedAt).toLocaleString()}</div>
+    </div>
+  );
+}
+
+export function ProviderLimitIndicator({ limit }: { limit: BealeProviderUsageLimits }): JSX.Element {
+  const session = limit.windows.find((window) => window.label === 'Session Limit');
+  const weekly = limit.windows.find((window) => window.label === 'Weekly Limit');
+  const outer = weekly ?? limit.windows.find((window) => window !== session) ?? session ?? limit.windows[0];
+  const inner = session && session !== outer ? session : null;
+  const providerName = limitProviderNames[limit.providerId];
+  const description = limit.windows.map((window) => `${shortLimitLabel(window.label)} ${Math.round(100 - window.usedPercent)}% left`).join(', ');
+
+  return (
+    <div className={`app-navigation-limit-icon${inner ? ' has-inner' : ''}`} role="group" tabIndex={0} aria-label={`${providerName} limits: ${description}`} aria-describedby={`app-navigation-limit-${limit.providerId}`}>
+      <svg className="app-navigation-limit-rings" viewBox="0 0 36 36" aria-hidden="true">
+        <circle className="app-navigation-limit-ring-track" cx="18" cy="18" r="16" />
+        <circle className="app-navigation-limit-ring-outer-value" cx="18" cy="18" r="16" pathLength="100" strokeDasharray={`${Math.round(100 - outer.usedPercent)} 100`} data-limit={shortLimitLabel(outer.label)} />
+        {inner ? (
+          <>
+            <circle className="app-navigation-limit-ring-track" cx="18" cy="18" r="10.5" />
+            <circle className="app-navigation-limit-ring-inner-value" cx="18" cy="18" r="10.5" pathLength="100" strokeDasharray={`${Math.round(100 - inner.usedPercent)} 100`} data-limit={shortLimitLabel(inner.label)} />
+          </>
+        ) : null}
+      </svg>
+      <ProviderIcon className="app-navigation-limit-provider-icon" provider={limit.providerId} size={12} aria-hidden="true" />
+      <ProviderLimitTooltip limit={limit} />
+    </div>
+  );
+}
 
 function NavigationIcon({ destination, active }: { destination: AppNavigationDestination; active: boolean }): JSX.Element {
   if (!active) {
@@ -42,9 +113,10 @@ function NavigationIcon({ destination, active }: { destination: AppNavigationDes
       )}
       {destination === 'fleet' && (
         <>
-          <path d="M4 3h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 10h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2z" />
-          <circle cx="6" cy="7.5" fill="var(--panel)" r="1.2" />
-          <circle cx="6" cy="17.5" fill="var(--panel)" r="1.2" />
+          <rect x="2" y="2" width="20" height="8" rx="2" />
+          <rect x="2" y="14" width="20" height="8" rx="2" />
+          <circle cx="6" cy="6" fill="var(--panel)" r="1.2" />
+          <circle cx="6" cy="18" fill="var(--panel)" r="1.2" />
         </>
       )}
     </svg>
@@ -71,6 +143,7 @@ export function resolveAppNavigationDestination({
 
 export const AppNavigationRail = memo(function AppNavigationRail({
   active,
+  providerAuthRevision = '',
   onOpenHome,
   onOpenAutomations,
   onOpenPlugins,
@@ -78,12 +151,60 @@ export const AppNavigationRail = memo(function AppNavigationRail({
   onOpenFleet
 }: {
   active: AppNavigationDestination;
+  providerAuthRevision?: string;
   onOpenHome: () => void;
   onOpenAutomations: () => void;
   onOpenPlugins: () => void;
   onOpenSettings: () => void;
   onOpenFleet: () => void;
 }): JSX.Element {
+  const [limits, setLimits] = useState<Partial<Record<ResearchModelProviderId, BealeProviderUsageLimits>>>({});
+  const limitsRequestId = useRef(0);
+
+  useEffect(() => {
+    const refreshLimits = (): void => {
+      const requestId = ++limitsRequestId.current;
+      void (async () => {
+        const [openAi, others] = await Promise.allSettled([
+          window.beale.getOpenAiStatus(),
+          window.beale.getResearchProviderStatuses()
+        ]);
+        const providerIds: ResearchModelProviderId[] = [];
+        if (openAi.status === 'fulfilled' && openAi.value.subscriptionConfigured) providerIds.push('openai-codex');
+        if (others.status === 'fulfilled') {
+          for (const providerId of ['xai', 'anthropic', 'zai', 'openrouter'] as const) {
+            if (others.value.some((provider) => provider.id === providerId && provider.subscriptionConfigured)) providerIds.push(providerId);
+          }
+        }
+        const results = await Promise.allSettled(providerIds.map((providerId) => window.beale.getProviderUsageLimits(providerId, true)));
+        if (limitsRequestId.current !== requestId) return;
+        setLimits((current) => {
+          const next = { ...current };
+          if (openAi.status === 'fulfilled' && !openAi.value.subscriptionConfigured) delete next['openai-codex'];
+          if (others.status === 'fulfilled') {
+            for (const providerId of ['xai', 'anthropic', 'zai', 'openrouter'] as const) {
+              if (!providerIds.includes(providerId)) delete next[providerId];
+            }
+          }
+          results.forEach((result, index) => {
+            if (result.status !== 'fulfilled') return;
+            const providerId = providerIds[index];
+            if (result.value.status === 'available') {
+              if (result.value.windows.length) next[providerId] = result.value;
+              else delete next[providerId];
+            } else if (result.value.status === 'unsupported' || result.value.status === 'not_configured') {
+              delete next[providerId];
+            }
+          });
+          return next;
+        });
+      })().catch(() => undefined);
+    };
+    refreshLimits();
+    const timer = window.setInterval(refreshLimits, LIMIT_REFRESH_INTERVAL_MS);
+    return () => { window.clearInterval(timer); limitsRequestId.current += 1; };
+  }, [providerAuthRevision]);
+
   return (
     <nav className="app-navigation-rail" aria-label="Main navigation">
       <div className="app-navigation-rail-top">
@@ -100,11 +221,15 @@ export const AppNavigationRail = memo(function AppNavigationRail({
           <button type="button" className={`app-navigation-rail-button${active === 'fleet' ? ' active' : ''}`} data-tooltip="Fleet" aria-label="Fleet" aria-current={active === 'fleet' ? 'page' : undefined} onClick={onOpenFleet}>
             <NavigationIcon destination="fleet" active={active === 'fleet'} />
           </button>
+          <button type="button" className={`app-navigation-rail-button${active === 'settings' ? ' active' : ''}`} data-tooltip="Agent Settings" aria-label="Agent Settings" aria-current={active === 'settings' ? 'page' : undefined} onClick={onOpenSettings}>
+            <NavigationIcon destination="settings" active={active === 'settings'} />
+          </button>
         </div>
       </div>
-      <button type="button" className={`app-navigation-rail-button${active === 'settings' ? ' active' : ''}`} data-tooltip="Agent Settings" aria-label="Agent Settings" aria-current={active === 'settings' ? 'page' : undefined} onClick={onOpenSettings}>
-        <NavigationIcon destination="settings" active={active === 'settings'} />
-      </button>
+      <div className="app-navigation-rail-bottom">
+        {limitProviderOrder.map((providerId) => limits[providerId]?.windows.length
+          ? <ProviderLimitIndicator key={providerId} limit={limits[providerId]} /> : null)}
+      </div>
     </nav>
   );
 });

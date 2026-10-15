@@ -54,7 +54,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-12T11:58:50.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-15T21:53:29.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -119,6 +119,7 @@ export const BEALE_APP_SERVER_SERVER_PATH = "/v1/server" as const;
 export const BEALE_APP_SERVER_SESSIONS_PATH = "/v1/sessions" as const;
 export const BEALE_APP_SERVER_WORKSPACES_PATH = "/v1/workspaces" as const;
 export const BEALE_APP_SERVER_PROVIDERS_PATH = "/v1/providers" as const;
+export const BEALE_APP_SERVER_PROVIDER_LIMITS_PATH = "/v1/providers/limits" as const;
 export const BEALE_APP_SERVER_OPERATIONS_PATH = "/v1/operations" as const;
 export const BEALE_APP_SERVER_SHUTDOWN_PATH = "/v1/server/shutdown" as const;
 export const BEALE_APP_SERVER_SUPERVISOR_LOCAL_PORT = 47_175 as const;
@@ -172,6 +173,24 @@ export interface BealeAppServerProviderCatalog {
   controlVersion: typeof BEALE_APP_SERVER_CONTROL_VERSION;
   defaultProviderId: string | null;
   providers: BealeAppServerProviderCatalogEntry[];
+}
+
+export type BealeProviderLimitId = "openai-codex" | "xai" | "anthropic" | "zai" | "openrouter";
+
+export interface BealeProviderUsageWindow {
+  id: string;
+  label: string;
+  usedPercent: number;
+  resetsAt: string | null;
+  durationMinutes: number | null;
+}
+
+export interface BealeProviderUsageLimits {
+  providerId: BealeProviderLimitId;
+  checkedAt: string;
+  status: "available" | "unsupported" | "not_configured" | "unavailable";
+  detail: string | null;
+  windows: BealeProviderUsageWindow[];
 }
 
 export type BealeAppServerSessionState = "starting" | "running" | "completed" | "failed" | "stopped";
@@ -1106,6 +1125,34 @@ export function decodeBealeAppServerProviderCatalog(value: unknown): BealeAppSer
     defaultProviderId: value.defaultProviderId as string | null,
     providers,
   };
+}
+
+export function decodeBealeProviderUsageLimits(value: unknown): BealeProviderUsageLimits {
+  const providerIds: readonly string[] = ["openai-codex", "xai", "anthropic", "zai", "openrouter"];
+  const statuses: readonly string[] = ["available", "unsupported", "not_configured", "unavailable"];
+  if (!isRecord(value)
+    || !providerIds.includes(String(value.providerId))
+    || !nonEmptyString(value.checkedAt)
+    || !Number.isFinite(Date.parse(value.checkedAt))
+    || !statuses.includes(String(value.status))
+    || !(value.detail === null || typeof value.detail === "string")
+    || !Array.isArray(value.windows)) {
+    throw new Error("Invalid Beale provider usage limits.");
+  }
+  const windows = value.windows.map((window) => {
+    if (!isRecord(window)
+      || !nonEmptyString(window.id)
+      || !nonEmptyString(window.label)
+      || typeof window.usedPercent !== "number"
+      || !Number.isFinite(window.usedPercent)
+      || window.usedPercent < 0 || window.usedPercent > 100
+      || !(window.resetsAt === null || (nonEmptyString(window.resetsAt) && Number.isFinite(Date.parse(window.resetsAt))))
+      || !(window.durationMinutes === null || (typeof window.durationMinutes === "number" && Number.isFinite(window.durationMinutes) && window.durationMinutes > 0))) {
+      throw new Error("Invalid Beale provider usage window.");
+    }
+    return window as unknown as BealeProviderUsageWindow;
+  });
+  return { ...value, windows } as unknown as BealeProviderUsageLimits;
 }
 
 export function decodeBealeAppServerSessionCatalogEntry(value: unknown): BealeAppServerSessionCatalogEntry {

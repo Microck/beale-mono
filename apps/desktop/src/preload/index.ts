@@ -464,6 +464,9 @@ const api: BealeApi = {
   getResearchProviderStatuses(): Promise<ResearchProviderStatus[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.getResearchProviderStatuses);
   },
+  getProviderUsageLimits(providerId: ResearchModelProviderId, refresh = false) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getProviderUsageLimits, providerId, refresh);
+  },
   getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.getResearchProviderModelCatalog);
   },

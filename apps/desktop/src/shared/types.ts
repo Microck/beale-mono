@@ -8,7 +8,8 @@ import type {
   ResearchClaimRating,
   ClaimBoardTransitionRequest,
   ClaimBoardMaturity,
-  SteeringSuggestionResult
+  SteeringSuggestionResult,
+  BealeProviderUsageLimits
 } from '@beale/app-server-runtime/protocol';
 
 export * from './researchProfile';
@@ -24,7 +25,8 @@ export type {
   FleetState,
   FleetMachine,
   FleetSshTestInput,
-  FleetSshTestResult
+  FleetSshTestResult,
+  BealeProviderUsageLimits
 } from '@beale/app-server-runtime/protocol';
 
 export type ScopeAssetDirection = 'in_scope' | 'out_of_scope';
@@ -2470,6 +2472,7 @@ export interface BealeApi {
   unlockProviderApiKeys(providerIds: ResearchModelProviderId[]): Promise<void>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
   getResearchProviderStatuses(): Promise<ResearchProviderStatus[]>;
+  getProviderUsageLimits(providerId: ResearchModelProviderId, refresh?: boolean): Promise<BealeProviderUsageLimits>;
   getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]>;
   startResearchProviderOAuth(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult>;
   getProfilingState(): Promise<ProfilingState>;

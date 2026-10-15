@@ -9,6 +9,7 @@ import type {
   AppServerRemoteAccessSettings,
   AppServerRemoteAccessUpdate,
   OpenAiAccountStatus,
+  BealeProviderUsageLimits,
   OpenAiAuthReadiness,
   OpenAiOAuthStartResult,
   ProviderSettings,
@@ -2561,6 +2562,7 @@ function ProviderSettingsProviderPanel({
   policyBusy,
   policyLocked,
   authentication,
+  subscriptionConfigured,
   additionalSettings
 }: {
   providerId: ResearchModelProviderId;
@@ -2583,6 +2585,7 @@ function ProviderSettingsProviderPanel({
   policyBusy: boolean;
   policyLocked: boolean;
   authentication: JSX.Element;
+  subscriptionConfigured: boolean;
   additionalSettings?: JSX.Element;
 }): JSX.Element {
   return (
@@ -2633,6 +2636,7 @@ function ProviderSettingsProviderPanel({
         </div>
       </section>
       {authentication}
+      <ProviderLimitsSection providerId={providerId} subscriptionConfigured={subscriptionConfigured} />
       {additionalSettings}
       <section className="settings-form provider-settings-form provider-default-models-form">
         <header className="settings-form-heading">
@@ -2766,6 +2770,7 @@ function OpenAiProviderCard({
           onMarkPreferred={onSetPreferredAuthenticationMethod}
         />
       )}
+      subscriptionConfigured={openAiStatus?.subscriptionConfigured ?? false}
       additionalSettings={(
         <section className="settings-form provider-settings-form provider-context-size-form">
           <header className="settings-form-heading">
@@ -2934,7 +2939,74 @@ function ResearchProviderCard({
           onMarkPreferred={onSetPreferredAuthenticationMethod}
         />
       )}
+      subscriptionConfigured={provider.subscriptionConfigured}
     />
+  );
+}
+
+function ProviderLimitsSection({ providerId, subscriptionConfigured }: {
+  providerId: ResearchModelProviderId;
+  subscriptionConfigured: boolean;
+}): JSX.Element {
+  const subscriptionSupported = providerId !== 'openrouter';
+  const [limits, setLimits] = useState<BealeProviderUsageLimits | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
+
+  const load = (refresh: boolean): void => {
+    const current = ++requestId.current;
+    setLoading(true);
+    setError(null);
+    void window.beale.getProviderUsageLimits(providerId, refresh).then((value) => {
+      if (requestId.current === current) setLimits(value);
+    }).catch(() => {
+      if (requestId.current === current) setError('Could not reach the Beale app-server to read limits.');
+    }).finally(() => {
+      if (requestId.current === current) setLoading(false);
+    });
+  };
+
+  useEffect(() => {
+    if (subscriptionConfigured) load(false);
+    else { requestId.current += 1; setLimits(null); setLoading(false); setError(null); }
+    return () => { requestId.current += 1; };
+  }, [providerId, subscriptionConfigured]);
+
+  return (
+    <section className="settings-form provider-settings-form provider-limits-section" aria-label="Subscription limits">
+      <header className="settings-form-heading provider-limits-heading">
+        <div>
+          <h2>Subscription Limits</h2>
+          <p>Allowance reported by your signed-in provider account.</p>
+        </div>
+        {subscriptionSupported && subscriptionConfigured ? (
+          <button className="provider-limits-refresh" type="button" aria-label={`Refresh ${providerCompanyName(providerId)} limits`} title="Refresh limits" disabled={loading} onClick={() => load(true)}>
+            <RefreshCw size={15} aria-hidden="true" />
+          </button>
+        ) : null}
+      </header>
+      <div className="settings-form-squircle provider-settings-form-squircle">
+        {!subscriptionSupported ? <p className="provider-limits-message">This provider does not report subscription limit windows.</p>
+          : !subscriptionConfigured ? <p className="provider-limits-message">Sign in with a subscription to see its limits.</p>
+          : error ? <p className="provider-limits-message" role="status">{error}</p>
+          : loading && !limits ? <p className="provider-limits-message" role="status">Loading limits…</p>
+          : limits?.windows.length ? (
+            <div className="provider-limits-list" aria-busy={loading}>
+              {limits.windows.map((window) => (
+                <div className="provider-limit" key={window.id}>
+                  <div className="provider-limit-heading"><strong>{window.label}</strong><span>{Math.round(100 - window.usedPercent)}% remaining</span></div>
+                  <div className="provider-limit-track" role="progressbar" aria-label={`${window.label} used`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(window.usedPercent)}>
+                    <span style={{ width: `${window.usedPercent}%` }} />
+                  </div>
+                  {window.resetsAt ? <small>Resets {new Date(window.resetsAt).toLocaleString()}</small> : null}
+                </div>
+              ))}
+              <small>Checked {new Date(limits.checkedAt).toLocaleString()}</small>
+            </div>
+          ) : <p className="provider-limits-message" role="status">{limits?.detail ?? 'No subscription limits were reported.'}</p>}
+      </div>
+    </section>
   );
 }
 

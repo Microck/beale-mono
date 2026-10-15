@@ -107,6 +107,7 @@ export const IPC_CHANNELS = {
   unlockProviderApiKeys: 'beale:unlock-provider-api-keys',
   refreshOpenAiStatus: 'beale:refresh-openai-status',
   getResearchProviderStatuses: 'beale:get-research-provider-statuses',
+  getProviderUsageLimits: 'beale:get-provider-usage-limits',
   getResearchProviderModelCatalog: 'beale:get-research-provider-model-catalog',
   startResearchProviderOAuth: 'beale:start-research-provider-oauth',
   getProfilingState: 'beale:get-profiling-state',

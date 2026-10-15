@@ -8,6 +8,10 @@ import {
   BEALE_APP_SERVER_CONTROL_VERSION,
   BEALE_APP_SERVER_CONTRACT_TIMESTAMP,
   BEALE_APP_SERVER_OPERATIONS_PATH,
+  BEALE_APP_SERVER_PROVIDER_LIMITS_PATH,
+  decodeBealeProviderUsageLimits,
+  type BealeProviderLimitId,
+  type BealeProviderUsageLimits,
   BEALE_APP_SERVER_SESSIONS_PATH,
   BEALE_APP_SERVER_SHUTDOWN_PATH,
   BEALE_APP_SERVER_SUPERVISOR_LOCAL_PORT,
@@ -373,6 +377,20 @@ export async function fetchAppServerCanonicalResult<T>(
     throw new Error('The Beale app-server returned an invalid canonical response.');
   }
   return payload.result as T;
+}
+
+export async function fetchBealeProviderUsageLimits(
+  providerId: BealeProviderLimitId,
+  refresh = false
+): Promise<BealeProviderUsageLimits> {
+  const record = await ensureBealeAppServerRunning();
+  const params = new URLSearchParams({ provider: providerId, ...(refresh ? { refresh: '1' } : {}) });
+  const response = await fetch(`${appServerControlUrl(record)}${BEALE_APP_SERVER_PROVIDER_LIMITS_PATH}?${params}`, {
+    headers: { authorization: `Bearer ${record.operatorToken}` },
+    signal: AbortSignal.timeout(15_000)
+  });
+  if (!response.ok) throw new Error(`Could not read provider usage limits (${response.status}).`);
+  return decodeBealeProviderUsageLimits(await response.json() as unknown);
 }
 
 export async function fetchAppServerCanonicalResultWithRecovery<T>(

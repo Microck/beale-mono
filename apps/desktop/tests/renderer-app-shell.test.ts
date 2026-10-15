@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { HostEnvironment, RunDetail, RunRow, WorkspaceSnapshot } from '@shared/types';
 import { AppHeaderTitle, StaticAppHeaderTitle, type AppHeaderViewIcon } from '../src/renderer/app/AppHeaderTitle';
 import { BottomPanel, DEFAULT_BOTTOM_PANEL_OPEN } from '../src/renderer/app/BottomPanel';
-import { AppNavigationRail, resolveAppNavigationDestination } from '../src/renderer/app/AppNavigationRail';
+import { AppNavigationRail, ProviderLimitIndicator, resolveAppNavigationDestination } from '../src/renderer/app/AppNavigationRail';
 import { FleetSidebar } from '../src/renderer/features/fleet/FleetSidebar';
 import { SettingsSidebar } from '../src/renderer/features/settings/SettingsModal';
 import { headerMenuInlineEnd, rightmostHeaderMenuControl, TopBar } from '../src/renderer/app/TopBar';
@@ -63,7 +63,8 @@ describe('renderer app shell view model', () => {
       ['settings-ticketing', 'lucide-ticket'],
       ['automations', 'lucide-calendar-clock'],
       ['reporting', 'lucide-file-text'],
-      ['plugins', 'lucide-plug']
+      ['plugins', 'lucide-plug'],
+      ['fleet', 'lucide-server']
     ];
     for (const [icon, iconClass] of viewIcons) {
       const header = renderToStaticMarkup(createElement(StaticAppHeaderTitle, {
@@ -123,7 +124,7 @@ describe('renderer app shell view model', () => {
     expect(styles).toMatch(/\.session-overview-dialog \.campaign-session-projection\s*\{[^}]*height: 72px;/u);
   });
 
-  it('renders Fleet below Plugins with Settings anchored at the bottom', () => {
+  it('renders Settings after Fleet in the top group and reserves the bottom for limits', () => {
     const onNavigate = () => undefined;
     const html = renderToStaticMarkup(createElement(AppNavigationRail, {
       active: 'settings', onOpenHome: onNavigate, onOpenAutomations: onNavigate,
@@ -138,6 +139,7 @@ describe('renderer app shell view model', () => {
     expect(html.indexOf('aria-label="Home"')).toBeLessThan(html.indexOf('aria-label="Automations"'));
     expect(html.indexOf('aria-label="Plugins"')).toBeLessThan(html.indexOf('aria-label="Fleet"'));
     expect(html.indexOf('aria-label="Fleet"')).toBeLessThan(html.indexOf('aria-label="Agent Settings"'));
+    expect(html.indexOf('aria-label="Agent Settings"')).toBeLessThan(html.indexOf('class="app-navigation-rail-bottom"'));
     expect(html).toContain('class="app-navigation-rail-filled-icon"');
     expect(html).toContain('aria-current="page"');
     expect(html).toContain('width="18"');
@@ -153,6 +155,41 @@ describe('renderer app shell view model', () => {
     expect(styles).toContain('.app-navigation-rail-sections {\n  margin-top: 0;');
     expect(styles).toMatch(/\.app-navigation-rail-button::after\s*\{[^}]*left: calc\(100% \+ 10px\);[^}]*content: attr\(data-tooltip\);/s);
     expect(styles).toContain('.app-navigation-rail-button:focus-visible::after');
+  });
+
+  it('nests Session inside Weekly on a provider rail icon and shows the last update', () => {
+    const html = renderToStaticMarkup(createElement(ProviderLimitIndicator, {
+      limit: {
+        providerId: 'openai-codex', checkedAt: '2033-01-01T00:00:00Z', status: 'available', detail: null,
+        windows: [
+          { id: 'session', label: 'Session Limit', usedPercent: 25, resetsAt: '2033-01-01T05:00:00Z', durationMinutes: 300 },
+          { id: 'weekly', label: 'Weekly Limit', usedPercent: 70, resetsAt: '2033-01-07T00:00:00Z', durationMinutes: 10_080 }
+        ]
+      }
+    }));
+    expect(html).toContain('role="tooltip"');
+    expect(html).toContain('class="app-navigation-limit-icon has-inner"');
+    expect(html).toContain('viewBox="0 0 36 36"');
+    expect(html).toContain('height="12"');
+    expect(html).toMatch(/data-limit="Weekly"[^>]*stroke-dasharray="30 100"|stroke-dasharray="30 100"[^>]*data-limit="Weekly"/u);
+    expect(html).toMatch(/data-limit="Session"[^>]*stroke-dasharray="75 100"|stroke-dasharray="75 100"[^>]*data-limit="Session"/u);
+    expect(html).toContain('>OpenAI</div>');
+    expect(html).toContain('>Session</span>');
+    expect(html).toContain('>Weekly</span>');
+    expect(html).toContain('75% left |');
+    expect(html).toContain('30% left |');
+    expect(html).toContain('Last Update');
+    expect(html.match(/role="progressbar"/gu)).toHaveLength(2);
+
+    const single = renderToStaticMarkup(createElement(ProviderLimitIndicator, {
+      limit: {
+        providerId: 'xai', checkedAt: '2033-01-01T00:00:00Z', status: 'available', detail: null,
+        windows: [{ id: 'weekly', label: 'Weekly Limit', usedPercent: 40, resetsAt: null, durationMinutes: 10_080 }]
+      }
+    }));
+    expect(single).not.toContain('has-inner');
+    expect(single).toContain('data-limit="Weekly"');
+    expect(single).toContain('60% left');
   });
 
   it('shows Fleet forms outside Agent Settings', () => {
@@ -181,6 +218,12 @@ describe('renderer app shell view model', () => {
       expect(html.match(/class="app-navigation-rail-filled-icon"/gu)).toHaveLength(1);
       expect(html.match(/class="lucide lucide-/gu)).toHaveLength(4);
       expect(html.match(/aria-current="page"/gu)).toHaveLength(1);
+      if (active === 'fleet') {
+        expect(html).toContain('<rect x="2" y="2" width="20" height="8" rx="2"></rect>');
+        expect(html).toContain('<rect x="2" y="14" width="20" height="8" rx="2"></rect>');
+      } else {
+        expect(html).toContain('lucide-server');
+      }
     }
   });
 

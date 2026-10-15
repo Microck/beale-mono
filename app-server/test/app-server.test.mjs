@@ -603,6 +603,36 @@ test("publishes a path-free model catalog for connected providers with host defa
   assert.doesNotMatch(JSON.stringify(payload), /credential|token|auth|workspacePath|databasePath/u);
 });
 
+test("serves sanitized provider limits to the authenticated Desktop client", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "beale-app-server-limits-"));
+  temporaryDirectories.push(directory);
+  const host = new AppServerHostService({ registry: hostRegistryFixture(directory) });
+  host.providerUsageLimits = async (providerId, refresh) => ({
+    providerId,
+    checkedAt: "2033-01-01T00:00:00.000Z",
+    status: "available",
+    detail: null,
+    windows: [{ id: "session", label: "Session Limit", usedPercent: refresh ? 20 : 10,
+      resetsAt: "2033-01-01T04:00:00.000Z", durationMinutes: 240 }],
+  });
+  const server = await startAppServer({ hostService: host });
+  servers.push(server);
+  const path = "/v1/providers/limits?provider=openai-codex&refresh=1";
+  assert.equal((await fetch(`${server.url}${path}`)).status, 401);
+  const response = await fetch(`${server.url}${path}`, {
+    headers: { authorization: `Bearer ${server.operatorToken}` },
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.windows[0].label, "Session Limit");
+  assert.equal(payload.windows[0].usedPercent, 20);
+  assert.doesNotMatch(JSON.stringify(payload), /credential|token|authFile|accessToken/u);
+  const invalid = await fetch(`${server.url}/v1/providers/limits?provider=invalid`, {
+    headers: { authorization: `Bearer ${server.operatorToken}` },
+  });
+  assert.equal(invalid.status, 400);
+});
+
 test("executes canonical operations inside the app-server host", async () => {
   const directory = mkdtempSync(join(tmpdir(), "beale-app-server-operation-"));
   temporaryDirectories.push(directory);

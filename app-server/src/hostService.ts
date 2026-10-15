@@ -9,6 +9,8 @@ import {
   APP_SERVER_SESSION_LAUNCH_VERSION,
   type BealeAppServerCanonicalResult,
   type BealeAppServerProviderCatalog,
+  type BealeProviderLimitId,
+  type BealeProviderUsageLimits,
   type BealeMemoryNotificationFeed,
   type BealeWorkspaceMemoryCatalog,
   type BealeWorkspaceClaimSecurityTracking,
@@ -44,6 +46,7 @@ import { FleetRemoteController } from './fleetRemote.js';
 import { FleetModelBrokerQueue } from './fleetModelBrokerQueue.js';
 import type { ModelBrokerRequest } from '@beale/research-agent';
 import { FleetWorkspaceStore } from './fleetWorkspace.js';
+import { ProviderUsageLimitsService } from './providerUsageLimits.js';
 
 type ProtocolInvoker = <T>(
   operation: AppServerProtocolOperation,
@@ -137,6 +140,7 @@ export interface AppServerHostServiceOptions extends AppServerHostRegistryOption
 }
 
 export class AppServerHostService {
+  private readonly providerUsage = new ProviderUsageLimitsService();
   private readonly workspaceWriters = new Map<string, string>();
   private readonly workspaceExclusiveOperations = new Set<string>();
   private readonly registry: AppServerHostRegistry;
@@ -227,6 +231,10 @@ export class AppServerHostService {
           };
         })
     };
+  }
+
+  public providerUsageLimits(providerId: BealeProviderLimitId, refresh = false): Promise<BealeProviderUsageLimits> {
+    return this.providerUsage.read(providerId, refresh);
   }
 
   public async executeOperation(request: {

@@ -13,6 +13,7 @@ import {
   BEALE_APP_SERVER_MAX_REPLAY_FRAMES,
   BEALE_APP_SERVER_OPERATIONS_PATH,
   BEALE_APP_SERVER_PROVIDERS_PATH,
+  BEALE_APP_SERVER_PROVIDER_LIMITS_PATH,
   BEALE_APP_SERVER_SERVER_PATH,
   BEALE_APP_SERVER_SESSIONS_PATH,
   BEALE_APP_SERVER_SHUTDOWN_PATH,
@@ -546,6 +547,16 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     }
     if (request.method === 'GET' && url.pathname === BEALE_APP_SERVER_PROVIDERS_PATH) {
       sendJson(response, 200, hostService.providerCatalog());
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === BEALE_APP_SERVER_PROVIDER_LIMITS_PATH) {
+      const providerId = url.searchParams.get('provider');
+      if (providerId !== 'openai-codex' && providerId !== 'xai' && providerId !== 'anthropic'
+        && providerId !== 'zai' && providerId !== 'openrouter') {
+        sendJson(response, 400, { error: 'Unknown provider.' });
+        return;
+      }
+      sendJson(response, 200, await hostService.providerUsageLimits(providerId, url.searchParams.get('refresh') === '1'));
       return;
     }
     if (request.method === 'GET' && url.pathname === BEALE_APP_SERVER_SERVER_PATH) {
