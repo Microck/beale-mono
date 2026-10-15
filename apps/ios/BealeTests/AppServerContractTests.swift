@@ -114,6 +114,39 @@ final class AppServerContractTests: XCTestCase {
         XCTAssertEqual(reloaded.connections.count, 2)
         XCTAssertEqual(reloaded.serverURL, "https://second.example.ts.net")
         XCTAssertEqual(reloaded.operatorToken, "second-token")
+        XCTAssertEqual(reloaded.connections.map(\.name), ["first", "second"])
+        await reloaded.connectOnLaunch()
+        XCTAssertTrue(reloaded.isConnected)
+        XCTAssertEqual(reloaded.connections.first(where: \.isActive)?.name, "second")
+    }
+
+    @MainActor
+    func testLatestMachineSelectionWinsWhenEarlierConnectionFinishesLater() async throws {
+        let (defaults, suiteName) = makeIsolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let loader = successfulSnapshot
+        let model = AppModel(
+            defaults: defaults,
+            keychain: TestOperatorTokenStore(),
+            snapshotLoader: { endpoint, token in
+                if endpoint.baseURL.host == "first.example.ts.net" {
+                    try await Task.sleep(for: .milliseconds(120))
+                }
+                return try await loader(endpoint, token)
+            }
+        )
+        await model.configureAndConnect(serverURL: "https://first.example.ts.net", operatorToken: "first-token")
+        await model.configureAndConnect(serverURL: "https://second.example.ts.net", operatorToken: "second-token")
+        let first = try XCTUnwrap(model.connections.first { $0.name == "first" })
+        let second = try XCTUnwrap(model.connections.first { $0.name == "second" })
+
+        let earlier = Task { await model.connect(to: first) }
+        try await Task.sleep(for: .milliseconds(10))
+        await model.connect(to: second)
+        await earlier.value
+
+        XCTAssertEqual(model.serverURL, second.serverURL)
+        XCTAssertEqual(model.connections.first(where: \.isActive)?.id, second.id)
     }
 
     @MainActor
@@ -316,6 +349,75 @@ final class AppServerContractTests: XCTestCase {
         )
         let health = try JSONDecoder().decode(AppServerHealth.self, from: data)
         XCTAssertNoThrow(try health.validateCompatibility())
+    }
+
+    func testValidatesCurrentServerDescriptorEndpoints() throws {
+        let descriptor = AppServerDescriptor(
+            ok: true,
+            controlVersion: BealeAppServerContract.controlVersion,
+            contractTimestamp: BealeAppServerContract.contractTimestamp,
+            capabilities: Array(BealeAppServerContract.requiredCapabilities),
+            sessionLaunchVersion: BealeAppServerContract.sessionLaunchVersion,
+            appServerProtocolVersion: BealeAppServerContract.appServerProtocolVersion,
+            endpoints: AppServerDescriptor.Endpoints(
+                sessions: "/v1/sessions",
+                workspaces: "/v1/workspaces",
+                providers: "/v1/providers",
+                operations: "/v1/operations",
+                shutdown: "/v1/server/shutdown"
+            ),
+            limits: AppServerDescriptor.Limits(
+                requestBodyBytes: 1_048_576,
+                frameBytes: 1_048_576,
+                replayBytes: 4_194_304,
+                replayFrames: 256
+            )
+        )
+        XCTAssertNoThrow(try descriptor.validateCompatibility())
+
+        let changed = AppServerDescriptor(
+            ok: descriptor.ok,
+            controlVersion: descriptor.controlVersion,
+            contractTimestamp: descriptor.contractTimestamp,
+            capabilities: descriptor.capabilities,
+            sessionLaunchVersion: descriptor.sessionLaunchVersion,
+            appServerProtocolVersion: descriptor.appServerProtocolVersion,
+            endpoints: AppServerDescriptor.Endpoints(
+                sessions: "/v2/sessions",
+                workspaces: "/v1/workspaces",
+                providers: "/v1/providers",
+                operations: "/v1/operations",
+                shutdown: "/v1/server/shutdown"
+            ),
+            limits: descriptor.limits
+        )
+        XCTAssertThrowsError(try changed.validateCompatibility())
+    }
+
+    func testSessionHeatUsesHighestActiveFindingForCurrentSession() {
+        func claim(id: String, sessionIDs: [String], maturity: String, rating: String) -> AppServerWorkspaceResearchClaim {
+            AppServerWorkspaceResearchClaim(
+                id: id, sessionIds: sessionIDs, projection: "finding", maturity: maturity,
+                freshness: "current", workflow: "open", rating: rating,
+                classification: "example", componentClaimIds: [], duplicateClaims: [],
+                title: "Synthetic finding", summary: "", impact: "", confidence: 0,
+                evidenceCount: 0, createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z", revision: 1
+            )
+        }
+        let catalog = AppServerWorkspaceMemoryCatalog(
+            schemaVersion: 4, workspaceId: "workspace-example", status: "ready",
+            nodeCount: 0, nodeTypeCounts: [:], nodes: [], leads: [],
+            findings: [
+                claim(id: "finding-low", sessionIDs: ["session-example"], maturity: "observed", rating: "low"),
+                claim(id: "finding-high", sessionIDs: ["session-example"], maturity: "verified", rating: "high"),
+                claim(id: "finding-other", sessionIDs: ["session-other"], maturity: "verified", rating: "critical"),
+                claim(id: "finding-refuted", sessionIDs: ["session-example"], maturity: "refuted", rating: "critical")
+            ]
+        )
+        XCTAssertEqual(catalog.sessionHeat(for: "session-example"), .high)
+        XCTAssertEqual(catalog.sessionHeat(for: "session-other"), .critical)
+        XCTAssertEqual(catalog.sessionHeat(for: "session-unknown"), .none)
     }
 
     func testValidatesCurrentWebSocketServerHello() throws {

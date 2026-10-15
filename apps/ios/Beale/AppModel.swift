@@ -12,6 +12,7 @@ struct AppConnection: Identifiable, Equatable, Sendable {
     let name: String
     let serverURL: String
     let status: String
+    let isSelected: Bool
     let isActive: Bool
 }
 
@@ -65,6 +66,7 @@ final class AppModel: ObservableObject {
     private let snapshotLoader: @Sendable (AppServerEndpoint, String) async throws -> AppServerSnapshot
     private var selectedConnectionID: String?
     private var pendingConnectionID: String?
+    private var connectionAttemptID: UUID?
     private let selectedConnectionIDKey = "BealeSelectedConnectionID"
     private let legacyServerURLKey = "BealeServerURL"
     private let memoryNotificationsEnabledKey = "BealeMemoryNotificationsEnabled"
@@ -155,12 +157,20 @@ final class AppModel: ObservableObject {
             }
             return AppConnection(
                 id: connection.id,
-                name: URL(string: connection.serverURL)?.host ?? "Beale App Server",
+                name: Self.machineName(for: connection.serverURL),
                 serverURL: connection.serverURL,
                 status: status,
+                isSelected: isCurrent,
                 isActive: isCurrent && isConnected
             )
         }
+    }
+
+    private static func machineName(for serverURL: String) -> String {
+        guard let host = URL(string: serverURL)?.host, !host.isEmpty else {
+            return "Beale App Server"
+        }
+        return host.split(separator: ".", maxSplits: 1).first.map(String.init) ?? host
     }
 
     func operatorToken(for connection: AppConnection) -> String {
@@ -182,6 +192,10 @@ final class AppModel: ObservableObject {
 
     func memoryCatalog(for workspace: AppServerWorkspace) -> AppServerWorkspaceMemoryCatalog? {
         workspaceMemoryCatalogs[workspace.workspaceId]
+    }
+
+    func sessionHeat(for session: AppServerWorkspaceSession, in workspace: AppServerWorkspace) -> AppServerSessionHeat {
+        workspaceMemoryCatalogs[workspace.workspaceId]?.sessionHeat(for: session.id) ?? .none
     }
 
     func isLoadingMemory(for workspace: AppServerWorkspace) -> Bool {
@@ -262,16 +276,21 @@ final class AppModel: ObservableObject {
     }
 
     func connect() async {
-        guard connectionState != .connecting else { return }
+        let attemptID = UUID()
+        connectionAttemptID = attemptID
+        let requestedServerURL = serverURL
+        let requestedToken = operatorToken
+        let requestedConnectionID = pendingConnectionID
         connectionState = .connecting
         do {
-            let endpoint = try AppServerEndpoint(serverURL)
-            let token = operatorToken.trimmingCharacters(in: .whitespacesAndNewlines)
+            let endpoint = try AppServerEndpoint(requestedServerURL)
+            let token = requestedToken.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !token.isEmpty else {
                 throw AppServerClientError.rejected(status: 401, message: "Enter the app-server operator token.")
             }
             let snapshot = try await snapshotLoader(endpoint, token)
-            let connectionID = pendingConnectionID
+            guard connectionAttemptID == attemptID else { return }
+            let connectionID = requestedConnectionID
                 ?? savedConnections.first(where: { $0.serverURL == endpoint.baseURL.absoluteString })?.id
                 ?? UUID().uuidString
             try keychain.saveOperatorToken(token, connectionID: connectionID)
@@ -295,6 +314,7 @@ final class AppModel: ObservableObject {
                 scheduleBackgroundMemoryRefresh()
             }
         } catch {
+            guard connectionAttemptID == attemptID else { return }
             health = nil
             providerCatalog = nil
             workspaces = []
@@ -311,6 +331,7 @@ final class AppModel: ObservableObject {
     func connect(to connection: AppConnection) async {
         guard connections.contains(where: { $0.id == connection.id }) else { return }
         selectedConnectionID = connection.id
+        defaults.set(connection.id, forKey: selectedConnectionIDKey)
         pendingConnectionID = connection.id
         serverURL = connection.serverURL
         operatorToken = keychain.loadOperatorToken(connectionID: connection.id)
@@ -974,6 +995,7 @@ final class AppModel: ObservableObject {
         keychain.deleteOperatorToken(connectionID: connection.id)
 
         guard removedCurrentConnection else { return }
+        connectionAttemptID = nil
         closeSessionControlChannels()
         selectedConnectionID = nil
         pendingConnectionID = nil

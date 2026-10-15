@@ -2,7 +2,8 @@
 
 Beale iOS is a small SwiftUI client for the Beale app-server and shared live app-server sessions:
 
-- launch presents saved app-server connections as a selectable list plus an Add Connection path for QR or manual provisioning;
+- launch attempts to reconnect to the most recently selected app-server; a persistent top bar offers each saved machine as a pill named from its Tailscale hostname prefix, with a circular menu button on the left;
+- when disconnected, the main view shows connection status, retry, and an Add Connection path for QR or manual provisioning;
 - each saved connection keeps its own operator token in the iOS Keychain; tokens are never compiled into the application;
 - `/health` is checked for control-version and capability compatibility;
 - after connecting, the main Workspaces catalog lists registered workspaces and each workspace's three newest named sessions, with expandable session lists;
@@ -10,7 +11,8 @@ Beale iOS is a small SwiftUI client for the Beale app-server and shared live app
 - session rows open their canonical transcript with flat Desktop-style commentary, compact grouped tool summaries, responses, user bubbles, and the same Lucide Brain reasoning icon as Desktop; the icon-only status circle opens Active and Completed subagent rows with their latest message, channel, model, and activity age, and each row opens that subagent's commentary;
 - active session views steer through the authenticated HTTP control contract, stop the same live session as Desktop from the composer's trailing action, mint a scoped WebSocket attachment token only for shell or computer-use approval decisions, retain Stop alongside pending approval actions, and continue polling the cursor-based transcript feed for canonical cross-device reconciliation;
 - blocked, completed, failed, and stopped session views keep the message composer available and continue the same canonical session with its original request, transcript, and attempt history;
-- the leading menu includes Settings with horizontal General and Connections views; Connections uses the same collection-based catalog and Add Connection flow;
+- the leading menu remains available across workspace, session, settings, and scanner navigation and includes Settings with horizontal General and Connections views;
+- mobile uses the Desktop dark gradient colors, and an open session adds the Desktop heat color for its highest-rated active finding in the current app-server memory catalog;
 - an opt-in notification setting under General presents local iPhone alerts only for Medium or High findings that become Observed, Reproduced, or Verified;
 - active session views check the path-free memory notification feed every six seconds, while an iOS app-refresh task provides opportunistic background checks;
 - the leading menu's Workspaces action returns to that catalog from nested workspace or session views;

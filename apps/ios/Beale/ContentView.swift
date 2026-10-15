@@ -3,10 +3,70 @@ import UIKit
 import UserNotifications
 
 private enum BealeTheme {
-    static let chrome = Color(red: 21 / 255, green: 21 / 255, blue: 21 / 255)
-    static let panel = Color(red: 13 / 255, green: 13 / 255, blue: 13 / 255)
+    static let chrome = Color(red: 21 / 255, green: 21 / 255, blue: 21 / 255).opacity(0.72)
+    static let panel = Color(red: 13 / 255, green: 13 / 255, blue: 13 / 255).opacity(0.78)
     static let text = Color(red: 242 / 255, green: 242 / 255, blue: 242 / 255)
     static let muted = Color(red: 150 / 255, green: 150 / 255, blue: 150 / 255)
+    static let gradientStart = Color(red: 42 / 255, green: 42 / 255, blue: 42 / 255)
+    static let gradientMiddle = Color(red: 29 / 255, green: 29 / 255, blue: 29 / 255)
+    static let gradientEnd = Color(red: 21 / 255, green: 21 / 255, blue: 21 / 255)
+
+    static func heatColor(_ heat: AppServerSessionHeat) -> Color {
+        switch heat {
+        case .none: .clear
+        case .low: Color(red: 133 / 255, green: 115 / 255, blue: 0)
+        case .medium: Color(red: 97 / 255, green: 45 / 255, blue: 0)
+        case .high: Color(red: 126 / 255, green: 17 / 255, blue: 23 / 255)
+        case .critical: Color(red: 92 / 255, green: 0, blue: 6 / 255)
+        }
+    }
+}
+
+private struct BealeGradientBackground: View {
+    let heat: AppServerSessionHeat
+
+    var body: some View {
+        GeometryReader { geometry in
+            let radius = max(geometry.size.width, geometry.size.height)
+            ZStack {
+                LinearGradient(
+                    colors: [BealeTheme.gradientMiddle, BealeTheme.gradientEnd],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                RadialGradient(
+                    colors: [BealeTheme.gradientStart, .clear],
+                    center: UnitPoint(x: 0.12, y: 0.08),
+                    startRadius: 0,
+                    endRadius: radius * 0.55
+                )
+                RadialGradient(
+                    colors: [BealeTheme.gradientMiddle, .clear],
+                    center: UnitPoint(x: 0.88, y: 0.92),
+                    startRadius: 0,
+                    endRadius: radius * 0.60
+                )
+                if heat != .none {
+                    RadialGradient(
+                        colors: [BealeTheme.heatColor(heat).opacity(0.88), .clear],
+                        center: .top,
+                        startRadius: 0,
+                        endRadius: radius * 0.82
+                    )
+                }
+            }
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
+private struct SessionHeatPreferenceKey: PreferenceKey {
+    static var defaultValue: AppServerSessionHeat = .none
+
+    static func reduce(value: inout AppServerSessionHeat, nextValue: () -> AppServerSessionHeat) {
+        value = nextValue()
+    }
 }
 
 struct ContentView: View {
@@ -14,54 +74,34 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var navigationPath = NavigationPath()
     @State private var showingSettings = false
+    @State private var displayedSessionHeat: AppServerSessionHeat = .none
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
-            Group {
-                if model.isConnected {
-                    WorkspacesView(model: model)
-                } else {
-                    ConnectionChooserView(model: model)
-                }
-            }
-            .navigationTitle(model.isConnected ? "Workspaces" : "Connect")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                if model.isConnected {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Menu {
-                            Button {
-                                navigationPath = NavigationPath()
-                            } label: {
-                                Label("Workspaces", systemImage: "folder")
-                            }
-                            Button {
-                                showingSettings = true
-                            } label: {
-                                Label("Settings", systemImage: "gearshape")
-                            }
-                        } label: {
-                            Image(systemName: "line.3.horizontal")
-                        }
-                        .accessibilityLabel("Menu")
-                    }
+        ZStack {
+            BealeGradientBackground(heat: displayedSessionHeat)
 
+            VStack(spacing: 0) {
+                machineBar
+                NavigationStack(path: $navigationPath) {
+                    Group {
+                        if showingSettings {
+                            BealeSettingsView(model: model)
+                        } else if model.isConnected {
+                            WorkspacesView(model: model)
+                        } else {
+                            ConnectionStatusView(model: model)
+                        }
+                    }
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbarBackground(.hidden, for: .navigationBar)
                 }
             }
         }
-        .sheet(isPresented: $showingSettings) {
-            NavigationStack {
-                BealeSettingsView(model: model)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showingSettings = false }
-                        }
-                    }
-            }
+        .onPreferenceChange(SessionHeatPreferenceKey.self) { heat in
+            withAnimation(.easeInOut(duration: 0.7)) { displayedSessionHeat = heat }
         }
         .task {
+            await model.connectOnLaunch()
             await model.refreshMemoryNotificationAuthorization()
         }
         .task(id: model.memoryNotificationsEnabled && model.isConnected) {
@@ -76,9 +116,70 @@ struct ContentView: View {
         }
         .onChange(of: model.isConnected) { _, _ in
             navigationPath = NavigationPath()
+            if model.isConnected { showingSettings = false }
         }
         .tint(BealeTheme.text)
         .preferredColorScheme(.dark)
+    }
+
+    private var machineBar: some View {
+        HStack(spacing: 10) {
+            Menu {
+                Button {
+                    showingSettings = false
+                    navigationPath = NavigationPath()
+                } label: {
+                    Label("Workspaces", systemImage: "folder")
+                }
+                Button {
+                    showingSettings = true
+                    navigationPath = NavigationPath()
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 40, height: 40)
+                    .background(.white.opacity(0.10), in: Circle())
+                    .overlay(Circle().strokeBorder(.white.opacity(0.16)))
+            }
+            .accessibilityLabel("Menu")
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(model.connections) { connection in
+                        Button {
+                            showingSettings = false
+                            navigationPath = NavigationPath()
+                            Task { await model.connect(to: connection) }
+                        } label: {
+                            HStack(spacing: 6) {
+                                if connection.isSelected && model.connectionState == .connecting {
+                                    ProgressView().controlSize(.mini)
+                                } else if connection.isActive {
+                                    Circle().fill(.green).frame(width: 6, height: 6)
+                                }
+                                Text(connection.name).lineLimit(1)
+                            }
+                            .font(.subheadline.weight(connection.isSelected ? .semibold : .medium))
+                            .padding(.horizontal, 14)
+                            .frame(height: 34)
+                            .background(
+                                connection.isSelected ? .white.opacity(0.18) : .white.opacity(0.08),
+                                in: Capsule()
+                            )
+                            .overlay(Capsule().strokeBorder(.white.opacity(connection.isSelected ? 0.28 : 0.12)))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(connection.name), \(connection.status)")
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
     }
 }
 
@@ -107,10 +208,9 @@ private struct WorkspacesView: View {
         }
         .navigationTitle("Workspaces")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .scrollContentBackground(.hidden)
-        .background(BealeTheme.panel)
+        .background(BealeGradientBackground(heat: .none))
         .refreshable {
             await model.refreshWorkspaces()
         }
@@ -265,8 +365,7 @@ private struct RemoteWorkspaceView: View {
         }
         .navigationTitle(workspace.name)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -278,12 +377,13 @@ private struct RemoteWorkspaceView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(BealeTheme.panel)
-        .sheet(isPresented: $showingNewSession, onDismiss: openPendingSession) {
+        .background(BealeGradientBackground(heat: .none))
+        .navigationDestination(isPresented: $showingNewSession) {
             NewWorkspaceSessionView(workspace: workspace, model: model) { session in
                 pendingStartedSession = session
                 showingNewSession = false
             }
+            .onDisappear(perform: openPendingSession)
         }
         .navigationDestination(
             isPresented: Binding(
@@ -377,7 +477,7 @@ private struct NewWorkspaceSessionView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        Group {
             Form {
                 Section {
                     TextField("What should Beale research?", text: $prompt, axis: .vertical)
@@ -583,10 +683,9 @@ private struct NewWorkspaceSessionView: View {
             }
             .navigationTitle("New Research")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .scrollContentBackground(.hidden)
-            .background(BealeTheme.panel)
+            .background(BealeGradientBackground(heat: .none))
             .interactiveDismissDisabled(isStarting || isAddingContext)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -847,10 +946,9 @@ private struct WorkspaceMemoriesView: View {
         }
         .navigationTitle("Memories")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .scrollContentBackground(.hidden)
-        .background(BealeTheme.panel)
+        .background(BealeGradientBackground(heat: .none))
         .searchable(text: $searchText, prompt: "Filter memories")
         .task {
             await model.loadMemory(for: workspace)
@@ -954,10 +1052,9 @@ private struct WorkspaceClaimsView: View {
         }
         .navigationTitle("Claims")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .scrollContentBackground(.hidden)
-        .background(BealeTheme.panel)
+        .background(BealeGradientBackground(heat: .none))
         .searchable(text: $searchText, prompt: "Filter leads or findings")
         .task {
             await model.loadMemory(for: workspace)
@@ -1073,10 +1170,9 @@ private struct WorkspaceClaimDetailView: View {
         }
         .navigationTitle(claim.projection.capitalized)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .scrollContentBackground(.hidden)
-        .background(BealeTheme.panel)
+        .background(BealeGradientBackground(heat: .none))
     }
 
     private func markDuplicate() {
@@ -1213,10 +1309,9 @@ private struct WorkspaceMemoryDetailView: View {
         }
         .navigationTitle("Memory")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .scrollContentBackground(.hidden)
-        .background(BealeTheme.panel)
+        .background(BealeGradientBackground(heat: .none))
     }
 
     private func markDuplicate() {
@@ -1264,7 +1359,6 @@ private struct RemoteSessionView: View {
     let session: AppServerWorkspaceSession
     @ObservedObject var model: AppModel
     @State private var steeringInstruction = ""
-    @State private var isShowingSubagents = false
 
     private var currentSession: AppServerWorkspaceSession {
         model.currentSession(session, in: workspace)
@@ -1319,7 +1413,7 @@ private struct RemoteSessionView: View {
                 .frame(maxWidth: 760)
                 .frame(maxWidth: .infinity)
             }
-            .background(BealeTheme.panel)
+            .background(BealeGradientBackground(heat: model.sessionHeat(for: session, in: workspace)))
             .refreshable {
                 await model.refreshSession(session, in: workspace)
             }
@@ -1331,25 +1425,17 @@ private struct RemoteSessionView: View {
         }
         .navigationTitle(currentSession.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    isShowingSubagents = true
+                NavigationLink {
+                    SessionSubagentsView(workspace: workspace, session: currentSession, model: model)
                 } label: {
                     SessionStatusView(status: currentSession.status)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Session status: \(currentSession.status). Show subagents.")
             }
-        }
-        .sheet(isPresented: $isShowingSubagents) {
-            SessionSubagentsView(
-                workspace: workspace,
-                session: currentSession,
-                model: model
-            )
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if currentSession.status == "active" {
@@ -1405,6 +1491,10 @@ private struct RemoteSessionView: View {
         .task(id: "\(session.id):\(currentSession.status)") {
             await model.followSession(session, in: workspace)
         }
+        .preference(
+            key: SessionHeatPreferenceKey.self,
+            value: model.sessionHeat(for: session, in: workspace)
+        )
     }
 }
 
@@ -1724,7 +1814,6 @@ private struct SessionSubagentsView: View {
     let workspace: AppServerWorkspace
     let session: AppServerWorkspaceSession
     @ObservedObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
 
     private var currentSession: AppServerWorkspaceSession {
         model.currentSession(session, in: workspace)
@@ -1743,8 +1832,7 @@ private struct SessionSubagentsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
+        List {
                 if model.isLoadingCollaboration(for: session), subagents.isEmpty {
                     HStack {
                         Spacer()
@@ -1773,27 +1861,23 @@ private struct SessionSubagentsView: View {
                     session: currentSession,
                     model: model
                 )
-            }
-            .navigationTitle("Subagents")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .scrollContentBackground(.hidden)
-            .background(BealeTheme.panel)
-            .refreshable {
-                await model.loadCollaboration(for: session, in: workspace, force: true)
-                await model.loadTranscript(for: session, in: workspace, force: true)
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
         }
-        .preferredColorScheme(.dark)
+        .navigationTitle("Subagents")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .scrollContentBackground(.hidden)
+        .background(BealeGradientBackground(heat: model.sessionHeat(for: session, in: workspace)))
+        .refreshable {
+            await model.loadCollaboration(for: session, in: workspace, force: true)
+            await model.loadTranscript(for: session, in: workspace, force: true)
+        }
         .task(id: session.id) {
             await model.loadCollaboration(for: session, in: workspace)
         }
+        .preference(
+            key: SessionHeatPreferenceKey.self,
+            value: model.sessionHeat(for: session, in: workspace)
+        )
     }
 }
 
@@ -1937,7 +2021,7 @@ private struct RemoteSubagentCommentaryView: View {
                 .frame(maxWidth: 760)
                 .frame(maxWidth: .infinity)
             }
-            .background(BealeTheme.panel)
+            .background(BealeGradientBackground(heat: model.sessionHeat(for: session, in: workspace)))
             .refreshable {
                 await model.loadTranscript(for: session, in: workspace, force: true)
                 await model.loadCollaboration(for: session, in: workspace, force: true)
@@ -1950,8 +2034,11 @@ private struct RemoteSubagentCommentaryView: View {
         }
         .navigationTitle(agent.displayName)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .preference(
+            key: SessionHeatPreferenceKey.self,
+            value: model.sessionHeat(for: session, in: workspace)
+        )
     }
 }
 
@@ -2037,9 +2124,8 @@ private struct BealeSettingsView: View {
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .background(BealeTheme.panel.ignoresSafeArea())
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .background(BealeGradientBackground(heat: .none))
     }
 }
 
@@ -2072,7 +2158,7 @@ private struct GeneralSettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(BealeTheme.panel)
+        .background(BealeGradientBackground(heat: .none))
     }
 }
 
@@ -2102,72 +2188,59 @@ private struct ConnectionsSettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(BealeTheme.panel)
+        .background(BealeGradientBackground(heat: .none))
     }
 }
 
-private struct ConnectionChooserView: View {
+private struct ConnectionStatusView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        List {
-            Section {
-                if model.connections.isEmpty {
-                    ContentUnavailableView(
-                        "No Connections",
-                        systemImage: "network.slash",
-                        description: Text("Add this Mac's Beale app-server to get started.")
-                    )
-                    .listRowBackground(BealeTheme.panel)
-                } else {
-                    ForEach(model.connections) { connection in
-                        Button {
-                            Task { await model.connect(to: connection) }
-                        } label: {
-                            HStack(spacing: 12) {
-                                ConnectionSettingsRow(connection: connection)
-                                Spacer(minLength: 8)
-                                if connection.status == "Connecting" {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(BealeTheme.muted)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(model.connectionState == .connecting)
-                    }
-                }
-            } header: {
-                Text("Available Connections")
-            } footer: {
-                if !model.connections.isEmpty {
-                    Text("Choose a saved Beale app-server to connect.")
-                }
+        VStack(spacing: 18) {
+            Spacer()
+            switch model.connectionState {
+            case .connecting:
+                ProgressView()
+                Text("Connecting to \(model.connections.first(where: \.isSelected)?.name ?? "Beale")")
+                    .font(.headline)
+            case .failed(let message):
+                Image(systemName: "network.slash")
+                    .font(.largeTitle)
+                    .foregroundStyle(BealeTheme.muted)
+                Text("Connection unavailable").font(.headline)
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(BealeTheme.muted)
+                    .multilineTextAlignment(.center)
+                Button("Try Again") { Task { await model.connect() } }
+                    .buttonStyle(.borderedProminent)
+            case .notConfigured, .connected:
+                Image(systemName: "network")
+                    .font(.largeTitle)
+                    .foregroundStyle(BealeTheme.muted)
+                Text(model.connections.isEmpty ? "Add a machine" : "Choose a machine above")
+                    .font(.headline)
+                Text(model.connections.isEmpty
+                     ? "Connect this iPhone to a Beale app-server."
+                     : "Tap a machine pill to connect.")
+                    .font(.subheadline)
+                    .foregroundStyle(BealeTheme.muted)
             }
-
-            if case .failed(let message) = model.connectionState {
-                Section {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                }
+            NavigationLink {
+                ConnectionView(model: model)
+                    .navigationTitle("Add Connection")
+                    .navigationBarTitleDisplayMode(.inline)
+            } label: {
+                Label("Add Connection", systemImage: "plus.circle")
             }
-
-            Section {
-                NavigationLink {
-                    ConnectionView(model: model)
-                        .navigationTitle("Add Connection")
-                        .navigationBarTitleDisplayMode(.inline)
-                } label: {
-                    Label("Add Connection", systemImage: "plus.circle")
-                }
-            }
+            .buttonStyle(.bordered)
+            Spacer()
         }
-        .scrollContentBackground(.hidden)
-        .background(BealeTheme.panel)
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(BealeGradientBackground(heat: .none))
+        .navigationTitle("Beale")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -2284,28 +2357,24 @@ private struct ConnectionView: View {
             }
         }
         .scrollContentBackground(.hidden)
-        .background(BealeTheme.panel)
-        .sheet(isPresented: $showingScanner) {
-            NavigationStack {
-                QRCodeScannerView(
-                    onCode: applyScannedCode,
-                    onFailure: { message in
-                        showingScanner = false
-                        scannerError = message
-                    }
-                )
-                .ignoresSafeArea(edges: .bottom)
-                .navigationTitle("Scan App Server")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(BealeTheme.chrome, for: .navigationBar)
-                .toolbarBackground(.visible, for: .navigationBar)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { showingScanner = false }
-                    }
+        .background(BealeGradientBackground(heat: .none))
+        .navigationDestination(isPresented: $showingScanner) {
+            QRCodeScannerView(
+                onCode: applyScannedCode,
+                onFailure: { message in
+                    showingScanner = false
+                    scannerError = message
+                }
+            )
+            .ignoresSafeArea(edges: .bottom)
+            .navigationTitle("Scan App Server")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showingScanner = false }
                 }
             }
-            .preferredColorScheme(.dark)
         }
         .alert("QR Code Not Accepted", isPresented: Binding(
             get: { scannerError != nil },

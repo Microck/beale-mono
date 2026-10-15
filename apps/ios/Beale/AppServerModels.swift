@@ -180,10 +180,37 @@ struct AppServerWebSocketServerHello: Decodable, Sendable {
 }
 
 struct AppServerDescriptor: Decodable, Sendable {
+    struct Endpoints: Decodable, Sendable {
+        let sessions: String
+        let workspaces: String
+        let providers: String
+        let operations: String
+        let shutdown: String
+    }
+
+    struct Limits: Decodable, Sendable {
+        let requestBodyBytes: Int
+        let frameBytes: Int
+        let replayBytes: Int
+        let replayFrames: Int
+    }
+
+    let ok: Bool
+    let controlVersion: Int
+    let contractTimestamp: String
+    let capabilities: [String]
     let sessionLaunchVersion: Int
     let appServerProtocolVersion: Int
+    let endpoints: Endpoints
+    let limits: Limits
 
     func validateCompatibility() throws {
+        try AppServerHealth(
+            ok: ok,
+            controlVersion: controlVersion,
+            contractTimestamp: contractTimestamp,
+            capabilities: capabilities
+        ).validateCompatibility()
         guard sessionLaunchVersion == BealeAppServerContract.sessionLaunchVersion else {
             throw AppServerClientError.incompatible(
                 "Session launch version \(sessionLaunchVersion) is not supported by this app."
@@ -193,6 +220,17 @@ struct AppServerDescriptor: Decodable, Sendable {
             throw AppServerClientError.incompatible(
                 "app-server protocol version \(appServerProtocolVersion) is not supported by this app."
             )
+        }
+        guard endpoints.sessions == "/v1/sessions",
+              endpoints.workspaces == "/v1/workspaces",
+              endpoints.providers == "/v1/providers",
+              endpoints.operations == "/v1/operations",
+              endpoints.shutdown == "/v1/server/shutdown",
+              limits.requestBodyBytes > 0,
+              limits.frameBytes > 0,
+              limits.replayBytes == 4_194_304,
+              limits.replayFrames == 256 else {
+            throw AppServerClientError.incompatible("The app-server descriptor does not match this client contract.")
         }
     }
 }
@@ -296,6 +334,29 @@ struct AppServerWorkspaceMemoryCatalog: Decodable, Sendable {
     let nodes: [AppServerWorkspaceMemoryNode]
     let leads: [AppServerWorkspaceResearchClaim]
     let findings: [AppServerWorkspaceResearchClaim]
+
+    func sessionHeat(for sessionID: String) -> AppServerSessionHeat {
+        findings
+            .filter { $0.maturity != "refuted" && $0.sessionIds.contains(sessionID) }
+            .map { AppServerSessionHeat(rating: $0.rating) }
+            .max() ?? .none
+    }
+}
+
+enum AppServerSessionHeat: Int, Comparable, Sendable {
+    case none, low, medium, high, critical
+
+    init(rating: String) {
+        switch rating {
+        case "low": self = .low
+        case "medium": self = .medium
+        case "high": self = .high
+        case "critical": self = .critical
+        default: self = .none
+        }
+    }
+
+    static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
 struct AppServerWorkspaceResearchClaim: Decodable, Identifiable, Sendable {

@@ -33,6 +33,7 @@
 
 #### Changed
 
+- Beale iOS now reconnects to the most recent machine on launch and keeps machine pills and a circular menu above navigation. Its dark gradient gains session heat from current app-server findings, and the client validates the server descriptor's control identity, endpoint paths, and limits.
 - Beale iOS now pins app-server control contract v46 and rejects an older health contract before connecting.
 - New Research offers only targets enabled in the workspace Targets tab. VM shell commands execute over SSH from the primary app-server.
 - Fleet now has its own destination below Plugins in the left navigation rail. Its configuration, app servers, and virtual machines remain local to the current Beale instance.
