@@ -26,6 +26,7 @@ import {
   decodeFleetSshTestInput,
   decodeBealeAppServerSessionControlRequest,
   decodeBealeAppServerSessionControlResult,
+  decodeGeneratedResearchGoalSuggestions,
   decodeAppServerServerMessage,
   APP_SERVER_PROTOCOL_OPERATIONS,
   APP_SERVER_CONTRACT_VERSION,
@@ -36,6 +37,15 @@ import {
   appServerProtocolSuccess,
   parseAppServerProtocolArguments,
 } from "../packages/app-server-runtime/dist/protocol.js";
+
+test('research suggestion responses reject malformed lists and the wrong lane', () => {
+  const valid = { phase: 'discovery', suggestions: ['Inspect an example component.'] };
+  assert.deepEqual(decodeGeneratedResearchGoalSuggestions(valid, 'discovery'), valid);
+  for (const invalid of [null, { phase: 'discovery' }, { phase: 'discovery', suggestions: null },
+    { phase: 'discovery', suggestions: [null] }, { phase: 'reporting', suggestions: [] }]) {
+    assert.throws(() => decodeGeneratedResearchGoalSuggestions(invalid, 'discovery'), /invalid research suggestion response/);
+  }
+});
 
 test('research workspace operations require explicit revisions for canonical imports', () => {
   assert.deepEqual(decodeWorkspaceProjectRequest({ workspaceId: 'workspace-example', action: 'sync' }), { workspaceId: 'workspace-example', action: 'sync' });

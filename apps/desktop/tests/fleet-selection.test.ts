@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FleetState } from '@beale/app-server-runtime/protocol';
-import { allowedFleetTargets, defaultFleetMachineId, isAllowedFleetMachine } from '../src/shared/fleet';
+import { allowedFleetTargets, defaultFleetMachineId, fleetBrowserViewerTargetId, isAllowedFleetMachine, isFleetVmTargetId, isStreamedHostBrowserTargetId } from '../src/shared/fleet';
 
 const state: FleetState = {
   machineId: 'machine-example', role: 'primary', enabled: true, available: true, error: null,
@@ -33,5 +33,16 @@ describe('Fleet workspace targets', () => {
 
   it('starts unconfigured workspaces with Local and the In-Agent Browser', () => {
     expect(allowedFleetTargets(state, 'new-workspace').map((target) => target.id)).toEqual(['local', 'browser:in-agent']);
+  });
+
+  it('keeps the In-Agent Browser in the embedded host view', () => {
+    expect(fleetBrowserViewerTargetId('local')).toBeNull();
+    expect(fleetBrowserViewerTargetId('browser:in-agent')).toBeNull();
+    expect(fleetBrowserViewerTargetId('browser:chrome')).toBe('browser:chrome');
+    expect(fleetBrowserViewerTargetId('vm:run:tart:example-base')).toBe('vm:run:tart:example-base');
+    expect(isFleetVmTargetId('browser:chrome')).toBe(false);
+    expect(isFleetVmTargetId('vm:run:tart:example-base')).toBe(true);
+    expect(isStreamedHostBrowserTargetId('browser:in-agent')).toBe(false);
+    expect(isStreamedHostBrowserTargetId('browser:chrome')).toBe(true);
   });
 });

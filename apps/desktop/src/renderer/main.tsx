@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { InitialAppShell } from './app/InitialAppShell';
+import { RendererErrorBoundary } from './app/RendererErrorBoundary';
 import { devInstrumentation } from './devInstrumentation';
 import './startup.css';
 
@@ -29,6 +30,6 @@ function RendererRoot(): React.JSX.Element {
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <RendererRoot />
+    <RendererErrorBoundary><RendererRoot /></RendererErrorBoundary>
   </React.StrictMode>
 );

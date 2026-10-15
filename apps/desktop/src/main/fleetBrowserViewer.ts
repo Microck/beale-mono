@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
 import { attachAppServerSession, ensureBealeAppServerRunning, invokeAppServerOperation } from './bealeAppServerClient';
 import type { FleetBrowserInput, FleetBrowserUpdate } from '../shared/fleetBrowser';
+import { isFleetVmTargetId, isStreamedHostBrowserTargetId } from '../shared/fleet';
 
 interface Viewer {
   socket: WebSocket | null;
@@ -16,7 +17,9 @@ export class FleetBrowserViewer {
   public constructor(private readonly onUpdate: (update: FleetBrowserUpdate) => void) {}
 
   public connect(runId: string, machineId: string): void {
-    if (!runId || !machineId || machineId === 'local') throw new Error('A Fleet session is required for guest browser viewing.');
+    if (!runId || !(isFleetVmTargetId(machineId) || isStreamedHostBrowserTargetId(machineId))) {
+      throw new Error('A streamed Fleet browser target is required.');
+    }
     const existing = this.viewers.get(runId);
     if (existing && !existing.stopped && existing.target.kind === 'vm' && existing.target.machineId === machineId) return;
     if (existing) this.disconnect(runId);
@@ -69,7 +72,9 @@ export class FleetBrowserViewer {
         } else {
           const local = await ensureBealeAppServerRunning();
           if (viewer.stopped) break;
-          await invokeAppServerOperation({ operation: 'fleet.connect', input: { runId, machineId: viewer.target.machineId, proxy: true } });
+          if (isFleetVmTargetId(viewer.target.machineId)) {
+            await invokeAppServerOperation({ operation: 'fleet.connect', input: { runId, machineId: viewer.target.machineId, proxy: true } });
+          }
           if (viewer.stopped) break;
           const attachment = await attachAppServerSession(local, runId);
           url = attachment.url.replace(/\/transport$/u, '/browser');

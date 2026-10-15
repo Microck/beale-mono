@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { isManagedToolPluginId, MANAGED_TOOL_PLUGINS, type ResearchPluginCatalogEntry } from '@beale/research-agent';
 import { WORKSPACE_PRIMARY_DIRECTORY_MISSING_MESSAGE } from '../shared/ipc';
+import { fleetBrowserViewerTargetId } from '../shared/fleet';
 import { findingRevisionContext } from './findingRevisionContext';
 import { AppServerReadTransportError, invokeAppServerOperation } from './bealeAppServerClient';
 import { decodeClaimBoardTransitionRequest, type FleetSshTestInput, type FleetSshTestResult, type FleetState, type ResourcePriorArtPage, type ResourcePriorArtDetail, type ResourcePriorArtListInput } from '@beale/app-server-runtime/protocol';
@@ -984,8 +985,7 @@ export class WorkspaceService {
 
   public fleetBrowserMachineId(runId: string): string | null {
     const run = this.runtimeForRunId(runId)?.db.getRun(runId);
-    const machineId = run?.budget.machineId;
-    return typeof machineId === 'string' && machineId.trim() && machineId !== 'local' ? machineId : null;
+    return fleetBrowserViewerTargetId(run?.budget.machineId);
   }
 
   public async restartFleetAppServer(serverId: string): Promise<void> {
