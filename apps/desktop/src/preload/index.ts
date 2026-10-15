@@ -47,7 +47,6 @@ import type {
   AppServerMemoryDirectorySummary,
   AutomationSummary,
   AutomationUpdateInput,
-  MemoryDreamingProgressUpdate,
   MarkHistoryDuplicateInput,
   UndoHistoryDuplicateInput,
   ClaimBoardTransitionRequest,
@@ -60,7 +59,6 @@ import type {
   ReportSessionStartInput,
   ReportSessionStartResult,
   AppServerToolingConfigUpdate,
-  WorkspaceDejunkSummary,
   NativeMenuAction,
   WorkspaceOnboardingInput,
   WorkspaceOnboardingProgressUpdate,
@@ -529,23 +527,6 @@ const api: BealeApi = {
   },
   startReportSession(input: ReportSessionStartInput): Promise<ReportSessionStartResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.startReportSession, input);
-  },
-  getWorkspaceDejunkSummary(workspaceId: string): Promise<WorkspaceDejunkSummary> {
-    return ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceDejunkSummary, workspaceId);
-  },
-  runWorkspaceDejunk() {
-    return ipcRenderer.invoke(IPC_CHANNELS.runWorkspaceDejunk);
-  },
-  runMemoryDreaming() {
-    return ipcRenderer.invoke(IPC_CHANNELS.runMemoryDreaming);
-  },
-  onMemoryDreamingProgress(listener: (update: MemoryDreamingProgressUpdate) => void) {
-    const wrapped = (_event: Electron.IpcRendererEvent, update: MemoryDreamingProgressUpdate): void => listener(update);
-    ipcRenderer.on(IPC_CHANNELS.memoryDreamingUpdated, wrapped);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.memoryDreamingUpdated, wrapped);
-  },
-  restoreMemoryDreamingChange(changeId: string) {
-    return ipcRenderer.invoke(IPC_CHANNELS.restoreMemoryDreamingChange, changeId);
   },
   markHistoryDuplicate(input: MarkHistoryDuplicateInput) {
     return ipcRenderer.invoke(IPC_CHANNELS.markHistoryDuplicate, input);

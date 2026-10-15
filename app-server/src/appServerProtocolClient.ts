@@ -23,27 +23,19 @@ import {
   expandStoredResearchPrompt,
   generateStoredResearchGoalSuggestions,
   generateStoredSteeringSuggestion,
-  getWorkspaceDejunkSummary,
   readWorkspaceProject,
   materializeGitRepositoryAsync,
   migrateWorkspaceResearchClaims,
   normalizeSourceRepositoryUrl,
   listAuthProviders,
-  parseMemoryDreamingPlanOutput,
-  prepareMemoryDreamingRequest,
   providerSemanticsDescriptor,
-  recordFailedMemoryDreaming,
   resolveAuxiliaryModelRoute,
   resolveResearchProfile,
   resolveKnowledgeArtifact,
   resolveStoredResearchProfile,
   resolveStoredResearchWorkspaceBinding,
-  restoreMemoryDreamingChange,
   logoutAuthProvider,
   verifyProviderAuth,
-  runMemoryDreaming,
-  runWorkspaceDejunk,
-  runWorkspaceDejunkAndConsolidateRepositories,
   selectSourceRepository,
   selectStoredResearchGoalSuggestion,
   sourceRepositoryCandidates,
@@ -53,9 +45,6 @@ import {
   type CreateAppServerSessionInput,
   type AppServerSessionEvent,
   type AppServerSessionTransitionInput,
-  type MemoryDreamingPlan,
-  type MemoryDreamingProfileInput,
-  type MemoryDreamingRunContext,
   type ResearchProfileSnapshot,
   type SourceRepositoryCandidate
 } from '@beale/app-server-runtime/runtime-services';
@@ -159,7 +148,7 @@ async function invokeOperation(operation: AppServerProtocolOperation, options: I
   }
   if (operation === 'workspace.state') return workspaceStateOperation(options);
   if (operation === 'registry.state') return registryStateOperation(options);
-  if (operation.startsWith('memory.') || operation.startsWith('dreaming.')
+  if (operation.startsWith('memory.')
     || operation.startsWith('history.')
     || operation.startsWith('claim.')
     || operation === 'runbook.get' || operation.startsWith('report.')
@@ -387,13 +376,6 @@ async function knowledgeOperation(operation: AppServerProtocolOperation, options
         graph.close();
       }
     }
-    case 'dreaming.prepare': return prepareMemoryDreamingRequest(input as never);
-    case 'dreaming.parse_plan': return parseMemoryDreamingPlanOutput(requiredText(input.output, 'output'), input.profileInput as MemoryDreamingProfileInput);
-    case 'dreaming.apply': return runMemoryDreaming(layout.databasePath, requiredText(input.workspaceId, 'workspaceId'), input.plan as MemoryDreamingPlan, input.context as MemoryDreamingRunContext, input.profileInput as MemoryDreamingProfileInput);
-    case 'dreaming.record_failure': return recordFailedMemoryDreaming(layout.databasePath, requiredText(input.workspaceId, 'workspaceId'), input.context as MemoryDreamingRunContext, requiredText(input.errorMessage, 'errorMessage'), input.profileInput as MemoryDreamingProfileInput);
-    case 'dreaming.restore':
-      restoreMemoryDreamingChange(layout.databasePath, requiredText(input.workspaceId, 'workspaceId'), requiredText(input.changeId, 'changeId'));
-      return { restored: true };
     case 'runbook.get': return getKnowledgeRunbook(layout.databasePath, layout.artifactDirectoryPath, requiredText(input.workspaceId, 'workspaceId'), requiredText(input.runbookId, 'runbookId'));
     case 'report.get': return getKnowledgeReport(layout.databasePath, layout.artifactDirectoryPath, requiredText(input.workspaceId, 'workspaceId'), requiredText(input.reportId, 'reportId'));
     case 'report.revise_content': {
@@ -818,25 +800,6 @@ async function harnessOperation(operation: AppServerProtocolOperation, options: 
     case 'plugin.set_enabled': return pluginRegistry(input).setEnabled(requiredText(input.pluginId, 'pluginId'), input.enabled === true);
     case 'plugin.remove': return pluginRegistry(input).remove(requiredText(input.pluginId, 'pluginId'));
     case 'plugin.runtime': return pluginRegistry(input).getAppServerRuntime();
-    case 'maintenance.summary': return getWorkspaceDejunkSummary(requiredText(input.workspacePath, 'workspacePath'));
-    case 'maintenance.run': {
-      const workspacePath = requiredText(input.workspacePath, 'workspacePath');
-      const repositoryStoreDirectory = optionalText(input.repositoryStoreDirectory);
-      if (!repositoryStoreDirectory) return runWorkspaceDejunk(workspacePath);
-      return runWorkspaceDejunkAndConsolidateRepositories(workspacePath, {
-        repositoryStoreDirectory,
-        repositories: Array.isArray(input.repositories)
-          ? input.repositories.flatMap((candidate) => {
-              if (!isRecord(candidate) || !optionalText(candidate.path)) return [];
-              return [{
-                path: optionalText(candidate.path)!,
-                ...(optionalText(candidate.repositoryUrl) ? { repositoryUrl: optionalText(candidate.repositoryUrl)! } : {}),
-                ...(optionalText(candidate.ref) ? { ref: optionalText(candidate.ref)! } : {})
-              }];
-            })
-          : []
-      });
-    }
     default: throw new Error(`Unsupported app-server operation: ${operation}`);
   }
 }

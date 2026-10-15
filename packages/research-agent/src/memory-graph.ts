@@ -163,6 +163,13 @@ export interface MemoryNode {
   provenance: MemoryNodeProvenance;
 }
 
+export interface MemoryCatalogCompatibilityNode {
+  type: string;
+  status: string;
+  attributes: Readonly<Record<string, unknown>>;
+  evidence: ReadonlyArray<{ kind: string; pathBase?: string | null }>;
+}
+
 export interface MemoryNodeDuplicateSummary {
   id: string;
   type: MemoryNodeType;
@@ -1808,7 +1815,21 @@ export function memoryCatalogCompatibilityHash(memory: ResearchProfileMemory): s
   return memoryCatalogCompatibilityHashFromNormalized(normalizeProfileMemory(memory));
 }
 
-function memoryCatalogHashFromJson(json: string): string {
+export function memoryCatalogPreservesLegacyNodeIds(memory: ResearchProfileMemory): boolean {
+  return memoryCatalogCompatibilityHash(memory) === DEFAULT_SECURITY_MEMORY_CATALOG_COMPATIBILITY_HASH;
+}
+
+export function memoryCatalogJsonIsCompatibleWithNode(
+  node: MemoryCatalogCompatibilityNode,
+  sourceCatalogJson: string,
+  activeMemory: ResearchProfileMemory,
+): boolean {
+  const sourceMemory = parseMemoryCatalogSnapshot(sourceCatalogJson);
+  return sourceMemory !== undefined
+    && memoryNodeCatalogsAreCompatible(node, sourceMemory, normalizeProfileMemory(activeMemory));
+}
+
+export function memoryCatalogHashFromJson(json: string): string {
   return createHash("sha256")
     .update(MEMORY_CATALOG_HASH_DOMAIN)
     .update(json)
@@ -2154,7 +2175,7 @@ function parseMemoryCatalogSnapshot(json: string): ResearchProfileMemory | undef
 }
 
 function memoryNodeCatalogsAreCompatible(
-  node: Pick<MemoryNode, "type" | "status" | "attributes" | "evidence">,
+  node: MemoryCatalogCompatibilityNode,
   sourceMemory: ResearchProfileMemory,
   activeMemory: ResearchProfileMemory,
 ): boolean {
@@ -2166,7 +2187,7 @@ function memoryNodeCatalogsAreCompatible(
 }
 
 function memoryNodeCatalogCompatibilityProjection(
-  node: Pick<MemoryNode, "type" | "status" | "attributes" | "evidence">,
+  node: MemoryCatalogCompatibilityNode,
   memory: ResearchProfileMemory,
 ): unknown | undefined {
   const memoryType = memory.types.find((candidate) => candidate.id === node.type);
@@ -2200,7 +2221,7 @@ function memoryNodeCatalogCompatibilityProjection(
 }
 
 function memoryNodeTypeCompatibilityProjection(
-  node: Pick<MemoryNode, "type" | "status" | "attributes">,
+  node: Pick<MemoryCatalogCompatibilityNode, "type" | "status" | "attributes">,
   memory: ResearchProfileMemory,
   memoryType: ResearchProfileMemoryType,
 ): unknown | undefined {

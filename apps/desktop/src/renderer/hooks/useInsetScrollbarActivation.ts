@@ -7,7 +7,6 @@ export const INSET_SCROLLBAR_SELECTOR = [
   '.main-trace-list',
   '.main-commentary-list',
   '.report-session-document-scroll',
-  '.campaign-priority-claim-list',
   '.campaign-board-lane-list',
   '.memory-catalog-list',
   '.research-goal-choice-list',

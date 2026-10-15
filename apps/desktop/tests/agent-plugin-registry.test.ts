@@ -238,11 +238,11 @@ describe('AgentPluginRegistry', () => {
       'list_resources',
       'add_resource',
       'edit_resource',
-      'remove_resource',
-      'run_dejunk',
-      'run_dreaming'
+      'remove_resource'
     ]));
     expect(tools.map((tool) => tool.name)).not.toContain('create_workspace');
+    expect(tools.map((tool) => tool.name)).not.toContain('run_dejunk');
+    expect(tools.map((tool) => tool.name)).not.toContain('run_dreaming');
   });
 
 

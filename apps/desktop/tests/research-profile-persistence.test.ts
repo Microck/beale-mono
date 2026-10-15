@@ -648,57 +648,6 @@ describe('research profile persistence', () => {
     database.close();
   });
 
-  it('consolidates a misplaced repository Resource through workspace Dejunk', async () => {
-    const root = tempDirectory();
-    const workspacePath = join(root, 'workspace');
-    const misplacedRepository = join(workspacePath, '.beale', 'repositories', 'github.com_example_target', 'default');
-    const repositoryStoreDirectory = join(root, 'repositories');
-    mkdirSync(join(misplacedRepository, '.git'), { recursive: true });
-    writeFileSync(join(misplacedRepository, 'README.md'), 'source');
-    const options: WorkspaceServiceOptions = {
-      workspaceRegistryDirectory: join(root, 'registry'),
-      appServerDatabasePath: join(root, 'global', 'memory.sqlite'),
-      appServerArtifactDirectory: join(root, 'global', 'artifacts'),
-      repositoryStoreDirectory,
-      researchProfileResolver: () => resolvedTestResearchProfile()
-    };
-    configureIsolatedAppServer(options);
-    const service = new WorkspaceService(() => undefined, options);
-    try {
-      service.createScopedWorkspace({
-        workspacePath,
-        workspaceName: 'Misplaced repository',
-        researchSubjectName: 'Misplaced repository',
-        scopeOwner: 'Misplaced repository',
-        descriptionMarkdown: '',
-        rules: [],
-        expiresAt: null,
-        assets: [{
-          direction: 'in_scope',
-          kind: 'repo',
-          value: 'https://github.com/example/target',
-          sensitivity: 'public',
-          attributes: {
-            repositoryUrl: 'https://github.com/example/target',
-            clonedDirectory: misplacedRepository,
-            sourceStorage: 'workspace'
-          }
-        }]
-      });
-
-      const maintained = await service.runWorkspaceDejunk();
-      const resource = maintained.activeScope.assets[0];
-      const consolidatedPath = String(resource?.attributes?.clonedDirectory ?? '');
-      expect(consolidatedPath.startsWith(repositoryStoreDirectory)).toBe(true);
-      expect(resource?.attributes?.sourceStorage).toBe('user_global');
-      expect(existsSync(join(consolidatedPath, '.git'))).toBe(true);
-      expect(existsSync(join(consolidatedPath, 'README.md'))).toBe(true);
-      expect(existsSync(misplacedRepository)).toBe(false);
-    } finally {
-      service.close();
-    }
-  }, 10_000);
-
   it('adopts the legacy scope-owner subject id during migration 14', () => {
     const fixture = createDatabaseFixture();
     fixture.database.saveScope({

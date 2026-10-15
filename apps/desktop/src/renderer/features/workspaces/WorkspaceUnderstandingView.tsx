@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, JSX } from 'react';
-import { Binary, BookOpen, Boxes, Brain, Columns3, Download, FileText, GitBranch, Globe2, Info, Layers3, ListChecks, MoonStar, Plus, RefreshCw, Server, Settings, Sparkles, Trash2, Wrench } from 'lucide-react';
+import { Binary, BookOpen, Boxes, Brain, Columns3, Download, FileText, GitBranch, Globe2, Info, Layers3, ListChecks, Plus, RefreshCw, Server, Settings, Trash2 } from 'lucide-react';
 import { isLiveResearchRunStatus, repositoryClonedDirectory } from '../../../shared/types';
 import { researchKitDefinition, researchKitLabel, researchKitResourceKey } from '../../../shared/researchKits';
 import type {
@@ -8,8 +8,6 @@ import type {
   AppServerFindingSummary,
   ClaimBoardMaturity,
   AppServerReportSummary,
-  MemoryDreamingProgressPhase,
-  MemoryDreamingProgressUpdate,
   ResearchProfile,
   ResearchKitId,
   ResearchKitRefreshInput,
@@ -20,7 +18,6 @@ import type {
   ScopeAsset,
   ScopeAssetInput,
   ScopeAssetKind,
-  WorkspaceDejunkSummary,
   WorkspaceMemoryBackendId,
   WorkspaceScopeDraft,
   WorkspaceScopeVersion,
@@ -32,22 +29,22 @@ import { memoryTypeDefinition, memoryTypeLabel } from '../research/MemoryTypeLab
 import { MemoryCatalogItem, ReportCatalogItem, RunbookCatalogItem } from '../research/MemorySidePanel';
 import { memoryTypeGroupsByHeat } from '../../view-models/memoryCatalog';
 import { EMPTY_SESSION_HEAT_PREFERENCES } from '../../view-models/sessionHeat';
-import type { SessionHeat, SessionHeatPreferences } from '../../view-models/sessionHeat';
+import type { SessionHeatPreferences } from '../../view-models/sessionHeat';
 import { errorMessage } from '../../lib/errors';
 import { renderTraceProseText } from '../traces/traceMarkup';
 import { WorkspaceDirectoriesField } from './WorkspaceDirectoriesWidget';
 import { WorkspaceTargetsPanel } from './WorkspaceTargetsPanel';
-import { CampaignBoardView, CampaignGraphView } from './CampaignGraphView';
+import { CampaignBoardView } from './CampaignGraphView';
 import { ResourcePriorArtView } from './ResourcePriorArtView';
 
 const WORKSPACE_ACTIVITY_DAY_COUNT = 365;
 const DAY_DURATION_MS = 24 * 60 * 60 * 1_000;
-const WORKSPACE_DASHBOARD_VIEWS = ['campaign', 'resources', 'rules', 'utilities', 'targets', 'overview', 'kit'] as const;
-const WORKSPACE_CAMPAIGN_VIEWS = ['trail', 'board', 'memory', 'runbooks', 'reports'] as const;
+const WORKSPACE_DASHBOARD_VIEWS = ['campaign', 'resources', 'rules', 'targets', 'overview', 'kit'] as const;
+const WORKSPACE_CAMPAIGN_VIEWS = ['board', 'memory', 'runbooks', 'reports'] as const;
 
 type WorkspaceTopLevelView = typeof WORKSPACE_DASHBOARD_VIEWS[number];
 type WorkspaceCampaignView = typeof WORKSPACE_CAMPAIGN_VIEWS[number];
-export type WorkspaceDashboardView = WorkspaceTopLevelView | Exclude<WorkspaceCampaignView, 'trail'> | 'activity';
+export type WorkspaceDashboardView = WorkspaceTopLevelView | WorkspaceCampaignView | 'activity';
 
 const WORKSPACE_DASHBOARD_VIEW_ICONS: Record<WorkspaceTopLevelView, typeof Info> = {
   overview: Settings,
@@ -55,12 +52,10 @@ const WORKSPACE_DASHBOARD_VIEW_ICONS: Record<WorkspaceTopLevelView, typeof Info>
   campaign: GitBranch,
   resources: Boxes,
   kit: RefreshCw,
-  rules: ListChecks,
-  utilities: Wrench
+  rules: ListChecks
 };
 
 const WORKSPACE_CAMPAIGN_VIEW_ICONS: Record<WorkspaceCampaignView, typeof Info> = {
-  trail: GitBranch,
   board: Columns3,
   memory: Brain,
   runbooks: BookOpen,
@@ -196,10 +191,6 @@ export function WorkspaceUnderstandingView({
   providerModelCatalog = [],
   workspaceName,
   runs,
-  workspaceDejunk = null,
-  workspaceDejunkInProgress = false,
-  memoryDreamingInProgress,
-  memoryDreamingProgress = null,
   onAddResource = async () => undefined,
   onChangeResource = async () => undefined,
   onCloneRepository = async () => undefined,
@@ -217,16 +208,10 @@ export function WorkspaceUnderstandingView({
   onOpenReport = () => undefined,
   onActiveViewChange,
   onViewSelectionChange,
-  onRunWorkspaceDejunk = () => undefined,
-  onRunMemoryDreaming,
-  initialView = 'campaign',
+  initialView = 'board',
   nowMs
 }: {
   busy: boolean;
-  workspaceDejunk?: WorkspaceDejunkSummary | null;
-  workspaceDejunkInProgress?: boolean;
-  memoryDreamingInProgress: boolean;
-  memoryDreamingProgress?: MemoryDreamingProgressUpdate | null;
   appServerMemory: AppServerMemorySummary | null;
   activeScope?: WorkspaceScopeVersion | null;
   workspaceRules?: readonly WorkspaceRule[];
@@ -241,8 +226,6 @@ export function WorkspaceUnderstandingView({
   providerModelCatalog?: readonly ResearchProviderModelCatalog[];
   workspaceName: string;
   runs: RunRow[];
-  onRunWorkspaceDejunk?: () => void;
-  onRunMemoryDreaming: () => void;
   initialView?: WorkspaceDashboardView;
   onAddResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
@@ -282,9 +265,7 @@ export function WorkspaceUnderstandingView({
     onActiveViewChange?.(workspaceDashboardViewLabel(activeView, researchKitId));
   }, [activeView, onActiveViewChange, researchKitId]);
   useEffect(() => {
-    onViewSelectionChange?.(activeView === 'campaign'
-      ? activeCampaignView === 'trail' ? 'campaign' : activeCampaignView
-      : activeView);
+    onViewSelectionChange?.(activeView === 'campaign' ? activeCampaignView : activeView);
   }, [activeCampaignView, activeView, onViewSelectionChange]);
   const timelineNowMs = nowMs ?? clockNowMs;
   const memoryTypes = researchProfile?.memory.types ?? [];
@@ -374,6 +355,7 @@ export function WorkspaceUnderstandingView({
         onChangeDirectories={onChangeWorkspaceDirectories}
         onChangeMemoryBackend={onChangeMemoryBackend}
         onChangeResearchSubject={onChangeResearchSubject}
+        onRemoveWorkspace={onRemoveWorkspace}
         memoryBackend={memoryBackend}
         memoryBackendLocked={runs.some(({ run }) => isLiveResearchRunStatus(run.status) || run.status === 'paused')}
         researchSubjectLocked={runs.some(({ run }) => isLiveResearchRunStatus(run.status))}
@@ -406,13 +388,6 @@ export function WorkspaceUnderstandingView({
         <button className="secondary-button" onClick={() => setPendingResourceNavigation(null)} type="button">Keep editing</button>
         <button className="primary-button" onClick={() => { setActiveView(pendingResourceNavigation); setPendingResourceNavigation(null); }} type="button">Discard changes</button>
       </>}><p>Your unsaved resource edits will be discarded.</p></Modal> : null}
-
-      {campaignActive && activeCampaignView === 'trail' ? <CampaignGraphView
-        memory={appServerMemory}
-        providerModelCatalog={providerModelCatalog}
-        workspaceName={activeScope?.workspaceName || workspaceName}
-        onOpenClaim={onOpenClaim}
-      /> : null}
 
       {campaignActive && activeCampaignView === 'board' ? <CampaignBoardView
         memory={appServerMemory}
@@ -466,22 +441,6 @@ export function WorkspaceUnderstandingView({
         workspaceName={activeScope?.workspaceName || workspaceName}
       /> : null}
 
-      {activeView === 'utilities' ? <WorkspaceUtilitiesPanel
-        busy={busy}
-        hidden={false}
-        appServerMemory={appServerMemory}
-        memoryDreamingInProgress={memoryDreamingInProgress}
-        memoryDreamingProgress={memoryDreamingProgress}
-        memoryBackend={memoryBackend}
-        researchProfile={researchProfile}
-        runs={runs}
-        workspaceDejunk={workspaceDejunk}
-        workspaceDejunkInProgress={workspaceDejunkInProgress}
-        onRunMemoryDreaming={onRunMemoryDreaming}
-        onRunWorkspaceDejunk={onRunWorkspaceDejunk}
-        onRemoveWorkspace={onRemoveWorkspace}
-        workspaceName={activeScope?.workspaceName || workspaceName}
-      /> : null}
     </main>
   );
 }
@@ -501,12 +460,11 @@ function workspaceTopLevelView(initialView: WorkspaceDashboardView): WorkspaceTo
 function workspaceCampaignView(initialView: WorkspaceDashboardView): WorkspaceCampaignView {
   return initialView === 'board' || initialView === 'memory' || initialView === 'runbooks' || initialView === 'reports'
     ? initialView
-    : 'trail';
+    : 'board';
 }
 
 function workspaceCampaignViewLabel(view: WorkspaceCampaignView): string {
   if (view === 'memory') return 'Memories';
-  if (view === 'trail') return 'Highlights';
   if (view === 'board') return 'Claims';
   return view.charAt(0).toUpperCase() + view.slice(1);
 }
@@ -714,6 +672,7 @@ function WorkspaceOverviewPanel({
   onChangeDirectories,
   onChangeMemoryBackend,
   onChangeResearchSubject,
+  onRemoveWorkspace,
   onSave,
   memoryBackend,
   memoryBackendLocked,
@@ -732,6 +691,7 @@ function WorkspaceOverviewPanel({
   onChangeDirectories: (directories: string[]) => Promise<void>;
   onChangeMemoryBackend: (memoryBackend: WorkspaceMemoryBackendId) => Promise<void>;
   onChangeResearchSubject: (researchSubjectName: string) => Promise<void>;
+  onRemoveWorkspace: () => Promise<void>;
   onSave: (configuration: WorkspaceConfigurationInput) => Promise<void>;
   memoryBackend: WorkspaceMemoryBackendId;
   memoryBackendLocked: boolean;
@@ -1012,6 +972,7 @@ function WorkspaceOverviewPanel({
                   </div>
                 )}
               </div>
+              <WorkspaceRemovalForm busy={busy} onRemove={onRemoveWorkspace} workspaceName={resolvedWorkspaceName} />
             </div>
           </div>
           {saveError ? <p className="workspace-overview-error" role="alert">{saveError}</p> : null}
@@ -1035,11 +996,13 @@ function workspaceResearchProfileLabel(profile: ResearchProfile | null): string 
 function WorkspaceActivityForm({
   activity,
   metric,
+  showGrid = true,
   viewLabel,
   workspaceName
 }: {
   activity: WorkspaceHeatmapActivity;
   metric: WorkspaceHeatmapMetric;
+  showGrid?: boolean;
   viewLabel: string;
   workspaceName: string;
 }): JSX.Element {
@@ -1050,7 +1013,7 @@ function WorkspaceActivityForm({
         <h2>{workspaceName} {viewLabel}</h2>
         <p>{workspaceHeatmapValueLabel(activity.total, metric)} over the past year.</p>
       </header>
-      <div className="workspace-activity-grid-scroll">
+      {showGrid ? <div className="workspace-activity-grid-scroll">
         <div className="workspace-activity-grid" role="grid" aria-label={`Daily ${metricCopy.activityLabel} over the past year`}>
           {Array.from({ length: activity.leadingEmptyDays }, (_, index) => (
             <span aria-hidden="true" className="workspace-activity-cell is-empty" key={`empty-${index}`} />
@@ -1077,7 +1040,7 @@ function WorkspaceActivityForm({
             );
           })}
         </div>
-      </div>
+      </div> : null}
     </section>
   );
 }
@@ -1406,93 +1369,6 @@ function WorkspaceReportSection({
   );
 }
 
-function WorkspaceUtilitiesPanel({
-  busy,
-  hidden,
-  appServerMemory,
-  memoryDreamingInProgress,
-  memoryDreamingProgress,
-  memoryBackend,
-  researchProfile,
-  runs,
-  workspaceDejunk,
-  workspaceDejunkInProgress,
-  onRunMemoryDreaming,
-  onRunWorkspaceDejunk,
-  onRemoveWorkspace,
-  workspaceName
-}: {
-  busy: boolean;
-  hidden: boolean;
-  appServerMemory: AppServerMemorySummary | null;
-  memoryDreamingInProgress: boolean;
-  memoryDreamingProgress: MemoryDreamingProgressUpdate | null;
-  memoryBackend: WorkspaceMemoryBackendId;
-  researchProfile: ResearchProfile | null;
-  runs: RunRow[];
-  workspaceDejunk: WorkspaceDejunkSummary | null;
-  workspaceDejunkInProgress: boolean;
-  onRunMemoryDreaming: () => void;
-  onRunWorkspaceDejunk: () => void;
-  onRemoveWorkspace: () => Promise<void>;
-  workspaceName: string;
-}): JSX.Element {
-  const memoryEnabled = memoryBackend !== 'disabled' && researchProfile?.capabilities.memoryEnabled !== false;
-  const memoryLoading = appServerMemory?.loading === true;
-  const dreamDisabled = busy || memoryDreamingInProgress || memoryLoading || !memoryEnabled || appServerMemory?.dreaming.available === false;
-  const dreamProgressPhase = memoryDreamingProgress?.phase ?? (memoryDreamingInProgress ? 'preparing' : null);
-  const dreamProgressLabel = dreamProgressPhase ? memoryDreamingProgressLabel(dreamProgressPhase) : null;
-  const memoriesSinceDream = memoryCountSinceLastDream(appServerMemory);
-  const newFileCount = workspaceDejunk?.newFileCount ?? 0;
-  const activeSession = runs.some(({ run }) => isLiveResearchRunStatus(run.status));
-  const dejunkLoading = workspaceDejunk?.loading === true;
-  const dejunkDisabled = busy || workspaceDejunkInProgress || dejunkLoading || activeSession || workspaceDejunk?.available === false;
-  const dejunkStatus = workspaceDejunkInProgress ? 'Dejunking workspace files…' : dejunkLoading ? 'Checking workspace files…' : null;
-  return (
-    <section
-      aria-label="Workspace utilities"
-      className="workspace-dashboard-panel workspace-cleaning-view"
-      hidden={hidden}
-      id="workspace-dashboard-utilities-panel"
-      role="tabpanel"
-    >
-      <div className="settings-form workspace-cleaning-form">
-        <header className="settings-form-heading">
-          <h2>{workspaceName} Utilities</h2>
-          <p>Organize loose files and consolidate workspace memory.</p>
-        </header>
-        <div className="settings-form-squircle">
-          <div className="settings-form-control-list">
-            <div className="settings-form-control-row workspace-cleaning-row">
-              <span className="settings-form-control-copy">
-                <strong>Dejunk</strong>
-                {dejunkStatus ? <WorkspaceCleaningStatus label={dejunkStatus} /> : (
-                  <small>{workspaceDejunk?.project
-                    ? `${workspaceDejunk.project.partial ? 'At least ' : ''}${workspaceDejunk.project.fileCount.toLocaleString()} files · ${(workspaceDejunk.project.totalBytes / 1048576).toFixed(1)} MiB · ${workspaceDejunk.project.unclassifiedFileCount} unclassified`
-                    : `${workspaceDejunk?.newFileCountCapped ? `${newFileCount.toLocaleString()}+` : newFileCount.toLocaleString()} New ${newFileCount === 1 ? 'File' : 'Files'}`}</small>
-                )}
-              </span>
-              <button className="workspace-cleaning-action" disabled={dejunkDisabled} onClick={onRunWorkspaceDejunk} type="button">Dejunk Now</button>
-            </div>
-            <div className="settings-form-control-row workspace-cleaning-row">
-              <span className="settings-form-control-copy">
-                <strong>Dream</strong>
-                {dreamProgressLabel || memoryLoading ? (
-                  <WorkspaceCleaningStatus label={dreamProgressLabel ?? 'Loading workspace memory…'} />
-                ) : (
-                  <small>{memoryBackend === 'disabled' ? 'Memory is disabled for this workspace' : `${memoriesSinceDream.toLocaleString()} New ${memoriesSinceDream === 1 ? 'Memory' : 'Memories'}`}</small>
-                )}
-              </span>
-              <button className="workspace-cleaning-action" disabled={dreamDisabled} onClick={onRunMemoryDreaming} type="button">Dream Now</button>
-            </div>
-            <WorkspaceRemovalForm busy={busy} onRemove={onRemoveWorkspace} workspaceName={workspaceName} />
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function WorkspaceRemovalForm({
   busy,
   onRemove,
@@ -1519,7 +1395,7 @@ function WorkspaceRemovalForm({
     }
   };
   return (
-    <form className="settings-form-control-row workspace-cleaning-row workspace-removal-form" onSubmit={(event) => void submit(event)}>
+    <form className="settings-form-control-row workspace-overview-control-row workspace-removal-form" onSubmit={(event) => void submit(event)}>
       <span className="settings-form-control-copy">
         <strong>Remove Workspace</strong>
         <small>
@@ -1559,109 +1435,6 @@ function normalizedWorkspaceRemovalName(value: string): string {
     .replace(/[\u200B-\u200D\u2060\uFEFF]/gu, '')
     .replace(/\s+/gu, ' ')
     .trim();
-}
-
-function WorkspaceCleaningStatus({ label }: { label: string }): JSX.Element {
-  return (
-    <span aria-live="polite" className="workspace-cleaning-status" role="status">
-      <span aria-hidden="true" className="provider-settings-loading-indicator" />
-      {label}
-    </span>
-  );
-}
-
-export function WorkspaceHousekeepingPanel({
-  busy,
-  workspaceDejunk = null,
-  workspaceDejunkInProgress = false,
-  memoryDreamingInProgress,
-  memoryDreamingProgress = null,
-  appServerMemory,
-  researchProfile = null,
-  runs,
-  onRunWorkspaceDejunk = () => undefined,
-  onRunMemoryDreaming
-}: {
-  busy: boolean;
-  workspaceDejunk?: WorkspaceDejunkSummary | null;
-  workspaceDejunkInProgress?: boolean;
-  memoryDreamingInProgress: boolean;
-  memoryDreamingProgress?: MemoryDreamingProgressUpdate | null;
-  appServerMemory: AppServerMemorySummary | null;
-  researchProfile?: ResearchProfile | null;
-  runs: RunRow[];
-  onRunWorkspaceDejunk?: () => void;
-  onRunMemoryDreaming: () => void;
-}): JSX.Element {
-  const memoryEnabled = researchProfile?.capabilities.memoryEnabled !== false;
-  const memoryLoading = appServerMemory?.loading === true;
-  const dreamDisabled = busy || memoryDreamingInProgress || memoryLoading || !memoryEnabled || appServerMemory?.dreaming.available === false;
-  const dreamProgressPhase = memoryDreamingProgress?.phase ?? (memoryDreamingInProgress ? 'preparing' : null);
-  const dreamProgressLabel = dreamProgressPhase ? memoryDreamingProgressLabel(dreamProgressPhase) : null;
-  const memoriesSinceDream = memoryCountSinceLastDream(appServerMemory);
-  const dreamHeat = memoryDreamHeat(memoriesSinceDream);
-  const newFileCount = workspaceDejunk?.newFileCount ?? 0;
-  const dejunkHeat = workspaceDejunkHeat(newFileCount);
-  const activeSession = runs.some(({ run }) => isLiveResearchRunStatus(run.status));
-  const dejunkLoading = workspaceDejunk?.loading === true;
-  const dejunkDisabled = busy || workspaceDejunkInProgress || dejunkLoading || activeSession || workspaceDejunk?.available === false;
-
-  return (
-    <section className="workspace-side-housekeeping workspace-dream-area" aria-label="Workspace housekeeping">
-      <div className="workspace-dream-content">
-        <button
-          className="workspace-dejunk-card workspace-housekeeping-card"
-          data-dejunk-heat={dejunkHeat}
-          data-new-file-count={newFileCount}
-          disabled={dejunkDisabled}
-          onClick={onRunWorkspaceDejunk}
-          title={activeSession ? 'Dejunk is unavailable while a research session is active' : workspaceDejunk?.project ? 'Checkpoint research and quarantine disposable scratch/cache files' : 'Organize loose research files and remove large reclaimable artifacts'}
-          type="button"
-        >
-          <span className="workspace-housekeeping-card-count">
-            {dejunkLoading
-              ? 'Loading workspace files…'
-              : <>{workspaceDejunk?.newFileCountCapped ? `${newFileCount.toLocaleString()}+` : newFileCount.toLocaleString()} New {newFileCount === 1 ? 'File' : 'Files'}</>}
-          </span>
-          <span className="workspace-housekeeping-card-label">
-            <Sparkles aria-hidden="true" size={18} />
-            {workspaceDejunkInProgress ? 'Dejunking…' : dejunkLoading ? 'Loading…' : 'Dejunk'}
-          </span>
-        </button>
-        <button
-          className="workspace-dream-card workspace-housekeeping-card"
-          data-dream-heat={dreamHeat}
-          data-memory-count-since-dream={memoriesSinceDream}
-          disabled={dreamDisabled}
-          onClick={onRunMemoryDreaming}
-          title={!memoryEnabled ? 'Memory Dreaming is disabled by the active research profile' : 'Dream across workspace memories'}
-          type="button"
-        >
-          <span className="workspace-housekeeping-card-count">
-            {memoryLoading
-              ? 'Loading workspace memory…'
-              : <>{memoriesSinceDream.toLocaleString()} New {memoriesSinceDream === 1 ? 'Memory' : 'Memories'}</>}
-          </span>
-          {dreamProgressLabel ? (
-            <span
-              aria-live="polite"
-              className={`workspace-dream-state is-${dreamProgressPhase}`}
-              data-dream-phase={dreamProgressPhase}
-              key={dreamProgressPhase}
-              role="status"
-            >
-              {dreamProgressLabel}
-            </span>
-          ) : (
-            <span className="workspace-housekeeping-card-label">
-              <MoonStar aria-hidden="true" size={18} />
-              {memoryLoading ? 'Loading…' : 'Dream'}
-            </span>
-          )}
-        </button>
-      </div>
-    </section>
-  );
 }
 
 interface WorkspaceResearchSurfaceItem {
@@ -1915,7 +1688,7 @@ function WorkspaceResearchSurface({
       id="workspace-dashboard-resources-panel"
       role="tabpanel"
     >
-      <WorkspaceActivityForm activity={resourceActivity} metric="resources" viewLabel="Resources" workspaceName={workspaceName} />
+      <WorkspaceActivityForm activity={resourceActivity} metric="resources" showGrid={false} viewLabel="Resources" workspaceName={workspaceName} />
       <div className="workspace-resource-tabs-bar">
         <div className="research-side-view-tabs workspace-resource-tabs" role="tablist" aria-label="Workspace resource types">
           {representedKinds.map((kind) => (
@@ -2423,43 +2196,4 @@ function formatSurfaceRecency(value: string, nowMs: number): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(Date.parse(value));
-}
-
-export function memoryCountSinceLastDream(memory: AppServerMemorySummary | null | undefined): number {
-  if (!memory || memory.status === 'missing' || memory.status === 'error') return 0;
-  const lastDreamAt = Date.parse(memory.dreaming.lastRun?.completedAt ?? '');
-  if (!Number.isFinite(lastDreamAt)) return memory.nodes.length;
-  return memory.nodes.filter((node) => {
-    const createdAt = Date.parse(node.createdAt);
-    return Number.isFinite(createdAt) && createdAt > lastDreamAt;
-  }).length;
-}
-
-export function memoryDreamHeat(memoryCount: number): SessionHeat {
-  if (memoryCount >= 150) return 'critical';
-  if (memoryCount >= 100) return 'high';
-  if (memoryCount >= 50) return 'medium';
-  if (memoryCount >= 20) return 'low';
-  return 'none';
-}
-
-export function memoryDreamingProgressLabel(phase: MemoryDreamingProgressPhase): string {
-  if (phase === 'preparing') return 'Preparing…';
-  if (phase === 'gathering') return 'Gathering memories…';
-  if (phase === 'synthesizing') return 'Dreaming across memories…';
-  if (phase === 'compacting') return 'Compacting context…';
-  if (phase === 'retrying') return 'Trying again…';
-  if (phase === 'correcting') return 'Refining the plan…';
-  if (phase === 'validating') return 'Validating changes…';
-  if (phase === 'applying') return 'Applying changes…';
-  if (phase === 'completed') return 'Dream complete';
-  return 'Dream failed';
-}
-
-export function workspaceDejunkHeat(newFileCount: number): SessionHeat {
-  if (newFileCount >= 1_000) return 'critical';
-  if (newFileCount >= 200) return 'high';
-  if (newFileCount >= 50) return 'medium';
-  if (newFileCount >= 10) return 'low';
-  return 'none';
 }

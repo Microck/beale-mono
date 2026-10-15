@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CSSProperties, DragEvent, JSX, RefObject } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties, DragEvent, JSX } from 'react';
 import { BadgeCheck, Lightbulb, Search } from 'lucide-react';
 import type {
   AppServerFindingSummary,
@@ -12,7 +12,7 @@ import type {
 import { formatWorkspaceTimelineDuration } from '../../view-models/workspaceTimeline';
 import type { SessionTimelineProjection } from '../../view-models/workspaceTimeline';
 import type { SessionHeatPreferences } from '../../view-models/sessionHeat';
-import { campaignClaimIsActive, campaignClaimRatingPresentation } from '../../view-models/campaignClaims';
+import { campaignClaimRatingPresentation } from '../../view-models/campaignClaims';
 import type { CampaignClaimRatingValue } from '../../view-models/campaignClaims';
 import { researchModelDisplayName, traceLabel } from '../../lib/formatting';
 import { ProviderIcon } from '../../app/ProviderIcon';
@@ -20,7 +20,6 @@ import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { memoryTypeClassName, memoryTypeLabel, memoryTypeStyle } from '../research/MemoryTypeLabel';
 
-const CAMPAIGN_PRIORITY_CLAIM_LIMIT = 8;
 const CAMPAIGN_BOARD_MATURITIES: readonly ClaimBoardMaturity[] = ['refuted', 'observed', 'reproduced', 'verified'];
 type CampaignBoardMaturity = ClaimBoardMaturity;
 type CampaignBoardRatingFilter = CampaignClaimRatingValue | 'all';
@@ -33,65 +32,6 @@ const CAMPAIGN_BOARD_RATING_OPTIONS: Array<{ value: CampaignBoardRatingFilter; l
   { value: 'high', label: 'High' },
   { value: 'critical', label: 'Critical' }
 ];
-const CAMPAIGN_CLAIM_RATING_RANK: Readonly<Record<AppServerFindingSummary['rating'], number>> = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-  informational: 4
-};
-
-export function CampaignGraphView({
-  memory,
-  providerModelCatalog,
-  workspaceName,
-  onOpenClaim
-}: {
-  memory: AppServerMemorySummary | null;
-  providerModelCatalog: readonly ResearchProviderModelCatalog[];
-  workspaceName: string;
-  onOpenClaim: (claimId: string) => void;
-}): JSX.Element {
-  const campaign = memory?.campaign;
-  const priorityClaims = campaignPriorityClaims(memory);
-  const loading = memory === null || memory.loading === true;
-  const priorityScrollFades = useCampaignScrollFades(
-    priorityClaims.map((claim) => `${claim.id}:${claim.revision}`).join('|')
-  );
-
-  return (
-    <section aria-labelledby="workspace-campaign-heading" className="workspace-dashboard-panel campaign-panel" id="workspace-dashboard-campaign-trail-panel" role="tabpanel">
-      <header className="campaign-header">
-        <div className="settings-form-heading campaign-view-heading">
-          <h2 className="campaign-view-title" id="workspace-campaign-heading">{workspaceName.trim() || 'Workspace'} Highlights</h2>
-          <p>{loading ? 'Loading campaign…' : campaign?.momentum.reason ?? 'No campaign context available.'}</p>
-        </div>
-      </header>
-
-      <div className="campaign-trail-layout">
-        <section className="campaign-trail-section campaign-priority-claims" aria-labelledby="campaign-priority-claims-heading">
-          <h3 className="workspace-campaign-list-heading" id="campaign-priority-claims-heading">Priority Claims</h3>
-          <div className="campaign-priority-claim-scroll" ref={priorityScrollFades.frameRef}>
-            <div className="campaign-priority-claim-list" onScroll={priorityScrollFades.update} ref={priorityScrollFades.scrollRef}>
-              {loading ? <p className="campaign-trail-section-empty">Loading priority claims.</p> : priorityClaims.length === 0 ? (
-                <p className="campaign-trail-section-empty">No active claims yet.</p>
-              ) : priorityClaims.map((claim) => (
-                <CampaignClaimCard
-                  claim={claim}
-                  key={claim.id}
-                  metadata={campaignPriorityClaimMetadata(claim)}
-                  onOpenClaim={onOpenClaim}
-                  providerModelCatalog={providerModelCatalog}
-                />
-              ))}
-            </div>
-          </div>
-        </section>
-      </div>
-    </section>
-  );
-}
-
 export function CampaignBoardView({
   memory,
   providerModelCatalog,
@@ -209,8 +149,8 @@ export function CampaignBoardView({
                 listClassName="campaign-board-lane-list"
                 updateKey={`${loading}:${classificationFilter}:${ratingFilter}:${query}:${findings.map(({ id, revision }) => `${id}:${revision}`).join('|')}`}
               >
-                {loading ? <p className="campaign-trail-section-empty">Loading findings.</p> : findings.length === 0 ? (
-                  <p className="campaign-trail-section-empty">No {maturity} findings.</p>
+                {loading ? <p className="campaign-board-empty">Loading findings.</p> : findings.length === 0 ? (
+                  <p className="campaign-board-empty">No {maturity} findings.</p>
                 ) : findings.map((claim) => (
                   <CampaignClaimCard
                     claim={claim}
@@ -234,57 +174,7 @@ export function CampaignBoardView({
   );
 }
 
-function useCampaignScrollFades(contentKey: string): {
-  frameRef: RefObject<HTMLDivElement | null>;
-  scrollRef: RefObject<HTMLDivElement | null>;
-  update: () => void;
-} {
-  const frameRef = useRef<HTMLDivElement | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const update = useCallback((): void => {
-    const frame = frameRef.current;
-    const scroll = scrollRef.current;
-    if (!frame || !scroll) return;
-    const edges = campaignScrollFadeEdges({
-      scrollSize: scroll.scrollWidth,
-      clientSize: scroll.clientWidth,
-      scrollOffset: scroll.scrollLeft
-    });
-    frame.classList.toggle('has-left-fade', edges.leading);
-    frame.classList.toggle('has-right-fade', edges.trailing);
-  }, []);
-
-  useEffect(() => {
-    const scroll = scrollRef.current;
-    update();
-    if (!scroll || typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(update);
-    observer.observe(scroll);
-    for (const child of scroll.children) observer.observe(child);
-    return () => observer.disconnect();
-  }, [contentKey, update]);
-
-  return { frameRef, scrollRef, update };
-}
-
-export function campaignScrollFadeEdges({
-  scrollSize,
-  clientSize,
-  scrollOffset
-}: {
-  scrollSize: number;
-  clientSize: number;
-  scrollOffset: number;
-}): { leading: boolean; trailing: boolean } {
-  const scrollableDistance = scrollSize - clientSize;
-  const canScroll = scrollableDistance > 8;
-  return {
-    leading: canScroll && scrollOffset > 8,
-    trailing: canScroll && scrollOffset < scrollableDistance - 8
-  };
-}
-
-function CampaignPriorityClaimAuthors({
+function CampaignClaimAuthors({
   authors,
   providerModelCatalog
 }: {
@@ -297,7 +187,7 @@ function CampaignPriorityClaimAuthors({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return undefined;
-    const update = (): void => setHasOverflow(campaignPriorityClaimHasOverflow(container.scrollWidth, container.clientWidth));
+    const update = (): void => setHasOverflow(campaignClaimAuthorsHaveOverflow(container.scrollWidth, container.clientWidth));
     update();
     if (typeof ResizeObserver === 'undefined') return undefined;
     const observer = new ResizeObserver(update);
@@ -309,14 +199,14 @@ function CampaignPriorityClaimAuthors({
   return (
     <span
       aria-label="Model authors"
-      className={`campaign-priority-claim-authors${hasOverflow ? ' has-overflow' : ''}`}
+      className={`campaign-claim-card-authors${hasOverflow ? ' has-overflow' : ''}`}
       ref={containerRef}
     >
-      <span className="campaign-priority-claim-author-list">
+      <span className="campaign-claim-card-author-list">
         {authors.map((author) => {
           const modelName = researchModelDisplayName(author.provider, author.model, providerModelCatalog);
           return (
-            <span className="campaign-priority-claim-author" key={`${author.provider}\0${author.model}`} title={`${author.provider}/${modelName}`}>
+            <span className="campaign-claim-card-author" key={`${author.provider}\0${author.model}`} title={`${author.provider}/${modelName}`}>
               <ProviderIcon provider={author.provider || author.model} size={13} aria-hidden="true" />
               <span>{modelName}</span>
             </span>
@@ -327,12 +217,8 @@ function CampaignPriorityClaimAuthors({
   );
 }
 
-export function campaignPriorityClaimHasOverflow(scrollWidth: number, clientWidth: number): boolean {
+export function campaignClaimAuthorsHaveOverflow(scrollWidth: number, clientWidth: number): boolean {
   return scrollWidth > clientWidth;
-}
-
-export function campaignPriorityClaimMetadata(claim: AppServerFindingSummary): string {
-  return `${traceLabel(claim.maturity)} ${traceLabel(claim.rating)}`;
 }
 
 export function campaignBoardClaimMetadata(claim: AppServerFindingSummary): string {
@@ -368,28 +254,6 @@ function campaignBoardClassificationLabel(classification: string): string {
   return traceLabel(unqualified.replaceAll('-', '_'));
 }
 
-export function campaignPriorityClaims(memory: AppServerMemorySummary | null): AppServerFindingSummary[] {
-  if (!memory) return [];
-  const actionRanks = new Map<string, number>();
-  memory.campaign.nextActions.forEach((action, actionIndex) => {
-    action.relatedNodeIds.forEach((nodeId) => {
-      if (!actionRanks.has(nodeId)) actionRanks.set(nodeId, actionIndex);
-    });
-  });
-  return [...memory.findings, ...memory.leads]
-    .filter(campaignClaimIsActive)
-    .sort((left, right) => {
-      const leftActionRank = actionRanks.get(`${left.projection}:${left.id}`) ?? Number.MAX_SAFE_INTEGER;
-      const rightActionRank = actionRanks.get(`${right.projection}:${right.id}`) ?? Number.MAX_SAFE_INTEGER;
-      return leftActionRank - rightActionRank
-        || CAMPAIGN_CLAIM_RATING_RANK[left.rating] - CAMPAIGN_CLAIM_RATING_RANK[right.rating]
-        || (left.projection === right.projection ? 0 : left.projection === 'finding' ? -1 : 1)
-        || Date.parse(right.updatedAt) - Date.parse(left.updatedAt)
-        || left.title.localeCompare(right.title);
-    })
-    .slice(0, CAMPAIGN_PRIORITY_CLAIM_LIMIT);
-}
-
 function CampaignClaimCard({
   claim,
   className = '',
@@ -413,22 +277,22 @@ function CampaignClaimCard({
 }): JSX.Element {
   return (
     <button
-      className={`campaign-priority-claim${className ? ` ${className}` : ''}${dragging ? ' is-dragging' : ''}`}
+      className={`campaign-claim-card${className ? ` ${className}` : ''}${dragging ? ' is-dragging' : ''}`}
       draggable={Boolean(onDragStart) && !dragDisabled}
       onClick={() => onOpenClaim(claim.id)}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       type="button"
     >
-      <strong className="campaign-priority-claim-title">
+      <strong className="campaign-claim-card-title">
         {claim.projection === 'finding'
           ? <BadgeCheck aria-hidden="true" className={`campaign-claim-title-icon maturity-${claim.maturity}`} size={15} />
           : <Lightbulb aria-hidden="true" className={`campaign-claim-title-icon maturity-${claim.maturity}`} size={15} />}
         <span>{claim.title}</span>
       </strong>
-      <span className="campaign-priority-claim-footer">
-        <span className="campaign-priority-claim-meta">{metadata}</span>
-        <CampaignPriorityClaimAuthors authors={claim.authors} providerModelCatalog={providerModelCatalog} />
+      <span className="campaign-claim-card-footer">
+        <span className="campaign-claim-card-meta">{metadata}</span>
+        <CampaignClaimAuthors authors={claim.authors} providerModelCatalog={providerModelCatalog} />
       </span>
     </button>
   );

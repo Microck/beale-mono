@@ -15,7 +15,6 @@ export * from "./runbooks.js";
 export * from "./runbook-tools.js";
 export * from "./runbook-execution.js";
 export * from "./reports.js";
-export * from "./memory-dreaming.js";
 export * from "./memory-summary.js";
 export * from "./knowledge-artifacts.js";
 export type {

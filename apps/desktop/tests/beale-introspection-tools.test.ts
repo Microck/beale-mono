@@ -166,29 +166,7 @@ describe('Beale introspection tools', () => {
     }
   });
 
-  it('routes Dejunk and Dreaming through the existing maintenance services', async () => {
-    const { service } = createService();
-    const introspection = service as unknown as IntrospectionInvoker;
 
-    try {
-      const snapshot = service.getSnapshot() as WorkspaceSnapshot;
-      const dejunk = vi.spyOn(service, 'runWorkspaceDejunk').mockResolvedValue(snapshot);
-      const dreaming = vi.spyOn(service, 'runMemoryDreaming').mockResolvedValue(snapshot);
-
-      await expect(introspection.invokeBealeIntrospectionTool('run_dejunk', {})).resolves.toMatchObject({
-        workspace: snapshot.workspace,
-        dejunk: snapshot.workspace.dejunk
-      });
-      await expect(introspection.invokeBealeIntrospectionTool('run_dreaming', {})).resolves.toMatchObject({
-        workspace: snapshot.workspace,
-        dreaming: snapshot.appServerMemory.dreaming
-      });
-      expect(dejunk).toHaveBeenCalledOnce();
-      expect(dreaming).toHaveBeenCalledOnce();
-    } finally {
-      service.dispose();
-    }
-  });
 });
 
 function createService(): { service: WorkspaceService; workspace: string } {

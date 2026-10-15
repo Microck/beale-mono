@@ -46,7 +46,7 @@ export interface ResourcePriorArtGetInput extends Omit<ResourcePriorArtListInput
 
 export const APP_SERVER_PROTOCOL_NAME = "app-server" as const;
 export const APP_SERVER_PROTOCOL_VERSION = 1 as const;
-export const APP_SERVER_CONTRACT_VERSION = 46 as const;
+export const APP_SERVER_CONTRACT_VERSION = 47 as const;
 export const APP_SERVER_RUNTIME_VERSION = "0.1.0" as const;
 export const APP_SERVER_PROTOCOL_WEBSOCKET_PATH = "/v1/session" as const;
 export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as const;
@@ -88,7 +88,6 @@ export const BEALE_APP_SERVER_CAPABILITIES = [
   "host.operations.v1",
   "research.tools.v1",
   "source.clone-modes.v1",
-  "maintenance.repository-consolidation.v1",
   "host.shutdown-guard.v1",
   "workspace.memory-backend.v1",
   "workspace.research-subject-mutation.v1",
@@ -469,8 +468,8 @@ export const APP_SERVER_PROTOCOL_OPERATIONS = [
   "protocol.describe", "session.create", "session.begin_attempt", "session.append_event", "session.append_event_receipt",
   "session.transition", "session.recover_interrupted", "session.import_capture", "session.get", "session.get_update", "session.events", "session.event_details",
   "session.collaboration", "session.captures", "session.capture", "session.list", "session.list_summaries",
-  "memory.summary", "memory.notification_feed", "history.mark_duplicate", "history.undo_duplicate", "claim.mark_duplicate", "claim.undo_duplicate", "claim.board_transition", "workspace.state", "registry.state", "dreaming.prepare", "dreaming.parse_plan", "dreaming.apply",
-  "dreaming.record_failure", "dreaming.restore", "runbook.get", "report.list", "report.get", "report.revise_content", "report.update_triage_status", "report.replace_packet", "report.replace_recording",
+  "memory.summary", "memory.notification_feed", "history.mark_duplicate", "history.undo_duplicate", "claim.mark_duplicate", "claim.undo_duplicate", "claim.board_transition", "workspace.state", "registry.state",
+  "runbook.get", "report.list", "report.get", "report.revise_content", "report.update_triage_status", "report.replace_packet", "report.replace_recording",
   "artifact.resolve", "provider.complete", "provider.describe", "model_job.resolve",
   "suggestion.generate", "suggestion.select", "suggestion.steering", "prompt.expand",
   "profile.resolve", "auth.list", "auth.status", "auth.verify", "auth.logout", "model.list",
@@ -478,7 +477,6 @@ export const APP_SERVER_PROTOCOL_OPERATIONS = [
   "research.tools.list", "research.tools.read", "research.tools.mutate",
   "source.inspect", "source.materialize", "plugin.list", "plugin.add_filesystem",
   "plugin.add_repository", "plugin.set_enabled", "plugin.remove", "plugin.runtime",
-  "maintenance.summary", "maintenance.run",
   "workspace.project",
 ] as const;
 

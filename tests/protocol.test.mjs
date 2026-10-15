@@ -144,8 +144,9 @@ test("protocol describe omits removed workflow operations", () => {
   assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("session.continuation.v1"));
   assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("workspace.prompt-expansion.v1"));
   assert.ok(!BEALE_APP_SERVER_CAPABILITIES.includes("knowledge.campaign-tracks.v2"));
+  assert.ok(!BEALE_APP_SERVER_CAPABILITIES.includes("maintenance.repository-consolidation.v1"));
+  assert.ok(!APP_SERVER_PROTOCOL_OPERATIONS.some((operation) => operation.startsWith("dreaming.") || operation.startsWith("maintenance.")));
   assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("source.clone-modes.v1"));
-  assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("maintenance.repository-consolidation.v1"));
   assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("memory.notifications.v3"));
   assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("knowledge.report-list.v1"));
   assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("knowledge.claim-deduplication.v1"));

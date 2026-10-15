@@ -2,16 +2,11 @@ import { createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { isLiveResearchRunStatus } from '../src/shared/types';
 import type { AppServerMemorySummary, RunRow, ScopeAsset, SessionRunActivity } from '../src/shared/types';
 import { MainSessionWorkspace } from '../src/renderer/features/sessions/MainSessionWorkspace';
 import { INSET_SCROLLBAR_SELECTOR } from '../src/renderer/hooks/useInsetScrollbarActivation';
 import { WorkspaceDirectoriesField } from '../src/renderer/features/workspaces/WorkspaceDirectoriesWidget';
 import {
-  memoryCountSinceLastDream,
-  memoryDreamHeat,
-  memoryDreamingProgressLabel,
-  workspaceDejunkHeat,
   workspaceResearchSurfaceKinds,
   workspaceResearchSurfaceItems,
   workspaceRemovalConfirmationMatches,
@@ -19,7 +14,6 @@ import {
   workspaceCreationActivity,
   workspaceMemoryTypeGroups,
   workspaceTokenActivity,
-  WorkspaceHousekeepingPanel,
   WorkspaceResearchKitPanel,
   WorkspaceResourceDialog,
   WorkspaceUnderstandingView
@@ -61,19 +55,13 @@ describe('workspace dashboard', () => {
     const campaignCatalogHeadingSizeStyles = styles.match(/\.campaign-header \.campaign-view-heading h2\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceHeadingDescriptionStyles = styles.match(/\.workspace-dashboard \.settings-form-heading > p\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignPanelStyles = styles.match(/\.campaign-panel\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignTrailLayoutStyles = styles.match(/\.campaign-trail-layout\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignListHeadingStyles = styles.match(/\.workspace-campaign-list-heading\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignPriorityListStyles = styles.match(/\.campaign-priority-claim-list\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignPriorityEmptyStyles = styles.match(/\.campaign-priority-claim-list > \.campaign-trail-section-empty\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignPriorityScrollStyles = styles.match(/\.campaign-priority-claim-scroll\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignPriorityClaimStyles = styles.match(/\.campaign-priority-claim\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignBoardLaneStyles = styles.match(/\.campaign-board-lanes\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignBoardHeaderStyles = styles.match(/\.campaign-board-header\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignBoardFilterStyles = styles.match(/\.campaign-board-filters\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignBoardLaneListStyles = styles.match(/\.campaign-board-lane-list\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignBoardEmptyStyles = styles.match(/\.campaign-board-lane-list > \.campaign-trail-section-empty\s*\{([^}]*)\}/)?.[1] ?? '';
+    const campaignBoardEmptyStyles = styles.match(/\.campaign-board-lane-list > \.campaign-board-empty\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignBoardCardStyles = styles.match(/\.campaign-board-card\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignHorizontalFadeStyles = styles.match(/\.campaign-priority-claim-scroll::before\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignSessionProjectionStyles = styles.match(/\.campaign-session-projection\s*\{([^}]*)\}/)?.[1] ?? '';
     const sharedPanelStyles = styles.match(/\.workspace-dashboard-panel\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewStyles = styles.match(/\.workspace-overview\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -95,7 +83,7 @@ describe('workspace dashboard', () => {
     const directoryInputRowStyles = styles.match(/\.workspace-directories-input-row\s*\{([^}]*)\}/)?.[1] ?? '';
     const dividedDirectoryInputRowStyles = styles.match(/\.workspace-directories-input-row \+ \.workspace-directories-input-row\s*\{([^}]*)\}/)?.[1] ?? '';
     const primaryDirectoryIndicatorStyles = styles.match(/\.workspace-directory-primary-indicator::before\s*\{([^}]*)\}/)?.[1] ?? '';
-    const workspaceHeadingStyles = styles.match(/\.workspace-overview-layout\s*>\s*\.workspace-overview-heading,\s*\.workspace-activity-form\s*>\s*:is\(\.settings-form-heading\),\s*\.workspace-cleaning-form\s*>\s*:is\(\.settings-form-heading\)\s*\{([^}]*)\}/)?.[1] ?? '';
+    const workspaceHeadingStyles = styles.match(/\.workspace-overview-layout\s*>\s*\.workspace-overview-heading,\s*\.workspace-activity-form\s*>\s*:is\(\.settings-form-heading\)\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceHeatmapStyles = styles.match(/\.workspace-activity-grid-scroll\s*\{([^}]*)\}/)?.[1] ?? '';
     const overviewDisabledStyles = styles.match(/\.workspace-overview-form :is\(input:not\(\[type='checkbox'\]\), textarea\):disabled\s*\{([^}]*)\}/)?.[1] ?? '';
     const timelinePanelStyles = styles.match(/\.workspace-timeline-card\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -124,7 +112,6 @@ describe('workspace dashboard', () => {
     const memoryListStyles = styles.match(/\.workspace-memories-view\s+\.workspace-memory-type-lists\s*\{([^}]*)\}/)?.[1] ?? '';
     const runbookScrollStyles = styles.match(/\.workspace-runbooks-view\s*>\s*\.workspace-runbook-scroll\s*\{([^}]*)\}/)?.[1] ?? '';
     const runbookListStyles = styles.match(/\.workspace-runbooks-view\s+\.workspace-runbook-list\s*\{([^}]*)\}/)?.[1] ?? '';
-    const cleaningFormStyles = styles.match(/\.workspace-cleaning-form\s*\{([^}]*)\}/)?.[1] ?? '';
     const removalFormStyles = styles.match(/\.settings-form-control-row\.workspace-removal-form\s*\{([^}]*)\}/)?.[1] ?? '';
     const removalControlsStyles = styles.match(/\.workspace-removal-controls\s*\{([^}]*)\}/)?.[1] ?? '';
     const removalActionStyles = styles.match(/\.workspace-removal-action\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -136,15 +123,6 @@ describe('workspace dashboard', () => {
     const runbookIconStyles = styles.match(/^\.runbook-catalog-icon\s*\{([^}]*)\}/m)?.[1] ?? '';
     const workspaceMemorySectionStyles = styles.match(/\.workspace-memory-type-section\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceMemoryToggleStyles = styles.match(/\.workspace-campaign-catalog-view\s+\.workspace-memory-type-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
-    const sideStackStyles = styles.match(/\.workspace-side-stack\s*\{([^}]*)\}/)?.[1] ?? '';
-    const dreamAreaStyles = styles.match(/\.workspace-dream-area\s*\{([^}]*)\}/)?.[1] ?? '';
-    const dreamContentStyles = styles.match(/\.workspace-dream-content\s*\{([^}]*)\}/)?.[1] ?? '';
-    const housekeepingCardStyles = styles.match(/\.workspace-dejunk-card,\s*\.workspace-dream-card\s*\{([^}]*)\}/)?.[1] ?? '';
-    const housekeepingCountStyles = styles.match(/\.workspace-housekeeping-card-count\s*\{([^}]*)\}/)?.[1] ?? '';
-    const mediumHeatCardStyles =
-      styles.match(
-        /\.app-shell\.session-heat-medium,\s*\.workspace-dream-card\[data-dream-heat="medium"\],\s*\.workspace-dejunk-card\[data-dejunk-heat="medium"\]\s*\{([^}]*)\}/
-      )?.[1] ?? '';
 
     expect(wideContentStyles).toContain('max-width: 1300px');
     expect(wideContentStyles).toContain('--session-content-max-width: 100%');
@@ -175,29 +153,9 @@ describe('workspace dashboard', () => {
     expect(workspaceHeadingDescriptionStyles).toContain('font-size: 14px');
     expect(campaignPanelStyles).toContain('grid-template-rows: auto minmax(0, 1fr)');
     expect(campaignPanelStyles).toContain('overflow: hidden');
-    expect(campaignTrailLayoutStyles).toContain('grid-template-rows: minmax(0, 1fr)');
-    expect(campaignTrailLayoutStyles).toContain('gap: 0');
     expect(campaignListHeadingStyles).toContain('padding: 0 10px 7px');
     expect(campaignListHeadingStyles).toContain('border-bottom: 1px solid var(--panel-border)');
     expect(campaignListHeadingStyles).toContain('color: var(--muted)');
-    expect(campaignPriorityListStyles).toContain('display: flex');
-    expect(campaignPriorityListStyles).toContain('align-items: flex-start');
-    expect(campaignPriorityListStyles).toContain('gap: 0');
-    expect(campaignPriorityListStyles).toContain('overflow-x: auto');
-    expect(campaignPriorityListStyles).toContain('padding: 0 2px');
-    expect(campaignPriorityEmptyStyles).toContain('padding-block: 0');
-    expect(campaignPriorityScrollStyles).toContain('position: relative');
-    expect(campaignPriorityScrollStyles).toContain('overflow: hidden');
-    expect(campaignHorizontalFadeStyles).toContain('linear-gradient(to right');
-    expect(campaignPriorityClaimStyles).toContain('border: 0');
-    expect(campaignPriorityClaimStyles).toContain('border-right: 1px solid var(--panel-border)');
-    expect(campaignPriorityClaimStyles).toContain('border-radius: 0');
-    expect(campaignPriorityClaimStyles).toContain('width: 375px');
-    expect(campaignPriorityClaimStyles).toContain('flex: 0 0 375px');
-    expect(campaignPriorityClaimStyles).toContain('min-height: 0');
-    expect(campaignPriorityClaimStyles).toContain('align-self: flex-start');
-    expect(campaignPriorityClaimStyles).toContain('grid-template-rows: auto auto');
-    expect(campaignPriorityClaimStyles).toContain('align-content: start');
     expect(campaignBoardLaneStyles).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))');
     expect(campaignBoardHeaderStyles).toContain('grid-template-columns: minmax(0, 1fr) auto');
     expect(campaignBoardFilterStyles).toContain('justify-content: flex-end');
@@ -207,27 +165,7 @@ describe('workspace dashboard', () => {
     expect(campaignBoardEmptyStyles).toContain('margin-left: 10px');
     expect(campaignBoardEmptyStyles).toContain('padding-top: 0');
     expect(campaignBoardCardStyles).toContain('width: 100%');
-    const campaignPriorityClaimTitleStyles = styles.match(/\.campaign-priority-claim-title\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignPriorityClaimTitleTextStyles = styles.match(/\.campaign-priority-claim-title > span\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignPriorityClaimMetaStyles = styles.match(/\.campaign-priority-claim-meta\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignPriorityClaimIconStyles = styles.match(/\.campaign-priority-claim \.campaign-claim-title-icon\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignPriorityClaimFooterStyles = styles.match(/\.campaign-priority-claim-footer\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignPriorityClaimAuthorListStyles = styles.match(/\.campaign-priority-claim-author-list\s*\{([^}]*)\}/)?.[1] ?? '';
-    const campaignPriorityClaimFadeStyles = styles.match(/\.campaign-priority-claim-authors\.has-overflow::after\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(campaignPriorityClaimTitleStyles).toContain('display: block');
-    expect(campaignPriorityClaimTitleStyles).toContain('align-self: start');
-    expect(campaignPriorityClaimTitleStyles).toContain('margin: 0');
-    expect(campaignPriorityClaimTitleStyles).toContain('overflow-wrap: anywhere');
-    expect(campaignPriorityClaimTitleStyles).toContain('white-space: normal');
-    expect(campaignPriorityClaimTitleTextStyles).toContain('display: inline');
-    expect(campaignPriorityClaimMetaStyles).toContain('white-space: nowrap');
-    expect(campaignPriorityClaimIconStyles).toContain('margin: 0 7px 0 0');
-    expect(campaignPriorityClaimFooterStyles).toContain('align-self: start');
-    expect(campaignPriorityClaimAuthorListStyles).toContain('display: flex');
-    expect(campaignPriorityClaimAuthorListStyles).toContain('width: max-content');
-    expect(campaignPriorityClaimAuthorListStyles).toContain('gap: 8px');
-    expect(campaignPriorityClaimFadeStyles).toContain('linear-gradient(to right, transparent, var(--campaign-priority-claim-surface) 82%)');
-    expect(INSET_SCROLLBAR_SELECTOR).toContain('.campaign-priority-claim-list');
+    expect(styles).toContain('.campaign-claim-card {');
     expect(INSET_SCROLLBAR_SELECTOR).toContain('.campaign-board-lane-list');
     expect(campaignSessionProjectionStyles).toContain('height: 18px');
     expect(sharedPanelStyles).toContain('min-height: 0');
@@ -278,8 +216,6 @@ describe('workspace dashboard', () => {
     expect(timelinePanelStyles).not.toContain('padding');
     expect(activityFormStyles).toContain('max-width: var(--session-content-max-width)');
     expect(activityFormStyles).toContain('margin-inline: auto');
-    expect(cleaningFormStyles).toContain('max-width: var(--session-content-max-width)');
-    expect(cleaningFormStyles).toContain('margin-inline: auto');
     expect(removalFormStyles).toContain('grid-template-columns: minmax(0, 1fr)');
     expect(removalFormStyles).toContain('gap: 9px');
     expect(removalControlsStyles).toContain('grid-template-columns: minmax(180px, 1fr) minmax(130px, 160px)');
@@ -345,102 +281,6 @@ describe('workspace dashboard', () => {
     expect(workspaceMemoryToggleStyles).not.toContain('border-top');
     expect(styles).toMatch(/:where\([\s\S]*\.main-commentary-list,[\s\S]*\.workspace-surface-list,[\s\S]*\)\s*\{\s*scrollbar-color: transparent transparent;/u);
     expect(styles).not.toContain('.workspace-housekeeping-header');
-    expect(sideStackStyles).toContain('grid-template-rows: auto minmax(0, 1fr)');
-    expect(dreamAreaStyles).toContain('grid-template-rows: minmax(0, 1fr)');
-    expect(dreamAreaStyles).toContain('padding: 8px 18px 18px');
-    expect(dreamContentStyles).toContain('padding-top: 0');
-    expect(dreamContentStyles).toContain('grid-template-columns: minmax(0, 1fr)');
-    expect(dreamContentStyles).toContain('grid-template-rows: repeat(2, minmax(0, 1fr))');
-    expect(housekeepingCardStyles).toContain('width: 100%');
-    expect(housekeepingCardStyles).toContain('height: 100%');
-    expect(housekeepingCardStyles).toContain('position: relative');
-    expect(housekeepingCardStyles).toContain('border: 0');
-    expect(housekeepingCardStyles).toContain('border-radius: 34px');
-    expect(housekeepingCardStyles).toContain('corner-shape: squircle');
-    expect(housekeepingCardStyles).toContain('background: var(--workspace-card-surface)');
-    expect(housekeepingCardStyles).not.toContain('--workspace-card-glass');
-    expect(housekeepingCardStyles).not.toContain('outline');
-    expect(mediumHeatCardStyles).toContain(
-      '--session-heat-edge: var(--session-heat-medium-color)'
-    );
-    expect(mediumHeatCardStyles).not.toContain('color-mix');
-    expect(mediumHeatCardStyles).toContain(
-      '--workspace-card-surface: var(--session-heat-edge)'
-    );
-    expect(housekeepingCardStyles).not.toContain('backdrop-filter');
-    expect(housekeepingCardStyles).not.toContain('box-shadow');
-    expect(housekeepingCardStyles).not.toContain('gradient');
-    expect(housekeepingCountStyles).toContain('position: absolute');
-    expect(housekeepingCountStyles).toContain('top: 12px');
-    expect(housekeepingCountStyles).toContain('right: 14px');
-  });
-
-  it('maps memories created since the latest dream to profile heat thresholds', () => {
-    expect(memoryDreamHeat(19)).toBe('none');
-    expect(memoryDreamHeat(20)).toBe('low');
-    expect(memoryDreamHeat(49)).toBe('low');
-    expect(memoryDreamHeat(50)).toBe('medium');
-    expect(memoryDreamHeat(100)).toBe('high');
-    expect(memoryDreamHeat(150)).toBe('critical');
-    expect(workspaceDejunkHeat(9)).toBe('none');
-    expect(workspaceDejunkHeat(10)).toBe('low');
-    expect(workspaceDejunkHeat(50)).toBe('medium');
-    expect(workspaceDejunkHeat(200)).toBe('high');
-    expect(workspaceDejunkHeat(1_000)).toBe('critical');
-
-    const memory = memorySummary({
-      nodes: [
-        { id: 'before', createdAt: '2026-08-12T09:00:00.000Z' },
-        { id: 'after_one', createdAt: '2026-08-12T11:00:00.000Z' },
-        { id: 'after_two', createdAt: '2026-08-12T12:00:00.000Z' }
-      ],
-      lastDreamCompletedAt: '2026-08-12T10:00:00.000Z'
-    });
-    expect(memoryCountSinceLastDream(memory)).toBe(2);
-  });
-
-  it('shows a disabled loading state while the filesystem summary is deferred', () => {
-    const html = renderToStaticMarkup(createElement(WorkspaceHousekeepingPanel, {
-      busy: false,
-      appServerMemory: memorySummary(),
-      memoryDreamingInProgress: false,
-      researchProfile: testResearchProfile(),
-      runs: [],
-      workspaceDejunk: {
-        available: false,
-        loading: true,
-        newFileCount: 0,
-        newFileCountCapped: false,
-        baselineAt: '2026-08-12T12:00:00.000Z',
-        lastRun: null
-      },
-      onRunMemoryDreaming: () => undefined
-    }));
-
-    expect(html).toContain('Loading workspace files…');
-    expect(html).toContain('Loading…');
-    expect(html).toContain('disabled=""');
-  });
-
-  it('does not surface legacy Git checkpoint repair controls', () => {
-    const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
-      busy: false,
-      initialView: 'utilities',
-      appServerMemory: memorySummary(),
-      workspaceName: 'Example Workspace',
-      runs: [],
-      memoryDreamingInProgress: false,
-      onRunMemoryDreaming: () => undefined,
-      workspaceDejunk: {
-        available: true, newFileCount: 1, newFileCountCapped: false, baselineAt: '2026-08-12T12:00:00.000Z', lastRun: null,
-        project: { fileCount: 1, totalBytes: 6 * 1048576, temporaryBytes: 0, unclassifiedFileCount: 0, partial: false,
-          checkpoint: { status: 'failed', reason: 'Legacy checkpoint', error: 'Legacy status.' }
-        }
-      }
-    }));
-    expect(html).toContain('Dejunk Now');
-    expect(html).not.toContain('Checkpoint repair');
-    expect(html).not.toContain('Git checkpoint failed');
   });
 
   it('shows the active Research Kit tab while mounting only the requested Settings panel', () => {
@@ -469,8 +309,6 @@ describe('workspace dashboard', () => {
       selectedSubagentPath: null,
       searchHighlightQuery: '',
       busy: false,
-      memoryDreamingInProgress: false,
-      onRunMemoryDreaming: () => undefined,
       onResearchDetailsOpenChange: () => undefined,
       onOpenAppServerRunbook: () => undefined,
       onBackToRunbooks: () => undefined,
@@ -489,23 +327,20 @@ describe('workspace dashboard', () => {
     expect(html).toContain('<span>Settings</span>');
     expect(html).toContain('<span>Resources</span>');
     expect(html).toContain('<span>Rules</span>');
-    expect(html).toContain('<span>Utilities</span>');
+    expect(html).not.toContain('<span>Utilities</span>');
     expect(html).toContain('<span>Targets</span>');
-    expect(html.indexOf('<span>Rules</span>')).toBeLessThan(html.indexOf('<span>Utilities</span>'));
     expect(html.indexOf('<span>Campaign</span>')).toBeLessThan(html.indexOf('<span>Resources</span>'));
-    expect(html.indexOf('<span>Utilities</span>')).toBeLessThan(html.indexOf('<span>Settings</span>'));
     expect(html.indexOf('<span>Targets</span>')).toBeLessThan(html.indexOf('<span>Settings</span>'));
     expect(html.indexOf('<span>Settings</span>')).toBeLessThan(html.indexOf('<span>Apple Security Bounty</span>'));
     expect(html).toContain('lucide-settings');
     expect(html).toContain('lucide-boxes');
     expect(html).toContain('lucide-list-checks');
-    expect(html).toContain('lucide-wrench');
     expect(html).toContain('<span>Apple Security Bounty</span>');
     expect(html).toContain('workspace-dashboard-tab workspace-dashboard-kit-tab');
     expect(html).not.toContain('<span>HackerOne</span>');
     expect(html).not.toContain('<span>MSRC Windows</span>');
     expect(html).toContain('lucide-refresh-cw');
-    expect(html.match(/workspace-dashboard-tab-icon/g)).toHaveLength(7);
+    expect(html.match(/workspace-dashboard-tab-icon/g)).toHaveLength(6);
     expect(html).not.toContain('aria-label="Campaign views"');
     expect(html).toContain('aria-controls="workspace-dashboard-overview-panel" aria-selected="true"');
     expect(html).not.toContain('id="workspace-dashboard-campaign-activity-panel"');
@@ -516,6 +351,7 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('id="workspace-dashboard-campaign-runbooks-panel"');
     expect(html).not.toContain('id="workspace-dashboard-utilities-panel"');
     expect(html).toContain('<h2 id="workspace-overview-heading">Parser Workspace Settings</h2>');
+    expect(html).toContain('<strong>Remove Workspace</strong>');
     expect(html).toContain('class="settings-form-squircle" aria-labelledby="workspace-overview-heading"');
     expect(html).toContain('class="settings-form-control-row workspace-overview-control-row workspace-directories-field"');
     expect(html).not.toContain('class="workspace-directories-widget"');
@@ -588,8 +424,6 @@ describe('workspace dashboard', () => {
       selectedSubagentPath: null,
       searchHighlightQuery: '',
       busy: false,
-      memoryDreamingInProgress: false,
-      onRunMemoryDreaming: () => undefined,
       onResearchDetailsOpenChange: () => undefined,
       onOpenAppServerRunbook: () => undefined,
       onBackToRunbooks: () => undefined,
@@ -607,49 +441,42 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('session-main-only');
   });
 
-  it('opens existing workspaces on Campaign Highlights with Campaign sub-views and Settings last', () => {
+  it('opens existing workspaces on Campaign Claims with Campaign sub-views and Settings last', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
-      memoryDreamingInProgress: false,
       appServerMemory: memorySummary(),
       researchProfile: testResearchProfile(),
       workspaceName: 'Parser Workspace',
       runs: [],
-      onRunMemoryDreaming: () => undefined
     }));
 
     expect(html).toContain('aria-controls="workspace-dashboard-campaign-subviews" aria-selected="true"');
     expect(html).toContain('id="workspace-dashboard-campaign-subviews" role="tabpanel"');
     expect(html).toContain('role="tablist" aria-label="Campaign views"');
     expect(html).toContain('class="workspace-campaign-subview-tabs research-side-view-tabs pill-view-tabs"');
-    expect(html).toContain('<span>Highlights</span>');
+    expect(html).not.toContain('<span>Highlights</span>');
     expect(html).toContain('<span>Claims</span>');
     expect(html).not.toContain('<span>Activity</span>');
     expect(html).toContain('<span>Memories</span>');
     expect(html).toContain('<span>Runbooks</span>');
     expect(html).toContain('<span>Reports</span>');
-    expect(html.match(/class="research-side-view-tab provider-settings-tab workspace-campaign-subview-tab(?: active)?"/g)).toHaveLength(5);
-    expect(html.indexOf('<span>Highlights</span>')).toBeLessThan(html.indexOf('<span>Claims</span>'));
+    expect(html.match(/class="research-side-view-tab provider-settings-tab workspace-campaign-subview-tab(?: active)?"/g)).toHaveLength(4);
     expect(html.indexOf('<span>Claims</span>')).toBeLessThan(html.indexOf('<span>Memories</span>'));
-    expect(html).toContain('aria-controls="workspace-dashboard-campaign-trail-panel" aria-selected="true"');
-    expect(html).toContain('id="workspace-dashboard-campaign-trail-panel"');
-    expect(html).toContain('<h2 class="campaign-view-title" id="workspace-campaign-heading">Parser Workspace Highlights</h2>');
-    expect(html).toContain('<h3 class="workspace-campaign-list-heading" id="campaign-priority-claims-heading">Priority Claims</h3>');
+    expect(html).toContain('aria-controls="workspace-dashboard-campaign-board-panel" aria-selected="true"');
+    expect(html).toContain('id="workspace-dashboard-campaign-board-panel"');
+    expect(html).toContain('id="workspace-campaign-board-heading">Parser Workspace Claims</h2>');
     expect(html).not.toContain('Research campaign');
     expect(html).not.toContain('The harness prioritizes uncovered or weakly supported territory');
     expect(html.indexOf('<span>Campaign</span>')).toBeLessThan(html.indexOf('<span>Resources</span>'));
-    expect(html.indexOf('<span>Utilities</span>')).toBeLessThan(html.indexOf('<span>Settings</span>'));
     expect(html).not.toContain('id="workspace-dashboard-overview-panel"');
 
     const boardHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'board',
-      memoryDreamingInProgress: false,
       appServerMemory: memorySummary(),
       researchProfile: testResearchProfile(),
       workspaceName: 'Parser Workspace',
       runs: [],
-      onRunMemoryDreaming: () => undefined
     }));
     expect(boardHtml).toContain('aria-controls="workspace-dashboard-campaign-board-panel" aria-selected="true"');
     expect(boardHtml).toContain('id="workspace-dashboard-campaign-board-panel"');
@@ -660,7 +487,6 @@ describe('workspace dashboard', () => {
     const reportsHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'reports',
-      memoryDreamingInProgress: false,
       appServerMemory: memorySummary({ reports: [
         { id: 'report_local', title: 'Local report' },
         { id: 'report_other', workspaceId: 'workspace_other', title: 'Other workspace report' }
@@ -668,7 +494,6 @@ describe('workspace dashboard', () => {
       researchProfile: testResearchProfile(),
       workspaceName: 'Parser Workspace',
       runs: [],
-      onRunMemoryDreaming: () => undefined
     }));
     expect(reportsHtml).toContain('aria-controls="workspace-dashboard-campaign-reports-panel" aria-selected="true"');
     expect(reportsHtml).toContain('id="workspace-dashboard-campaign-reports-panel"');
@@ -678,12 +503,10 @@ describe('workspace dashboard', () => {
     const runbooksHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'runbooks',
-      memoryDreamingInProgress: false,
       appServerMemory: memorySummary(),
       researchProfile: testResearchProfile(),
       workspaceName: 'Parser Workspace',
       runs: [],
-      onRunMemoryDreaming: () => undefined
     }));
     expect(runbooksHtml).toContain('aria-controls="workspace-dashboard-campaign-subviews" aria-selected="true"');
     expect(runbooksHtml).toContain('aria-controls="workspace-dashboard-campaign-runbooks-panel" aria-selected="true"');
@@ -697,13 +520,11 @@ describe('workspace dashboard', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'kit',
-      memoryDreamingInProgress: false,
       appServerMemory: memorySummary(),
       researchKitId: 'apple-security-bounty',
       researchProfile: testResearchProfile(),
       workspaceName: 'Apple Research',
       runs: [],
-      onRunMemoryDreaming: () => undefined
     }));
 
     expect(html).toContain('id="workspace-dashboard-kit-panel"');
@@ -717,31 +538,27 @@ describe('workspace dashboard', () => {
 
     const generalHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
-      memoryDreamingInProgress: false,
       appServerMemory: memorySummary(),
       researchKitId: 'general',
       researchProfile: testResearchProfile(),
       workspaceName: 'General Research',
       runs: [],
-      onRunMemoryDreaming: () => undefined
     }));
     expect(generalHtml).not.toContain('aria-controls="workspace-dashboard-kit-panel"');
   });
 
-  it('shows a confirmed registry-only workspace removal form in Utilities', () => {
+  it('shows a confirmed registry-only workspace removal form in existing workspace Settings', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
-      initialView: 'utilities',
-      memoryDreamingInProgress: false,
+      initialView: 'overview',
       appServerMemory: memorySummary(),
       researchProfile: testResearchProfile(),
       workspaceName: 'Parser Workspace',
       runs: [],
-      onRunMemoryDreaming: () => undefined,
       onRemoveWorkspace: async () => undefined
     }));
 
-    expect(html).toContain('<h2>Parser Workspace Utilities</h2>');
+    expect(html).toContain('<h2 id="workspace-overview-heading">Parser Workspace Settings</h2>');
     expect(html).toContain('<strong>Remove Workspace</strong>');
     expect(html).toContain('Unregisters this workspace from Beale only.');
     expect(html).toContain('Directories, .beale metadata, repository clones, scoped resources, and app-server memory remain on disk.');
@@ -797,8 +614,6 @@ describe('workspace dashboard', () => {
       busy: false,
       initialView: 'overview',
       appServerMemory: memorySummary(),
-      memoryDreamingInProgress: false,
-      onRunMemoryDreaming: () => undefined,
       runs: [],
       workspaceName: 'Parser Workspace'
     }));
@@ -863,7 +678,6 @@ describe('workspace dashboard', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'rules',
-      memoryDreamingInProgress: false,
       appServerMemory: memorySummary(),
       workspaceName: 'Parser Workspace',
       workspaceRules: [{
@@ -874,7 +688,6 @@ describe('workspace dashboard', () => {
         createdBy: 'local_user'
       }],
       runs: [],
-      onRunMemoryDreaming: () => undefined
     }));
 
     expect(html).toContain('id="workspace-dashboard-rules-panel"');
@@ -981,14 +794,12 @@ describe('workspace dashboard', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'memory',
-      memoryDreamingInProgress: false,
       appServerMemory: memory,
       researchProfile: profile,
       sessionHeatPreferences,
       workspaceName: 'Security',
       runs: [],
       nowMs: NOW,
-      onRunMemoryDreaming: () => undefined
     }));
     expect(html).toContain('aria-controls="workspace-dashboard-campaign-subviews" aria-selected="true"');
     expect(html).toContain('aria-controls="workspace-dashboard-campaign-memory-panel" aria-selected="true"');
@@ -996,6 +807,7 @@ describe('workspace dashboard', () => {
     expect(html).toContain('class="main-side-scroll workspace-catalog-list workspace-memory-scroll"');
     expect(html).toContain('class="memory-catalog-list workspace-memory-type-lists"');
     expect(html).toContain('<h2>Security Memories</h2>');
+    expect(html).toContain('class="workspace-activity-grid"');
     expect(html).toContain('<h3 class="workspace-campaign-list-heading">1 Note</h3>');
     expect(html).toContain('<h3 class="workspace-campaign-list-heading">5 Findings</h3>');
     expect(html).toContain('<h3 class="workspace-campaign-list-heading">6 Neutrals</h3>');
@@ -1010,7 +822,6 @@ describe('workspace dashboard', () => {
     const runbooksHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'runbooks',
-      memoryDreamingInProgress: false,
       appServerMemory: memorySummary({
         runbooks: Array.from({ length: 6 }, (_, index) => ({
           id: `runbook_${index}`,
@@ -1020,7 +831,6 @@ describe('workspace dashboard', () => {
       researchProfile: testResearchProfile(),
       workspaceName: 'Example Workspace',
       runs: [],
-      onRunMemoryDreaming: () => undefined
     }));
     expect(runbooksHtml).toContain('<h3 class="workspace-campaign-list-heading">6 Runbooks</h3>');
     expect(runbooksHtml).toContain('class="workspace-memory-type-primary-items"');
@@ -1098,24 +908,15 @@ describe('workspace dashboard', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'activity',
-      workspaceDejunk: {
-        available: true,
-        newFileCount: 50,
-        newFileCountCapped: false,
-        baselineAt: '2026-08-12T08:00:00.000Z',
-        lastRun: null
-      },
-      memoryDreamingInProgress: false,
       appServerMemory: memory,
       researchProfile: profile,
       workspaceName: 'Parser Workspace',
       runs,
       nowMs: NOW,
-      onRunMemoryDreaming: () => undefined
     }));
 
     expect(html).toContain('aria-controls="workspace-dashboard-campaign-subviews" aria-selected="true"');
-    expect(html).toContain('aria-controls="workspace-dashboard-campaign-trail-panel" aria-selected="true"');
+    expect(html).toContain('aria-controls="workspace-dashboard-campaign-board-panel" aria-selected="true"');
     expect(html).not.toContain('workspace-dashboard-campaign-activity-panel');
     expect(html).not.toContain('<span>Activity</span>');
     expect(html).not.toContain('Recent session');
@@ -1132,7 +933,6 @@ describe('workspace dashboard', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'resources',
-      memoryDreamingInProgress: false,
       appServerMemory: memory,
       activeScope: {
         id: 'scope_surface',
@@ -1161,10 +961,12 @@ describe('workspace dashboard', () => {
       workspaceName: 'Parser Workspace',
       runs: [run],
       nowMs: NOW,
-      onRunMemoryDreaming: () => undefined
     }));
 
     expect(html).toContain('>parser</strong>');
+    expect(html).toContain('<h2>Parser Workspace Resources</h2>');
+    expect(html).toContain('1 resource created over the past year.');
+    expect(html).not.toContain('workspace-activity-grid');
     expect(html).toContain('class="workspace-surface-scroll"');
     expect(html).toContain('>Repository</span>');
     expect(html).toContain('role="tab"');
@@ -1314,13 +1116,11 @@ describe('workspace dashboard', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'overview',
-      memoryDreamingInProgress: false,
       appServerMemory: memorySummary(),
       researchProfile: testResearchProfile(),
       researchSubjectName: 'Example Subject',
       workspaceName: 'Example Workspace',
       runs: [runRow('run_paused', [], { status: 'paused' })],
-      onRunMemoryDreaming: () => undefined
     }));
 
     expect(html).toMatch(/aria-label="Research Subject"[^>]*value="Example Subject"/u);
@@ -1332,13 +1132,11 @@ describe('workspace dashboard', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'overview',
-      memoryDreamingInProgress: false,
       appServerMemory: memorySummary(),
       researchProfile: testResearchProfile(),
       researchSubjectName: 'Example Subject',
       workspaceName: 'Example Workspace',
       runs: [runRow('run_active', [], { status: 'active' })],
-      onRunMemoryDreaming: () => undefined
     }));
 
     expect(html).toMatch(/aria-label="Research Subject"[^>]*disabled=""/u);
@@ -1388,7 +1186,7 @@ describe('workspace dashboard', () => {
     expect(resultMarkerStyles).not.toContain('box-shadow:');
   });
 
-  it('records session results while legacy Activity links open Campaign Highlights', () => {
+  it('records session results while legacy Activity links open Campaign Claims', () => {
     const interval: Array<[string, string | null]> = [['2026-08-12T08:00:00.000Z', '2026-08-12T09:00:00.000Z']];
     const natural = runRow('run_natural', interval, { status: 'completed' });
     const unexpected = runRow('run_unexpected', interval, { status: 'failed' });
@@ -1416,17 +1214,15 @@ describe('workspace dashboard', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'activity',
-      memoryDreamingInProgress: false,
       appServerMemory: memorySummary(),
       researchProfile: testResearchProfile(),
       workspaceName: 'Parser Workspace',
       runs: [natural, unexpected, safeguard, recovered, active],
       nowMs: NOW,
-      onRunMemoryDreaming: () => undefined
     }));
 
-    expect(html).toContain('aria-controls="workspace-dashboard-campaign-trail-panel" aria-selected="true"');
-    expect(html).toContain('id="workspace-dashboard-campaign-trail-panel"');
+    expect(html).toContain('aria-controls="workspace-dashboard-campaign-board-panel" aria-selected="true"');
+    expect(html).toContain('id="workspace-dashboard-campaign-board-panel"');
     expect(html).not.toContain('workspace-dashboard-campaign-activity-panel');
     expect(html).not.toContain('workspace-timeline-legend');
   });
@@ -1463,115 +1259,6 @@ describe('workspace dashboard', () => {
     expect(second?.segments[0]?.widthPercent).toBeCloseTo(100);
   });
 
-  it('shows Dreaming progress and honors profiles with memory disabled', () => {
-    const profile = testResearchProfile();
-    const inProgressHtml = renderToStaticMarkup(createElement(WorkspaceHousekeepingPanel, {
-      busy: true,
-      memoryDreamingInProgress: true,
-      appServerMemory: memorySummary(),
-      researchProfile: profile,
-      runs: [],
-      onRunMemoryDreaming: () => undefined
-    }));
-    expect(inProgressHtml).toContain('Preparing…');
-    expect(inProgressHtml).toContain('data-dream-phase="preparing"');
-    expect(inProgressHtml).toContain('disabled=""');
-
-    const correctingHtml = renderToStaticMarkup(createElement(WorkspaceHousekeepingPanel, {
-      busy: true,
-      memoryDreamingInProgress: true,
-      memoryDreamingProgress: {
-        workspaceId: 'workspace_one',
-        phase: 'correcting',
-        inputNodeCount: 12,
-        inputSessionCount: 4,
-        decisionCount: 0,
-        updatedAt: '2026-08-12T12:00:00.000Z'
-      },
-      appServerMemory: memorySummary(),
-      researchProfile: profile,
-      runs: [],
-      onRunMemoryDreaming: () => undefined
-    }));
-    expect(correctingHtml).toContain('Refining the plan…');
-    expect(correctingHtml).toContain('data-dream-phase="correcting"');
-
-    const disabledHtml = renderToStaticMarkup(createElement(WorkspaceHousekeepingPanel, {
-      busy: false,
-      memoryDreamingInProgress: false,
-      appServerMemory: memorySummary(),
-      researchProfile: {
-        ...profile,
-        capabilities: { ...profile.capabilities, memoryEnabled: false }
-      },
-      runs: [],
-      onRunMemoryDreaming: () => undefined
-    }));
-    expect(disabledHtml).toContain('disabled="" title="Memory Dreaming is disabled by the active research profile"');
-  });
-
-  it('uses real Dreaming phase labels and borderless full-card housekeeping controls', () => {
-    expect(memoryDreamingProgressLabel('gathering')).toBe('Gathering memories…');
-    expect(memoryDreamingProgressLabel('compacting')).toBe('Compacting context…');
-    expect(memoryDreamingProgressLabel('applying')).toBe('Applying changes…');
-    expect(memoryDreamingProgressLabel('completed')).toBe('Dream complete');
-    expect(memoryDreamingProgressLabel('failed')).toBe('Dream failed');
-
-    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
-    const buttonStyles = styles.match(/\.workspace-dejunk-card,\s*\.workspace-dream-card\s*\{([^}]*)\}/)?.[1] ?? '';
-    const stateStyles = styles.match(/\.workspace-dream-state\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(buttonStyles).toContain('border: 0');
-    expect(buttonStyles).toContain('cursor: pointer');
-    expect(buttonStyles).not.toContain('background: #242424');
-    expect(stateStyles).toContain('animation: workspace-dream-state-enter 240ms ease both');
-    expect(styles).toContain('@keyframes workspace-dream-state-enter');
-  });
-
-  it('shows a disabled loading state while the workspace memory summary initializes', () => {
-    const html = renderToStaticMarkup(createElement(WorkspaceHousekeepingPanel, {
-      busy: false,
-      workspaceDejunk: null,
-      memoryDreamingInProgress: false,
-      appServerMemory: { ...memorySummary(), loading: true },
-      researchProfile: testResearchProfile(),
-      runs: [],
-      onRunMemoryDreaming: () => undefined
-    }));
-    const dreamButton = html.match(/<button class="workspace-dream-card[^>]*>[\s\S]*?<\/button>/u)?.[0] ?? '';
-
-    expect(dreamButton).toContain('disabled=""');
-    expect(dreamButton).toContain('Loading workspace memory…');
-    expect(dreamButton).toContain('Loading…');
-  });
-
-  it('allows Dejunk for paused sessions while blocking queued or active work', () => {
-    expect(isLiveResearchRunStatus('paused')).toBe(false);
-    expect(isLiveResearchRunStatus('queued')).toBe(true);
-    expect(isLiveResearchRunStatus('active')).toBe(true);
-
-    const renderHousekeeping = (status: RunRow['run']['status']): string => renderToStaticMarkup(createElement(WorkspaceHousekeepingPanel, {
-      busy: false,
-      workspaceDejunk: {
-        available: true,
-        newFileCount: 1,
-        newFileCountCapped: false,
-        baselineAt: '2026-08-12T08:00:00.000Z',
-        lastRun: null
-      },
-      memoryDreamingInProgress: false,
-      appServerMemory: memorySummary(),
-      researchProfile: testResearchProfile(),
-      runs: [runRow(`run_${status}`, [], { status })],
-      onRunMemoryDreaming: () => undefined
-    }));
-    const pausedButton = renderHousekeeping('paused').match(/<button class="workspace-dejunk-card[^>]*>/u)?.[0] ?? '';
-    const queuedButton = renderHousekeeping('queued').match(/<button class="workspace-dejunk-card[^>]*>/u)?.[0] ?? '';
-
-    expect(pausedButton).not.toContain('disabled=""');
-    expect(pausedButton).toContain('title="Organize loose research files and remove large reclaimable artifacts"');
-    expect(queuedButton).toContain('disabled=""');
-    expect(queuedButton).toContain('title="Dejunk is unavailable while a research session is active"');
-  });
 });
 
 function runRow(
@@ -1641,7 +1328,6 @@ function memorySummary(input: {
   nodes?: Array<Partial<AppServerMemorySummary['nodes'][number]>>;
   runbooks?: Array<Partial<AppServerMemorySummary['runbooks'][number]>>;
   reports?: Array<Partial<AppServerMemorySummary['reports'][number]>>;
-  lastDreamCompletedAt?: string;
 } = {}): AppServerMemorySummary {
   return {
     status: 'ready',
@@ -1733,30 +1419,6 @@ function memorySummary(input: {
       counts: { findings: 0, verifiedFindings: 0, disclosedFindings: 0, coverageGaps: 0, contradictions: 0 }
     },
     directories: [],
-    lastError: null,
-    dreaming: {
-      available: true,
-      scope: 'workspace',
-      hiddenNodeCount: 0,
-      restorableChangeCount: 0,
-      lastRun: input.lastDreamCompletedAt ? {
-        id: 'dream_one',
-        status: 'completed',
-        model: 'gpt-5.6-sol',
-        reasoningEffort: 'high',
-        inputNodeCount: 1,
-        inputSessionCount: 1,
-        prunedNodeCount: 0,
-        duplicateHiddenCount: 0,
-        duplicateGroupCount: 0,
-        reclassifiedNodeCount: 0,
-        editedNodeCount: 0,
-        createdAt: input.lastDreamCompletedAt,
-        completedAt: input.lastDreamCompletedAt,
-        restoredAt: null,
-        errorMessage: null
-      } : null,
-      changes: []
-    }
+    lastError: null
   };
 }

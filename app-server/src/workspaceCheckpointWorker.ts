@@ -5,11 +5,6 @@ import { createWorkerResearchDatabaseFactory } from './workerDatabaseClient.js';
 if ('initializeInput' in workerData) {
   try { parentPort?.postMessage({ result: initializeWorkspaceProject(workerData.initializeInput.workspaceRoot, workerData.initializeInput.workspaceId, workerData.initializeInput.adoptStagedIndex === true) }); }
   catch (error) { parentPort?.postMessage({ error: error instanceof Error ? error.message : String(error) }); }
-} else if ('maintenanceInput' in workerData) {
-  try {
-    const { invokeAppServerProtocol } = await import('./appServerProtocolClient.js');
-    parentPort?.postMessage({ result: await invokeAppServerProtocol('maintenance.run', { args: [], input: workerData.maintenanceInput }) });
-  } catch (error) { parentPort?.postMessage({ error: error instanceof Error ? error.message : String(error) }); }
 } else {
 const input = workerData as { options: WorkspacePublicationOptions; reason: string; edit?: { path: string; expectedRevision: number }; exportResearch?: boolean; researchIndexAction?: 'rebuild' | 'release'; cleanupSession?: string };
 if (!parentPort) throw new Error('The workspace checkpoint worker requires a parent port.');

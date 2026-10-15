@@ -246,28 +246,6 @@ export interface WorkspaceSummary {
   executionPostureLabel: string;
   lastWorkspaceBackup: WorkspaceExportResult | null;
   hostEnvironment: HostEnvironment;
-  dejunk: WorkspaceDejunkSummary;
-}
-
-export interface WorkspaceDejunkRunSummary {
-  status: 'completed' | 'failed';
-  startedAt: string;
-  completedAt: string;
-  movedFileCount: number;
-  deletedPathCount: number;
-  reclaimedBytes: number;
-  errorMessage: string | null;
-}
-
-export interface WorkspaceDejunkSummary {
-  project?: import('@beale/app-server-runtime/protocol').WorkspaceProjectHealth;
-  available: boolean;
-  /** True while the dashboard is loading the filesystem-backed summary off the initial workspace-open path. */
-  loading?: boolean;
-  newFileCount: number;
-  newFileCountCapped: boolean;
-  baselineAt: string;
-  lastRun: WorkspaceDejunkRunSummary | null;
 }
 
 export interface HostEnvironment {
@@ -1064,70 +1042,6 @@ export interface AppServerArtifactRevisionSummary {
   createdAt: string;
 }
 
-export type MemoryDreamingAction = 'prune' | 'merge_duplicates' | 'revise' | 'reclassify';
-
-export interface MemoryDreamingChangeSummary {
-  id: string;
-  runId: string;
-  action: MemoryDreamingAction;
-  title: string;
-  nodeType: string;
-  hiddenNodeIds: string[];
-  survivorNodeId: string | null;
-  reason: string;
-  createdAt: string;
-  restoredAt: string | null;
-  canRestore: boolean;
-}
-
-export interface MemoryDreamingRunSummary {
-  id: string;
-  status: 'completed' | 'restored' | 'failed';
-  model: string;
-  reasoningEffort: string;
-  inputNodeCount: number;
-  inputSessionCount: number;
-  prunedNodeCount: number;
-  duplicateHiddenCount: number;
-  duplicateGroupCount: number;
-  reclassifiedNodeCount: number;
-  editedNodeCount: number;
-  createdAt: string;
-  completedAt: string;
-  restoredAt: string | null;
-  errorMessage: string | null;
-}
-
-export type MemoryDreamingProgressPhase =
-  | 'preparing'
-  | 'gathering'
-  | 'synthesizing'
-  | 'compacting'
-  | 'retrying'
-  | 'correcting'
-  | 'validating'
-  | 'applying'
-  | 'completed'
-  | 'failed';
-
-export interface MemoryDreamingProgressUpdate {
-  workspaceId: string;
-  phase: MemoryDreamingProgressPhase;
-  inputNodeCount: number;
-  inputSessionCount: number;
-  decisionCount: number;
-  updatedAt: string;
-}
-
-export interface MemoryDreamingSummary {
-  available: boolean;
-  scope: 'workspace';
-  hiddenNodeCount: number;
-  restorableChangeCount: number;
-  lastRun: MemoryDreamingRunSummary | null;
-  changes: MemoryDreamingChangeSummary[];
-}
-
 export interface AppServerMemorySummary {
   /** True while the dashboard loads the app-server memory summary off the workspace-open path. */
   loading?: boolean;
@@ -1157,7 +1071,6 @@ export interface AppServerMemorySummary {
   leads: AppServerFindingSummary[];
   findings: AppServerFindingSummary[];
   campaign: AppServerCampaignGraphSummary;
-  dreaming: MemoryDreamingSummary;
   directories: AppServerMemoryDirectorySummary[];
   lastError: string | null;
 }
@@ -2494,11 +2407,6 @@ export interface BealeApi {
   openExternalUrl(url: string): Promise<void>;
   openContentLink(link: string): Promise<void>;
   startReportSession(input: ReportSessionStartInput): Promise<ReportSessionStartResult>;
-  getWorkspaceDejunkSummary(workspaceId: string): Promise<WorkspaceDejunkSummary>;
-  runWorkspaceDejunk(): Promise<WorkspaceSnapshot>;
-  runMemoryDreaming(): Promise<WorkspaceSnapshot>;
-  onMemoryDreamingProgress(listener: (update: MemoryDreamingProgressUpdate) => void): () => void;
-  restoreMemoryDreamingChange(changeId: string): Promise<WorkspaceSnapshot>;
   markHistoryDuplicate(input: MarkHistoryDuplicateInput): Promise<WorkspaceSnapshot>;
   undoHistoryDuplicate(input: UndoHistoryDuplicateInput): Promise<WorkspaceSnapshot>;
   transitionClaimOnBoard(input: ClaimBoardTransitionRequest): Promise<WorkspaceSnapshot>;

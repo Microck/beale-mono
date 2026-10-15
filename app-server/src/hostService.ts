@@ -24,7 +24,7 @@ import {
 } from '@beale/app-server-runtime/protocol';
 import { getProviderModelCatalog, readWorkspaceProject, readWorkspaceResearchCacheState, resolveStoredResearchWorkspaceBinding, workspaceResearchIndexNeedsRebuild } from '@beale/app-server-runtime/runtime-services';
 import { decodeResearchPluginCatalog, validateResearchSystemPromptTemplate, verifyBrokerModelAccess } from '@beale/research-agent';
-import { runWorkspaceCheckpoint, runWorkspaceMaintenance, workspaceOperationKey } from './workspaceCheckpoints.js';
+import { runWorkspaceCheckpoint, workspaceOperationKey } from './workspaceCheckpoints.js';
 import {
   AppServerHostRegistry,
   type AppServerHostRegistryOptions,
@@ -57,7 +57,6 @@ function operationRequiresResearchIndex(operation: AppServerProtocolOperation): 
   return operation.startsWith('research.tools.')
     || operation.startsWith('resource.')
     || operation.startsWith('memory.')
-    || operation.startsWith('dreaming.')
     || operation.startsWith('history.')
     || operation.startsWith('claim.')
     || operation.startsWith('runbook.')
@@ -375,15 +374,6 @@ export class AppServerHostService {
       }
       throw new Error('Unsupported Fleet operation.');
     }
-    if (request.operation === 'maintenance.run' && isRecord(request.input)) {
-      const path = nonEmpty(request.input.workspacePath);
-      if (!path) throw new Error('workspacePath is required.');
-      const key = workspaceOperationKey(path);
-      if (this.workspaceExclusiveOperations.has(key) || [...this.workspaceWriters.values()].some((root) => workspaceOperationKey(root) === key)) throw new Error('Housekeeping is unavailable while research or another workspace operation is active, including workers stopping or checkpointing.');
-      this.workspaceExclusiveOperations.add(key);
-      try { return await runWorkspaceMaintenance(request.input); }
-      finally { this.workspaceExclusiveOperations.delete(key); }
-    }
     const workspaceIdentifier = workspaceIdentifierFromInput(request.input);
     const workspace = workspaceIdentifier
       ? this.registry.resolveWorkspace(workspaceIdentifier)
@@ -394,9 +384,7 @@ export class AppServerHostService {
     if (workspace && request.profileId && request.profileId !== workspace.researchProfileId) {
       throw new Error(`Workspace ${workspace.workspaceId} uses research profile ${workspace.researchProfileId}, not ${request.profileId}.`);
     }
-    if (workspace?.memoryBackend === 'disabled'
-      && (request.operation.startsWith('dreaming.')
-        || request.operation.startsWith('claim.'))) {
+    if (workspace?.memoryBackend === 'disabled' && request.operation.startsWith('claim.')) {
       throw new Error(`Workspace ${workspace.workspaceId} has memory disabled.`);
     }
     const storageProfileId = workspace?.researchProfileId ?? request.profileId;
@@ -460,7 +448,7 @@ export class AppServerHostService {
       ...(request.signal ? { signal: request.signal } : {})
     });
     const researchMutation = request.operation === 'research.tools.mutate'
-      || ['claim.mark_duplicate', 'claim.undo_duplicate', 'claim.board_transition', 'history.mark_duplicate', 'history.undo_duplicate', 'dreaming.apply', 'dreaming.restore', 'report.revise_content', 'report.update_triage_status', 'report.replace_packet', 'report.replace_recording'].includes(request.operation)
+      || ['claim.mark_duplicate', 'claim.undo_duplicate', 'claim.board_transition', 'history.mark_duplicate', 'history.undo_duplicate', 'report.revise_content', 'report.update_triage_status', 'report.replace_packet', 'report.replace_recording'].includes(request.operation)
       || request.operation === 'workspace.state' && isRecord(request.input) && ['saveScope', 'setResearchSubject', 'addWorkspaceRules', 'addWorkspaceRule'].includes(String(request.input.action));
     if (workspace && storage && researchMutation && readWorkspaceProject(workspace.workspacePath)) {
       // Canonical persistence has already succeeded. A checkpoint failure must
@@ -1572,14 +1560,6 @@ function withoutWorkspaceMemory(value: unknown): unknown {
       momentum: { state: 'empty', reason: 'Workspace memory is disabled.', supportingNodeIds: [] },
       counts: { leads: 0, findings: 0, verifiedFindings: 0, disclosedFindings: 0, coverageGaps: 0, contradictions: 0 }
     },
-    dreaming: {
-      available: false,
-      scope: 'workspace',
-      hiddenNodeCount: 0,
-      restorableChangeCount: 0,
-      lastRun: null,
-      changes: []
-    }
   };
 }
 

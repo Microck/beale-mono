@@ -450,49 +450,6 @@ export interface ReportRecordingSummary {
   contentHash: string;
 }
 
-export type MemoryDreamingAction = "prune" | "merge_duplicates" | "revise" | "reclassify";
-
-export interface MemoryDreamingChangeSummary {
-  id: string;
-  runId: string;
-  action: MemoryDreamingAction;
-  title: string;
-  nodeType: string;
-  hiddenNodeIds: string[];
-  survivorNodeId: string | null;
-  reason: string;
-  createdAt: string;
-  restoredAt: string | null;
-  canRestore: boolean;
-}
-
-export interface MemoryDreamingRunSummary {
-  id: string;
-  status: "completed" | "restored" | "failed";
-  model: string;
-  reasoningEffort: string;
-  inputNodeCount: number;
-  inputSessionCount: number;
-  prunedNodeCount: number;
-  duplicateHiddenCount: number;
-  duplicateGroupCount: number;
-  reclassifiedNodeCount: number;
-  editedNodeCount: number;
-  createdAt: string;
-  completedAt: string;
-  restoredAt: string | null;
-  errorMessage: string | null;
-}
-
-export interface MemoryDreamingSummary {
-  available: boolean;
-  scope: "workspace";
-  hiddenNodeCount: number;
-  restorableChangeCount: number;
-  lastRun: MemoryDreamingRunSummary | null;
-  changes: MemoryDreamingChangeSummary[];
-}
-
 export interface MemorySummary {
   status: "missing" | "empty" | "ready" | "error";
   source: "none" | "app_server_sqlite";
@@ -520,7 +477,6 @@ export interface MemorySummary {
   leads: LeadSummary[];
   findings: FindingSummary[];
   campaign: CampaignGraphSummary;
-  dreaming: MemoryDreamingSummary;
   directories: MemoryDirectorySummary[];
   lastError: string | null;
 }

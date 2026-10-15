@@ -8,15 +8,13 @@ import { invokeAppServerProtocol } from "../app-server/dist/appServerProtocolCli
 import {
   AgentPluginRegistry,
   extractSourceRepositoryUrls,
-  getWorkspaceDejunkSummary,
   normalizeSourceRepositoryUrl,
   providerSemanticsDescriptor,
   resolveAuxiliaryModelRoute,
-  runWorkspaceDejunk,
   sourceRepositoryCandidates,
 } from "../packages/research-agent/dist/harness.js";
 
-test("app-server owns auxiliary routes, sources, plugins, and retained maintenance", async () => {
+test("app-server owns auxiliary routes, sources, and plugins", async () => {
   const root = await mkdtemp(join(tmpdir(), "app-server-harness-boundary-"));
   try {
     assert.deepEqual(resolveAuxiliaryModelRoute({
@@ -70,19 +68,6 @@ test("app-server owns auxiliary routes, sources, plugins, and retained maintenan
     });
     assert.equal(disabledBuiltinRegistry.getState().plugins[0].enabled, false);
     assert.deepEqual(disabledBuiltinRegistry.getAppServerRuntime().selectedSkillIds, []);
-
-    const workspace = join(root, "workspace");
-    await mkdir(join(workspace, ".beale"), { recursive: true });
-    await writeFile(join(workspace, ".beale", "dejunk.json"), JSON.stringify({
-      version: 1,
-      baselineAt: "2020-01-01T00:00:00.000Z",
-      lastRun: null,
-    }));
-    await writeFile(join(workspace, "notes.md"), "retained research\n");
-    assert.equal(getWorkspaceDejunkSummary(workspace).newFileCount, 1);
-    const maintained = runWorkspaceDejunk(workspace);
-    assert.equal(maintained.lastRun.status, "completed");
-    assert.equal((await readFile(join(workspace, "research", "notes", "notes.md"), "utf8")).trim(), "retained research");
 
     const inspected = await invokeAppServerProtocol("source.inspect", {
       args: [],

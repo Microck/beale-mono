@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
-import type { ApprovalRecord, AppServerFindingSummary, AppServerMemorySummary, AppServerReportDocument, AppServerReportSummary, AppServerRunbookDocument, AppServerRunbookSummary, ClaimBoardMaturity, MemoryDreamingProgressUpdate, PolicyReviewDecision, ProviderModelDefaults, RepositoryCloneMode, ResearchKitId, ResearchKitRefreshInput, ResearchKitRefreshResult, ResearchModelProviderId, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookExecutionSelection, RunbookProofTarget, RunbookProofTargetSelection, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceDejunkSummary, WorkspaceMemoryBackendId, WorkspaceRule, WorkspaceScopeVersion } from '@shared/types';
+import type { ApprovalRecord, AppServerFindingSummary, AppServerMemorySummary, AppServerReportDocument, AppServerReportSummary, AppServerRunbookDocument, AppServerRunbookSummary, ClaimBoardMaturity, PolicyReviewDecision, ProviderModelDefaults, RepositoryCloneMode, ResearchKitId, ResearchKitRefreshInput, ResearchKitRefreshResult, ResearchModelProviderId, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookExecutionSelection, RunbookProofTarget, RunbookProofTargetSelection, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceMemoryBackendId, WorkspaceRule, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceConfigurationInput, WorkspaceDashboardView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
@@ -71,12 +71,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   shellApprovalBusy = false,
   busy,
   connectedDeviceCaptureEnabled = false,
-  workspaceDejunk = null,
-  workspaceDejunkInProgress = false,
-  memoryDreamingInProgress,
-  memoryDreamingProgress = null,
-  onRunWorkspaceDejunk = () => undefined,
-  onRunMemoryDreaming,
   onMarkHistoryDuplicate = () => undefined,
   onUndoHistoryDuplicate = () => undefined,
   onTransitionClaim,
@@ -148,12 +142,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   shellApprovalBusy?: boolean;
   busy: boolean;
   connectedDeviceCaptureEnabled?: boolean;
-  workspaceDejunk?: WorkspaceDejunkSummary | null;
-  workspaceDejunkInProgress?: boolean;
-  memoryDreamingInProgress: boolean;
-  memoryDreamingProgress?: MemoryDreamingProgressUpdate | null;
-  onRunWorkspaceDejunk?: () => void;
-  onRunMemoryDreaming: () => void;
   onMarkHistoryDuplicate?: (type: 'claim' | 'memory' | 'runbook', id: string, parentId: string, expectedRevision: number) => void;
   onUndoHistoryDuplicate?: (type: 'claim' | 'memory' | 'runbook', id: string, expectedRevision: number) => void;
   onTransitionClaim?: (claim: AppServerFindingSummary, targetMaturity: ClaimBoardMaturity) => Promise<void>;
@@ -359,10 +347,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           busy={busy}
           activeScope={activeScope}
           workspaceRules={workspaceRules}
-          workspaceDejunk={workspaceDejunk}
-          workspaceDejunkInProgress={workspaceDejunkInProgress}
-          memoryDreamingInProgress={memoryDreamingInProgress}
-          memoryDreamingProgress={memoryDreamingProgress}
           appServerMemory={appServerMemory}
           researchProfile={researchProfile}
           researchKitId={researchKitId}
@@ -375,8 +359,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           workspaceName={workspaceName}
           initialView={initialWorkspaceView}
           runs={runs}
-          onRunWorkspaceDejunk={onRunWorkspaceDejunk}
-          onRunMemoryDreaming={onRunMemoryDreaming}
           onAddResource={onAddWorkspaceResource}
           onChangeResource={onChangeWorkspaceResource}
           onCloneRepository={onCloneWorkspaceRepository}

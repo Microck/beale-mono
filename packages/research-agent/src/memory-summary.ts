@@ -7,12 +7,10 @@ import { modelAuthorsByResource } from './model-authorship.js';
 import { buildCampaignGraph, emptyCampaignGraph } from './campaign-graph.js';
 import { readFindings } from './findings.js';
 import {
-  emptyMemoryDreamingSummary,
-  getMemoryDreamingSummary,
   memoryCatalogHashFromJson,
   memoryCatalogJsonIsCompatibleWithNode,
   memoryCatalogPreservesLegacyNodeIds
-} from './memory-dreaming.js';
+} from './memory-graph.js';
 import type {
   ArtifactRevisionSummary as AppServerArtifactRevisionSummary,
   MemoryDirectorySummary as AppServerMemoryDirectorySummary,
@@ -156,7 +154,6 @@ export function getAppServerMemorySummary(options: AppServerMemorySummaryOptions
       leads,
       findings,
       campaign,
-      dreaming: getMemoryDreamingSummary(database, workspaceId)
     };
   } catch (error) {
     return {
@@ -205,7 +202,6 @@ function emptySummary(
     leads: [],
     findings: [],
     campaign: emptyCampaignGraph(),
-    dreaming: emptyMemoryDreamingSummary(),
     directories: [artifactDirectorySummary(artifactDirectoryPath)],
     lastError: null
   };

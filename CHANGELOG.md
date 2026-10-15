@@ -18,6 +18,7 @@
 
 #### Removed
 
+- Removed Campaign Highlights and its priority-claim presentation, plus Workspace Utilities, Dream, and Dejunk controls. Campaign opens on Claims; existing workspace Settings contains Remove Workspace. Historical stored data remains intact.
 - Removed automatic workspace Git initialization, managed commit hooks, research-session Git checkpoints, and Git checkpoint repair controls. Existing Git history is retained; canonical publication metadata for new workspaces lives under `.beale/publication/`. Control contract v44 requires rebuilt clients and hosts.
 - Removed session workflow creation, assignment, notebook execution gates, progress UI, and the built-in Repository Auditor. Existing workflow records remain in local storage but are no longer used when sessions continue.
 
@@ -34,6 +35,7 @@
 
 #### Changed
 
+- The Resources view keeps its yearly resource count and no longer shows the daily activity grid; Memories, Runbooks, and Reports retain their grids.
 - Beale iOS now reconnects to the most recent machine on launch and keeps machine pills and a circular menu above navigation. Its dark gradient gains session heat from current app-server findings, and the client validates the server descriptor's control identity, endpoint paths, and limits.
 - Beale iOS now pins app-server control contract v46 and rejects an older health contract before connecting.
 - New Research offers only targets enabled in the workspace Targets tab. VM shell commands execute over SSH from the primary app-server.
@@ -1294,6 +1296,7 @@
 
 #### Removed
 
+- Removed Dream and Dejunk app-server operations and model-facing Introspection tools. Control contract v47 requires rebuilt clients and hosts; existing database migrations and stored records remain readable.
 - Removed session workflow operations, launch assignment, and model-facing progress tools. Contract v37 requires rebuilding Beale and app-server together; historical workflow storage is retained.
 
 #### Added

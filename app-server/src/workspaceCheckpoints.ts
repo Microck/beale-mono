@@ -10,10 +10,6 @@ import type { WorkerDatabaseRequestMessage } from './workerDatabaseClient.js';
 const queues = new Map<string, Promise<WorkspaceCheckpointResult>>();
 export const workspaceOperationKey = (root: string): string => process.platform === 'win32' ? resolvePath(root).toLowerCase() : resolvePath(root);
 
-export function runWorkspaceMaintenance(input: unknown): Promise<unknown> {
-  return runWorkspaceSetupWorker({ maintenanceInput: input });
-}
-
 export function initializeWorkspaceProjectAsync(workspaceRoot: string, workspaceId: string, adoptStagedIndex = false): Promise<unknown> {
   return runWorkspaceSetupWorker({ initializeInput: { workspaceRoot, workspaceId, adoptStagedIndex } });
 }

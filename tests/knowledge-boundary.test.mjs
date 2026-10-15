@@ -13,7 +13,6 @@ import {
   ResearchClaimStore,
   ReportStore,
   RunbookStore,
-  buildMemoryDreamingInstructions,
   createResearchStorageLayout,
   ensureResearchStorageLayout,
   getAppServerMemorySummary,
@@ -21,11 +20,8 @@ import {
   getKnowledgeRunbook,
   migrateWorkspaceResearchClaims,
   normalizeResearchProfile,
-  parseMemoryDreamingPlanOutput,
   researchProfileHash,
   resolveKnowledgeArtifact,
-  restoreMemoryDreamingChange,
-  runMemoryDreaming,
 } from "../packages/research-agent/dist/index.js";
 
 test("app-server exposes reversible canonical claim deduplication", async () => {
@@ -336,7 +332,7 @@ test("report catalog reads survive unrelated foreign-key violations", async () =
   }
 });
 
-test("app-server owns memory summaries, documents, artifact resolution, and Dreaming state", async () => {
+test("app-server owns memory summaries, documents, and artifact resolution", async () => {
   const root = await mkdtemp(join(tmpdir(), "app-server-knowledge-boundary-"));
   const databasePath = join(root, "memory.sqlite");
   const layout = ensureResearchStorageLayout(createResearchStorageLayout({
@@ -491,19 +487,6 @@ test("app-server owns memory summaries, documents, artifact resolution, and Drea
     });
     assert.equal(summaryWithRecording.reports.find((candidate) => candidate.id === report.id)?.recording?.filename, "parser-demo.webm");
 
-    const instructions = buildMemoryDreamingInstructions({}, profileInput);
-    assert.match(instructions, /strict JSON/i);
-    const plan = parseMemoryDreamingPlanOutput("```json\n{\"prune\":[],\"merge\":[],\"revise\":[],\"reclassify\":[]}\n```", profileInput);
-    const dreamed = runMemoryDreaming(databasePath, context.workspaceId, plan, {
-      provider: "openai",
-      model: "test-model",
-      reasoningEffort: "high",
-      inputNodeCount: 1,
-      inputSessionCount: 1,
-    }, profileInput);
-    assert.equal(dreamed.status, "completed");
-    assert.equal(dreamed.editedNodeCount, 0);
-    assert.throws(() => restoreMemoryDreamingChange(databasePath, context.workspaceId, "missing"), /not found/);
   } finally {
     reports.close();
     runbooks.close();

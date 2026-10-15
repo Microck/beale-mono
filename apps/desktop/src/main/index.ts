@@ -983,24 +983,6 @@ function registerIpc(): void {
       workspaceService.startReportSession(input)
     )
   );
-  ipcMain.handle(IPC_CHANNELS.getWorkspaceDejunkSummary, (_event, workspaceId: string) =>
-    timedMainIpcAsync('getWorkspaceDejunkSummary', { workspace: shortMetricId(workspaceId) }, () =>
-      workspaceService.getWorkspaceDejunkSummary(workspaceId)
-    )
-  );
-  ipcMain.handle(IPC_CHANNELS.runWorkspaceDejunk, () =>
-    timedMainIpc('runWorkspaceDejunk', {}, () => workspaceService.runWorkspaceDejunk())
-  );
-  ipcMain.handle(IPC_CHANNELS.runMemoryDreaming, (event) =>
-    timedMainIpcAsync('runMemoryDreaming', {}, () => workspaceService.runMemoryDreaming((update) => {
-      if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.memoryDreamingUpdated, update);
-    }))
-  );
-  ipcMain.handle(IPC_CHANNELS.restoreMemoryDreamingChange, (_event, changeId: string) =>
-    timedMainIpc('restoreMemoryDreamingChange', { change: shortMetricId(changeId) }, () =>
-      workspaceService.restoreMemoryDreamingChange(changeId)
-    )
-  );
   ipcMain.handle(IPC_CHANNELS.markHistoryDuplicate, (_event, input: MarkHistoryDuplicateInput) =>
     timedMainIpcAsync('markHistoryDuplicate', { type: input.type, record: shortMetricId(input.id) }, () =>
       workspaceService.markHistoryDuplicate(input)

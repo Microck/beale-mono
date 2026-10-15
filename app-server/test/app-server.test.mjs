@@ -1319,7 +1319,6 @@ test("keeps SQLite construction out of the app-server runtime worker", () => {
     "findings.ts",
     "goal-suggestions.ts",
     "knowledge-artifacts.ts",
-    "memory-dreaming.ts",
     "memory-graph.ts",
     "memory-summary.ts",
     "reports.ts",

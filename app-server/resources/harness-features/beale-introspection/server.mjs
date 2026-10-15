@@ -172,30 +172,6 @@ const TOOLS = [
       required: ['runId'],
       additionalProperties: false
     }
-  },
-  {
-    name: 'run_dejunk',
-    description: 'Run workspace Dejunk maintenance in the current or selected workspace. Unavailable during active research.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        registryWorkspaceId: { type: 'string' },
-        workspacePath: { type: 'string' }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: 'run_dreaming',
-    description: 'Run app-server memory Dreaming in the current or selected workspace with the configured profile and provider.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        registryWorkspaceId: { type: 'string' },
-        workspacePath: { type: 'string' }
-      },
-      additionalProperties: false
-    }
   }
 ];
 

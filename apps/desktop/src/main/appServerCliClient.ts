@@ -20,13 +20,10 @@ import type {
   AppServerReportDocument,
   AppServerReportSummary,
   AppServerRunbookDocument,
-  MemoryDreamingRunSummary,
   ResearchProfileSnapshot,
   AgentPluginRegistryState,
-  RepositoryCloneMode,
-  WorkspaceDejunkSummary
+  RepositoryCloneMode
 } from '@shared/types';
-import type { ResolvedResearchProfile } from '../shared/researchProfile';
 import {
   decodeAppServerProtocolDescriptor,
   decodeAppServerProtocolEnvelope,
@@ -208,61 +205,6 @@ export function resolveAppServerStoragePaths(
   return { databasePath, artifactDirectoryPath, profileId };
 }
 
-export type MemoryDreamingProfileInput =
-  | { profileSnapshot: ResearchProfileSnapshot; resolvedProfile?: never }
-  | { resolvedProfile: ResolvedResearchProfile; profileSnapshot?: never };
-
-export interface MemoryDreamingPlan {
-  prune: Array<{ nodeId: string; reason: string }>;
-  merge: Array<{
-    survivorNodeId: string;
-    duplicateNodeIds: string[];
-    summary: string | null;
-    body: string | null;
-    attributes?: Record<string, string | number | boolean>;
-    reason: string;
-  }>;
-  revise: Array<{
-    nodeId: string;
-    summary: string | null;
-    body: string | null;
-    attributes?: Record<string, string | number | boolean>;
-    reason: string;
-  }>;
-  reclassify: Array<{
-    nodeId: string;
-    type: string;
-    attributes?: Record<string, string | number | boolean>;
-    reason: string;
-  }>;
-}
-
-export interface MemoryDreamingRunContext {
-  provider: string;
-  model: string;
-  reasoningEffort: string;
-  inputNodeCount: number;
-  inputSessionCount: number;
-}
-
-export interface AppServerDreamingPreparation {
-  instructions: string;
-  typeDescriptions: Record<string, string>;
-  modelJobDefaults: { size: string; reasoningEffort: string } | null;
-  inputTexts: string[];
-}
-
-export interface AppServerDreamingSessionInput {
-  id: string;
-  title: string;
-  status: string;
-  createdAt: string;
-  endedAt: string | null;
-  prompt: string;
-  finalSummary: string;
-  transcript: Array<{ role: string; source: string; createdAt: string; content: string }>;
-}
-
 export interface AppServerResolvedArtifact {
   id: string;
   kind: string;
@@ -316,23 +258,6 @@ export interface AppServerMaterializedSourceRepository {
   requestedRefHead: string | null;
   requestedRefMatchesHead: boolean | null;
   cloneMode: RepositoryCloneMode;
-}
-
-export interface AppServerWorkspaceRepositoryCandidate {
-  path: string;
-  repositoryUrl?: string;
-  ref?: string;
-}
-
-export interface AppServerWorkspaceRepositoryRelocation {
-  fromPath: string;
-  toPath: string;
-  repositoryUrl: string | null;
-}
-
-export interface AppServerMaintenanceRunResult {
-  summary: WorkspaceDejunkSummary;
-  repositoryRelocations: AppServerWorkspaceRepositoryRelocation[];
 }
 
 export interface AppServerAgentPluginRuntime {
@@ -702,78 +627,6 @@ export async function listAppServerReportSummariesAsync(
   return value as AppServerReportSummary[];
 }
 
-export function prepareAppServerMemoryDreaming(
-  typeDescriptions: Record<string, string>,
-  profileInput: MemoryDreamingProfileInput,
-  nodes: AppServerMemoryNodeSummary[],
-  edges: AppServerMemoryEdgeSummary[],
-  sessions: AppServerDreamingSessionInput[],
-  storage: AppServerSessionStorage
-): AppServerDreamingPreparation {
-  return invokeWithJsonInput<AppServerDreamingPreparation>(
-    'dreaming.prepare',
-    ['knowledge', 'dreaming-prepare'],
-    { typeDescriptions, profileInput, nodes, edges, sessions },
-    storage
-  ).result;
-}
-
-export function parseAppServerMemoryDreamingPlan(
-  output: string,
-  profileInput: MemoryDreamingProfileInput,
-  storage: AppServerSessionStorage
-): MemoryDreamingPlan {
-  return invokeWithJsonInput<MemoryDreamingPlan>(
-    'dreaming.parse_plan',
-    ['knowledge', 'dreaming-parse-plan'],
-    { output, profileInput },
-    storage
-  ).result;
-}
-
-export function applyAppServerMemoryDreaming(
-  workspaceId: string,
-  plan: MemoryDreamingPlan,
-  context: MemoryDreamingRunContext,
-  profileInput: MemoryDreamingProfileInput,
-  storage: AppServerSessionStorage
-): MemoryDreamingRunSummary {
-  return invokeWithJsonInput<MemoryDreamingRunSummary>(
-    'dreaming.apply',
-    ['knowledge', 'dreaming-apply'],
-    { workspaceId, plan, context, profileInput },
-    storage
-  ).result;
-}
-
-export function recordAppServerMemoryDreamingFailure(
-  workspaceId: string,
-  context: MemoryDreamingRunContext,
-  errorMessage: string,
-  profileInput: MemoryDreamingProfileInput,
-  storage: AppServerSessionStorage
-): MemoryDreamingRunSummary {
-  return invokeWithJsonInput<MemoryDreamingRunSummary>(
-    'dreaming.record_failure',
-    ['knowledge', 'dreaming-record-failure'],
-    { workspaceId, context, errorMessage, profileInput },
-    storage
-  ).result;
-}
-
-export function restoreAppServerMemoryDreamingChange(
-  workspaceId: string,
-  changeId: string,
-  storage: AppServerSessionStorage
-): void {
-  invokeWithJsonInput<{ restored: true }>(
-    'dreaming.restore',
-    ['knowledge', 'dreaming-restore'],
-    { workspaceId, changeId },
-    storage
-  );
-}
-
 export interface AppServerWorkspaceStateInput {
   workspacePath: string;
   workspaceId?: string;
@@ -1065,50 +918,6 @@ export function removeAppServerPlugin(input: Record<string, unknown>): AgentPlug
 
 export function getAppServerPluginRuntime(input: Record<string, unknown>): AppServerAgentPluginRuntime {
   return invokeWithJsonInput<AppServerAgentPluginRuntime>('plugin.runtime', ['harness', 'plugin-runtime'], input, null).result;
-}
-
-export function getAppServerMaintenanceSummary(workspacePath: string): WorkspaceDejunkSummary {
-  return invokeWithJsonInput<WorkspaceDejunkSummary>(
-    'maintenance.summary', ['harness', 'maintenance-summary'], { workspacePath }, null
-  ).result;
-}
-
-export async function getAppServerMaintenanceSummaryAsync(workspacePath: string): Promise<WorkspaceDejunkSummary> {
-  return (await invokeWithJsonInputAsync<WorkspaceDejunkSummary>(
-    'maintenance.summary', ['harness', 'maintenance-summary'], { workspacePath }, null
-  )).result;
-}
-
-export function runAppServerMaintenance(workspacePath: string): WorkspaceDejunkSummary;
-export function runAppServerMaintenance(
-  workspacePath: string,
-  options: {
-    repositoryStoreDirectory: string;
-    repositories?: AppServerWorkspaceRepositoryCandidate[];
-  }
-): AppServerMaintenanceRunResult;
-export function runAppServerMaintenance(
-  workspacePath: string,
-  options?: {
-    repositoryStoreDirectory: string;
-    repositories?: AppServerWorkspaceRepositoryCandidate[];
-  }
-): WorkspaceDejunkSummary | AppServerMaintenanceRunResult {
-  return invokeWithJsonInput<WorkspaceDejunkSummary | AppServerMaintenanceRunResult>(
-    'maintenance.run', ['harness', 'maintenance-run'], { workspacePath, ...options }, null
-  ).result;
-}
-
-export async function runAppServerMaintenanceAsync(
-  workspacePath: string,
-  options: {
-    repositoryStoreDirectory: string;
-    repositories?: AppServerWorkspaceRepositoryCandidate[];
-  }
-): Promise<AppServerMaintenanceRunResult> {
-  return (await invokeWithJsonInputAsync<AppServerMaintenanceRunResult>(
-    'maintenance.run', ['harness', 'maintenance-run'], { workspacePath, ...options }, null, undefined, null
-  )).result;
 }
 
 export function invokeAppServerCliProtocol<T>(

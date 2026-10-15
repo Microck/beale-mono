@@ -4401,8 +4401,6 @@ function explicitlyRequestsBealeManagement(prompt: string): boolean {
   return /\b(?:list|show|manage|open)\b.{0,40}\b(?:workspaces?|resources?|sessions?)\b/i.test(normalized)
     || /\b(?:add|archive|create|delete|edit|forget|record|remove|save|update)\b.{0,40}\b(?:workspaces?|resources?)\b/i.test(normalized)
     || /\b(?:launch|start|stop)\b.{0,40}\b(?:research )?sessions?\b/i.test(normalized)
-    || /\b(?:run|start|use)\b.{0,40}\b(?:dejunk|dream(?:ing)?)\b/i.test(normalized)
-    || /\b(?:dejunk|dream now)\b/i.test(normalized)
     || /\bmcp\.beale(?:-introspection\.beale)?\./i.test(normalized);
 }
 

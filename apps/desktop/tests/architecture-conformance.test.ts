@@ -170,8 +170,7 @@ describe('architecture conformance', () => {
     const adapters = [
       'src/main/agentPluginRegistry.ts',
       'src/main/providerTextCompletion.ts',
-      'src/main/sourceMaterializer.ts',
-      'src/main/workspaceDejunk.ts'
+      'src/main/sourceMaterializer.ts'
     ];
     const forbidden = [
       /node:child_process/,

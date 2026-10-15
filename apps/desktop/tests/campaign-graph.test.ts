@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { layoutCampaignGraph } from '../src/renderer/view-models/campaignGraph';
 import { campaignClaimRatingPresentation } from '../src/renderer/view-models/campaignClaims';
-import { CampaignBoardView, campaignBoardClaimMetadata, campaignBoardFindings, campaignPriorityClaimMetadata } from '../src/renderer/features/workspaces/CampaignGraphView';
+import { CampaignBoardView, campaignBoardClaimMetadata, campaignBoardFindings } from '../src/renderer/features/workspaces/CampaignGraphView';
 import { findingRevisionContext } from '../src/main/findingRevisionContext';
 import type { AppServerFindingSummary, AppServerMemorySummary, WorkspaceScopeVersion } from '@shared/types';
 
@@ -45,7 +45,7 @@ describe('campaign graph projection', () => {
     expect(environmentChanged.environmentFingerprint).not.toBe(original.environmentFingerprint);
   });
 
-  it('shows the preferred rating on Board cards and state and rating on Highlights cards', () => {
+  it('shows the preferred rating on Board cards', () => {
     const claim = {
       projection: 'finding',
       maturity: 'reproduced',
@@ -63,7 +63,6 @@ describe('campaign graph projection', () => {
       classification: 'all',
       rating: 'high'
     })).toEqual([claim]);
-    expect(campaignPriorityClaimMetadata(claim)).toBe('Reproduced Low');
   });
 
   it('falls back to the untrusted rating when a Board claim has no CVSS assessment', () => {

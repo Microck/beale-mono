@@ -20,7 +20,6 @@ import type {
   AppServerReportSummary,
   AppServerFindingSummary,
   ClaimBoardMaturity,
-  MemoryDreamingProgressUpdate,
   NotificationRecord,
   OpenAiOAuthStartResult,
   PolicyReviewDecision,
@@ -341,13 +340,13 @@ export function App(): JSX.Element {
   const [fleetOpen, setFleetOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [workspaceDashboardViewName, setWorkspaceDashboardViewName] = useState('Campaign');
-  const [workspaceDashboardInitialView, setWorkspaceDashboardInitialView] = useState<WorkspaceDashboardView>('campaign');
+  const [workspaceDashboardInitialView, setWorkspaceDashboardInitialView] = useState<WorkspaceDashboardView>('board');
   const workspaceDashboardWorkspaceIdRef = useRef<string | null>(null);
   useEffect(() => {
     const workspaceId = snapshot?.workspace.workspaceId ?? null;
     if (workspaceDashboardWorkspaceIdRef.current === workspaceId) return;
     workspaceDashboardWorkspaceIdRef.current = workspaceId;
-    setWorkspaceDashboardInitialView('campaign');
+    setWorkspaceDashboardInitialView('board');
   }, [snapshot?.workspace.workspaceId]);
   const [sessionOverviewOpen, setSessionOverviewOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
@@ -412,10 +411,6 @@ export function App(): JSX.Element {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [workspaceDejunkInProgress, setWorkspaceDejunkInProgress] = useState(false);
-  const [memoryDreamingInProgress, setMemoryDreamingInProgress] = useState(false);
-  const [memoryDreamingProgress, setMemoryDreamingProgress] = useState<MemoryDreamingProgressUpdate | null>(null);
-  const memoryDreamingProgressClearTimerRef = useRef<number | null>(null);
   const [shellApprovalDecisionInFlight, setShellApprovalDecisionInFlight] = useState<string | null>(null);
   const shellApprovalDecisionRef = useRef<string | null>(null);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
@@ -460,36 +455,6 @@ export function App(): JSX.Element {
   useDevInputLatencyProbe();
   useSidebarPerformanceProbe({ appShellRef, profile: sidebarToggleProfile });
   useInsetScrollbarActivation();
-
-  useEffect(() => {
-    if (memoryDreamingProgressClearTimerRef.current !== null) {
-      window.clearTimeout(memoryDreamingProgressClearTimerRef.current);
-      memoryDreamingProgressClearTimerRef.current = null;
-    }
-    setMemoryDreamingProgress(null);
-    const workspaceId = snapshot?.workspace.workspaceId;
-    const unsubscribe = window.beale.onMemoryDreamingProgress((update) => {
-      if (workspaceId && update.workspaceId !== workspaceId) return;
-      if (memoryDreamingProgressClearTimerRef.current !== null) {
-        window.clearTimeout(memoryDreamingProgressClearTimerRef.current);
-        memoryDreamingProgressClearTimerRef.current = null;
-      }
-      setMemoryDreamingProgress(update);
-      if (update.phase === 'completed' || update.phase === 'failed') {
-        memoryDreamingProgressClearTimerRef.current = window.setTimeout(() => {
-          setMemoryDreamingProgress((current) => current?.updatedAt === update.updatedAt ? null : current);
-          memoryDreamingProgressClearTimerRef.current = null;
-        }, 1_400);
-      }
-    });
-    return () => {
-      unsubscribe();
-      if (memoryDreamingProgressClearTimerRef.current !== null) {
-        window.clearTimeout(memoryDreamingProgressClearTimerRef.current);
-        memoryDreamingProgressClearTimerRef.current = null;
-      }
-    };
-  }, [snapshot?.workspace.workspaceId]);
 
   const researchViewContextKey = selectedRunId
     ?? snapshot?.workspace.workspaceId
@@ -949,18 +914,6 @@ export function App(): JSX.Element {
     [loadWorkspaceRegistry]
   );
 
-  const runMemoryDreaming = useCallback((): void => {
-    if (snapshot?.researchProfile.profile.capabilities.memoryEnabled === false) return;
-    if (memoryDreamingProgressClearTimerRef.current !== null) {
-      window.clearTimeout(memoryDreamingProgressClearTimerRef.current);
-      memoryDreamingProgressClearTimerRef.current = null;
-    }
-    setMemoryDreamingProgress(null);
-    setMemoryDreamingInProgress(true);
-    void runAction(() => window.beale.runMemoryDreaming())
-      .finally(() => setMemoryDreamingInProgress(false));
-  }, [runAction, snapshot?.researchProfile.profile.capabilities.memoryEnabled]);
-
   const markHistoryDuplicate = useCallback((type: 'claim' | 'memory' | 'runbook', id: string, parentId: string, expectedRevision: number): void => {
     const workspaceId = snapshot?.workspace.workspaceId;
     if (!workspaceId) return;
@@ -989,11 +942,6 @@ export function App(): JSX.Element {
     }
   }, [applySnapshot, loadSnapshot, snapshot?.workspace.workspaceId]);
 
-  const runWorkspaceDejunk = useCallback((): void => {
-    setWorkspaceDejunkInProgress(true);
-    void runAction(() => window.beale.runWorkspaceDejunk())
-      .finally(() => setWorkspaceDejunkInProgress(false));
-  }, [runAction]);
   const openAppServerRunbook = useCallback((runbookId: string): void => {
     setRightSidenavExpanded(true);
     setSelectedSubagentPath(null);
@@ -2535,12 +2483,6 @@ export function App(): JSX.Element {
               shellApprovalBusy={Boolean(inlineApproval && (busy || shellApprovalDecisionInFlight === inlineApproval.id))}
               busy={busy}
               connectedDeviceCaptureEnabled={windowControlPlatform === 'darwin'}
-              workspaceDejunk={selectedRunId ? null : snapshot?.workspace.dejunk ?? null}
-              workspaceDejunkInProgress={workspaceDejunkInProgress}
-              memoryDreamingInProgress={memoryDreamingInProgress}
-              memoryDreamingProgress={memoryDreamingProgress}
-              onRunWorkspaceDejunk={runWorkspaceDejunk}
-              onRunMemoryDreaming={runMemoryDreaming}
               onMarkHistoryDuplicate={markHistoryDuplicate}
               onUndoHistoryDuplicate={undoHistoryDuplicate}
               onTransitionClaim={transitionClaimOnBoard}
@@ -2556,7 +2498,7 @@ export function App(): JSX.Element {
               onRemoveWorkspace={removeActiveWorkspace}
               onOpenSession={openWorkspaceDashboardSession}
               initialWorkspaceView={workspaceDashboardWorkspaceIdRef.current === snapshot.workspace.workspaceId
-                ? workspaceDashboardInitialView : 'campaign'}
+                ? workspaceDashboardInitialView : 'board'}
               onWorkspaceViewChange={setWorkspaceDashboardViewName}
               onWorkspaceViewSelectionChange={setWorkspaceDashboardInitialView}
               onOpenWorkspaceReport={openReportSession}

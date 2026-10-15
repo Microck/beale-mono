@@ -46,7 +46,6 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
   const pendingWorkspaceRegistryRef = useRef<WorkspaceRegistryState | null>(null);
   const appliedSnapshotRef = useRef<WorkspaceSnapshot | null>(null);
   const snapshotActivityRef = useRef(0);
-  const dejunkSummaryRequestRef = useRef<string | null>(null);
   const snapshotFrameRef = useRef<number | null>(null);
   const workspaceRegistryFrameRef = useRef<number | null>(null);
 
@@ -103,40 +102,6 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
       window.clearTimeout(timer);
     };
   }, [applySnapshot, onError, snapshot?.appServerMemory.loading, snapshot?.workspace.workspacePath]);
-
-  useEffect(() => {
-    const workspaceId = snapshot?.workspace.workspaceId ?? null;
-    if (!workspaceId || snapshot?.workspace.dejunk.loading !== true) return undefined;
-    if (dejunkSummaryRequestRef.current === workspaceId) return undefined;
-    dejunkSummaryRequestRef.current = workspaceId;
-    let cancelled = false;
-    void window.beale.getWorkspaceDejunkSummary(workspaceId)
-      .then((summary) => {
-        if (cancelled) return;
-        setSnapshot((current) => current?.workspace.workspaceId === workspaceId
-          ? { ...current, workspace: { ...current.workspace, dejunk: summary } }
-          : current);
-      })
-      .catch((caught: unknown) => {
-        if (cancelled) return;
-        setSnapshot((current) => current?.workspace.workspaceId === workspaceId
-          ? {
-              ...current,
-              workspace: {
-                ...current.workspace,
-                dejunk: { ...current.workspace.dejunk, available: false, loading: false }
-              }
-            }
-          : current);
-        onError(errorMessage(caught));
-      })
-      .finally(() => {
-        if (dejunkSummaryRequestRef.current === workspaceId) dejunkSummaryRequestRef.current = null;
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [onError, snapshot?.workspace.dejunk.loading, snapshot?.workspace.workspaceId]);
 
   const loadSnapshot = useCallback(async () => {
     const next = await devInstrumentation.timeAsync('ipc.getSnapshot', () => window.beale.getSnapshot());

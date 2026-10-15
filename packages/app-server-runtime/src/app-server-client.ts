@@ -229,9 +229,8 @@ export function operationForArguments(argv: readonly string[]): AppServerProtoco
   if (group === 'session' && normalized) return `session.${normalized}` as AppServerProtocolOperation;
   if (group === 'knowledge') {
     const mapping: Record<string, AppServerProtocolOperation> = {
-      summary: 'memory.summary', notification_feed: 'memory.notification_feed', dreaming_prepare: 'dreaming.prepare',
-      dreaming_parse_plan: 'dreaming.parse_plan', dreaming_apply: 'dreaming.apply', dreaming_record_failure: 'dreaming.record_failure',
-      dreaming_restore: 'dreaming.restore', runbook_get: 'runbook.get', report_list: 'report.list', report_get: 'report.get', artifact_resolve: 'artifact.resolve'
+      summary: 'memory.summary', notification_feed: 'memory.notification_feed',
+      runbook_get: 'runbook.get', report_list: 'report.list', report_get: 'report.get', artifact_resolve: 'artifact.resolve'
     };
     return normalized ? mapping[normalized] ?? null : null;
   }
@@ -240,8 +239,7 @@ export function operationForArguments(argv: readonly string[]): AppServerProtoco
       model_job_resolve: 'model_job.resolve', provider_describe: 'provider.describe', source_inspect: 'source.inspect',
       source_materialize: 'source.materialize', plugin_list: 'plugin.list', plugin_add_filesystem: 'plugin.add_filesystem',
       plugin_add_repository: 'plugin.add_repository', plugin_set_enabled: 'plugin.set_enabled', plugin_remove: 'plugin.remove',
-      plugin_runtime: 'plugin.runtime', maintenance_summary: 'maintenance.summary',
-      maintenance_run: 'maintenance.run'
+      plugin_runtime: 'plugin.runtime'
     };
     return normalized ? mapping[normalized] ?? null : null;
   }
