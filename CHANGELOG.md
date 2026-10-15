@@ -139,6 +139,7 @@
 
 #### Fixed
 
+- Workspace Campaign loading now settles after the background summary completes, with renderer refresh if its update notification is missed; older open responses cannot restore the loading state.
 - Selecting In-Agent Browser for a local research session now opens Beale's embedded host browser instead of the streamed Fleet browser view. External host browsers use the session browser relay.
 - New Research rejects malformed app-server suggestion responses. Renderer view failures now show a reload control instead of an empty window.
 - xAI subscription sign-in now runs device authorization in a desktop-owned local child process and displays the verification URL and code in Provider Settings.
@@ -1306,6 +1307,7 @@
 
 #### Fixed
 
+- xAI subscription limits now show 0% used when its billing response omits the zero-valued usage field but reports a current weekly or monthly period. The billing probe sends the Grok CLI OAuth routing header.
 - Unanswered Auto-Review shell overrides now expire after five minutes, deny the command, and release the waiting agent so collaboration can continue.
 - Remote session reads can request earlier canonical event pages for Desktop commentary history.
 - Remote primary connections now identify an older app-server build and direct the operator to rebuild and restart it; remote restart also checks the replacement host's contract before reporting success.

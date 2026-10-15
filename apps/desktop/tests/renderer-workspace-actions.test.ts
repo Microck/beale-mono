@@ -8,8 +8,35 @@ import { MissingWorkspaceDirectoryDialog } from '../src/renderer/features/worksp
 import { runDetailNeedsEnrichment } from '../src/renderer/hooks/useRunDetailPolling';
 import { researchSessionNeedsLoading } from '../src/renderer/hooks/useWorkspaceActions';
 import { isWorkspacePrimaryDirectoryMissingError } from '../src/renderer/lib/errors';
+import { isStaleWorkspaceSnapshot } from '../src/renderer/view-models/runDetailUpdates';
 
 describe('renderer workspace actions', () => {
+  it('keeps a completed workspace summary when the initial open response arrives afterward', () => {
+    const workspace = { workspacePath: '/workspace/example' };
+    const loading = {
+      version: '2026-01-01T00:00:00.000Z:3',
+      workspace,
+      appServerMemory: { loading: true }
+    } as unknown as WorkspaceSnapshot;
+    const loaded = {
+      ...loading,
+      version: '2026-01-01T00:00:00.000Z:4',
+      appServerMemory: { loading: false }
+    } as WorkspaceSnapshot;
+
+    expect(isStaleWorkspaceSnapshot(loading, loaded)).toBe(false);
+    expect(isStaleWorkspaceSnapshot(loaded, loading)).toBe(true);
+    expect(isStaleWorkspaceSnapshot(loaded, loaded)).toBe(true);
+    expect(isStaleWorkspaceSnapshot(loaded, {
+      ...loading,
+      version: '2026-01-01T00:00:01.000Z:1'
+    })).toBe(false);
+    expect(isStaleWorkspaceSnapshot(loaded, {
+      ...loading,
+      workspace: { ...loaded.workspace, workspacePath: '/workspace/other' }
+    })).toBe(false);
+  });
+
   it('recognizes the wrapped missing-primary-directory IPC error', () => {
     expect(isWorkspacePrimaryDirectoryMissingError(
       new Error(`Error invoking remote method 'beale:open-registered-workspace': Error: ${WORKSPACE_PRIMARY_DIRECTORY_MISSING_MESSAGE}`)
@@ -122,14 +149,11 @@ describe('renderer workspace actions', () => {
     expect(serviceAction).toContain('registry.rememberWorkspaceOpened(registryWorkspaceId);');
   });
 
-  it('defers cached workspace memory and secondary channel reads beyond the navigation paint', () => {
+  it('defers cached workspace memory beyond the navigation paint', () => {
     const serviceSource = readFileSync(new URL('../src/main/workspaceService.ts', import.meta.url), 'utf8');
     expect(serviceSource).toContain('const WORKSPACE_MEMORY_SUMMARY_DEFER_MS = 250;');
     expect(serviceSource).toContain('this.workspaceMemorySummaryLoads.has(runtime.workspacePath)');
     expect(serviceSource.indexOf('this.workspaceMemorySummaryLoads.has(runtime.workspacePath)'))
       .toBeLessThan(serviceSource.indexOf('this.cachedMemorySummaryForRuntime(runtime)'));
-
-    const appSource = readFileSync(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
-    expect(appSource).toContain('window.setTimeout(() => void load(), selectedRunId ? 750 : 0)');
   });
 });

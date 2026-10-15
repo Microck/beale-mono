@@ -35,15 +35,25 @@ test('Codex excludes a model-specific bucket and handles a monthly primary windo
   } }).windows[0].label, 'Monthly Limit');
 });
 
-test('xAI uses the reported billing period and treats absent metering as pending', () => {
+test('xAI uses the reported billing period and treats an omitted zero percent as unused', () => {
   const result = xaiBillingToSnapshot({ config: {
     creditUsagePercent: 12.5,
     currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY', end: '2033-01-01T00:00:00Z' }
   } });
   assert.equal(result.windows[0].label, 'Weekly Limit');
   assert.equal(result.windows[0].usedPercent, 12.5);
-  assert.equal(xaiBillingToSnapshot({ config: {} }).status, 'available');
-  assert.equal(xaiBillingToSnapshot({ config: {} }).windows.length, 0);
+  const unused = xaiBillingToSnapshot({ config: {
+    currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY', end: '2033-01-01T00:00:00Z' }
+  } });
+  assert.equal(unused.status, 'available');
+  assert.equal(unused.windows[0].usedPercent, 0);
+  assert.equal(unused.windows[0].resetsAt, '2033-01-01T00:00:00.000Z');
+  assert.deepEqual(decodeBealeProviderUsageLimits(unused), unused);
+  assert.equal(xaiBillingToSnapshot({ config: {} }).status, 'unavailable');
+  assert.equal(xaiBillingToSnapshot({ config: {
+    creditUsagePercent: null,
+    currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY', end: '2033-01-01T00:00:00Z' }
+  } }).status, 'unavailable');
 });
 
 test('Claude maps five-hour and seven-day utilization independently', () => {

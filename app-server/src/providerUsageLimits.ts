@@ -74,13 +74,17 @@ export function codexRateLimitsToSnapshot(value: unknown): BealeProviderUsageLim
 
 export function xaiBillingToSnapshot(value: unknown): BealeProviderUsageLimits {
   const config = record(record(value)?.config);
-  const usedPercent = finitePercent(config?.creditUsagePercent);
-  if (usedPercent === null) return snapshot('xai', 'available', [], 'No subscription usage has been reported yet.');
   const period = record(config?.currentPeriod);
   const periodType = typeof period?.type === 'string' ? period.type.replace(/^USAGE_PERIOD_TYPE_/, '') : '';
+  const resetsAt = resetIso(period?.end);
+  const reportedPercent = finitePercent(config?.creditUsagePercent);
+  // Proto3 JSON omits zero-valued scalar fields, including creditUsagePercent.
+  const usedPercent = reportedPercent ?? (config && !Object.hasOwn(config, 'creditUsagePercent')
+    && (periodType === 'WEEKLY' || periodType === 'MONTHLY') && resetsAt ? 0 : null);
+  if (usedPercent === null) return snapshot('xai', 'unavailable', [], 'xAI did not report a current subscription usage window.');
   const label = periodType === 'WEEKLY' ? 'Weekly Limit' : periodType === 'MONTHLY' ? 'Monthly Limit' : 'Subscription Limit';
   const durationMinutes = periodType === 'WEEKLY' ? WEEK_MINUTES : periodType === 'MONTHLY' ? MONTH_MINUTES : null;
-  return snapshot('xai', 'available', [{ id: 'subscription', label, usedPercent, resetsAt: resetIso(period?.end), durationMinutes }]);
+  return snapshot('xai', 'available', [{ id: 'subscription', label, usedPercent, resetsAt, durationMinutes }]);
 }
 
 export function claudeRateLimitsToSnapshot(value: Awaited<ReturnType<typeof readClaudeSubscriptionRateLimits>>): BealeProviderUsageLimits {
@@ -157,7 +161,7 @@ async function probeProviderUsageLimits(providerId: BealeProviderLimitId): Promi
       const token = await readXaiSubscriptionAccessToken();
       if (!token) return snapshot(providerId, 'not_configured', [], 'Sign in with an xAI subscription to see limits.');
       const response = await fetch('https://cli-chat-proxy.grok.com/v1/billing?format=credits', {
-        headers: { authorization: `Bearer ${token}` },
+        headers: { authorization: `Bearer ${token}`, 'x-xai-token-auth': 'xai-grok-cli', accept: 'application/json' },
         signal: AbortSignal.timeout(8_000),
       });
       if (!response.ok) throw new Error('xAI did not return subscription usage.');

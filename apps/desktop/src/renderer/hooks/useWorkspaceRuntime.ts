@@ -10,6 +10,7 @@ import type {
 import { devInstrumentation, recordNextFrameTiming } from '../devInstrumentation';
 import { errorMessage } from '../lib/errors';
 import {
+  isStaleWorkspaceSnapshot,
   selectRunId,
   snapshotMetricDetail
 } from '../view-models/runDetailUpdates';
@@ -17,6 +18,7 @@ import {
 export type WorkspaceStartupPhase = 'shell' | 'registry' | 'ready';
 
 const WORKSPACE_REGISTRY_REFRESH_INTERVAL_MS = 5_000;
+const WORKSPACE_MEMORY_REFRESH_INTERVAL_MS = 5_000;
 
 export function useWorkspaceRuntime(onError: (message: string) => void): {
   snapshot: WorkspaceSnapshot | null;
@@ -42,7 +44,7 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const pendingSnapshotRef = useRef<WorkspaceSnapshot | null | undefined>(undefined);
   const pendingWorkspaceRegistryRef = useRef<WorkspaceRegistryState | null>(null);
-  const appliedSnapshotVersionRef = useRef<string | null>(null);
+  const appliedSnapshotRef = useRef<WorkspaceSnapshot | null>(null);
   const snapshotActivityRef = useRef(0);
   const dejunkSummaryRequestRef = useRef<string | null>(null);
   const snapshotFrameRef = useRef<number | null>(null);
@@ -50,21 +52,57 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
 
   const applySnapshot = useCallback((next: WorkspaceSnapshot | null, selectedRunIdOverride?: string) => {
     snapshotActivityRef.current += 1;
-    const version = next?.version ?? null;
-    if (version && appliedSnapshotVersionRef.current === version) {
+    // A completed background summary can arrive before the original workspace-open IPC response.
+    if (next && isStaleWorkspaceSnapshot(appliedSnapshotRef.current, next)) {
       if (selectedRunIdOverride !== undefined) setSelectedRunId(selectedRunIdOverride);
       return;
     }
-    appliedSnapshotVersionRef.current = version;
+    const previous = appliedSnapshotRef.current;
+    appliedSnapshotRef.current = next;
     devInstrumentation.recordPayload('ipc.snapshot.apply', next, snapshotMetricDetail(next));
-    startTransition(() => {
+    const commit = (): void => {
       setSnapshot(next);
       if (next) {
         setOpenAiStatus(next.openAi);
       }
       setSelectedRunId((current) => selectedRunIdOverride ?? selectRunId(current, next));
-    });
+    };
+    if (previous?.workspace.workspacePath === next?.workspace.workspacePath
+      && previous?.appServerMemory.loading === true && next?.appServerMemory.loading !== true) {
+      commit();
+    } else {
+      startTransition(commit);
+    }
   }, []);
+
+  useEffect(() => {
+    const workspacePath = snapshot?.workspace.workspacePath;
+    if (!workspacePath || snapshot?.appServerMemory.loading !== true) return undefined;
+    let cancelled = false;
+    let reportedError = false;
+    let timer: number;
+    const refresh = (): void => {
+      void window.beale.getSnapshot()
+        .then((next) => {
+          if (cancelled || next?.workspace.workspacePath !== workspacePath
+            || appliedSnapshotRef.current?.workspace.workspacePath !== workspacePath) return;
+          applySnapshot(next);
+        })
+        .catch((caught: unknown) => {
+          if (cancelled || reportedError) return;
+          reportedError = true;
+          onError(errorMessage(caught));
+        })
+        .finally(() => {
+          if (!cancelled) timer = window.setTimeout(refresh, WORKSPACE_MEMORY_REFRESH_INTERVAL_MS);
+        });
+    };
+    timer = window.setTimeout(refresh, WORKSPACE_MEMORY_REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [applySnapshot, onError, snapshot?.appServerMemory.loading, snapshot?.workspace.workspacePath]);
 
   useEffect(() => {
     const workspaceId = snapshot?.workspace.workspaceId ?? null;

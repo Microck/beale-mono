@@ -7,6 +7,25 @@ export function selectRunId(current: string | null, snapshot: WorkspaceSnapshot 
   return null;
 }
 
+export function isStaleWorkspaceSnapshot(current: WorkspaceSnapshot | null, next: WorkspaceSnapshot): boolean {
+  if (!current || current.workspace.workspacePath !== next.workspace.workspacePath) return false;
+  if (current.version && current.version === next.version) return true;
+  const currentVersion = parseWorkspaceSnapshotVersion(current.version);
+  const nextVersion = parseWorkspaceSnapshotVersion(next.version);
+  if (!currentVersion || !nextVersion) return false;
+  if (currentVersion.openedAt !== nextVersion.openedAt) {
+    return nextVersion.openedAt < currentVersion.openedAt;
+  }
+  return nextVersion.sequence < currentVersion.sequence;
+}
+
+function parseWorkspaceSnapshotVersion(version: string | undefined): { openedAt: string; sequence: number } | null {
+  const match = (version ?? '').match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z):(\d+)$/u);
+  if (!match) return null;
+  const sequence = Number(match[2]);
+  return Number.isSafeInteger(sequence) ? { openedAt: match[1], sequence } : null;
+}
+
 export function snapshotMetricDetail(snapshot: WorkspaceSnapshot | null): DevMetricDetail {
   return {
     active: Boolean(snapshot),

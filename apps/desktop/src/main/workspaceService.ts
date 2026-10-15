@@ -4778,38 +4778,31 @@ export class WorkspaceService {
     if (this.workspaceMemorySummaryLoads.get(workspacePath) === runtime.db) return;
     this.workspaceMemorySummaryLoads.set(workspacePath, runtime.db);
     this.workspaceMemorySummaryErrors.delete(workspacePath);
-    const timer = setTimeout(() => {
+    setTimeout(() => {
       if (this.workspaceMemorySummaryLoads.get(workspacePath) !== runtime.db) return;
       if (this.disposedRuntimeDatabases.has(runtime.db)) {
-        if (this.workspaceMemorySummaryLoads.get(workspacePath) === runtime.db) {
-          this.workspaceMemorySummaryLoads.delete(workspacePath);
-        }
+        this.workspaceMemorySummaryLoads.delete(workspacePath);
         return;
       }
       void this.memorySummaryForRuntimeAsync(runtime)
-        .then(() => {
-          if (this.disposedRuntimeDatabases.has(runtime.db)) return;
-          this.workspaceMemorySummaryErrors.delete(workspacePath);
-          this.snapshotCache.delete(workspacePath);
-          if (this.workspacePath === workspacePath) {
-            this.emitRuntimeChange(workspacePath, { forceSnapshot: true });
-          }
-        })
-        .catch((error: unknown) => {
-          if (this.disposedRuntimeDatabases.has(runtime.db)) return;
-          this.workspaceMemorySummaryErrors.set(workspacePath, errorMessage(error));
-          this.snapshotCache.delete(workspacePath);
-          if (this.workspacePath === workspacePath) {
-            this.emitRuntimeChange(workspacePath, { forceSnapshot: true });
-          }
-        })
-        .finally(() => {
-          if (this.workspaceMemorySummaryLoads.get(workspacePath) === runtime.db) {
-            this.workspaceMemorySummaryLoads.delete(workspacePath);
-          }
-        });
+        .then(
+          () => this.finishWorkspaceMemorySummaryLoad(runtime, null),
+          (error: unknown) => this.finishWorkspaceMemorySummaryLoad(runtime, errorMessage(error))
+        );
     }, WORKSPACE_MEMORY_SUMMARY_DEFER_MS);
-    timer.unref?.();
+  }
+
+  private finishWorkspaceMemorySummaryLoad(runtime: WorkspaceRuntime, error: string | null): void {
+    const workspacePath = runtime.workspacePath;
+    if (this.workspaceMemorySummaryLoads.get(workspacePath) !== runtime.db) return;
+    this.workspaceMemorySummaryLoads.delete(workspacePath);
+    if (this.disposedRuntimeDatabases.has(runtime.db)) return;
+    if (error !== null) this.workspaceMemorySummaryErrors.set(workspacePath, error);
+    else this.workspaceMemorySummaryErrors.delete(workspacePath);
+    this.snapshotCache.delete(workspacePath);
+    if (this.workspacePath === workspacePath) {
+      this.emitRuntimeChange(workspacePath, { forceSnapshot: true });
+    }
   }
 
   private createRuntime(
@@ -5672,7 +5665,6 @@ export class WorkspaceService {
     this.pendingChangeIncludesSnapshot ||= snapshotChanged;
     if (this.pendingChangeTimer) return;
     this.pendingChangeTimer = setTimeout(() => this.flushPendingChange(), CHANGE_BROADCAST_DELAY_MS);
-    this.pendingChangeTimer.unref?.();
   }
 
   private flushPendingChange(): void {
