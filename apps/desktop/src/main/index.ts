@@ -5,6 +5,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { installUndiciTypeOfServiceCompatibility } from '@beale/app-server-runtime/node-network-compatibility';
+import { decodeGeneratedResearchGoalSuggestions } from '@beale/app-server-runtime/protocol';
 import { IPC_CHANNELS } from '@shared/ipc';
 import { runDetailProjectionMetricLabel } from '../shared/runDetailProjection';
 import type {
@@ -18,7 +19,6 @@ import type {
   WorkspaceOnboardingInput,
   WorkspaceOnboardingSkipInput,
   WorkspaceScopeDraft,
-  GeneratedResearchGoalSuggestions,
   SteeringSuggestionResult,
   ResearchGoalSuggestionInput,
   ResearchGoalSuggestionSelectionInput,
@@ -610,7 +610,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.connectFleetBrowser, (_event, runId: string, remoteServerId?: string) => {
     if (remoteServerId) { fleetBrowserViewer.connectRemote(runId, remoteServerId); return; }
     const machineId = workspaceService.fleetBrowserMachineId(runId);
-    if (!machineId) throw new Error('This session does not run in a Fleet VM.');
+    if (!machineId) throw new Error('This session does not use a streamed Fleet browser.');
     fleetBrowserViewer.connect(runId, machineId);
   });
   ipcMain.handle(IPC_CHANNELS.disconnectFleetBrowser, (_event, runId: string) => fleetBrowserViewer.disconnect(runId));
@@ -1030,12 +1030,12 @@ function registerIpc(): void {
       researchGoalSuggestionControllers.set(requestId, controller);
     }
     try {
-      return await timedMainIpcAsync('generateResearchGoalSuggestions', {}, () =>
-        invokeAppServerOperation<GeneratedResearchGoalSuggestions>({
+      return await timedMainIpcAsync('generateResearchGoalSuggestions', {}, async () =>
+        decodeGeneratedResearchGoalSuggestions(await invokeAppServerOperation<unknown>({
           operation: 'suggestion.generate',
           input: { ...input, workspaceId },
           signal: controller.signal
-        })
+        }), input.phase)
       );
     } finally {
       if (requestId && researchGoalSuggestionControllers.get(requestId) === controller) {

@@ -50,3 +50,17 @@ export function defaultFleetMachineId(state: FleetState, workspaceId: string): s
 export function isAllowedFleetMachine(state: FleetState, workspaceId: string, targetId: string): boolean {
   return allowedFleetTargets(state, workspaceId).some((target) => target.id === targetId);
 }
+
+export function fleetBrowserViewerTargetId(machineId: unknown): string | null {
+  return typeof machineId === 'string'
+    && (isFleetVmTargetId(machineId) || isStreamedHostBrowserTargetId(machineId))
+    ? machineId : null;
+}
+
+export function isFleetVmTargetId(machineId: string): boolean {
+  return machineId.startsWith('vm:');
+}
+
+export function isStreamedHostBrowserTargetId(machineId: string): boolean {
+  return machineId.startsWith('browser:') && machineId !== 'browser:in-agent';
+}

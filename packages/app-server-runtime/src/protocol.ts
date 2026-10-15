@@ -24,6 +24,16 @@ export interface SteeringSuggestionResult {
   suggestion: string | null;
 }
 
+export function decodeGeneratedResearchGoalSuggestions(value: unknown, expectedPhase?: string): GeneratedResearchGoalSuggestions {
+  if (!isRecord(value) || typeof value.phase !== "string" || !value.phase.trim()
+    || (expectedPhase !== undefined && value.phase !== expectedPhase)
+    || !Array.isArray(value.suggestions)
+    || !value.suggestions.every((suggestion) => typeof suggestion === "string")) {
+    throw new Error("The app-server returned an invalid research suggestion response.");
+  }
+  return value as unknown as GeneratedResearchGoalSuggestions;
+}
+
 export interface ResourcePriorArtListInput {
   workspaceId: string;
   resources: Array<{ kind: ResearchResourceKind; locator: string }>;

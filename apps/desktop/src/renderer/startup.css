@@ -17,6 +17,31 @@ body,
 
 * { box-sizing: border-box; }
 
+.renderer-error {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  background: #111;
+  color: #ededed;
+  text-align: center;
+}
+
+.renderer-error h1, .renderer-error p { margin: 0; }
+.renderer-error button {
+  margin-top: 8px;
+  border: 1px solid #555;
+  border-radius: 8px;
+  background: #292929;
+  padding: 9px 16px;
+  color: inherit;
+  cursor: pointer;
+}
+
 .initial-app-shell {
   width: 100%;
   height: 100%;

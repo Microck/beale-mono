@@ -9,7 +9,7 @@ export function FleetBrowserSideView({ runId, visible, remoteServerId }: { runId
   const viewportRef = useRef({ width: 1280, height: 800 });
   const lastMoveRef = useRef(0);
   const [address, setAddress] = useState('');
-  const [status, setStatus] = useState('Connecting to VM browser…');
+  const [status, setStatus] = useState('Connecting to browser…');
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
@@ -36,11 +36,11 @@ export function FleetBrowserSideView({ runId, visible, remoteServerId }: { runId
         setStatus(update.message);
       } else if (update.type === 'browser.disconnected') {
         setConnected(false);
-        setStatus('Reconnecting to VM browser…');
+        setStatus('Reconnecting to browser…');
       }
     });
     void window.beale.connectFleetBrowser(runId, remoteServerId).catch((error: unknown) => {
-      setStatus(error instanceof Error ? error.message : 'Could not connect to VM browser.');
+      setStatus(error instanceof Error ? error.message : 'Could not connect to browser.');
     });
     return () => {
       unsubscribe();
@@ -92,14 +92,14 @@ export function FleetBrowserSideView({ runId, visible, remoteServerId }: { runId
   };
 
   return (
-    <section className="research-browser" aria-label="VM browser">
+    <section className="research-browser" aria-label="Session browser">
       <form className="research-browser-address" onSubmit={navigate}>
         <input type="text" inputMode="url" aria-label="Browser URL" placeholder="Enter a URL"
           value={address} onChange={(event) => setAddress(event.target.value)} />
       </form>
       {status ? <p className="research-browser-error" role="status">{status}</p> : null}
       <div ref={surfaceRef} className="research-browser-page fleet-browser-page" tabIndex={0} role="application"
-        aria-label="Interactive VM browser page"
+        aria-label="Interactive session browser page"
         onPointerDown={(event) => pointer(event, 'mousePressed')}
         onPointerUp={(event) => pointer(event, 'mouseReleased')}
         onPointerMove={(event) => pointer(event, 'mouseMoved')}
@@ -108,7 +108,7 @@ export function FleetBrowserSideView({ runId, visible, remoteServerId }: { runId
         onCompositionEnd={(event) => sendInput(runId, { type: 'browser.text', text: event.data })}
         onPaste={(event) => { event.preventDefault(); sendInput(runId, { type: 'browser.text', text: event.clipboardData.getData('text') }); }}
       >
-        <img ref={frameRef} alt="VM browser display" draggable={false} />
+        <img ref={frameRef} alt="Session browser display" draggable={false} />
       </div>
     </section>
   );

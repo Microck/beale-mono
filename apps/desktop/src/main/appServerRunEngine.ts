@@ -30,6 +30,7 @@ import type {
   TraceSource
 } from '@shared/types';
 import { normalizeResearchCollaboration } from '../shared/collaboration';
+import { isStreamedHostBrowserTargetId } from '../shared/fleet';
 import { normalizeRepeatSchedule } from '../shared/repeatSchedule';
 import { generateSessionTitle, SESSION_TITLE_FALLBACK } from '../shared/sessionTitle';
 import { getAppServerProviderSemantics, type AppServerSessionUpdate } from './appServerCliClient';
@@ -2860,6 +2861,9 @@ function appServerSessionLaunchRequest(
     launch: {
       workspaceId,
       machineId: input.machineId ?? 'local',
+      ...(input.machineId && isStreamedHostBrowserTargetId(input.machineId)
+        ? { browserRelay: true }
+        : {}),
       mode: input.mode,
       ...(attemptId ? { attemptId } : {}),
       promptMarkdown: input.promptMarkdown,
