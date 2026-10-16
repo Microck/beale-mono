@@ -176,6 +176,8 @@ export class AppServerHostService {
 
   public brokerToken(sessionId: string): string | null { return this.fleetBroker.token(sessionId); }
 
+  public browserHomePage(): string { return this.fleet.browserHomePage(); }
+
   public async releaseSessionTarget(sessionId: string): Promise<void> {
     const machineId = this.fleetSessionMachines.get(sessionId);
     if (!machineId) return;
@@ -246,6 +248,7 @@ export class AppServerHostService {
     if (request.operation.startsWith('fleet.')) {
       const input = isRecord(request.input) ? request.input : {};
       if (request.operation === 'fleet.state') return this.fleet.state();
+      if (request.operation === 'fleet.browser_home_page') return this.fleet.browserHomePage();
       if (request.operation === 'fleet.remote_machines') return this.fleet.remoteMachines();
       if (request.operation === 'fleet.remote_catalog') return this.fleet.remoteCatalog(nonEmpty(input.serverId) ?? '');
       if (request.operation === 'fleet.remote_session') return this.fleet.remoteSession(

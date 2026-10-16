@@ -260,6 +260,9 @@ const api: BealeApi = {
   getFleetState(): Promise<FleetState> {
     return ipcRenderer.invoke(IPC_CHANNELS.getFleetState);
   },
+  getBrowserHomePage(): Promise<string> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getBrowserHomePage);
+  },
   restartLocalAppServer(): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.restartLocalAppServer);
   },

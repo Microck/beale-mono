@@ -65,10 +65,10 @@ export function FleetSettingsView({ state, loadError, selection, onSelect, onSta
     <div className="settings-form-actions"><button type="button" disabled={busy} onClick={() => void restart('local', () => window.beale.restartLocalAppServer())}><RotateCw size={14} aria-hidden="true" />Restart App Server</button></div>
   </section></div>;
 
-  if (selection.section === 'browsers') return <div className="settings-page fleet-settings-page"><section className="settings-form">
-    <header className="settings-form-heading"><h2>Browsers</h2><p>Choose the browsers available as workspace session targets using the checkboxes in the sidebar. External browsers use a separate debugging profile.</p></header>
-    {state.browsers.length === 0 ? <p className="fleet-machine-empty">No browsers were found.</p> : null}
-  </section></div>;
+  if (selection.section === 'browsers') return <BrowserSettingsView
+    key={state.browserHomePage} homePage={state.browserHomePage} browserCount={state.browsers.length}
+    busy={busy} error={error} onChange={change}
+  />;
 
   if (selection.section === 'machines') return <div className="settings-page fleet-settings-page"><section className="settings-form" aria-busy={busy}>
     <header className="settings-form-heading"><h2>Virtual Machines</h2><p>Select a VM in the sidebar to configure its run, clone, and SSH settings.</p></header>
@@ -97,6 +97,31 @@ export function FleetSettingsView({ state, loadError, selection, onSelect, onSta
     {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
     {restartingId ? <p role="status" className="fleet-machine-empty">Restarting app-server…</p> : null}
     <div className="settings-form-actions fleet-machine-refresh"><span /><button type="button" disabled={busy} onClick={() => onSelect({ section: 'app-servers', itemId: 'new' })}><Plus size={14} aria-hidden="true" />Add App Server</button></div>
+  </section></div>;
+}
+
+function BrowserSettingsView({ homePage, browserCount, busy, error, onChange }: {
+  homePage: string;
+  browserCount: number;
+  busy: boolean;
+  error: string | null;
+  onChange: (action: () => Promise<FleetState>) => Promise<boolean>;
+}): JSX.Element {
+  const [url, setUrl] = useState(homePage);
+  return <div className="settings-page fleet-settings-page"><section className="settings-form" aria-busy={busy}>
+    <header className="settings-form-heading"><h2>Browsers</h2><p>Set the page opened by new browser sessions. Choose available browsers using the checkboxes in the sidebar.</p></header>
+    <form className="settings-form-squircle fleet-detail-form" onSubmit={(event) => {
+      event.preventDefault();
+      void onChange(() => window.beale.configureFleet({ action: 'set-browser-home-page', url: url.trim() }));
+    }}>
+      <label className="fleet-vm-dialog-field"><span>Default page</span>
+        <input type="url" value={url} required maxLength={2048} disabled={busy} placeholder="https://duckduckgo.com" onChange={(event) => setUrl(event.currentTarget.value)} />
+        <small>Used when opening a new browser page. Existing pages keep their current location.</small>
+      </label>
+      {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
+      <div className="settings-form-actions"><button type="submit" className="primary-button" disabled={busy || url.trim() === homePage}>Save Browser Settings</button></div>
+    </form>
+    {browserCount === 0 ? <p className="fleet-machine-empty">No browsers were found.</p> : null}
   </section></div>;
 }
 

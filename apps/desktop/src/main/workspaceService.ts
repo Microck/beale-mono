@@ -965,6 +965,10 @@ export class WorkspaceService {
     return invokeAppServerOperation<FleetState>({ operation: 'fleet.state' });
   }
 
+  public getBrowserHomePage(): Promise<string> {
+    return invokeAppServerOperation<string>({ operation: 'fleet.browser_home_page' });
+  }
+
   public fleetBrowserMachineId(runId: string): string | null {
     const run = this.runtimeForRunId(runId)?.db.getRun(runId);
     return fleetBrowserViewerTargetId(run?.budget.machineId);

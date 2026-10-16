@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fleetBrowserExecutable } from './fleetBrowsers.js';
+import { DEFAULT_BROWSER_HOME_PAGE } from '@beale/app-server-runtime/protocol';
 
 interface BrowserSession { process: ChildProcess; profilePath: string; endpoint: string }
 const activeBrowsers = new Set<ChildProcess>();
@@ -19,7 +20,7 @@ export class FleetBrowserSessionManager {
       (executable, args) => spawn(executable, [...args], { stdio: 'ignore', windowsHide: true }),
   ) {}
 
-  public async launch(sessionId: string, browserId: string): Promise<string> {
+  public async launch(sessionId: string, browserId: string, homePage = DEFAULT_BROWSER_HOME_PAGE): Promise<string> {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing.endpoint;
     const executable = this.resolveExecutable(browserId);
@@ -27,7 +28,7 @@ export class FleetBrowserSessionManager {
     const profilePath = await mkdtemp(join(tmpdir(), 'beale-cdp-'));
     const child = this.spawnBrowser(executable, [
       `--user-data-dir=${profilePath}`, '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1',
-      '--no-first-run', '--no-default-browser-check', 'about:blank',
+      '--no-first-run', '--no-default-browser-check', homePage,
     ]);
     let launchError: Error | null = null;
     child.once('error', (error) => { launchError = error; });

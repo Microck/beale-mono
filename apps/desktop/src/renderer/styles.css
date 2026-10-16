@@ -5878,8 +5878,23 @@ button.session-summary-item:hover:not(:disabled),
 }
 
 .fleet-browser-page {
+  position: relative;
   outline: none;
   touch-action: none;
+  user-select: none;
+}
+
+.fleet-browser-keyboard {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  padding: 0;
+  border: 0;
+  resize: none;
+  pointer-events: none;
 }
 
 .fleet-browser-page img {

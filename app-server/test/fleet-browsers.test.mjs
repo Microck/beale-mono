@@ -31,6 +31,7 @@ test('external Fleet browser uses a separate profile and removes it after the se
     profilePath = args.find((arg) => arg.startsWith('--user-data-dir='))?.slice('--user-data-dir='.length) ?? '';
     assert.ok(profilePath);
     assert.ok(args.includes('--remote-debugging-port=0'));
+    assert.equal(args.at(-1), 'https://example.test/start');
     const child = new EventEmitter();
     child.exitCode = null;
     child.signalCode = null;
@@ -38,7 +39,7 @@ test('external Fleet browser uses a separate profile and removes it after the se
     setTimeout(() => writeFileSync(join(profilePath, 'DevToolsActivePort'), '54321\n/devtools/browser/example\n'), 10);
     return child;
   });
-  assert.equal(await manager.launch('session-example', 'chrome'), 'http://127.0.0.1:54321');
+  assert.equal(await manager.launch('session-example', 'chrome', 'https://example.test/start'), 'http://127.0.0.1:54321');
   assert.equal(existsSync(profilePath), true);
   await manager.close('session-example');
   assert.equal(stopped, true);

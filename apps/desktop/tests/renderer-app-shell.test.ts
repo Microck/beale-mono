@@ -206,6 +206,7 @@ describe('renderer app shell view model', () => {
       remoteMachines: [],
       appServers: [{ id: 'server-example', name: 'Example Server', url: 'https://server.example.test' }],
       browsers: [{ id: 'browser-example', name: 'Example Browser', kind: 'external', enabled: true }],
+      browserHomePage: 'https://duckduckgo.com/',
       workspaceTargets: {}, primary: null, requiredWorkspaceIds: [], optionalWorkspaceIds: [], lastMachineByWorkspace: {}
     };
     const settings = renderToStaticMarkup(createElement(SettingsSidebar, {
@@ -260,6 +261,8 @@ describe('renderer app shell view model', () => {
       ...viewProps, selection: { section: 'browsers', itemId: null }
     }));
     expect(browsers).not.toContain('type="checkbox"');
+    expect(browsers).toContain('Default page');
+    expect(browsers).toContain('https://duckduckgo.com/');
   });
 
   it('fills only the active navigation icon', () => {

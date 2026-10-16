@@ -2324,6 +2324,7 @@ export interface BealeApi {
   previewPromptTemplate(profileId: ResearchProfileId, template: string, agentPath?: string): Promise<string>;
   getAgentPlugins(): Promise<AgentPluginRegistryState>;
   getFleetState(): Promise<import('@beale/app-server-runtime/protocol').FleetState>;
+  getBrowserHomePage(): Promise<string>;
   restartLocalAppServer(): Promise<void>;
   restartFleetAppServer(serverId: string): Promise<void>;
   restartFleetGuestAppServer(machineId: string): Promise<void>;

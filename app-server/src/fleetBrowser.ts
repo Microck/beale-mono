@@ -9,6 +9,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import { WebSocket } from 'ws';
+import { DEFAULT_BROWSER_HOME_PAGE } from '@beale/app-server-runtime/protocol';
 
 const execFileAsync = promisify(execFile);
 const ROOT = join(homedir(), '.beale', 'fleet-browser');
@@ -57,7 +58,10 @@ export class FleetBrowserService {
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly launching = new Map<string, Promise<BrowserSession>>();
 
-  public constructor(private readonly endpointOverride?: (sessionId: string) => Promise<string | null>) {}
+  public constructor(
+    private readonly endpointOverride?: (sessionId: string) => Promise<string | null>,
+    private readonly homePage: () => string = () => DEFAULT_BROWSER_HOME_PAGE
+  ) {}
 
   public tokenFor(sessionId: string): string {
     safeSessionId(sessionId);
@@ -65,7 +69,7 @@ export class FleetBrowserService {
     if (!session) {
       session = { token: randomBytes(24).toString('base64url'), endpoint: '', child: null,
         viewers: new Set(), page: null, pageLaunching: null, targetId: null, commandId: 1, controller: null,
-        leaseUntil: 0, lastFrame: null, lastUrl: 'about:blank', lastWidth: 1280,
+        leaseUntil: 0, lastFrame: null, lastUrl: this.homePage(), lastWidth: 1280,
         lastHeight: 800, pendingCommands: new Map() };
       this.sessions.set(sessionId, session);
     }
@@ -235,7 +239,7 @@ export class FleetBrowserService {
     const executable = await chromeExecutable();
     const child = spawn(executable, ['--headless=new', '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0',
       `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--window-size=1280,800',
-      ...(process.getuid?.() === 0 ? ['--no-sandbox'] : []), 'about:blank'],
+      ...(process.getuid?.() === 0 ? ['--no-sandbox'] : []), this.homePage()],
     { stdio: 'ignore', windowsHide: true });
     let launchError: Error | null = null;
     child.on('error', (error) => { launchError = error; });

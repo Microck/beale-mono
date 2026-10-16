@@ -45,6 +45,7 @@ export const IPC_CHANNELS = {
   previewPromptTemplate: 'beale:preview-prompt-template',
   getAgentPlugins: 'beale:get-agent-plugins',
   getFleetState: 'beale:get-fleet-state',
+  getBrowserHomePage: 'beale:get-browser-home-page',
   restartLocalAppServer: 'beale:restart-local-app-server',
   restartFleetAppServer: 'beale:restart-fleet-app-server',
   restartFleetGuestAppServer: 'beale:restart-fleet-guest-app-server',

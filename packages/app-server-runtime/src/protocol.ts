@@ -54,7 +54,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-15T21:53:29.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-16T01:42:11.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -459,7 +459,7 @@ export const APP_SERVER_TRANSPORT_PREFIX = APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX;
 export const APP_SERVER_TRANSPORT_PATH = APP_SERVER_PROTOCOL_WEBSOCKET_PATH;
 
 export const APP_SERVER_PROTOCOL_OPERATIONS = [
-  "fleet.state", "fleet.configure", "fleet.test_ssh", "fleet.test_app_server", "fleet.clone", "fleet.clone_for_session", "fleet.start", "fleet.stop",
+  "fleet.state", "fleet.browser_home_page", "fleet.configure", "fleet.test_ssh", "fleet.test_app_server", "fleet.clone", "fleet.clone_for_session", "fleet.start", "fleet.stop",
   "fleet.prepare", "fleet.connect", "fleet.complete", "fleet.stage", "fleet.export", "fleet.reserve", "fleet.release",
   "fleet.broker", "fleet.relay_broker",
   "fleet.remote_machines", "fleet.remote_catalog", "fleet.remote_session", "fleet.remote_launch", "fleet.remote_control", "fleet.remote_browser_attach", "fleet.relay_stage", "fleet.relay_export",
@@ -516,6 +516,8 @@ export interface FleetBrowser {
   kind: 'embedded' | 'external';
   enabled: boolean;
 }
+
+export const DEFAULT_BROWSER_HOME_PAGE = 'https://duckduckgo.com/';
 
 export interface FleetRemoteSessionSummary {
   id: string;
@@ -578,6 +580,7 @@ export interface FleetState {
   remoteMachines: FleetMachine[];
   appServers: FleetAppServer[];
   browsers: FleetBrowser[];
+  browserHomePage: string;
   workspaceTargets: Record<string, string[]>;
   primary: { name: string; sshHost: string | null } | null;
   requiredWorkspaceIds: string[];

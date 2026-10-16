@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { homedir, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { APP_SERVER_SESSION_LAUNCH_VERSION, BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION, BEALE_APP_SERVER_OPERATIONS_PATH, BEALE_APP_SERVER_SERVER_PATH, BEALE_APP_SERVER_WORKSPACES_PATH, BEALE_APP_SERVER_SESSIONS_PATH, BEALE_APP_SERVER_SUPERVISOR_HTTPS_PORT, BEALE_APP_SERVER_SUPERVISOR_RESTART_PATH, type AppServerProtocolOperation, type FleetBackend, type FleetMachine, type FleetRemoteCatalog, type FleetSshTestInput, type FleetSshTestResult, type FleetState } from '@beale/app-server-runtime/protocol';
+import { APP_SERVER_SESSION_LAUNCH_VERSION, BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION, BEALE_APP_SERVER_OPERATIONS_PATH, BEALE_APP_SERVER_SERVER_PATH, BEALE_APP_SERVER_WORKSPACES_PATH, BEALE_APP_SERVER_SESSIONS_PATH, BEALE_APP_SERVER_SUPERVISOR_HTTPS_PORT, BEALE_APP_SERVER_SUPERVISOR_RESTART_PATH, DEFAULT_BROWSER_HOME_PAGE, type AppServerProtocolOperation, type FleetBackend, type FleetMachine, type FleetRemoteCatalog, type FleetSshTestInput, type FleetSshTestResult, type FleetState } from '@beale/app-server-runtime/protocol';
 import { sshConnectionArgs } from './fleetSsh.js';
 import { detectFleetBrowsers } from './fleetBrowsers.js';
 import { normalizeTailnetOrigin, verifySameTailnet } from './tailnetRemote.js';
@@ -12,6 +12,17 @@ import { normalizeTailnetOrigin, verifySameTailnet } from './tailnetRemote.js';
 const execFileAsync = promisify(execFile);
 const VM_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const WORKSPACE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
+
+export function normalizeBrowserHomePage(value: unknown): string {
+  if (typeof value !== 'string' || value.length > 2048) throw new Error('Browser home page must be an HTTP or HTTPS URL.');
+  try {
+    const url = new URL(value.trim());
+    if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.hostname || url.username || url.password) throw new Error();
+    return url.href;
+  } catch {
+    throw new Error('Browser home page must be an HTTP or HTTPS URL.');
+  }
+}
 
 interface FleetMachineConfig {
   base: boolean;
@@ -37,6 +48,7 @@ interface FleetConfiguration {
   lastMachineByWorkspace: Record<string, string>;
   workspaceTargets: Record<string, string[]>;
   browserEnabled: Record<string, boolean>;
+  browserHomePage: string;
   machines: Record<string, FleetMachineConfig>;
   appServers: Record<string, { name: string; url: string; operatorToken: string }>;
   owners: Record<string, { machineId: string; sessionId: string; workspaceId?: string }>;
@@ -109,6 +121,10 @@ export class FleetService {
     return this.exclusive(() => this.configureUnlocked(input));
   }
 
+  public browserHomePage(): string {
+    return this.read().browserHomePage;
+  }
+
   private async configureUnlocked(input: Record<string, unknown>): Promise<FleetState> {
     const config = this.read();
     const action = requiredText(input.action, 'Fleet action');
@@ -174,6 +190,8 @@ export class FleetService {
         throw new Error('Select an installed Fleet browser.');
       }
       config.browserEnabled[browserId] = input.enabled;
+    } else if (action === 'set-browser-home-page') {
+      config.browserHomePage = normalizeBrowserHomePage(input.url);
     } else if (action === 'set-machine') {
       const machineId = requiredText(input.machineId, 'Machine ID');
       const state = await this.state();
@@ -760,6 +778,7 @@ export class FleetService {
       appServers: Object.entries(config.appServers).map(([id, server]) => ({ id, name: server.name, url: server.url }))
         .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)),
       browsers: detectFleetBrowsers(this.hostPlatform).map((browser) => ({ ...browser, enabled: config.browserEnabled[browser.id] !== false })),
+      browserHomePage: config.browserHomePage,
       workspaceTargets: Object.fromEntries(Object.entries(config.workspaceTargets).map(([id, targets]) => [id, [...targets]])),
       primary: config.primary,
       requiredWorkspaceIds: [...config.requiredWorkspaceIds],
@@ -781,6 +800,9 @@ export class FleetService {
       if (typeof parsed.machineId === 'string' && VM_NAME.test(parsed.machineId)) config.machineId = parsed.machineId;
       if (parsed.role === 'primary' || parsed.role === 'guest') config.role = parsed.role;
       config.enabled = parsed.enabled !== false;
+      if (typeof parsed.browserHomePage === 'string') {
+        try { config.browserHomePage = normalizeBrowserHomePage(parsed.browserHomePage); } catch { /* Use the default for invalid saved URLs. */ }
+      }
       if (isRecord(parsed.primary) && typeof parsed.primary.name === 'string') {
         config.primary = { name: parsed.primary.name, sshHost: optionalText(parsed.primary.sshHost) };
       }
@@ -879,7 +901,7 @@ function defaultMachineConfig(): FleetMachineConfig {
 }
 
 function defaultConfig(): FleetConfiguration {
-  return { version: 3, machineId: randomUUID(), role: 'primary', enabled: true, primary: null, requiredWorkspaceIds: [], optionalWorkspaceIds: [], lastMachineByWorkspace: {}, workspaceTargets: {}, browserEnabled: {}, machines: {}, appServers: {}, owners: {} };
+  return { version: 3, machineId: randomUUID(), role: 'primary', enabled: true, primary: null, requiredWorkspaceIds: [], optionalWorkspaceIds: [], lastMachineByWorkspace: {}, workspaceTargets: {}, browserEnabled: {}, browserHomePage: DEFAULT_BROWSER_HOME_PAGE, machines: {}, appServers: {}, owners: {} };
 }
 
 function validOwner(owner: { machineId: unknown; sessionId: unknown; workspaceId?: unknown }): void {

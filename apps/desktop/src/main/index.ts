@@ -735,6 +735,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.previewPromptTemplate, (_event, profileId: ResearchProfileId, template: string, agentPath?: string) => workspaceService.previewPromptTemplate(profileId, template, agentPath));
   ipcMain.handle(IPC_CHANNELS.getAgentPlugins, () => workspaceService.getAgentPlugins());
   ipcMain.handle(IPC_CHANNELS.getFleetState, () => workspaceService.getFleetState());
+  ipcMain.handle(IPC_CHANNELS.getBrowserHomePage, () => workspaceService.getBrowserHomePage());
   ipcMain.handle(IPC_CHANNELS.restartLocalAppServer, async () => { await restartBealeAppServerViaSupervisor(); });
   ipcMain.handle(IPC_CHANNELS.restartFleetAppServer, (_event, serverId: string) => workspaceService.restartFleetAppServer(serverId));
   ipcMain.handle(IPC_CHANNELS.restartFleetGuestAppServer, (_event, machineId: string) => workspaceService.restartFleetGuestAppServer(machineId));

@@ -209,7 +209,10 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     : options.automationScheduler ?? {};
   const sessions = new Map<string, SessionRuntime>();
   const fleetBrowserSessions = new FleetBrowserSessionManager();
-  const fleetBrowser = new FleetBrowserService(async (sessionId) => fleetBrowserSessions.endpoint(sessionId));
+  const fleetBrowser = new FleetBrowserService(
+    async (sessionId) => fleetBrowserSessions.endpoint(sessionId),
+    () => hostService.browserHomePage()
+  );
   const fleetProxySessions = new Map<string, { endpoint: { url: string; operatorToken: string }; clientTokens: Set<string>; completed: boolean;
     workspaceId: string | null; prompt: string; state: string; startedAt: string }>();
   const introspectionBindings = new Map<string, ResidentIntrospectionBinding>();
@@ -1151,7 +1154,9 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     delete env.BEALE_FLEET_BROWSER_ENDPOINT;
     const targetId = runtime.request.launch.machineId ?? 'local';
     if (targetId.startsWith('browser:') && targetId !== 'browser:in-agent') {
-      env.BEALE_FLEET_BROWSER_ENDPOINT = await fleetBrowserSessions.launch(runtime.sessionId, targetId.slice(8));
+      env.BEALE_FLEET_BROWSER_ENDPOINT = await fleetBrowserSessions.launch(
+        runtime.sessionId, targetId.slice(8), hostService.browserHomePage()
+      );
       if (runtime.request.launch.browserRelay === true) fleetBrowser.tokenFor(runtime.sessionId);
     } else if (runtime.request.launch.browserRelay === true) {
       const token = fleetBrowser.tokenFor(runtime.sessionId);

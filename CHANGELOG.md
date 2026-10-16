@@ -6,6 +6,7 @@
 
 #### Added
 
+- Fleet Browsers now has a Default page setting. New embedded and streamed browser pages open there (default: DuckDuckGo); existing pages retain their current location. The updated control contract requires rebuilt Desktop and app-server binaries.
 - Provider settings now show reported subscription limits, including a Session Limit when available, weekly allowance, remaining percentage, reset time, and manual refresh. Provider usage rings occupy the bottom of the left rail, with Settings in the upper icon group, per-provider tooltips, and a 20-minute refresh. The updated control contract timestamp requires rebuilt Desktop and app-server binaries.
 - Fleet settings detect installed CDP-compatible browsers on Windows and macOS, with In-Agent Browser first. External browser targets launch a separate session profile.
 - Sessions opened on another connected primary app server now relay that primary's browser frames and researcher input into the remote session view, including sessions running directly on the primary. Session tokens authorize the browser stream. Control contract v46 requires rebuilt clients and hosts.
@@ -35,6 +36,7 @@
 
 #### Changed
 
+- Fleet browser keyboard input now stays on a dedicated browser input target, so select-all and paste do not affect Beale session content.
 - Plugins separates Installed and Available sidebar lists. Bundled managed plugins start Available, install with one click or when a registered Apple, Microsoft, or Meta research kit uses them, and return to Available when removed. Registered dependent kits block removal with an explanation. Earlier filesystem imports of the same bundled plugin migrate to one Installed entry while preserving enablement; existing implicit bundled entries remain Available until explicitly installed.
 - The Automations sidebar lists enabled and disabled jobs and lets their status be changed from each row.
 - Fleet now lists app servers, browsers, and virtual machines in its sidebar. Browser availability is toggled there, machine settings open in the main view, and Fleet role and enable controls have been removed from this view.

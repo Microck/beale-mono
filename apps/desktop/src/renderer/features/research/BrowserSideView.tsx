@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, JSX } from 'react';
 import type { WebviewTag } from 'electron';
+import { DEFAULT_BROWSER_HOME_PAGE } from '../../../shared/browserContexts';
 
 export function browserNavigationUrl(input: string): string | null {
   const value = input.trim();
@@ -22,11 +23,8 @@ export function BrowserSideView({ visible, partition, label, lastUrl }: { visibl
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return undefined;
-    const guest = document.createElement('webview') as WebviewTag;
-    guest.setAttribute('partition', partition);
-    guest.setAttribute('src', lastUrl);
-    guest.setAttribute('class', 'research-browser-webview');
-    guest.setAttribute('aria-label', `${label} browser page`);
+    let active = true;
+    let guest: WebviewTag | null = null;
     const onNavigate = (event: Event): void => {
       const url = (event as Event & { url?: string }).url;
       if (url && url !== 'about:blank') {
@@ -38,17 +36,33 @@ export function BrowserSideView({ visible, partition, label, lastUrl }: { visibl
       const detail = event as Event & { errorCode?: number; errorDescription?: string };
       if (detail.errorCode !== -3) setError(detail.errorDescription ?? 'Page failed to load.');
     };
-    guest.addEventListener('did-navigate', onNavigate);
-    guest.addEventListener('did-navigate-in-page', onNavigate);
-    guest.addEventListener('did-fail-load', onFail);
-    container.appendChild(guest);
-    guestRef.current = guest;
+    const mount = (url: string): void => {
+      if (!active) return;
+      const page = document.createElement('webview') as WebviewTag;
+      page.setAttribute('partition', partition);
+      page.setAttribute('src', url);
+      page.setAttribute('class', 'research-browser-webview');
+      page.setAttribute('aria-label', `${label} browser page`);
+      page.addEventListener('did-navigate', onNavigate);
+      page.addEventListener('did-navigate-in-page', onNavigate);
+      page.addEventListener('did-fail-load', onFail);
+      container.appendChild(page);
+      guest = page;
+      guestRef.current = page;
+      setAddress(url === 'about:blank' ? '' : url);
+    };
+    if (lastUrl !== 'about:blank') mount(lastUrl);
+    else void window.beale.getBrowserHomePage().then(
+      (homePage) => mount(homePage || DEFAULT_BROWSER_HOME_PAGE),
+      () => mount(DEFAULT_BROWSER_HOME_PAGE)
+    );
     return () => {
+      active = false;
       guestRef.current = null;
-      guest.removeEventListener('did-navigate', onNavigate);
-      guest.removeEventListener('did-navigate-in-page', onNavigate);
-      guest.removeEventListener('did-fail-load', onFail);
-      guest.remove();
+      guest?.removeEventListener('did-navigate', onNavigate);
+      guest?.removeEventListener('did-navigate-in-page', onNavigate);
+      guest?.removeEventListener('did-fail-load', onFail);
+      guest?.remove();
     };
   }, [partition]);
 

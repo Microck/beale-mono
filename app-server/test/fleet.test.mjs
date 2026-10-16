@@ -6,6 +6,25 @@ import test from 'node:test';
 import { BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION } from '@beale/app-server-runtime/protocol';
 import { FleetService, assertCompatibleRemoteAppServerDescriptor } from '../dist/fleet.js';
 
+test('Fleet saves a validated browser home page and restores the default for older configurations', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'beale-browser-settings-'));
+  const path = join(root, 'fleet.json');
+  const fleet = new FleetService(path, 'linux');
+  try {
+    assert.equal((await fleet.state()).browserHomePage, 'https://duckduckgo.com/');
+    assert.equal((await fleet.configure({ action: 'set-browser-home-page', url: 'https://example.test/start' })).browserHomePage,
+      'https://example.test/start');
+    assert.equal(new FleetService(path, 'linux').browserHomePage(), 'https://example.test/start');
+    await assert.rejects(fleet.configure({ action: 'set-browser-home-page', url: 'file:///example.txt' }), /HTTP or HTTPS/u);
+    await assert.rejects(fleet.configure({ action: 'set-browser-home-page', url: 'https://user:pass@example.test/' }), /HTTP or HTTPS/u);
+    assert.equal(fleet.browserHomePage(), 'https://example.test/start');
+    const legacy = JSON.parse(readFileSync(path, 'utf8'));
+    delete legacy.browserHomePage;
+    writeFileSync(path, JSON.stringify(legacy));
+    assert.equal(new FleetService(path, 'linux').browserHomePage(), 'https://duckduckgo.com/');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('remote primary compatibility identifies stale and newer runtime builds', () => {
   assert.doesNotThrow(() => assertCompatibleRemoteAppServerDescriptor({
     ok: true, controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,

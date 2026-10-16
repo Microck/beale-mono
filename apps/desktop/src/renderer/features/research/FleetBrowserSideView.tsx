@@ -6,6 +6,7 @@ import type { FleetBrowserInput } from '../../../shared/fleetBrowser';
 export function FleetBrowserSideView({ runId, visible, remoteServerId }: { runId: string; visible: boolean; remoteServerId?: string }): JSX.Element {
   const frameRef = useRef<HTMLImageElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const keyboardRef = useRef<HTMLTextAreaElement | null>(null);
   const viewportRef = useRef({ width: 1280, height: 800 });
   const lastMoveRef = useRef(0);
   const [address, setAddress] = useState('');
@@ -67,10 +68,11 @@ export function FleetBrowserSideView({ runId, visible, remoteServerId }: { runId
     const url = browserNavigationUrl(address);
     if (!url) { setStatus('Enter an HTTP or HTTPS URL.'); return; }
     sendInput(runId, { type: 'browser.navigate', url });
-    surfaceRef.current?.focus();
+    keyboardRef.current?.focus();
   };
 
   const pointer = (event: PointerEvent<HTMLDivElement>, eventType: 'mousePressed' | 'mouseReleased' | 'mouseMoved'): void => {
+    if (eventType === 'mousePressed') keyboardRef.current?.focus();
     if (!connected) return;
     if (eventType === 'mouseMoved' && Date.now() - lastMoveRef.current < 33) return;
     lastMoveRef.current = Date.now();
@@ -78,14 +80,19 @@ export function FleetBrowserSideView({ runId, visible, remoteServerId }: { runId
     const button = event.button === 1 ? 'middle' : event.button === 2 ? 'right' : eventType === 'mouseMoved' ? 'none' : 'left';
     sendInput(runId, { type: 'browser.mouse', eventType, ...point, button, buttons: event.buttons, clickCount: eventType === 'mouseMoved' ? 0 : 1 });
     if (eventType === 'mousePressed') {
-      event.currentTarget.focus();
       event.currentTarget.setPointerCapture(event.pointerId);
     }
   };
 
   const key = (event: KeyboardEvent<HTMLDivElement>, eventType: 'keyDown' | 'keyUp'): void => {
-    if (!connected) return;
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'v') {
+      event.stopPropagation();
+      if (eventType === 'keyUp') event.preventDefault();
+      return;
+    }
     event.preventDefault();
+    event.stopPropagation();
+    if (!connected) return;
     sendInput(runId, { type: 'browser.key', eventType, key: event.key, code: event.code,
       text: eventType === 'keyDown' && event.key.length === 1 && !event.metaKey && !event.ctrlKey ? event.key : '',
       modifiers: (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0) });
@@ -100,15 +107,18 @@ export function FleetBrowserSideView({ runId, visible, remoteServerId }: { runId
       {status ? <p className="research-browser-error" role="status">{status}</p> : null}
       <div ref={surfaceRef} className="research-browser-page fleet-browser-page" tabIndex={0} role="application"
         aria-label="Interactive session browser page"
+        onFocus={(event) => { if (event.target === event.currentTarget) keyboardRef.current?.focus(); }}
         onPointerDown={(event) => pointer(event, 'mousePressed')}
         onPointerUp={(event) => pointer(event, 'mouseReleased')}
         onPointerMove={(event) => pointer(event, 'mouseMoved')}
         onKeyDown={(event) => key(event, 'keyDown')}
         onKeyUp={(event) => key(event, 'keyUp')}
-        onCompositionEnd={(event) => sendInput(runId, { type: 'browser.text', text: event.data })}
-        onPaste={(event) => { event.preventDefault(); sendInput(runId, { type: 'browser.text', text: event.clipboardData.getData('text') }); }}
+        onCompositionEnd={(event) => { event.stopPropagation(); if (connected) sendInput(runId, { type: 'browser.text', text: event.data }); if (keyboardRef.current) keyboardRef.current.value = ''; }}
+        onPaste={(event) => { event.preventDefault(); event.stopPropagation(); if (connected) sendInput(runId, { type: 'browser.text', text: event.clipboardData.getData('text') }); }}
       >
         <img ref={frameRef} alt="Session browser display" draggable={false} />
+        <textarea ref={keyboardRef} className="fleet-browser-keyboard" tabIndex={-1} aria-label="Browser keyboard input"
+          autoComplete="off" autoCorrect="off" spellCheck={false} onChange={(event) => { event.currentTarget.value = ''; }} />
       </div>
     </section>
   );

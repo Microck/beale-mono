@@ -5,6 +5,8 @@ export interface BrowserContextSummary {
   lastUrl: string;
 }
 
+export const DEFAULT_BROWSER_HOME_PAGE = 'https://duckduckgo.com/';
+
 export interface BrowserContextsUpdate {
   contexts: BrowserContextSummary[];
   createdId?: string;

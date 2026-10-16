@@ -5,6 +5,7 @@ import { allowedFleetTargets, defaultFleetMachineId, fleetBrowserViewerTargetId,
 const state: FleetState = {
   machineId: 'machine-example', role: 'primary', enabled: true, available: true, error: null,
   appServers: [], remoteMachines: [],
+  browserHomePage: 'https://duckduckgo.com/',
   browsers: [
     { id: 'in-agent', name: 'In-Agent Browser', kind: 'embedded', enabled: true },
     { id: 'chrome', name: 'Google Chrome', kind: 'external', enabled: true },
