@@ -2,7 +2,7 @@
 
 This directory contains independent Agent Plugin packages maintained with Beale. Each immediate child follows [Agent Plugins 1.0.0](https://agent-plugins.org/specification).
 
-Beale discovers each plugin package in this directory and lists it in Plugins. Meta Skills is enabled by default but appears in agent sessions only for workspaces using the Meta Bug Bounty Research Kit. The other managed plugins are disabled by default; enable them in Plugins when needed. Introspection is a harness feature under `app-server/resources/harness-features`.
+Beale discovers each plugin package in this directory and lists it under Available in Plugins. Install one with its + button, or use its dependent research kit to install it automatically. Installed plugins can be enabled, disabled, or removed; removal returns a bundled plugin to Available. A registered workspace using a dependent research kit blocks removal. Introspection is a harness feature under `app-server/resources/harness-features`.
 
 - **Meta Skills** (`meta-skills`): Researcher-tool guidance for Meta Bug Bounty Research Kit workspaces.
 - [Apple Security Devices](apple-security-devices/README.md): Select and inspect Apple research environments, including Tart, physical iPhones, and Darwin VM.

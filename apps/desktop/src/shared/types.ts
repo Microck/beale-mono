@@ -1240,6 +1240,7 @@ export interface AgentPluginRecord {
   name: string;
   version: string | null;
   description: string | null;
+  installed: boolean;
   enabled: boolean;
   status: AgentPluginStatus;
   source: AgentPluginSource;
@@ -1249,6 +1250,8 @@ export interface AgentPluginRecord {
   mcpServers: AgentPluginMcpServerSummary[];
   warnings: string[];
   errors: string[];
+  removable?: boolean;
+  removalBlockedReason?: string;
 }
 
 export interface AgentPluginRegistryState {

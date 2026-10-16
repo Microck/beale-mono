@@ -38,6 +38,7 @@ export interface AgentPluginRecord {
   name: string;
   version: string | null;
   description: string | null;
+  installed: boolean;
   enabled: boolean;
   status: AgentPluginStatus;
   source: AgentPluginSource;
@@ -47,6 +48,8 @@ export interface AgentPluginRecord {
   mcpServers: AgentPluginMcpServerSummary[];
   warnings: string[];
   errors: string[];
+  removable?: boolean;
+  removalBlockedReason?: string;
 }
 
 export interface AgentPluginRegistryState {
@@ -78,6 +81,7 @@ interface StoredAgentPlugin {
   id: string;
   source: AgentPluginSource;
   enabled: boolean;
+  installed?: boolean;
   installedAt: string;
 }
 
@@ -98,11 +102,31 @@ export interface BuiltinAgentPluginDefinition {
   path: string;
   installedAt: string;
   enabledByDefault?: boolean;
+  installable?: boolean;
+  requiredByResearchKits?: string[];
+}
+
+export const BUNDLED_PLUGIN_RESEARCH_KITS: Readonly<Record<string, readonly string[]>> = {
+  'apple-security-devices': ['apple-security-bounty'],
+  'apple-target-flags': ['apple-security-bounty'],
+  'microsoft-security-devices': ['msrc'],
+  'meta-skills': ['meta-bug-bounty']
+};
+
+export function researchKitsRequiringBundledPlugin(pluginName: string): string[] {
+  return [...(BUNDLED_PLUGIN_RESEARCH_KITS[pluginName] ?? [])];
+}
+
+export function bundledPluginsRequiredByResearchKit(researchKitId: string): string[] {
+  return Object.entries(BUNDLED_PLUGIN_RESEARCH_KITS)
+    .filter(([, researchKits]) => researchKits.includes(researchKitId))
+    .map(([pluginName]) => `${pluginName}-builtin`);
 }
 
 export interface AgentPluginRegistryOptions {
   builtinPlugins?: BuiltinAgentPluginDefinition[];
   runtimeEnvironment?: (plugin: AgentPluginRecord) => Record<string, string>;
+  activeResearchKitIds?: string[];
 }
 
 export interface AgentPluginAppServerRuntime {
@@ -163,7 +187,7 @@ export class AgentPluginRegistry {
     const warnings: string[] = [];
     const usedMcpNames = new Set<string>();
     const catalog: ResearchPluginCatalogEntry[] = state.plugins
-      .filter((plugin) => plugin.enabled && plugin.status === 'ready')
+      .filter((plugin) => plugin.installed && plugin.enabled && plugin.status === 'ready')
       .map((plugin) => ({
         id: plugin.source.kind === 'builtin' && isManagedToolPluginId(plugin.name) ? plugin.name : plugin.id,
         name: plugin.name,
@@ -179,7 +203,7 @@ export class AgentPluginRegistry {
       }));
 
     for (const plugin of state.plugins) {
-      if (!plugin.enabled || plugin.status !== 'ready') continue;
+      if (!plugin.installed || !plugin.enabled || plugin.status !== 'ready') continue;
       if (plugin.skills.length > 0) {
         skillDirs.push(containedPath(plugin.source.path, 'skills'));
         selectedSkillIds.push(...plugin.skills.map((skill) => skill.id));
@@ -253,6 +277,8 @@ export class AgentPluginRegistry {
   public addFromFilesystem(pluginRoot: string): AgentPluginRegistryState {
     const sourcePath = canonicalDirectory(pluginRoot);
     const manifest = readManifest(sourcePath);
+    const bundled = this.builtinPlugins().find((plugin) => plugin.installable && samePluginDirectory(plugin.path, sourcePath));
+    if (bundled) return this.setEnabled(bundled.id, true);
     const now = new Date().toISOString();
     const registry = this.readRegistryFile();
     const id = pluginId(manifest.name, sourcePath);
@@ -312,17 +338,24 @@ export class AgentPluginRegistry {
 
   public setEnabled(pluginIdValue: string, enabled: boolean): AgentPluginRegistryState {
     const registry = this.readRegistryFile();
+    const builtin = this.builtinPlugins().find((candidate) => candidate.id === pluginIdValue);
     let plugin = registry.plugins.find((candidate) => candidate.id === pluginIdValue);
     if (!plugin) {
-      const builtin = this.builtinPlugins().find((candidate) => candidate.id === pluginIdValue);
       if (!builtin) throw new Error('Plugin not found.');
+      if (builtin.installable && !enabled) throw new Error('Install this plugin before changing its enabled state.');
       plugin = {
         id: builtin.id,
         source: { kind: 'builtin', path: builtin.path },
-        enabled: true,
-        installedAt: builtin.installedAt
+        enabled,
+        installed: true,
+        installedAt: builtin.installable ? new Date().toISOString() : builtin.installedAt
       };
       registry.plugins.push(plugin);
+    }
+    if (builtin?.installable && plugin.installed !== true) {
+      if (!enabled) throw new Error('Install this plugin before changing its enabled state.');
+      plugin.installed = true;
+      plugin.installedAt = new Date().toISOString();
     }
     plugin.enabled = enabled;
     this.writeRegistryFile(registry);
@@ -333,7 +366,13 @@ export class AgentPluginRegistry {
     const registry = this.readRegistryFile();
     const plugin = this.readRegistryWithBuiltins().plugins.find((candidate) => candidate.id === pluginIdValue);
     if (!plugin) throw new Error('Plugin not found.');
-    if (plugin.source.kind === 'builtin') throw new Error('Built-in plugins cannot be removed.');
+    if (plugin.source.kind === 'builtin') {
+      const builtin = this.builtinPlugins().find((candidate) => candidate.id === pluginIdValue);
+      if (!builtin?.installable) throw new Error('Built-in plugins cannot be removed.');
+      const blocked = this.removalBlockedReason(builtin);
+      if (blocked) throw new Error(blocked);
+      if (plugin.installed !== true) throw new Error('Plugin is not installed.');
+    }
     const next = {
       ...registry,
       plugins: registry.plugins.filter((candidate) => candidate.id !== pluginIdValue)
@@ -347,17 +386,29 @@ export class AgentPluginRegistry {
 
   private materializeRecord(stored: StoredAgentPlugin): AgentPluginRecord {
     const scanned = this.scanPlugin(stored.source.path, stored.id);
+    const builtin = this.builtinPlugins().find((candidate) => candidate.id === stored.id);
+    const installed = stored.source.kind !== 'builtin' || !builtin?.installable || stored.installed === true;
+    const removalBlockedReason = installed && builtin?.installable ? this.removalBlockedReason(builtin) : null;
     return {
       ...scanned,
       id: stored.id,
-      enabled: stored.enabled && scanned.status === 'ready',
+      installed,
+      removable: stored.source.kind !== 'builtin' || builtin?.installable === true,
+      enabled: installed && stored.enabled && scanned.status === 'ready',
       source: stored.source,
       installedAt: stored.installedAt,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      ...(removalBlockedReason ? { removalBlockedReason } : {})
     };
   }
 
-  private scanPlugin(pluginRoot: string, storedId: string | null): Omit<AgentPluginRecord, 'source' | 'installedAt' | 'updatedAt' | 'enabled' | 'id'> {
+  private removalBlockedReason(builtin: BuiltinAgentPluginDefinition): string | null {
+    const active = builtin.requiredByResearchKits?.find((id) => this.options.activeResearchKitIds?.includes(id));
+    const kitName = active === 'msrc' ? 'MSRC Windows' : active?.split('-').map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' ');
+    return active ? `Cannot remove ${builtin.id.replace(/-builtin$/u, '')} while a registered workspace uses the ${kitName} research kit.` : null;
+  }
+
+  private scanPlugin(pluginRoot: string, storedId: string | null): Omit<AgentPluginRecord, 'source' | 'installedAt' | 'updatedAt' | 'installed' | 'enabled' | 'id' | 'removable' | 'removalBlockedReason'> {
     const errors: string[] = [];
     const warnings: string[] = [];
     let manifest: ParsedManifest;
@@ -406,8 +457,9 @@ export class AgentPluginRegistry {
       return { version: 1, plugins: [] };
     }
     const active = plugins.filter((plugin) => plugin.source.kind !== 'builtin' || !RETIRED_BUILTIN_PLUGIN_IDS.has(plugin.id));
-    if (active.length !== plugins.length) this.writeRegistryFile({ version: 1, plugins: active });
-    return { version: 1, plugins: active };
+    const migrated = mergeBundledFilesystemImports(active, this.builtinPlugins());
+    if (active.length !== plugins.length || migrated.changed) this.writeRegistryFile({ version: 1, plugins: migrated.plugins });
+    return { version: 1, plugins: migrated.plugins };
   }
 
   private readRegistryWithBuiltins(): AgentPluginRegistryFile {
@@ -844,6 +896,7 @@ function normalizeStoredPlugin(value: unknown): StoredAgentPlugin | null {
       ...(typeof source.repositoryUrl === 'string' ? { repositoryUrl: source.repositoryUrl } : {})
     },
     enabled: object.enabled === true,
+    ...(object.installed === true ? { installed: true } : {}),
     installedAt: typeof object.installedAt === 'string' ? object.installedAt : new Date().toISOString()
   };
 }
@@ -855,16 +908,61 @@ function mergeBuiltinPlugins(stored: StoredAgentPlugin[], builtins: BuiltinAgent
     if (existing) {
       existing.source = { kind: 'builtin', path: builtin.path };
       existing.installedAt = existing.installedAt || builtin.installedAt;
+      if (builtin.installable && existing.installed !== true) existing.enabled = false;
       continue;
     }
     next.push({
       id: builtin.id,
       source: { kind: 'builtin', path: builtin.path },
-      enabled: builtin.enabledByDefault ?? true,
+      enabled: builtin.installable ? false : builtin.enabledByDefault ?? true,
+      installed: !builtin.installable,
       installedAt: builtin.installedAt
     });
   }
   return next;
+}
+
+function mergeBundledFilesystemImports(
+  stored: StoredAgentPlugin[], builtins: BuiltinAgentPluginDefinition[]
+): { plugins: StoredAgentPlugin[]; changed: boolean } {
+  let plugins = stored;
+  let changed = false;
+  for (const builtin of builtins) {
+    if (!builtin.installable) continue;
+    const imports = plugins.filter((plugin) => plugin.id !== builtin.id
+      && plugin.source.kind === 'filesystem'
+      && samePluginDirectory(plugin.source.path, builtin.path));
+    if (imports.length === 0) continue;
+    const imported = imports.find((plugin) => plugin.enabled) ?? imports[0];
+    if (!imported) continue;
+    const existing = plugins.find((plugin) => plugin.id === builtin.id);
+    if (!existing) {
+      plugins = [...plugins, {
+        id: builtin.id,
+        source: { kind: 'builtin', path: builtin.path },
+        enabled: imported.enabled,
+        installed: true,
+        installedAt: imported.installedAt
+      }];
+    } else if (existing.installed !== true) {
+      existing.source = { kind: 'builtin', path: builtin.path };
+      existing.enabled = imported.enabled;
+      existing.installed = true;
+      existing.installedAt = imported.installedAt;
+    }
+    const importedIds = new Set(imports.map((plugin) => plugin.id));
+    plugins = plugins.filter((plugin) => !importedIds.has(plugin.id));
+    changed = true;
+  }
+  return { plugins, changed };
+}
+
+function samePluginDirectory(left: string, right: string): boolean {
+  try {
+    return realpathSync(left) === realpathSync(right);
+  } catch {
+    return resolve(left) === resolve(right);
+  }
 }
 
 function comparePlugins(left: AgentPluginRecord, right: AgentPluginRecord): number {

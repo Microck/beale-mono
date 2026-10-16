@@ -35,6 +35,7 @@ export function AutomationsSidebar({
   loading,
   error,
   onSelectAutomation,
+  onSetAutomationEnabled,
   onStartNewResearch,
   onStartNewResearchForWorkspace,
   onAddWorkspace,
@@ -52,6 +53,7 @@ export function AutomationsSidebar({
   loading: boolean;
   error: string | null;
   onSelectAutomation: (automation: AutomationSummary | null) => void;
+  onSetAutomationEnabled: (automation: AutomationSummary, enabled: boolean) => Promise<void>;
   onStartNewResearch: () => void;
   onStartNewResearchForWorkspace: (workspace: WorkspaceRegistryEntry) => void;
   onAddWorkspace: () => void;
@@ -59,6 +61,8 @@ export function AutomationsSidebar({
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
 }): JSX.Element {
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [updatingAutomationId, setUpdatingAutomationId] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const workspacePickerRef = useRef<HTMLDivElement | null>(null);
   const scheduleButtonRef = useRef<HTMLButtonElement | null>(null);
   const firstWorkspaceOptionRef = useRef<HTMLButtonElement | null>(null);
@@ -86,16 +90,28 @@ export function AutomationsSidebar({
       document.removeEventListener('keydown', dismissOnEscape);
     };
   }, [workspacePickerOpen]);
-  const upcoming = automations
-    .filter((automation) => automation.enabled && (!selectedWorkspaceId || automation.workspaceId === selectedWorkspaceId))
+  const listed = automations
+    .filter((automation) => !selectedWorkspaceId || automation.workspaceId === selectedWorkspaceId)
     .sort((left, right) => left.title.localeCompare(right.title));
+  const setEnabled = async (automation: AutomationSummary, enabled: boolean): Promise<void> => {
+    if (updatingAutomationId !== null || automation.enabled === enabled) return;
+    setUpdatingAutomationId(`${automation.workspaceId}:${automation.runId}`);
+    setStatusError(null);
+    try {
+      await onSetAutomationEnabled(automation, enabled);
+    } catch (caught) {
+      setStatusError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setUpdatingAutomationId(null);
+    }
+  };
   return (
     <CollectionSidebar
       title="Automations"
       label="Automations sidebar"
       collapsed={collapsed}
-      error={error}
-      updateKey={`${selectedWorkspaceId ?? 'all'}:${upcoming.map((automation) => `${automation.workspaceId}:${automation.runId}`).join(',')}`}
+      error={error ?? statusError}
+      updateKey={`${selectedWorkspaceId ?? 'all'}:${listed.map((automation) => `${automation.workspaceId}:${automation.runId}`).join(',')}`}
       onResizePointerDown={onResizePointerDown}
       serverSelector={serverSelector}
       primaryAction={
@@ -144,19 +160,29 @@ export function AutomationsSidebar({
       }
     >
       <nav className="collection-sidebar-list sidebar-list-scroll-content" aria-label="Automation jobs">
-        <div className="collection-sidebar-list-heading">Upcoming</div>
-        {loading ? <p className="collection-sidebar-empty">Loading jobs…</p> : upcoming.length === 0 ? (
-          <p className="collection-sidebar-empty">No upcoming jobs</p>
-        ) : upcoming.map((automation) => {
+        <div className="collection-sidebar-list-heading">Scheduled Jobs</div>
+        {loading ? <p className="collection-sidebar-empty">Loading jobs…</p> : listed.length === 0 ? (
+          <p className="collection-sidebar-empty">No scheduled jobs</p>
+        ) : listed.map((automation) => {
           const selected = selectedAutomation?.runId === automation.runId && selectedAutomation.workspaceId === automation.workspaceId;
           return (
-            <div className={`workspace-item-row no-menu ${selected ? 'active' : ''}`.trim()} key={`${automation.workspaceId}:${automation.runId}`}>
-              <button type="button" className="workspace-item collection-sidebar-item" aria-current={selected ? 'page' : undefined} onClick={() => onSelectAutomation(automation)}>
+            <div className={`workspace-item-row automation-sidebar-row ${selected ? 'active' : ''}`.trim()} key={`${automation.workspaceId}:${automation.runId}`}>
+              <button type="button" className="workspace-item collection-sidebar-item automation-sidebar-item" aria-current={selected ? 'page' : undefined} onClick={() => onSelectAutomation(automation)}>
                 <span className="collection-sidebar-item-copy">
                   <span>{automation.title}</span>
                   <small>{repeatScheduleLabel(automation.schedule)} · {automation.workspaceName}</small>
                 </span>
               </button>
+              <select
+                className="automation-sidebar-status"
+                aria-label={`Status for ${automation.title}`}
+                value={automation.enabled ? 'enabled' : 'disabled'}
+                disabled={busy || updatingAutomationId !== null}
+                onChange={(event) => void setEnabled(automation, event.currentTarget.value === 'enabled')}
+              >
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </select>
             </div>
           );
         })}

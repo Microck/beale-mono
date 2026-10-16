@@ -15,7 +15,7 @@ describe('managed tool plugin settings boundary', () => {
     const registry = new AgentPluginRegistry('example-registry');
     registry.getState();
     const input = vi.mocked(listAppServerPlugins).mock.calls.at(-1)![0];
-    const defaults = input.builtinPlugins as Array<{ id: string; path: string; enabledByDefault?: boolean }>;
+    const defaults = input.builtinPlugins as Array<{ id: string; path: string; enabledByDefault?: boolean; installable?: boolean; requiredByResearchKits?: string[] }>;
     for (const plugin of MANAGED_TOOL_PLUGINS) {
       const builtin = defaults.find((candidate) => candidate.id === `${plugin.id}-builtin`)!;
       expect(builtin.enabledByDefault).toBe(true);
@@ -25,9 +25,13 @@ describe('managed tool plugin settings boundary', () => {
     for (const id of ['apple-security-devices', 'apple-target-flags', 'microsoft-security-devices']) {
       const builtin = defaults.find((candidate) => candidate.id === `${id}-builtin`);
       expect(builtin?.enabledByDefault).toBe(false);
+      expect(builtin?.installable).toBe(true);
       expect(builtin?.path).toContain(join('managed-plugins', id));
+      expect(builtin?.requiredByResearchKits).toEqual(id === 'microsoft-security-devices' ? ['msrc'] : ['apple-security-bounty']);
     }
-    expect(defaults.find((candidate) => candidate.id === 'meta-skills-builtin')?.enabledByDefault).toBe(true);
+    expect(defaults.find((candidate) => candidate.id === 'meta-skills-builtin')).toMatchObject({
+      enabledByDefault: false, installable: true, requiredByResearchKits: ['meta-bug-bounty']
+    });
     expect(defaults.some((plugin) => /workspace|execution/.test(plugin.id))).toBe(false);
     expect(registry.getAppServerRuntime().managedPluginIds).toEqual([]);
     expect(getAppServerPluginRuntime).toHaveBeenCalledWith(expect.objectContaining({ builtinPlugins: defaults }));

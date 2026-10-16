@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { MANAGED_TOOL_PLUGIN_IDS } from '@beale/app-server-runtime/protocol';
+import { researchKitsRequiringBundledPlugin } from '@beale/research-agent';
 import type { AgentPluginRecord, AgentPluginRegistryState } from '@shared/types';
 import {
   addAppServerPluginFromFilesystem,
@@ -16,6 +17,7 @@ import {
 export interface AgentPluginRegistryOptions {
   builtinPlugins?: AppServerBuiltinPlugin[];
   runtimeEnvironment?: (plugin: AgentPluginRecord) => Record<string, string>;
+  activeResearchKitIds?: () => string[];
 }
 
 export type AgentPluginAppServerRuntime = AppServerAgentPluginRuntime;
@@ -58,7 +60,8 @@ export class AgentPluginRegistry {
   private baseInput(): Record<string, unknown> {
     return {
       registryDirectory: this.registryDirectory,
-      builtinPlugins: this.options.builtinPlugins ?? defaultBuiltinPlugins()
+      builtinPlugins: this.options.builtinPlugins ?? defaultBuiltinPlugins(),
+      activeResearchKitIds: this.options.activeResearchKitIds?.() ?? []
     };
   }
 }
@@ -87,7 +90,9 @@ function bundledManagedPlugins(): AppServerBuiltinPlugin[] {
       id: `${entry.name}-builtin`,
       path: join(root, entry.name),
       installedAt: '2026-09-23T00:00:00.000Z',
-      enabledByDefault: entry.name === 'meta-skills'
+      enabledByDefault: false,
+      installable: true,
+      requiredByResearchKits: researchKitsRequiringBundledPlugin(entry.name)
     }));
 }
 

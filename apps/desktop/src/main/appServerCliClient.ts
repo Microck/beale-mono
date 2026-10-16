@@ -278,6 +278,8 @@ export interface AppServerBuiltinPlugin {
   path: string;
   installedAt: string;
   enabledByDefault?: boolean;
+  installable?: boolean;
+  requiredByResearchKits?: string[];
 }
 
 export function getAppServerProtocolDescriptor(): AppServerProtocolDescriptor {

@@ -165,11 +165,13 @@ describe('AgentPluginRegistry', () => {
     expect(plugin?.enabled).toBe(true);
     expect(plugin?.source.kind).toBe('builtin');
     expect(plugin?.source.path).toContain(join('app-server', 'resources', 'harness-features', 'beale-introspection'));
-    expect(metaSkills?.enabled).toBe(true);
+    expect(metaSkills?.installed).toBe(false);
+    expect(metaSkills?.enabled).toBe(false);
     expect(metaSkills?.source.path).toContain(join('managed-plugins', 'meta-skills'));
     expect(metaSkills?.skills.map((skill) => skill.id)).toEqual(['meta-bug-bounty-tools']);
     expect(microsoftDevices).toMatchObject({
       id: 'microsoft-security-devices-builtin',
+      installed: false,
       enabled: false,
       status: 'ready',
       source: { kind: 'builtin' }
@@ -185,7 +187,7 @@ describe('AgentPluginRegistry', () => {
     ]);
 
     const runtime = registry.getAppServerRuntime();
-    expect(runtime.selectedSkillIds).toContain('meta-bug-bounty-tools');
+    expect(runtime.selectedSkillIds).not.toContain('meta-bug-bounty-tools');
     expect(runtime.allowedMcpServers).toEqual(['beale-introspection.beale']);
     expect(runtime.mcpConfigPath).toBeTruthy();
     const mcpConfig = JSON.parse(readFileSync(runtime.mcpConfigPath ?? '', 'utf8')) as {
@@ -204,8 +206,38 @@ describe('AgentPluginRegistry', () => {
     expect(reloaded.getState().plugins.find((candidate) => candidate.id === plugin!.id)?.enabled).toBe(false);
     expect(() => registry.remove(plugin!.id)).toThrow('Built-in plugins cannot be removed.');
 
+    expect(() => registry.setEnabled(metaSkills!.id, false)).toThrow('Install this plugin');
+    const installed = registry.setEnabled(metaSkills!.id, true);
+    expect(installed.plugins.find((candidate) => candidate.id === metaSkills!.id)).toMatchObject({ installed: true, enabled: true, removable: true });
+    expect(registry.getAppServerRuntime().selectedSkillIds).toContain('meta-bug-bounty-tools');
     registry.setEnabled(metaSkills!.id, false);
     expect(registry.getAppServerRuntime().selectedSkillIds).not.toContain('meta-bug-bounty-tools');
+    const available = registry.remove(metaSkills!.id);
+    expect(available.plugins.find((candidate) => candidate.id === metaSkills!.id)).toMatchObject({ installed: false, enabled: false });
+  });
+
+  it('blocks removal of a managed plugin while its dependent kit is active', () => {
+    const registryDirectory = tempDir('beale-plugin-registry-');
+    const registry = new AgentPluginRegistry(registryDirectory, {
+      activeResearchKitIds: () => ['meta-bug-bounty']
+    });
+    registry.setEnabled('meta-skills-builtin', true);
+    const plugin = registry.getState().plugins.find((candidate) => candidate.id === 'meta-skills-builtin');
+    expect(plugin?.removalBlockedReason).toContain('registered workspace uses the Meta Bug Bounty research kit');
+    expect(() => registry.remove('meta-skills-builtin')).toThrow('registered workspace uses the Meta Bug Bounty research kit');
+    const inactive = new AgentPluginRegistry(registryDirectory);
+    expect(inactive.remove('meta-skills-builtin').plugins.find((candidate) => candidate.id === 'meta-skills-builtin')?.installed).toBe(false);
+  });
+
+  it('treats legacy bundled-plugin toggles as available until explicitly installed', () => {
+    const registryDirectory = tempDir('beale-plugin-registry-');
+    const registry = new AgentPluginRegistry(registryDirectory);
+    const plugin = registry.getState().plugins.find((candidate) => candidate.id === 'meta-skills-builtin')!;
+    writeFileSync(join(registryDirectory, 'agent-plugins.json'), JSON.stringify({
+      version: 1,
+      plugins: [{ id: plugin.id, source: plugin.source, enabled: true, installedAt: plugin.installedAt }]
+    }), 'utf8');
+    expect(registry.getState().plugins.find((candidate) => candidate.id === plugin.id)).toMatchObject({ installed: false, enabled: false });
   });
 
   it('speaks app-server newline-delimited JSON-RPC over stdio', () => {

@@ -35,6 +35,9 @@
 
 #### Changed
 
+- Plugins separates Installed and Available sidebar lists. Bundled managed plugins start Available, install with one click or when a registered Apple, Microsoft, or Meta research kit uses them, and return to Available when removed. Registered dependent kits block removal with an explanation. Earlier filesystem imports of the same bundled plugin migrate to one Installed entry while preserving enablement; existing implicit bundled entries remain Available until explicitly installed.
+- The Automations sidebar lists enabled and disabled jobs and lets their status be changed from each row.
+- Fleet now lists app servers, browsers, and virtual machines in its sidebar. Browser availability is toggled there, machine settings open in the main view, and Fleet role and enable controls have been removed from this view.
 - The Resources view keeps its yearly resource count and no longer shows the daily activity grid; Memories, Runbooks, and Reports retain their grids.
 - Beale iOS now reconnects to the most recent machine on launch and keeps machine pills and a circular menu above navigation. Its dark gradient gains session heat from current app-server findings, and the client validates the server descriptor's control identity, endpoint paths, and limits.
 - Beale iOS now pins app-server control contract v46 and rejects an older health contract before connecting.
@@ -1331,6 +1334,7 @@
 
 #### Changed
 
+- Bundled managed-plugin registry entries now retain explicit installation state and absorb earlier filesystem imports of the same bundled directory. Session launch installs plugins required by its research kit.
 - Built-in harness feature packages now live under `app-server/resources/harness-features`. Introspection uses feature discovery and loading while retaining its saved registry ID and enabled state; Quick Chat refuses to start when Introspection is disabled.
 - Canonical session event reads now accept a backward cursor, allowing Desktop to load older transcript pages without transferring the full session at once. Desktop and app-server must be rebuilt together.
 - OpenAI server-side and local fallback compaction thresholds now scale from the selected model context window instead of imposing a 96k active-context ceiling.

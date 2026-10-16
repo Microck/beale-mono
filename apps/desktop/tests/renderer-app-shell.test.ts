@@ -2,11 +2,13 @@ import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import type { FleetState } from '@beale/app-server-runtime/protocol';
 import type { HostEnvironment, RunDetail, RunRow, WorkspaceSnapshot } from '@shared/types';
 import { AppHeaderTitle, StaticAppHeaderTitle, type AppHeaderViewIcon } from '../src/renderer/app/AppHeaderTitle';
 import { BottomPanel, DEFAULT_BOTTOM_PANEL_OPEN } from '../src/renderer/app/BottomPanel';
 import { AppNavigationRail, ProviderLimitIndicator, resolveAppNavigationDestination } from '../src/renderer/app/AppNavigationRail';
 import { FleetSidebar } from '../src/renderer/features/fleet/FleetSidebar';
+import { FleetSettingsView } from '../src/renderer/features/settings/FleetSettingsView';
 import { SettingsSidebar } from '../src/renderer/features/settings/SettingsModal';
 import { headerMenuInlineEnd, rightmostHeaderMenuControl, TopBar } from '../src/renderer/app/TopBar';
 import { SessionOverviewDialog } from '../src/renderer/features/sessions/SessionOverviewDialog';
@@ -192,20 +194,72 @@ describe('renderer app shell view model', () => {
     expect(single).toContain('60% left');
   });
 
-  it('shows Fleet forms outside Agent Settings', () => {
+  it('lists Fleet resources in the sidebar and opens machine details inline', () => {
     const onNavigate = () => undefined;
+    const fleetState: FleetState = {
+      machineId: 'machine-local', role: 'primary', enabled: true, available: true, error: null,
+      machines: [{
+        id: 'vm-example', name: 'Example VM', backend: 'tart', state: 'stopped', base: false,
+        canRun: true, canClone: false, guestPlatform: 'linux', privilege: 'standard', sshConfigured: false,
+        sshIdentityConfigured: false, sshKnownHostsConfigured: false, sshHost: null, sshUser: null, owner: null
+      }],
+      remoteMachines: [],
+      appServers: [{ id: 'server-example', name: 'Example Server', url: 'https://server.example.test' }],
+      browsers: [{ id: 'browser-example', name: 'Example Browser', kind: 'external', enabled: true }],
+      workspaceTargets: {}, primary: null, requiredWorkspaceIds: [], optionalWorkspaceIds: [], lastMachineByWorkspace: {}
+    };
     const settings = renderToStaticMarkup(createElement(SettingsSidebar, {
       collapsed: false, section: 'general', error: null,
       onChangeSection: onNavigate, onResizePointerDown: onNavigate
     }));
     const fleet = renderToStaticMarkup(createElement(FleetSidebar, {
-      collapsed: false, onResizePointerDown: onNavigate
+      collapsed: false, state: fleetState, selection: { section: 'app-servers', itemId: null }, error: null,
+      onSelect: onNavigate, onSetBrowserEnabled: async () => undefined, onResizePointerDown: onNavigate
     }));
     expect(settings).not.toContain('>Fleet</span>');
-    for (const label of ['Fleet', 'App Servers', 'Virtual Machines']) {
-      expect(fleet).toContain(`>${label}</span>`);
-    }
+    expect(fleet).toContain('sidebar-wordmark">Fleet</div>');
+    expect(fleet).not.toContain('aria-label="Fleet" class="workspace-item"');
+    expect(fleet.indexOf('aria-label="App Servers"')).toBeLessThan(fleet.indexOf('aria-label="Browsers"'));
+    expect(fleet.indexOf('aria-label="Browsers"')).toBeLessThan(fleet.indexOf('aria-label="Virtual Machines"'));
+    expect(fleet.match(/<svg /gu)).toHaveLength(3);
+    expect(fleet).not.toContain('fleet-sidebar-item-marker');
+    for (const label of ['Example Server', 'Example Browser', 'Example VM']) expect(fleet).toContain(label);
+    expect(fleet).toContain('aria-label="Enable Example Browser"');
+    expect(fleet).toContain('type="checkbox"');
+    expect(fleet).toContain('checked=""');
     expect(fleet).toContain('aria-label="Fleet sections"');
+
+    const viewProps = {
+      state: fleetState, loadError: null, onSelect: onNavigate,
+      onStateChange: onNavigate, onRefresh: async () => undefined
+    };
+    const overview = renderToStaticMarkup(createElement(FleetSettingsView, {
+      ...viewProps, selection: { section: 'app-servers', itemId: null }
+    }));
+    expect(overview).not.toContain('Enable Fleet');
+    expect(overview).not.toContain('Fleet role');
+    expect(overview).not.toContain('This Beale instance');
+    const machine = renderToStaticMarkup(createElement(FleetSettingsView, {
+      ...viewProps, selection: { section: 'machines', itemId: 'vm-example' }
+    }));
+    expect(machine).toContain('aria-label="Configure Example VM"');
+    expect(machine).toContain('Save VM');
+    expect(machine).not.toContain('role="dialog"');
+    expect(machine).not.toContain('modal-backdrop');
+    const server = renderToStaticMarkup(createElement(FleetSettingsView, {
+      ...viewProps, selection: { section: 'app-servers', itemId: 'server-example' }
+    }));
+    expect(server).toContain('aria-label="Configure Example Server"');
+    expect(server).not.toContain('role="dialog"');
+    const localServer = renderToStaticMarkup(createElement(FleetSettingsView, {
+      ...viewProps, selection: { section: 'app-servers', itemId: 'local' }
+    }));
+    expect(localServer).toContain('aria-label="Local App Server"');
+    expect(localServer).toContain('Restart App Server');
+    const browsers = renderToStaticMarkup(createElement(FleetSettingsView, {
+      ...viewProps, selection: { section: 'browsers', itemId: null }
+    }));
+    expect(browsers).not.toContain('type="checkbox"');
   });
 
   it('fills only the active navigation icon', () => {

@@ -2,7 +2,7 @@ import { startTransition, useCallback, useDeferredValue, useEffect, useLayoutEff
 import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import 'katex/dist/katex.min.css';
-import type { FleetAppServer, FleetRemoteCatalog } from '@beale/app-server-runtime/protocol';
+import type { FleetAppServer, FleetRemoteCatalog, FleetState } from '@beale/app-server-runtime/protocol';
 import './styles.css';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
@@ -64,7 +64,7 @@ import { NotificationStack, type WorkspaceAlert } from './features/notifications
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { RemoteFleetSidebar, RemoteFleetWorkspace } from './features/fleet/RemoteFleetWorkspace';
 import { remoteWorkspaceRegistry } from './features/fleet/remoteFleetProjection';
-import { FleetSidebar } from './features/fleet/FleetSidebar';
+import { FleetSidebar, type FleetSelection } from './features/fleet/FleetSidebar';
 import { FleetSettingsView } from './features/settings/FleetSettingsView';
 import { QuickChatDock, type QuickChatDescriptor } from './features/quick-chat/QuickChatDock';
 import { WorkspaceStartupView } from './features/workspaces/WorkspaceStartupView';
@@ -338,6 +338,18 @@ export function App(): JSX.Element {
   const [missingDirectoryWorkspace, setMissingDirectoryWorkspace] = useState<WorkspaceRegistryEntry | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fleetOpen, setFleetOpen] = useState(false);
+  const [fleetConfiguration, setFleetConfiguration] = useState<FleetState | null>(null);
+  const [fleetConfigurationError, setFleetConfigurationError] = useState<string | null>(null);
+  const [fleetSelection, setFleetSelection] = useState<FleetSelection>({ section: 'app-servers', itemId: null });
+  const refreshFleetConfiguration = useCallback(async (): Promise<void> => {
+    const next = await window.beale.getFleetState();
+    setFleetConfiguration(next);
+    setFleetConfigurationError(null);
+  }, []);
+  useEffect(() => {
+    if (!fleetOpen) return;
+    void refreshFleetConfiguration().catch((caught: unknown) => setFleetConfigurationError(errorMessage(caught)));
+  }, [fleetOpen, refreshFleetConfiguration]);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [workspaceDashboardViewName, setWorkspaceDashboardViewName] = useState('Campaign');
   const [workspaceDashboardInitialView, setWorkspaceDashboardInitialView] = useState<WorkspaceDashboardView>('board');
@@ -851,8 +863,17 @@ export function App(): JSX.Element {
     void runAgentPluginAction(() => window.beale.setAgentPluginEnabled(pluginId, enabled));
   }, [runAgentPluginAction]);
 
+  const installAgentPlugin = useCallback((pluginId: string): void => {
+    setSelectedPluginId(pluginId);
+    void runAgentPluginAction(() => window.beale.setAgentPluginEnabled(pluginId, true));
+  }, [runAgentPluginAction]);
+
   const removeAgentPlugin = useCallback((pluginId: string): void => {
-    void runAgentPluginAction(() => window.beale.removeAgentPlugin(pluginId));
+    void runAgentPluginAction(async () => {
+      const state = await window.beale.removeAgentPlugin(pluginId);
+      setSelectedPluginId((current) => current === pluginId ? null : current);
+      return state;
+    });
   }, [runAgentPluginAction]);
 
   const openNotification = useCallback(
@@ -2138,14 +2159,31 @@ export function App(): JSX.Element {
           onResizePointerDown={beginSidebarResize}
         />
       ) : fleetOpen ? (
-        <FleetSidebar collapsed={sidebarCollapsed} onResizePointerDown={beginSidebarResize} />
+        <FleetSidebar
+          collapsed={sidebarCollapsed}
+          state={fleetConfiguration}
+          selection={fleetSelection}
+          error={fleetConfigurationError}
+          onSelect={setFleetSelection}
+          onSetBrowserEnabled={async (browserId, enabled) => {
+            setFleetConfiguration(await window.beale.configureFleet({ action: 'set-browser-enabled', browserId, enabled }));
+          }}
+          onResizePointerDown={beginSidebarResize}
+        />
       ) : pluginsOpen ? (
         <PluginsSidebar
           state={agentPluginState}
           selectedPluginId={selectedPluginId}
           collapsed={sidebarCollapsed}
           loading={agentPluginsLoading}
+          busy={agentPluginsBusy}
           error={agentPluginsError}
+          repositoryUrl={pluginRepositoryUrl}
+          onRepositoryUrlChange={setPluginRepositoryUrl}
+          onAddFilesystem={addAgentPluginFromFilesystem}
+          onAddRepository={addAgentPluginFromRepository}
+          onInstall={installAgentPlugin}
+          onSetEnabled={setAgentPluginEnabled}
           onSelectPlugin={setSelectedPluginId}
           onResizePointerDown={beginSidebarResize}
         />
@@ -2171,6 +2209,18 @@ export function App(): JSX.Element {
           loading={automationsLoading}
           error={automationsError}
           onSelectAutomation={selectAutomation}
+          onSetAutomationEnabled={async (automation, enabled) => {
+            const updated = await window.beale.updateAutomation({
+              runId: automation.runId,
+              workspaceId: automation.workspaceId,
+              title: automation.title,
+              enabled,
+              settings: automation.settings
+            });
+            setAutomations((current) => current.map((candidate) => (
+              candidate.runId === updated.runId && candidate.workspaceId === updated.workspaceId ? updated : candidate
+            )));
+          }}
           onStartNewResearch={() => openNewResearch(true)}
           onStartNewResearchForWorkspace={(workspace) => openNewResearchForWorkspace(workspace, true)}
           onAddWorkspace={() => {
@@ -2279,9 +2329,16 @@ export function App(): JSX.Element {
             onResumeQuickChat={resumeQuickChat}
           />
         ) : fleetOpen ? (
-          <div className="settings-workspace">
+          <div className="settings-workspace" key={`${fleetSelection.section}:${fleetSelection.itemId ?? ''}`}>
             <section className="settings-view settings-main-view" aria-label="Fleet">
-              <FleetSettingsView />
+              <FleetSettingsView
+                state={fleetConfiguration}
+                loadError={fleetConfigurationError}
+                selection={fleetSelection}
+                onSelect={setFleetSelection}
+                onStateChange={setFleetConfiguration}
+                onRefresh={refreshFleetConfiguration}
+              />
             </section>
           </div>
         ) : (
@@ -2312,16 +2369,12 @@ export function App(): JSX.Element {
               />
             ) : pluginsOpen ? (
               <PluginManagerWorkspace
+                key={selectedPluginId ?? 'none'}
                 state={agentPluginState}
                 selectedPluginId={selectedPluginId}
                 loading={agentPluginsLoading}
                 busy={agentPluginsBusy}
                 error={agentPluginsError}
-                repositoryUrl={pluginRepositoryUrl}
-                onRepositoryUrlChange={setPluginRepositoryUrl}
-                onAddFilesystem={addAgentPluginFromFilesystem}
-                onAddRepository={addAgentPluginFromRepository}
-                onSetEnabled={setAgentPluginEnabled}
                 onRemove={removeAgentPlugin}
               />
             ) : automationsOpen ? (

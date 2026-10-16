@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { isManagedToolPluginId, MANAGED_TOOL_PLUGINS, type ResearchPluginCatalogEntry } from '@beale/research-agent';
+import { bundledPluginsRequiredByResearchKit, isManagedToolPluginId, MANAGED_TOOL_PLUGINS, type ResearchPluginCatalogEntry } from '@beale/research-agent';
 import { WORKSPACE_PRIMARY_DIRECTORY_MISSING_MESSAGE } from '../shared/ipc';
 import { fleetBrowserViewerTargetId } from '../shared/fleet';
 import { findingRevisionContext } from './findingRevisionContext';
@@ -950,7 +950,15 @@ export class WorkspaceService {
   }
 
   public getAgentPlugins(): AgentPluginRegistryState {
-    return this.getAgentPluginRegistry().getState();
+    const registry = this.getAgentPluginRegistry();
+    let state = registry.getState();
+    const requiredPluginIds = new Set(this.activeResearchKitIds().flatMap(bundledPluginsRequiredByResearchKit));
+    for (const pluginId of requiredPluginIds) {
+      if (state.plugins.find((plugin) => plugin.id === pluginId)?.installed === false) {
+        state = registry.setEnabled(pluginId, true);
+      }
+    }
+    return state;
   }
 
   public getFleetState(): Promise<FleetState> {
@@ -4801,6 +4809,7 @@ export class WorkspaceService {
   private getAgentPluginRegistry(): AgentPluginRegistry {
     if (!this.agentPluginRegistry) {
       this.agentPluginRegistry = new AgentPluginRegistry(dirname(this.getWorkspaceRegistry().registryPath), {
+        activeResearchKitIds: () => this.activeResearchKitIds(),
         runtimeEnvironment: (plugin) => {
           if (plugin.source.kind !== 'builtin' || plugin.name !== 'beale-introspection') {
             return {} as Record<string, string>;
@@ -4814,6 +4823,15 @@ export class WorkspaceService {
       });
     }
     return this.agentPluginRegistry;
+  }
+
+  private activeResearchKitIds(): ResearchKitId[] {
+    const foreground = this.getForegroundRuntime();
+    return [...new Set([
+      ...this.getWorkspaceRegistry().getState().workspaces.map((workspace) => workspace.researchKitId),
+      ...(foreground ? [foreground.db.getResearchKitId()] : []),
+      ...Array.from(this.backgroundRuntimes.values(), (runtime) => runtime.db.getResearchKitId())
+    ])];
   }
 
   private syncWorkspaceRegistry(): void {

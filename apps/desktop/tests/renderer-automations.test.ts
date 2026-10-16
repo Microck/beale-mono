@@ -228,7 +228,7 @@ function render(
 }
 
 describe('automation workspace', () => {
-  it('lists enabled upcoming jobs in the automation sidebar', () => {
+  it('lists enabled and disabled jobs with editable status in the automation sidebar', () => {
     const html = renderToStaticMarkup(createElement(AutomationsSidebar, {
       automations: [activeAutomation, inactiveAutomation],
       workspaces: [workspace],
@@ -241,6 +241,7 @@ describe('automation workspace', () => {
       loading: false,
       error: null,
       onSelectAutomation: () => undefined,
+      onSetAutomationEnabled: async () => undefined,
       onStartNewResearch: () => undefined,
       onStartNewResearchForWorkspace: () => undefined,
       onAddWorkspace: () => undefined,
@@ -250,9 +251,14 @@ describe('automation workspace', () => {
     expect(html).toContain('aria-label="Automations sidebar"');
     expect(html).toContain('>Schedule a Job</span>');
     expect(html).not.toContain('>All Automations</span>');
-    expect(html).toContain('class="collection-sidebar-list-heading">Upcoming</div>');
+    expect(html).toContain('class="collection-sidebar-list-heading">Scheduled Jobs</div>');
     expect(html).toContain('Daily parser review');
-    expect(html).not.toContain('Weekly regression review');
+    expect(html).toContain('Weekly regression review');
+    expect(html).toContain('aria-label="Status for Daily parser review"');
+    expect(html).toContain('aria-label="Status for Weekly regression review"');
+    expect(html.match(/class="automation-sidebar-status"/gu)).toHaveLength(2);
+    expect(html).toContain('<option value="enabled" selected="">Enabled</option>');
+    expect(html).toContain('<option value="disabled" selected="">Disabled</option>');
     expect(html).toContain('aria-current="page"');
     expect(html).toContain('aria-label="Resize sidebar"');
 
@@ -268,6 +274,7 @@ describe('automation workspace', () => {
       loading: false,
       error: null,
       onSelectAutomation: () => undefined,
+      onSetAutomationEnabled: async () => undefined,
       onStartNewResearch: () => undefined,
       onStartNewResearchForWorkspace: () => undefined,
       onAddWorkspace: () => undefined,

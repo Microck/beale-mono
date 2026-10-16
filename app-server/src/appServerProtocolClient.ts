@@ -808,7 +808,10 @@ function pluginRegistry(input: Record<string, unknown>): AgentPluginRegistry {
   const builtinPlugins = Array.isArray(input.builtinPlugins) ? input.builtinPlugins as BuiltinAgentPluginDefinition[] : [];
   const runtimeEnvironment = isRecord(input.runtimeEnvironment) ? input.runtimeEnvironment as Record<string, Record<string, string>> : {};
   return new AgentPluginRegistry(requiredText(input.registryDirectory, 'registryDirectory'), {
-    builtinPlugins, runtimeEnvironment: (plugin: AgentPluginRecord) => runtimeEnvironment[plugin.id] ?? {}
+    builtinPlugins,
+    activeResearchKitIds: Array.isArray(input.activeResearchKitIds)
+      ? input.activeResearchKitIds.filter((id): id is string => typeof id === 'string') : [],
+    runtimeEnvironment: (plugin: AgentPluginRecord) => runtimeEnvironment[plugin.id] ?? {}
   });
 }
 

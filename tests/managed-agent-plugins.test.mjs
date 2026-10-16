@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import net from 'node:net';
 import test from 'node:test';
-import { AgentPluginRegistry } from '../packages/research-agent/dist/agent-plugin-registry.js';
+import { AgentPluginRegistry, bundledPluginsRequiredByResearchKit } from '../packages/research-agent/dist/agent-plugin-registry.js';
 
 const pluginRoot = resolve('managed-plugins/apple-security-devices');
 const serverPath = join(pluginRoot, 'server.mjs');
@@ -37,24 +37,84 @@ test('Introspection feature remains discoverable', () => {
   }
 });
 
-test('managed Meta Skills package provides its skill and bundled scripts', () => {
+test('managed Meta Skills can be installed, blocked by an active kit, and removed', () => {
   const registryRoot = mkdtempSync(join(tmpdir(), 'beale-managed-meta-skills-'));
   try {
     const pluginRoot = resolve('managed-plugins/meta-skills');
+    const builtinPlugins = [{
+      id: 'meta-skills-builtin', path: pluginRoot,
+      installedAt: '2026-01-01T00:00:00.000Z', enabledByDefault: false,
+      installable: true, requiredByResearchKits: ['meta-bug-bounty']
+    }];
+    writeFileSync(join(registryRoot, 'agent-plugins.json'), JSON.stringify({
+      version: 1,
+      plugins: [{ id: 'meta-skills-builtin', source: { kind: 'builtin', path: pluginRoot },
+        enabled: true, installedAt: '2026-01-01T00:00:00.000Z' }]
+    }));
     const registry = new AgentPluginRegistry(registryRoot, {
-      builtinPlugins: [{
-        id: 'meta-skills-builtin', path: pluginRoot,
-        installedAt: '2026-01-01T00:00:00.000Z', enabledByDefault: true
-      }]
+      builtinPlugins
     });
     const plugin = registry.getState().plugins.find((candidate) => candidate.id === 'meta-skills-builtin');
     assert.equal(plugin?.status, 'ready');
-    assert.equal(plugin?.enabled, true);
+    assert.equal(plugin?.installed, false);
+    assert.equal(plugin?.enabled, false);
     assert.deepEqual(plugin?.skills.map((skill) => skill.id), ['meta-bug-bounty-tools']);
     assert.deepEqual(plugin?.skills[0].resourceCounts, { scripts: 2, references: 0, assets: 0 });
+    assert.deepEqual(registry.getAppServerRuntime().selectedSkillIds, []);
+    registry.setEnabled('meta-skills-builtin', true);
+    assert.equal(registry.getState().plugins.find((candidate) => candidate.id === 'meta-skills-builtin')?.installed, true);
     assert.deepEqual(registry.getAppServerRuntime().selectedSkillIds, ['meta-bug-bounty-tools']);
     registry.setEnabled('meta-skills-builtin', false);
     assert.deepEqual(registry.getAppServerRuntime().selectedSkillIds, []);
+    const active = new AgentPluginRegistry(registryRoot, { builtinPlugins, activeResearchKitIds: ['meta-bug-bounty'] });
+    assert.match(active.getState().plugins.find((candidate) => candidate.id === 'meta-skills-builtin')?.removalBlockedReason ?? '', /registered workspace uses the Meta Bug Bounty research kit/);
+    assert.throws(() => active.remove('meta-skills-builtin'), /registered workspace uses the Meta Bug Bounty research kit/);
+    assert.equal(registry.remove('meta-skills-builtin').plugins.find((candidate) => candidate.id === 'meta-skills-builtin')?.installed, false);
+  } finally {
+    rmSync(registryRoot, { recursive: true, force: true });
+  }
+});
+
+test('research kits identify their bundled plugin dependencies', () => {
+  assert.deepEqual(bundledPluginsRequiredByResearchKit('apple-security-bounty'), [
+    'apple-security-devices-builtin', 'apple-target-flags-builtin'
+  ]);
+  assert.deepEqual(bundledPluginsRequiredByResearchKit('msrc'), ['microsoft-security-devices-builtin']);
+  assert.deepEqual(bundledPluginsRequiredByResearchKit('meta-bug-bounty'), ['meta-skills-builtin']);
+  assert.deepEqual(bundledPluginsRequiredByResearchKit('general'), []);
+});
+
+test('legacy filesystem imports of a bundled plugin become one installed entry', () => {
+  const registryRoot = mkdtempSync(join(tmpdir(), 'beale-bundled-plugin-migration-'));
+  const bundledPath = resolve('managed-plugins/apple-target-flags');
+  const builtin = { id: 'apple-target-flags-builtin', path: bundledPath,
+    installedAt: '2026-01-01T00:00:00.000Z', installable: true,
+    requiredByResearchKits: ['apple-security-bounty'] };
+  try {
+    writeFileSync(join(registryRoot, 'agent-plugins.json'), JSON.stringify({ version: 1, plugins: [{
+      id: 'apple-target-flags-example-import',
+      source: { kind: 'filesystem', path: bundledPath },
+      enabled: false,
+      installedAt: '2026-02-01T00:00:00.000Z'
+    }] }));
+    const registry = new AgentPluginRegistry(registryRoot, { builtinPlugins: [builtin] });
+    assert.deepEqual(registry.getState().plugins.map((plugin) => [plugin.id, plugin.installed, plugin.enabled]), [
+      ['apple-target-flags-builtin', true, false]
+    ]);
+    assert.deepEqual(JSON.parse(readFileSync(join(registryRoot, 'agent-plugins.json'), 'utf8')).plugins.map((plugin) => plugin.id), [
+      'apple-target-flags-builtin'
+    ]);
+    assert.equal(registry.addFromFilesystem(bundledPath).plugins.length, 1);
+    assert.equal(registry.getState().plugins[0].enabled, true);
+    const separatePath = join(registryRoot, 'separate-plugin');
+    mkdirSync(separatePath);
+    writeFileSync(join(separatePath, 'plugin.json'), JSON.stringify({
+      $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
+      name: 'apple-target-flags'
+    }));
+    const separate = registry.addFromFilesystem(separatePath);
+    assert.equal(separate.plugins.length, 2);
+    assert.equal(separate.plugins.filter((plugin) => plugin.source.kind === 'filesystem').length, 1);
   } finally {
     rmSync(registryRoot, { recursive: true, force: true });
   }

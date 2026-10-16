@@ -6,8 +6,8 @@ The plugin covers userspace and kernel commpage flags for register control, arbi
 
 The skill follows Apple's current public guidance at <https://security.apple.com/bounty/target-flags/>. Agents must recheck that page and the applicable bounty category before preparing a report because eligibility requirements can change.
 
-## Import
+## Installation
 
-In Beale, open Plugins, choose **Add Agent Plugin**, and select this directory. Beale discovers `skills/apple-target-flags/SKILL.md`.
+In Beale, install this plugin from the Available list in Plugins. Using an Apple Security Bounty workspace installs it automatically. Beale discovers `skills/apple-target-flags/SKILL.md`.
 
 This plugin is guidance-only. It does not include an MCP server, run proof-of-concept code, change TCC state, collect crash reports, or submit bounty reports.

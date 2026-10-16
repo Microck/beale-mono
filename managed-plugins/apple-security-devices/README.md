@@ -18,9 +18,9 @@ The plugin never downloads firmware, clones repositories, modifies ramdisks, cre
 
 Use Darwin VM for low-level Darwin inspection without a physical device. Use Tart for a full macOS VM and application/service behavior. See [Darwin VM guidance](skills/apple-security-devices/references/darwin-vm.md).
 
-## Import
+## Installation
 
-In Beale, open Plugins, choose **Add Agent Plugin**, and select this directory. Beale discovers the skill from `skills/apple-security-devices/SKILL.md` and starts the `devices` MCP server from `mcp.json`.
+In Beale, install this plugin from the Available list in Plugins. Using an Apple Security Bounty workspace installs it automatically. Beale discovers the skill from `skills/apple-security-devices/SKILL.md` and starts the `devices` MCP server from `mcp.json` when enabled.
 
 Read operations inspect availability and state. Bounded Tart and Darwin VM lifecycle, guest execution, transfer, and console operations are auto-reviewed; physical-iPhone mutation still requires explicit host confirmation.
 

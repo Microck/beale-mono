@@ -23,7 +23,7 @@ import {
   decodeFleetSshTestInput
 } from '@beale/app-server-runtime/protocol';
 import { getProviderModelCatalog, readWorkspaceProject, readWorkspaceResearchCacheState, resolveStoredResearchWorkspaceBinding, workspaceResearchIndexNeedsRebuild } from '@beale/app-server-runtime/runtime-services';
-import { decodeResearchPluginCatalog, validateResearchSystemPromptTemplate, verifyBrokerModelAccess } from '@beale/research-agent';
+import { bundledPluginsRequiredByResearchKit, decodeResearchPluginCatalog, researchKitsRequiringBundledPlugin, validateResearchSystemPromptTemplate, verifyBrokerModelAccess } from '@beale/research-agent';
 import { runWorkspaceCheckpoint, workspaceOperationKey } from './workspaceCheckpoints.js';
 import {
   AppServerHostRegistry,
@@ -688,6 +688,24 @@ export class AppServerHostService {
         )
       : undefined;
     const introspection = validatedIntrospectionEndpoint(request.launch.introspection);
+    const requiredPluginIds = bundledPluginsRequiredByResearchKit(workspace.researchKitId);
+    if (requiredPluginIds.length > 0) {
+      const pluginInput = {
+        registryDirectory: this.registry.registryDirectory,
+        builtinPlugins: defaultBuiltinPlugins()
+      };
+      const pluginState = await this.invokeProtocol<{ plugins: Array<{ id: string; installed: boolean }> }>('plugin.list', {
+        args: ['harness', 'plugin-list'], input: pluginInput
+      });
+      for (const pluginId of requiredPluginIds) {
+        if (pluginState.plugins.find((plugin) => plugin.id === pluginId)?.installed === false) {
+          await this.invokeProtocol('plugin.set_enabled', {
+            args: ['harness', 'plugin-set-enabled'],
+            input: { ...pluginInput, pluginId, enabled: true }
+          });
+        }
+      }
+    }
     const loadedPluginRuntime = introspection?.runtimeMode === 'isolated'
       ? await this.loadIntrospectionPluginRuntime()
       : await this.resolvePluginRuntime();
@@ -1788,9 +1806,11 @@ function bundledManagedPlugins(): ReturnType<typeof builtinPlugin>[] {
   if (!existsSync(root)) return [];
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && existsSync(join(root, entry.name, 'plugin.json')))
-    .map((entry) => builtinPlugin(
-      `${entry.name}-builtin`, entry.name, entry.name !== 'meta-skills', 'managed'
-    ));
+    .map((entry) => ({
+      ...builtinPlugin(`${entry.name}-builtin`, entry.name, true, 'managed'),
+      installable: true,
+      requiredByResearchKits: researchKitsRequiringBundledPlugin(entry.name)
+    }));
 }
 
 function builtinPlugin(

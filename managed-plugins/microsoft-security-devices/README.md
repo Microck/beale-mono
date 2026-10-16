@@ -2,7 +2,7 @@
 
 An optional managed Agent Plugin for Windows environment selection and first-touch build freshness. Prefer an operator-prepared Windows Insider Preview Canary Hyper-V guest, read the installed guest build and UBR, and compare against current Microsoft release guidance before substantive guest work.
 
-Beale lists this plugin in **Plugins** as a disabled built-in. Enable it there to make its skill available to subsequent session runtimes.
+Beale lists this plugin under Available in **Plugins**. Install it there, or use an MSRC Windows workspace to install it automatically. Its skill is available to subsequent session runtimes while enabled.
 
 This initial version is guidance-only, with an empty MCP server configuration and a portable TypeScript comparison utility. It adds no model-facing tools or native VM-operation interceptor. First-touch scheduling, guest inventory, live Flight Hub lookup, warning delivery, and evidence retention are instructions followed by the research agent using existing tools. The comparison utility does not perform those operations itself.
 

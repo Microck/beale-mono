@@ -9,7 +9,7 @@ import { OptionalFeaturesSettingsView, SettingsSidebar, settingsSectionLabel } f
 
 const featurePlugin: AgentPluginRecord = {
   id: 'beale-source-builtin', name: 'beale-source', version: '0.1.0', description: 'Source tools.',
-  enabled: true, status: 'ready', source: { kind: 'builtin', path: '/example/agent-plugins/beale-source' },
+  installed: true, enabled: true, status: 'ready', source: { kind: 'builtin', path: '/example/agent-plugins/beale-source' },
   installedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
   skills: [], mcpServers: [], warnings: [], errors: []
 };
@@ -40,9 +40,8 @@ describe('optional agent features', () => {
       pluginState: state, loading: false, busy: false, error: null, onSetEnabled: () => undefined
     }));
     const plugins = renderToStaticMarkup(createElement(PluginManagerWorkspace, {
-      state, loading: false, busy: false, error: null, repositoryUrl: '',
-      onRepositoryUrlChange: () => undefined, onAddFilesystem: () => undefined,
-      onAddRepository: () => undefined, onSetEnabled: () => undefined, onRemove: () => undefined
+      state, selectedPluginId: traditionalPlugin.id, loading: false, busy: false, error: null,
+      onRemove: () => undefined
     }));
 
     expect(settingsSectionLabel('optional-features')).toBe('Features');
@@ -55,6 +54,6 @@ describe('optional agent features', () => {
     expect(settings).toContain('type="checkbox" aria-label="Enable Reporting" disabled=""');
     expect(plugins).not.toContain('<strong>beale-source</strong>');
     expect(plugins).not.toContain('<strong>beale-introspection</strong>');
-    expect(plugins).toContain('<strong>meta-skills</strong>');
+    expect(plugins).toContain('<h1>meta-skills</h1>');
   });
 });
