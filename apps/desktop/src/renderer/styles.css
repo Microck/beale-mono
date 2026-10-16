@@ -2438,7 +2438,11 @@ body.is-resizing-sidebar .sidebar-resize-handle {
   background: var(--panel-column);
   color: var(--text);
   font-size: 0.75rem;
+  text-align: right;
+  text-align-last: right;
 }
+
+.sidebar-server-selector option { text-align: right; }
 
 .remote-fleet-workspace {
   min-height: 100%;
