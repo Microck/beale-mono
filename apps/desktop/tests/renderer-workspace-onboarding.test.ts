@@ -9,6 +9,7 @@ import {
   emptyWorkspaceOnboardingForm,
   onboardingFormFromDefaults,
   onboardingFormFromHackerOneLookup,
+  onboardingFormFromBugcrowdLookup,
   onboardingInputFromForm,
   onboardingRepositories,
   removeDirectoryFromOnboardingForm,
@@ -210,6 +211,30 @@ describe('renderer workspace onboarding view model', () => {
     expect(form.assets[0]?.attributes).toMatchObject({ hackerOneHandle: 'example', hackerOneSourceUrl: 'https://hackerone.com/example' });
     expect(onboardingRepositories(form)).toMatchObject([{ url: 'https://github.com/example/project' }]);
     expect(onboardingInputFromForm(form).assets?.[0]?.attributes).not.toHaveProperty('bealeOnboardingIndexNow');
+  });
+
+  it('requires a Bugcrowd import and applies its scope to the selected kit', () => {
+    const base = applyResearchKit(onboardingFormFromDefaults(defaults()), 'bugcrowd');
+    expect(workspaceCreationViewError(base, 'kit')).toBe('Import the Bugcrowd program before continuing.');
+    const form = onboardingFormFromBugcrowdLookup(base, {
+      slug: 'example-program',
+      sourceUrl: 'https://bugcrowd.com/engagements/example-program',
+      workspaceName: 'ExampleCo Security',
+      researchSubjectName: 'ExampleCo',
+      scopeOwner: 'ExampleCo',
+      descriptionMarkdown: 'Verify the current engagement brief.',
+      rules: ['Use test accounts only.'],
+      expiresAt: null,
+      assets: [{
+        direction: 'in_scope', kind: 'domain', value: 'https://api.example.test', sensitivity: 'public',
+        attributes: { source: 'bugcrowd', researchKitId: 'bugcrowd', bugcrowdSlug: 'example-program' }
+      }],
+      importedScopeCount: 1
+    });
+    expect(form.workspacePath).toBe(base.workspacePath);
+    expect(form.researchKitId).toBe('bugcrowd');
+    expect(workspaceCreationViewError(form, 'kit')).toBeNull();
+    expect(workspaceCreationViewError(form, 'resources')).toBeNull();
   });
 });
 

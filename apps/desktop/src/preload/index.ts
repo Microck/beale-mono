@@ -41,6 +41,7 @@ import type {
   IosDeviceCaptureFrame,
   IosDeviceCaptureState,
   HackerOneScopeLookupResult,
+  BugcrowdScopeLookupResult,
   ResearchKitRefreshInput,
   ResearchKitRefreshResult,
   GitHubRepositorySummary,
@@ -331,6 +332,9 @@ const api: BealeApi = {
   },
   lookupHackerOneScope(identifier: string): Promise<HackerOneScopeLookupResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.lookupHackerOneScope, identifier);
+  },
+  lookupBugcrowdScope(identifier: string): Promise<BugcrowdScopeLookupResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.lookupBugcrowdScope, identifier);
   },
   refreshResearchKit(input: ResearchKitRefreshInput): Promise<ResearchKitRefreshResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.refreshResearchKit, input);

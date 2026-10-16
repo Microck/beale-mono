@@ -17,7 +17,7 @@ import {
 
 export type { GoogleOssRepositoryTier } from './googleOssResearchKit';
 
-export const RESEARCH_KIT_IDS = ['general', 'hackerone', 'apple-security-bounty', 'google-oss-vrp', 'msrc', 'meta-bug-bounty'] as const;
+export const RESEARCH_KIT_IDS = ['general', 'hackerone', 'bugcrowd', 'apple-security-bounty', 'google-oss-vrp', 'msrc', 'meta-bug-bounty'] as const;
 
 export type ResearchKitId = typeof RESEARCH_KIT_IDS[number];
 
@@ -35,7 +35,7 @@ export interface ResearchKitDefinition {
   label: string;
   description: string;
   supportedResearchProfileIds: readonly ResearchProfileId[];
-  scopeLookup?: 'hackerone';
+  scopeLookup?: 'hackerone' | 'bugcrowd';
   onboardingDefaults?: {
     workspaceName: string;
     researchSubjectName: string;
@@ -109,6 +109,18 @@ export const RESEARCH_KITS: readonly ResearchKitDefinition[] = [{
     sourceLabel: 'HackerOne Program',
     sourceDescription: 'The public program handle or HackerOne URL used for this workspace.',
     sourceIdentifierPlaceholder: 'program-handle',
+    imports: ['resources', 'rules', 'guidance']
+  }
+}, {
+  id: 'bugcrowd',
+  label: 'Bugcrowd',
+  description: 'Import a public Bugcrowd engagement brief, targets, and program rules.',
+  supportedResearchProfileIds: ['security-research'],
+  scopeLookup: 'bugcrowd',
+  refresh: {
+    sourceLabel: 'Bugcrowd Engagement',
+    sourceDescription: 'The public engagement slug or Bugcrowd engagement URL used for this workspace.',
+    sourceIdentifierPlaceholder: 'https://bugcrowd.com/engagements/example-program',
     imports: ['resources', 'rules', 'guidance']
   }
 }, {

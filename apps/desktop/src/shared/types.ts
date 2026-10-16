@@ -1421,6 +1421,19 @@ export interface HackerOneScopeLookupResult {
   importedScopeCount: number;
 }
 
+export interface BugcrowdScopeLookupResult {
+  slug: string;
+  sourceUrl: string;
+  workspaceName: string;
+  researchSubjectName: string;
+  scopeOwner: string;
+  descriptionMarkdown: string;
+  rules: string[];
+  expiresAt: string | null;
+  assets: ScopeAssetInput[];
+  importedScopeCount: number;
+}
+
 export interface ResearchKitRefreshInput {
   sourceIdentifier?: string;
   selectedResourceKeys?: string[];
@@ -2348,6 +2361,7 @@ export interface BealeApi {
   getShellOptions(): Promise<ShellOptions>;
   setShellOptions(options: ShellOptions): Promise<ShellOptions>;
   lookupHackerOneScope(identifier: string): Promise<HackerOneScopeLookupResult>;
+  lookupBugcrowdScope(identifier: string): Promise<BugcrowdScopeLookupResult>;
   refreshResearchKit(input: ResearchKitRefreshInput): Promise<ResearchKitRefreshResult>;
   listGitHubOrganizationRepositories(organization: string): Promise<GitHubRepositorySummary[]>;
   createScopedWorkspace(input: WorkspaceOnboardingInput): Promise<WorkspaceSnapshot>;

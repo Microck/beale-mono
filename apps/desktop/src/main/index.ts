@@ -772,6 +772,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getShellOptions, () => workspaceService.getShellOptions());
   ipcMain.handle(IPC_CHANNELS.setShellOptions, (_event, options: ShellOptions) => workspaceService.setShellOptions(options));
   ipcMain.handle(IPC_CHANNELS.lookupHackerOneScope, (_event, identifier: string) => workspaceService.lookupHackerOneScope(identifier));
+  ipcMain.handle(IPC_CHANNELS.lookupBugcrowdScope, (_event, identifier: string) => workspaceService.lookupBugcrowdScope(identifier));
   ipcMain.handle(IPC_CHANNELS.refreshResearchKit, (_event, input: ResearchKitRefreshInput) => workspaceService.refreshResearchKit(input));
   ipcMain.handle(IPC_CHANNELS.listGitHubOrganizationRepositories, (_event, organization: string) =>
     workspaceService.listGitHubOrganizationRepositories(organization)

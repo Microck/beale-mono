@@ -39,6 +39,7 @@ export function WorkspaceCreationView({
   onCancel,
   onChange,
   onLookupHackerOne,
+  onLookupBugcrowd,
   onResearchKit,
   onSubmit,
   onViewChange
@@ -50,6 +51,7 @@ export function WorkspaceCreationView({
   onCancel: () => void;
   onChange: (next: WorkspaceOnboardingFormState) => void;
   onLookupHackerOne: (identifier: string) => Promise<void>;
+  onLookupBugcrowd: (identifier: string) => Promise<void>;
   onResearchKit: (researchKitId: ResearchKitId) => void;
   onSubmit: () => void;
   onViewChange?: (viewName: string) => void;
@@ -58,8 +60,8 @@ export function WorkspaceCreationView({
   const [activeView, setActiveView] = useState<WorkspaceCreationViewId>('overview');
   const [maximumUnlockedIndex, setMaximumUnlockedIndex] = useState(0);
   const [stepError, setStepError] = useState<string | null>(null);
-  const [hackerOneSource, setHackerOneSource] = useState(() => hackerOneIdentifier(form));
-  const [importedHackerOneSource, setImportedHackerOneSource] = useState(() => hackerOneIdentifier(form));
+  const [programSource, setProgramSource] = useState(() => programIdentifier(form));
+  const [importedProgramSource, setImportedProgramSource] = useState(() => programIdentifier(form));
   const [lookupBusy, setLookupBusy] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const previousTemplateRef = useRef(`${form.researchProfileId}:${form.researchKitId}`);
@@ -73,8 +75,8 @@ export function WorkspaceCreationView({
     setMaximumUnlockedIndex(0);
     setStepError(null);
     setLookupError(null);
-    setHackerOneSource(hackerOneIdentifier(form));
-    setImportedHackerOneSource(hackerOneIdentifier(form));
+    setProgramSource(programIdentifier(form));
+    setImportedProgramSource(programIdentifier(form));
   }, [form.researchKitId, form.researchProfileId]);
 
   useEffect(() => {
@@ -84,10 +86,11 @@ export function WorkspaceCreationView({
   const validate = (view: WorkspaceCreationViewId): string | null => {
     const error = workspaceCreationViewError(form, view);
     if (error) return error;
-    if (view === 'kit' && form.researchKitId === 'hackerone') {
-      if (!hackerOneSource.trim()) return 'Enter a HackerOne program handle or URL.';
-      if (normalizedHackerOneIdentifier(hackerOneSource) !== importedHackerOneSource) {
-        return 'Import the current HackerOne program before continuing.';
+    if (view === 'kit' && (form.researchKitId === 'hackerone' || form.researchKitId === 'bugcrowd')) {
+      const label = form.researchKitId === 'bugcrowd' ? 'Bugcrowd' : 'HackerOne';
+      if (!programSource.trim()) return `Enter a ${label} program URL or identifier.`;
+      if (normalizedProgramIdentifier(programSource, form.researchKitId) !== importedProgramSource) {
+        return `Import the current ${label} program before continuing.`;
       }
     }
     return null;
@@ -120,16 +123,17 @@ export function WorkspaceCreationView({
     onSubmit();
   };
 
-  const importHackerOne = async (): Promise<void> => {
-    const normalized = normalizedHackerOneIdentifier(hackerOneSource);
+  const importProgram = async (): Promise<void> => {
+    const normalized = normalizedProgramIdentifier(programSource, form.researchKitId);
     if (!normalized) return;
     setLookupBusy(true);
     setLookupError(null);
     try {
-      await onLookupHackerOne(hackerOneSource);
-      setImportedHackerOneSource(normalized);
+      if (form.researchKitId === 'bugcrowd') await onLookupBugcrowd(programSource);
+      else await onLookupHackerOne(programSource);
+      setImportedProgramSource(normalized);
     } catch (caught: unknown) {
-      setImportedHackerOneSource('');
+      setImportedProgramSource('');
       setLookupError(errorMessage(caught));
     } finally {
       setLookupBusy(false);
@@ -178,11 +182,11 @@ export function WorkspaceCreationView({
           busy={submitting || lookupBusy}
           error={stepError ?? lookupError}
           form={form}
-          hackerOneSource={hackerOneSource}
+          programSource={programSource}
           lookupBusy={lookupBusy}
           onCancel={onCancel}
-          onChangeHackerOneSource={(value) => { setHackerOneSource(value); setLookupError(null); }}
-          onImportHackerOne={() => void importHackerOne()}
+          onChangeProgramSource={(value) => { setProgramSource(value); setLookupError(null); }}
+          onImportProgram={() => void importProgram()}
           onNext={advance}
           onReloadKit={() => onResearchKit(form.researchKitId)}
         />
@@ -355,29 +359,29 @@ function WorkspaceCreationKit({
   busy,
   error,
   form,
-  hackerOneSource,
+  programSource,
   lookupBusy,
   onCancel,
-  onChangeHackerOneSource,
-  onImportHackerOne,
+  onChangeProgramSource,
+  onImportProgram,
   onNext,
   onReloadKit
 }: {
   busy: boolean;
   error: string | null;
   form: WorkspaceOnboardingFormState;
-  hackerOneSource: string;
+  programSource: string;
   lookupBusy: boolean;
   onCancel: () => void;
-  onChangeHackerOneSource: (value: string) => void;
-  onImportHackerOne: () => void;
+  onChangeProgramSource: (value: string) => void;
+  onImportProgram: () => void;
   onNext: () => void;
   onReloadKit: () => void;
 }): JSX.Element {
   const kit = researchKitDefinition(form.researchKitId);
   const refresh = kit.refresh;
   if (!refresh) throw new Error(`Research Kit ${form.researchKitId} does not define imports.`);
-  const isHackerOne = form.researchKitId === 'hackerone';
+  const isProgramImport = form.researchKitId === 'hackerone' || form.researchKitId === 'bugcrowd';
   const selectedRepositories = form.repositoryCandidates.filter((candidate) => candidate.selected).length;
   const selectedResources = form.resourceCandidates.filter((candidate) => candidate.selected).length;
   return (
@@ -390,16 +394,16 @@ function WorkspaceCreationKit({
               <span className="settings-form-control-copy"><strong>{refresh.sourceLabel}</strong><small>{refresh.sourceDescription}</small></span>
               <input
                 aria-label={refresh.sourceLabel}
-                disabled={busy || !isHackerOne}
-                onChange={(event) => onChangeHackerOneSource(event.target.value)}
+                disabled={busy || !isProgramImport}
+                onChange={(event) => onChangeProgramSource(event.target.value)}
                 placeholder={refresh.sourceIdentifierPlaceholder}
-                value={isHackerOne ? hackerOneSource : (refresh.fixedSource ?? '')}
+                value={isProgramImport ? programSource : (refresh.fixedSource ?? '')}
               />
             </label>
             <div className="settings-form-control-row workspace-research-kit-refresh">
               <span className="settings-form-control-copy">
-                <strong>{isHackerOne ? 'Import Program' : 'Kit Imports'}</strong>
-                <small>{isHackerOne
+                <strong>{isProgramImport ? 'Import Program' : 'Kit Imports'}</strong>
+                <small>{isProgramImport
                   ? 'Import the current public program resources, rules, and workspace guidance.'
                   : form.repositoryCatalogLoading
                     ? 'Loading the repository catalog…'
@@ -409,8 +413,8 @@ function WorkspaceCreationKit({
                       ? `${form.rules.length} rules and ${selectedResources} of ${form.resourceCandidates.length} catalog resources selected. Verify them on the test guest.`
                       : `${form.rules.length} rules and ${form.assets.length + form.repositoryCandidates.length} resources are ready${selectedRepositories ? `; ${selectedRepositories} repositories selected` : ''}.`}</small>
               </span>
-              {isHackerOne ? (
-                <button disabled={busy || !hackerOneSource.trim()} onClick={onImportHackerOne} type="button">
+              {isProgramImport ? (
+                <button disabled={busy || lookupBusy || !programSource.trim()} onClick={onImportProgram} type="button">
                   {lookupBusy ? <Loader2 aria-hidden="true" className="is-spinning" size={14} /> : <RefreshCw aria-hidden="true" size={14} />}
                   {lookupBusy ? 'Importing…' : 'Import'}
                 </button>
@@ -583,15 +587,17 @@ function creationViewLabel(view: WorkspaceCreationViewId, researchKitId: Researc
   return view.charAt(0).toUpperCase() + view.slice(1);
 }
 
-function hackerOneIdentifier(form: WorkspaceOnboardingFormState): string {
+function programIdentifier(form: WorkspaceOnboardingFormState): string {
+  const attribute = form.researchKitId === 'bugcrowd' ? 'bugcrowdSlug' : 'hackerOneHandle';
   for (const asset of form.assets) {
-    const handle = asset.attributes?.hackerOneHandle;
-    if (typeof handle === 'string' && handle.trim()) return normalizedHackerOneIdentifier(handle);
+    const identifier = asset.attributes?.[attribute];
+    if (typeof identifier === 'string' && identifier.trim()) return normalizedProgramIdentifier(identifier, form.researchKitId);
   }
   return '';
 }
 
-function normalizedHackerOneIdentifier(value: string): string {
+function normalizedProgramIdentifier(value: string, kit: ResearchKitId): string {
+  if (kit === 'bugcrowd') return value.trim().replace(/^https?:\/\/(?:www\.)?bugcrowd\.com\/engagements\//iu, '').split(/[/?#]/u, 1)[0]?.trim() ?? '';
   return value.trim().replace(/^https?:\/\/(?:www\.)?hackerone\.com\//iu, '').replace(/^@/u, '').split(/[/?#]/u, 1)[0]?.trim() ?? '';
 }
 

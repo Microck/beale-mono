@@ -1428,7 +1428,8 @@ export function App(): JSX.Element {
     removeRegisteredWorkspace,
     submitWorkspaceOnboarding,
     applyOnboardingResearchKit,
-    lookupHackerOneScope
+    lookupHackerOneScope,
+    lookupBugcrowdScope
   } = useWorkspaceActions({
     snapshot,
     selectedRunId,
@@ -2363,6 +2364,7 @@ export function App(): JSX.Element {
                 onCancel={closeWorkspaceOnboarding}
                 onChange={setWorkspaceDraft}
                 onLookupHackerOne={lookupHackerOneScope}
+                onLookupBugcrowd={lookupBugcrowdScope}
                 onResearchKit={applyOnboardingResearchKit}
                 onSubmit={submitWorkspaceOnboarding}
                 onViewChange={setWorkspaceDashboardViewName}

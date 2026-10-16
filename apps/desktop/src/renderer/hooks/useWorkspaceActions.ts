@@ -7,6 +7,7 @@ import {
   applyResearchKit,
   emptyWorkspaceOnboardingForm,
   onboardingFormFromHackerOneLookup,
+  onboardingFormFromBugcrowdLookup,
   workspaceOnboardingFormForProfile,
   onboardingInputFromForm,
   type WorkspaceOnboardingFormState
@@ -21,6 +22,7 @@ export interface WorkspaceActions {
   submitWorkspaceOnboarding: () => void;
   applyOnboardingResearchKit: (researchKitId: ResearchKitId) => void;
   lookupHackerOneScope: (identifier: string) => Promise<void>;
+  lookupBugcrowdScope: (identifier: string) => Promise<void>;
 }
 
 export interface WorkspaceActionOptions {
@@ -159,6 +161,14 @@ export function useWorkspaceActions({
     [setWorkspaceDraft]
   );
 
+  const lookupBugcrowdScope = useCallback(
+    async (identifier: string): Promise<void> => {
+      const lookup = await window.beale.lookupBugcrowdScope(identifier);
+      setWorkspaceDraft((current) => (current ? onboardingFormFromBugcrowdLookup(current, lookup) : current));
+    },
+    [setWorkspaceDraft]
+  );
+
   return {
     addWorkspace,
     openRegisteredWorkspace,
@@ -166,7 +176,8 @@ export function useWorkspaceActions({
     removeRegisteredWorkspace,
     submitWorkspaceOnboarding,
     applyOnboardingResearchKit,
-    lookupHackerOneScope
+    lookupHackerOneScope,
+    lookupBugcrowdScope
   };
 }
 

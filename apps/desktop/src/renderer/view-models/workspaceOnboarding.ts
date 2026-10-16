@@ -2,6 +2,7 @@ import type {
   GitHubRepositorySummary,
   GoogleOssRepositoryTier,
   HackerOneScopeLookupResult,
+  BugcrowdScopeLookupResult,
   ResearchKitId,
   ResearchProfileId,
   WorkspaceOnboardingDefaults,
@@ -51,10 +52,10 @@ export function workspaceCreationViewError(
     if (form.researchKitId === 'general') return null;
     if (form.repositoryCatalogLoading) return 'Wait for the Research Kit repository catalog to finish loading.';
     if (form.repositoryCatalogError) return form.repositoryCatalogError;
-    if (form.researchKitId === 'hackerone') {
-      const imported = form.assets.some((asset) => asset.attributes?.researchKitId === 'hackerone'
-        || asset.attributes?.source === 'hackerone');
-      if (!imported) return 'Import the HackerOne program before continuing.';
+    if (form.researchKitId === 'hackerone' || form.researchKitId === 'bugcrowd') {
+      const imported = form.assets.some((asset) => asset.attributes?.researchKitId === form.researchKitId
+        || asset.attributes?.source === form.researchKitId);
+      if (!imported) return `Import the ${form.researchKitId === 'bugcrowd' ? 'Bugcrowd' : 'HackerOne'} program before continuing.`;
     }
     if (!form.descriptionMarkdown.trim()) return 'Workspace guidance is required for this Research Kit.';
     if (form.rules.every((rule) => !rule.trim())) return 'At least one Research Kit rule is required.';
@@ -322,6 +323,23 @@ export function onboardingFormFromHackerOneLookup(
   return {
     ...form,
     researchKitId: 'hackerone',
+    descriptionMarkdown: lookup.descriptionMarkdown,
+    rules: [...lookup.rules],
+    assets: lookup.assets,
+    resourceCandidates: [],
+    repositoryCandidates: [],
+    repositoryCatalogLoading: false,
+    repositoryCatalogError: null
+  };
+}
+
+export function onboardingFormFromBugcrowdLookup(
+  form: WorkspaceOnboardingFormState,
+  lookup: BugcrowdScopeLookupResult
+): WorkspaceOnboardingFormState {
+  return {
+    ...form,
+    researchKitId: 'bugcrowd',
     descriptionMarkdown: lookup.descriptionMarkdown,
     rules: [...lookup.rules],
     assets: lookup.assets,

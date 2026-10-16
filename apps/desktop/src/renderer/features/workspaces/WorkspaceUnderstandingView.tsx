@@ -478,6 +478,15 @@ export function hackerOneProgramIdentifier(scope: WorkspaceScopeVersion | null):
   return '';
 }
 
+export function bugcrowdProgramIdentifier(scope: WorkspaceScopeVersion | null): string {
+  if (!scope) return '';
+  for (const asset of scope.assets) {
+    const slug = asset.attributes?.bugcrowdSlug;
+    if (typeof slug === 'string' && slug.trim()) return slug.trim();
+  }
+  return '';
+}
+
 export function WorkspaceResearchKitPanel({
   activeScope,
   busy,
@@ -492,7 +501,9 @@ export function WorkspaceResearchKitPanel({
   const kit = researchKitDefinition(researchKitId);
   const refresh = kit.refresh;
   const catalog = kit.resourceCatalog;
-  const initialSource = researchKitId === 'hackerone' ? hackerOneProgramIdentifier(activeScope) : (refresh?.fixedSource ?? '');
+  const initialSource = researchKitId === 'hackerone' ? hackerOneProgramIdentifier(activeScope)
+    : researchKitId === 'bugcrowd' ? bugcrowdProgramIdentifier(activeScope)
+      : (refresh?.fixedSource ?? '');
   const [sourceIdentifier, setSourceIdentifier] = useState(initialSource);
   const [selectedResourceKeys, setSelectedResourceKeys] = useState<string[]>(() => activeScope?.assets
     .filter((asset) => asset.attributes?.researchKitId === researchKitId || asset.attributes?.source === catalog?.resourceSource)

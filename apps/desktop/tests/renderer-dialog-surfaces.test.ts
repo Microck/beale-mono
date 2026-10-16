@@ -167,6 +167,7 @@ describe('renderer dialog surfaces', () => {
         onChange: () => undefined,
         onCancel: () => undefined,
         onLookupHackerOne: async () => undefined,
+        onLookupBugcrowd: async () => undefined,
         onResearchKit: () => undefined,
         onSubmit: () => undefined
       })
@@ -180,6 +181,7 @@ describe('renderer dialog surfaces', () => {
       onChange: () => undefined,
       onCancel: () => undefined,
       onLookupHackerOne: async () => undefined,
+      onLookupBugcrowd: async () => undefined,
       onResearchKit: () => undefined,
       onSubmit: () => undefined
     }));
@@ -204,6 +206,7 @@ describe('renderer dialog surfaces', () => {
     expect(securityHtml).not.toContain('>Repositories<');
     expect(securityHtml).toContain('>Cancel</button>');
     expect(securityHtml).toContain('<option value="hackerone">HackerOne</option>');
+    expect(securityHtml).toContain('<option value="bugcrowd">Bugcrowd</option>');
     expect(securityHtml).toContain('<option value="apple-security-bounty">Apple Security Bounty</option>');
     expect(securityHtml).toContain('<option value="msrc">MSRC Windows</option>');
     expect(securityHtml).toContain('<option value="meta-bug-bounty">Meta Bug Bounty</option>');
@@ -225,6 +228,7 @@ describe('renderer dialog surfaces', () => {
       onChange: () => undefined,
       onCancel: () => undefined,
       onLookupHackerOne: async () => undefined,
+      onLookupBugcrowd: async () => undefined,
       onResearchKit: () => undefined,
       onSubmit: () => undefined
     }));
