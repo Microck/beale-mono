@@ -77,9 +77,11 @@ test("memory graph saves concise knowledge additively and corrects it by revisio
       /retired/,
     );
     assert.throws(
-      () => store.save({ type: "flow-endpoint", title: "Template renderer", status: "confirmed" }),
-      /requires non-empty attributes: role/,
+      () => store.save({ type: "flow-endpoint", title: "Template renderer", status: "confirmed", attributes: { role: "sink" } }),
+      /retired/,
     );
+    assert.throws(() => store.save({ type: "asset", title: "Legacy component" }), /retired/);
+    assert.throws(() => store.save({ type: "source", title: "Legacy ingress" }), /retired/);
     assert.throws(
       () => store.save({ type: "hypothesis", title: "Legacy candidate" }),
       /retired/,
@@ -99,10 +101,9 @@ test("memory graph saves concise knowledge additively and corrects it by revisio
     );
 
     const candidate = store.save({
-      type: "flow-endpoint",
+      type: "sink",
       title: "Parser flow boundary",
       status: "confirmed",
-      attributes: { role: "sink" },
       assetIds: ["asset_parser"],
       evidence: [{ kind: "url", pathBase: "external", path: "https://example.test/advisory", locator: {}, summary: "Fixed advisory" }],
     });
@@ -117,14 +118,72 @@ test("memory graph saves concise knowledge additively and corrects it by revisio
     assert.ok(store.listEdges().some((edge) => edge.fromId === mitigation.id && edge.toId === first.id));
     assert.equal(mitigation.evidence.length, 1);
 
-    const rediscoveredEndpoint = store.correct(mitigation.id, 2, { type: "flow-endpoint", attributes: { role: "sink" } });
-    assert.match(rediscoveredEndpoint.id, /^flow-endpoint_/);
-    assert.equal(rediscoveredEndpoint.type, "flow-endpoint");
+    const rediscoveredEndpoint = store.correct(mitigation.id, 2, { type: "sink" });
+    assert.match(rediscoveredEndpoint.id, /^sink_/);
+    assert.equal(rediscoveredEndpoint.type, "sink");
     assert.equal(store.get(mitigation.id), null);
     assert.ok(store.listEdges().some((edge) => edge.fromId === rediscoveredEndpoint.id && edge.toId === first.id));
     assert.equal(store.databasePath, getDefaultMemoryDatabasePath(workspaceRoot));
   } finally {
     store.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("the Security catalog keeps historical assets and flow endpoints readable without treating sources as sinks", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "app-server-security-memory-evolution-"));
+  const previous = structuredClone(DEFAULT_SECURITY_RESEARCH_PROFILE);
+  previous.version = "1.16.1";
+  for (const type of previous.memory.types) {
+    if (type.id === "asset" || type.id === "flow-endpoint") {
+      type.lifecycle = "active";
+      type.creatable = true;
+    }
+    if (type.id === "sink" || type.id === "source") {
+      type.lifecycle = "retired";
+      type.creatable = false;
+      type.replacedBy = "flow-endpoint";
+    }
+  }
+  const previousProfile = normalizeResearchProfile(previous);
+  const previousStore = new MemoryGraphStore({
+    workspaceRoot,
+    resolvedProfile: { profile: previousProfile, hash: researchProfileHash(previousProfile), source: "explicit" },
+  });
+  let asset;
+  let sourceEndpoint;
+  let sinkEndpoint;
+  let dualEndpoint;
+  try {
+    asset = previousStore.save({ type: "asset", title: "Example service" });
+    sourceEndpoint = previousStore.save({ type: "flow-endpoint", title: "Example request input", attributes: { role: "source" } });
+    sinkEndpoint = previousStore.save({ type: "flow-endpoint", title: "Example template renderer", attributes: { role: "sink" } });
+    dualEndpoint = previousStore.save({ type: "flow-endpoint", title: "Example relay", attributes: { role: "both" } });
+  } finally {
+    previousStore.close();
+  }
+
+  const currentStore = new MemoryGraphStore({ workspaceRoot });
+  try {
+    for (const id of [asset.id, sourceEndpoint.id, sinkEndpoint.id, dualEndpoint.id]) {
+      assert.equal(currentStore.get(id)?.provenance.state, "active_validated");
+    }
+    assert.deepEqual(currentStore.search().map((node) => node.id).sort(),
+      [asset.id, sourceEndpoint.id, sinkEndpoint.id, dualEndpoint.id].sort());
+    assert.deepEqual(currentStore.search({ types: ["sink"] }).map((node) => node.id).sort(),
+      [sinkEndpoint.id, dualEndpoint.id].sort());
+    assert.throws(() => currentStore.save({ type: "asset", title: "Another service" }), /retired/);
+    assert.throws(() => currentStore.save({ type: "flow-endpoint", title: "Another input", attributes: { role: "source" } }), /retired/);
+
+    const converted = currentStore.correct(sinkEndpoint.id, 1, { type: "sink", attributes: {} });
+    assert.equal(converted.type, "sink");
+    assert.equal(converted.provenance.state, "active_validated");
+    assert.equal(currentStore.get(sinkEndpoint.id), null);
+    assert.deepEqual(currentStore.search({ types: ["sink"] }).map((node) => node.id).sort(),
+      [converted.id, dualEndpoint.id].sort());
+    assert.equal(currentStore.get(sourceEndpoint.id)?.attributes.role, "source");
+  } finally {
+    currentStore.close();
     await rm(workspaceRoot, { recursive: true, force: true });
   }
 });
@@ -148,38 +207,35 @@ test("memory graph tools expose workspace history search, save, get, correct, an
     assert.match(saveDescriptor.description, /refined in place/);
     assert.equal("tier" in saveDescriptor.inputSchema.properties, false);
     const saveSchema = saveDescriptor.inputSchema;
-    assert.deepEqual(saveSchema.properties.type.enum, ["asset", "invariant", "mitigation", "flow-endpoint", "trajectory"]);
+    assert.deepEqual(saveSchema.properties.type.enum, ["invariant", "mitigation", "sink", "trajectory"]);
     assert.deepEqual(searchDescriptor.inputSchema.properties.memoryTypes.items.enum, saveSchema.properties.type.enum);
     assert.equal(searchDescriptor.inputSchema.properties.memoryTypes.items.enum.includes("source"), false);
-    assert.equal(searchDescriptor.inputSchema.properties.memoryTypes.items.enum.includes("sink"), false);
+    assert.equal(searchDescriptor.inputSchema.properties.memoryTypes.items.enum.includes("sink"), true);
     assert.equal(saveSchema.properties.type.enum.includes("evidence"), false);
     assert.equal(saveSchema.properties.type.enum.includes("finding"), false);
     assert.deepEqual(saveSchema.properties.status.enum, ["draft", "suspected", "confirmed", "rejected", "stale"]);
     assert.deepEqual(saveSchema.properties.evidence.items.properties.kind.enum, ["code", "artifact", "command", "url", "human_note"]);
     assert.deepEqual(saveSchema.properties.evidence.items.properties.pathBase.enum, ["workspace", "repository", "asset_root", "external"]);
-    const flowEndpointRequirement = saveSchema.allOf.find((condition) =>
-      condition.if?.properties?.type?.enum?.includes("flow-endpoint")
-      && condition.then?.properties?.attributes?.required?.includes("role"));
-    assert.deepEqual(flowEndpointRequirement.then.required, ["attributes"]);
-    assert.deepEqual(flowEndpointRequirement.then.properties.attributes.required, ["role"]);
+    assert.equal(saveSchema.allOf.some((condition) =>
+      condition.if?.properties?.type?.enum?.includes("flow-endpoint")), false);
     const correctSchema = descriptors.find((tool) => tool.name === "memory.correct").inputSchema;
     assert.deepEqual(correctSchema.properties.type.enum, saveSchema.properties.type.enum);
-    const source = await registry.execute({ id: "save_source", actionClass: "synthesize", toolName: "memory.save", input: { type: "flow-endpoint", title: "Request body", attributes: { role: "source" } } });
-    const sink = await registry.execute({ id: "save_sink", actionClass: "synthesize", toolName: "memory.save", input: { type: "flow-endpoint", title: "Template renderer", attributes: { role: "sink" } } });
-    assert.equal(source.result.status, "complete");
+    const invariant = await registry.execute({ id: "save_invariant", actionClass: "synthesize", toolName: "memory.save", input: { type: "invariant", title: "Request template remains escaped" } });
+    const sink = await registry.execute({ id: "save_sink", actionClass: "synthesize", toolName: "memory.save", input: { type: "sink", title: "Template renderer" } });
+    assert.equal(invariant.result.status, "complete");
     assert.equal(sink.result.status, "complete");
 
     const linked = await registry.execute({
       id: "link_flow",
       actionClass: "synthesize",
       toolName: "memory.link",
-      input: { fromId: source.result.output.id, toId: sink.result.output.id, relation: "flows_to", note: "Unescaped path" },
+      input: { fromId: invariant.result.output.id, toId: sink.result.output.id, relation: "constrains", note: "Unescaped path" },
     });
     assert.equal(linked.result.status, "complete");
     assert.deepEqual(linked.result.output, {
-      fromId: source.result.output.id,
+      fromId: invariant.result.output.id,
       toId: sink.result.output.id,
-      relation: "flows_to",
+      relation: "constrains",
       note: "Unescaped path",
       createdAt: linked.result.output.createdAt,
       updatedAt: linked.result.output.updatedAt,
@@ -215,13 +271,13 @@ test("memory graph tools expose workspace history search, save, get, correct, an
     assert.ok(peerSearch.result.output.results.every((result) => result.detail === "summary"));
 
     const fullMemory = await registry.execute({
-      id: "get_flow_source",
+      id: "get_invariant",
       actionClass: "recall",
       toolName: "memory.get",
-      input: { id: source.result.output.id },
+      input: { id: invariant.result.output.id },
     }, { agentId: "root" });
-    assert.equal(fullMemory.result.output.id, source.result.output.id);
-    assert.deepEqual(fullMemory.result.output.attributes, { role: "source" });
+    assert.equal(fullMemory.result.output.id, invariant.result.output.id);
+    assert.deepEqual(fullMemory.result.output.attributes, {});
     assert.deepEqual(fullMemory.result.output.relationships.map((relationship) => ({
       direction: relationship.direction,
       relation: relationship.relation,
@@ -229,7 +285,7 @@ test("memory graph tools expose workspace history search, save, get, correct, an
       note: relationship.note,
     })), [{
       direction: "outgoing",
-      relation: "flows_to",
+      relation: "constrains",
       memoryId: sink.result.output.id,
       note: "Unescaped path",
     }]);
@@ -259,7 +315,7 @@ test("memory graph shares a database without disturbing host operational tables"
   host.close();
 
   const store = new MemoryGraphStore({ workspaceRoot });
-  store.save({ type: "asset", title: "Shared workspace" });
+  store.save({ type: "invariant", title: "Shared workspace boundary" });
   store.close();
 
   const reopened = new DatabaseSync(databasePath);

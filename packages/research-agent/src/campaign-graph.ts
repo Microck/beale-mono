@@ -17,7 +17,7 @@ const MODEL_CAMPAIGN_ACTION_LIMIT = 8;
 const MODEL_CAMPAIGN_CONTRADICTION_LIMIT = 6;
 
 const CONTRADICTION_RELATIONS = new Set(["contradicts", "refutes", "conflicts_with", "invalidates"]);
-const SECURITY_RESEARCH_TYPES = new Set(["source", "sink", "flow-endpoint", "invariant", "trajectory"]);
+const SECURITY_RESEARCH_TYPES = new Set(["sink", "invariant", "trajectory"]);
 
 export interface BuildCampaignGraphInput {
   nodes: readonly MemoryNodeSummary[];
@@ -210,7 +210,7 @@ function campaignCoverageGaps(
     gaps.push(gap("unexplored_asset", "high", `Unexplored asset: ${assetId}`,
       "No durable research memory is associated with this authorized asset.",
       [campaignNodeId("asset", assetId)],
-      `Map the attack surface of authorized asset ${assetId}. Search existing memory first, avoid repeating covered territory, and record evidence-backed boundaries, sources, sinks, or hypotheses.`));
+      `Map the attack surface of authorized asset ${assetId}. Search existing memory first, avoid repeating covered territory, and record evidence-backed sinks or invariants when useful.`));
   }
   for (const node of input.nodes) {
     if (SECURITY_RESEARCH_TYPES.has(node.type) && node.evidenceRefs.length === 0) {

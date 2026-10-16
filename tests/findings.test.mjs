@@ -432,12 +432,12 @@ test("finding lifecycle is canonical, evidence-gated, and supports same-session 
 test("campaign graph exposes uncovered territory, lifecycle gates, contradictions, and typed momentum", () => {
   const now = new Date().toISOString();
   const nodes = [
-    { id: "memory_source", sessionIds: [], workspaces: [{ id: "workspace_findings", name: "Findings" }], subjectId: "subject", subjectName: "Subject", type: "flow-endpoint", title: "Shared state source", summary: "Candidate ingress", body: "", status: "suspected", confidence: 0.5, assetIds: ["asset_one"], tags: [], attributes: { role: "source" }, evidenceRefs: [], createdAt: now, updatedAt: now, revision: 1, authors: [] },
+    { id: "memory_sink", sessionIds: [], workspaces: [{ id: "workspace_findings", name: "Findings" }], subjectId: "subject", subjectName: "Subject", type: "sink", title: "Shared state renderer", summary: "Candidate dangerous effect", body: "", status: "suspected", confidence: 0.5, assetIds: ["asset_one"], tags: [], attributes: {}, evidenceRefs: [], createdAt: now, updatedAt: now, revision: 1, authors: [] },
     { id: "memory_refutation", sessionIds: [], workspaces: [{ id: "workspace_findings", name: "Findings" }], subjectId: "subject", subjectName: "Subject", type: "invariant", title: "Cleanup always runs", summary: "Contradictory claim", body: "", status: "supported", confidence: 0.7, assetIds: ["asset_one"], tags: [], attributes: {}, evidenceRefs: [{ id: "evidence", kind: "code", pathBase: "repository", path: "src/parser.ts", locator: {}, summary: "finally block", createdAt: now }], createdAt: now, updatedAt: now, revision: 1, authors: [] },
   ];
   const campaign = buildCampaignGraph({
     nodes,
-    edges: [{ fromId: "memory_source", toId: "memory_refutation", relation: "contradicts", note: null, createdAt: now, updatedAt: now }],
+    edges: [{ fromId: "memory_sink", toId: "memory_refutation", relation: "contradicts", note: null, createdAt: now, updatedAt: now }],
     findings: [researchClaim({ id: "claim_shared_state", title: "Shared state crosses requests" })], runbooks: [], reports: [], assetIds: ["asset_one", "asset_two"],
   });
   assert.ok(campaign.coverageGaps.some((gap) => gap.kind === "unexplored_asset"));

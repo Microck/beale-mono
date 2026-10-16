@@ -814,8 +814,15 @@ export class MemoryGraphStore {
       }
     }
     if (input.types?.length) {
-      clauses.push(`n.type IN (${input.types.map(() => "?").join(",")})`);
+      const includeHistoricalSinkEndpoints = this.catalog.profile?.id === "security-research"
+        && input.types.includes("sink")
+        && this.catalog.typesById.get("flow-endpoint")?.lifecycle === "retired";
+      const selectedTypes = `n.type IN (${input.types.map(() => "?").join(",")})`;
+      clauses.push(includeHistoricalSinkEndpoints
+        ? `(${selectedTypes} OR (n.type = ? AND json_extract(n.attributes_json, '$.role') IN ('sink', 'both')))`
+        : selectedTypes);
       params.push(...input.types);
+      if (includeHistoricalSinkEndpoints) params.push("flow-endpoint");
     }
     if (input.statuses?.length) {
       clauses.push(`n.status IN (${input.statuses.map(() => "?").join(",")})`);

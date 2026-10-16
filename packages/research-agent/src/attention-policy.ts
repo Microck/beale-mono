@@ -17,10 +17,13 @@ export function attentionHeatForClaim(claim: Pick<FindingSummary,
   return "none";
 }
 
-export function attentionHeatForMemoryNode(node: Pick<MemoryNodeSummary, "type" | "status">): ResearchAttentionHeat {
+export function attentionHeatForMemoryNode(node: Pick<MemoryNodeSummary, "type" | "status" | "attributes">): ResearchAttentionHeat {
   const type = node.type.trim().toLowerCase();
   const status = node.status.trim().toLowerCase();
-  if ((type === "sink" || type === "flow-endpoint") && (status === "confirmed" || status === "verified")) return "low";
+  const confirmed = status === "confirmed" || status === "verified";
+  const sink = type === "sink"
+    || (type === "flow-endpoint" && (node.attributes.role === "sink" || node.attributes.role === "both"));
+  if (confirmed && sink) return "low";
   return "none";
 }
 

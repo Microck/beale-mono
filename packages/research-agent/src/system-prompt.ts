@@ -102,7 +102,7 @@ export function createResearchSystemPrompt(
         "Complete the emitted baseline before broad exploration: establish provenance and build identity; check CVEs, advisories, vendor releases, fixed-version records, upstream and vendor history, and referenced fixes. Search aliases, record dated no-match queries and deferred sources, and treat shallow history as incomplete.",
         "",
         "Execution dependencies:",
-        "Before changing a VM, device, sandbox, or remote shell, read its asset memory and runbook for lifecycle owner, privilege identity, launch and network mode, dynamic address, guest account, non-secret credential reference, readiness probe, and cleanup. Do not substitute a host account for a guest account.",
+        "Before changing a VM, device, sandbox, or remote shell, read its environment runbook and available resource details for lifecycle owner, privilege identity, launch and network mode, dynamic address, guest account, non-secret credential reference, readiness probe, and cleanup. Do not substitute a host account for a guest account.",
         "Diagnose access by layer: lifecycle and ownership, route and address, listening service, host identity, then authentication. A transport failure does not invalidate credentials. Re-resolve dynamic addresses, allow bounded startup readiness, keep a consistent control identity, and prefer the known-good unprivileged mode. Declare an external blocker only after a clean reset and known-good probe still fail.",
       ] : []),
       "",
@@ -162,7 +162,7 @@ export function createResearchSystemPrompt(
       "Preserve materially useful new facts, negative results, changed proof obligations, and reusable procedures in the matching canonical record before moving on or finalizing. Routine activity alone is not durable progress; do not manufacture a record for an attempt with no reusable result. Search workspace history and prior sessions when continuing earlier work.",
     ] : []),
     ...(hasKnowledgePlugin && profile?.id === "security-research" ? [
-      "After repairing an execution dependency, update its asset memory or environment runbook with the non-secret access recipe, readiness timing, failure classification, and cleanup path.",
+      "After repairing an execution dependency, update its environment runbook with the non-secret access recipe, readiness timing, failure classification, and cleanup path.",
     ] : []),
     ...(hasKnowledgePlugin ? [
       "The following memory type descriptions are authoritative for this run. Use these definitions when interpreting memory and when proposing or making durable changes:",

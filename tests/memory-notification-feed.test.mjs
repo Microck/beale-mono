@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
-import { MemoryGraphStore, ResearchClaimStore } from "../packages/research-agent/dist/index.js";
+import { MemoryGraphStore, ResearchClaimStore, attentionHeatForMemoryNode } from "../packages/research-agent/dist/index.js";
 import { invokeAppServerProtocol } from "../app-server/dist/appServerProtocolClient.js";
 
 test("memory notification feed includes only path-free heat-bearing nodes", async () => {
@@ -57,7 +57,7 @@ test("memory notification feed includes only path-free heat-bearing nodes", asyn
     } finally {
       host.close();
     }
-    store.save({ type: "asset", title: "Parser service", status: "confirmed" });
+    store.save({ type: "invariant", title: "Parser state stays request-local", status: "confirmed" });
     const lead = claims.create({
       title: "Parser state confusion",
       summary: "Shared parser state crosses requests.",
@@ -104,4 +104,12 @@ test("memory notification feed includes only path-free heat-bearing nodes", asyn
     store.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("attention heat distinguishes historical source endpoints from sinks", () => {
+  assert.equal(attentionHeatForMemoryNode({ type: "sink", status: "confirmed", attributes: {} }), "low");
+  assert.equal(attentionHeatForMemoryNode({ type: "flow-endpoint", status: "confirmed", attributes: { role: "sink" } }), "low");
+  assert.equal(attentionHeatForMemoryNode({ type: "flow-endpoint", status: "confirmed", attributes: { role: "both" } }), "low");
+  assert.equal(attentionHeatForMemoryNode({ type: "flow-endpoint", status: "confirmed", attributes: { role: "source" } }), "none");
+  assert.equal(attentionHeatForMemoryNode({ type: "source", status: "confirmed", attributes: {} }), "none");
 });

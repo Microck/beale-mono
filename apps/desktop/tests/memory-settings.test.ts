@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEFAULT_SECURITY_RESEARCH_PROFILE } from '@beale/research-agent';
 import {
   DEFAULT_MEMORY_TYPE_DESCRIPTIONS,
   MEMORY_NODE_TYPES,
@@ -22,10 +23,26 @@ afterEach(() => {
 });
 
 describe('memory settings', () => {
+  it('offers only active Security memory types in profile settings', () => {
+    const resolved = resolvedTestResearchProfile(structuredClone(DEFAULT_SECURITY_RESEARCH_PROFILE));
+    const html = renderToStaticMarkup(createElement(ProfileSettingsView, {
+      researchProfiles: [resolved],
+      researchProfile: null,
+      loading: false
+    }));
+
+    for (const type of ['invariant', 'mitigation', 'sink', 'trajectory']) {
+      expect(html).toContain(`id="profile-memory-tab-security-research-${type}"`);
+    }
+    for (const type of ['asset', 'source', 'flow-endpoint']) {
+      expect(html).not.toContain(`id="profile-memory-tab-security-research-${type}"`);
+    }
+  });
+
   it('renders profile views with Overview selected before the memory-type tabs', () => {
     expect(Object.keys(DEFAULT_MEMORY_TYPE_DESCRIPTIONS)).toEqual([...MEMORY_NODE_TYPES]);
     expect(DEFAULT_MEMORY_TYPE_DESCRIPTIONS.primitive).toContain('lowercase-hyphenated attributes.rootCauseKey');
-    expect(DEFAULT_MEMORY_TYPE_DESCRIPTIONS.chain).toContain('source, sink, and asset relationships are ideal');
+    expect(DEFAULT_MEMORY_TYPE_DESCRIPTIONS.chain).toContain('sink relationships are useful');
 
     const resolved = resolvedTestResearchProfile();
     const mathematics = resolvedTestResearchProfile({

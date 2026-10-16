@@ -73,7 +73,7 @@ test("default prompt uses plain guidance lines and bullets only for feature and 
   const bulletLines = prompt.split("\n").filter((line) => line.startsWith("- "));
   assert.ok(bulletLines.some((line) => line.startsWith("- example-plugin (plugin;")));
   assert.ok(bulletLines.some((line) => line.startsWith("- beale-knowledge (feature;")));
-  assert.ok(bulletLines.some((line) => line.startsWith("- asset (Asset):")));
+  assert.ok(bulletLines.some((line) => line.startsWith("- sink (Sink):")));
   assert.ok(bulletLines.every((line) =>
     line.includes(" (plugin;") || line.includes(" (feature;")
     || profile.memory.types.some((type) => line.startsWith(`- ${type.id} (`))
@@ -190,7 +190,7 @@ test("the bundled Security profile separates claim classifications from knowledg
   assert.ok(security.memory.types.every((type) => type.sessionHeat === undefined));
   assert.deepEqual(
     security.memory.types.filter((type) => type.lifecycle === "active").map((type) => type.id),
-    ["asset", "invariant", "mitigation", "flow-endpoint", "trajectory"],
+    ["invariant", "mitigation", "sink", "trajectory"],
   );
   assert.deepEqual(security.claims.classifications.map((classification) => classification.id),
     ["security.vulnerability", "security.primitive", "security.chain"]);
@@ -232,9 +232,10 @@ test("retired bundled memory types stay out of model-facing catalogs", () => {
     pluginCatalog: pluginCatalog("beale-knowledge", "beale-runbooks"),
     researchProfile: DEFAULT_SECURITY_RESEARCH_PROFILE,
   });
-  assert.match(securityPrompt, /- flow-endpoint \(Flow Endpoint\)/);
+  assert.match(securityPrompt, /- sink \(Sink\)/);
+  assert.doesNotMatch(securityPrompt, /- asset \(Asset\)/);
   assert.doesNotMatch(securityPrompt, /- source \(Source\)/);
-  assert.doesNotMatch(securityPrompt, /- sink \(Sink\)/);
+  assert.doesNotMatch(securityPrompt, /- flow-endpoint \(Flow Endpoint\)/);
   assert.doesNotMatch(securityPrompt, /- bug \(Historical Bug\)/);
   assert.doesNotMatch(securityPrompt, /- procedure \(Procedure\)/);
   assert.match(securityPrompt, /Ambient resources are non-authoring inventory/);
@@ -245,7 +246,7 @@ test("retired bundled memory types stay out of model-facing catalogs", () => {
   assert.match(securityPrompt, /lifecycle and ownership, route and address, listening service, host identity, then authentication/);
   assert.match(securityPrompt, /Do not substitute a host account for a guest account/);
   assert.match(securityPrompt, /prefer the known-good unprivileged mode/);
-  assert.match(securityPrompt, /update its asset memory or environment runbook/);
+  assert.match(securityPrompt, /update its environment runbook/);
   assert.match(securityPrompt, /matching workflow runbook for reproduction-grade evidence/);
   assert.match(securityPrompt, /Direct shell execution may support bounded exploratory tests/);
   assert.match(securityPrompt, /setup, runtime, and cleanup.*feature tags/);
@@ -256,7 +257,7 @@ test("retired bundled memory types stay out of model-facing catalogs", () => {
 test("the bundled Security profile offers four suggestion categories", () => {
   const security = normalizeResearchProfile(DEFAULT_SECURITY_RESEARCH_PROFILE);
   const securityLongshot = security.workflows.find((workflow) => workflow.id === "longshot");
-  assert.equal(security.version, "1.16.1");
+  assert.equal(security.version, "1.17.0");
   assert.deepEqual(security.workflows.map((workflow) => workflow.id), ["discovery", "chaining", "reporting", "longshot"]);
   assert.ok(security.workflows.every((workflow) => workflow.goalSuggestionCount === 4));
   assert.equal(securityLongshot?.name, "Longshot");

@@ -261,7 +261,7 @@ test("stored workspace binding prefers the Beale research subject and redacts cr
     try {
       assert.equal(store.getContext().subjectId, "subject_explicit");
       assert.equal(store.getContext().subjectName, "Explicit research subject");
-      const node = store.save({ type: "asset", title: "Recorded target" });
+      const node = store.save({ type: "invariant", title: "Recorded trust boundary" });
       assert.equal(node.subjectId, "subject_explicit");
       assert.deepEqual(node.workspaces, [{ id: "workspace_recorded", name: "Recorded workspace" }]);
     } finally {

@@ -921,7 +921,8 @@ test("Pi Agent adds research guidance when the knowledge plugin is enabled", asy
   assert.match(systemPrompt, /Search claims, knowledge memories, and runbooks together with history\.search early/);
   assert.match(systemPrompt, /Evidence is attached to knowledge or claim records/);
   assert.match(systemPrompt, /Record suspected results with lead\.create/);
-  assert.match(systemPrompt, /sources introduce attacker-controlled or lower-trust influence/);
+  assert.match(systemPrompt, /security-sensitive operation or state transition whose unsafe reachability can produce impact/);
+  assert.doesNotMatch(systemPrompt, /- flow-endpoint \(Flow Endpoint\)/);
   assert.match(systemPrompt, /relevant successful trajectories/);
   assert.doesNotMatch(systemPrompt, /specific, testable, currently unproven security proposition/);
 });

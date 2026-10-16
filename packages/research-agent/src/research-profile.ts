@@ -383,7 +383,7 @@ const SECURITY_MEMORY_TYPE_DEFINITIONS: readonly Omit<ResearchProfileMemoryType,
     id: "chain",
     name: "Chain",
     pluralName: "Chains",
-    description: "An end-to-end attacker path linking one or more primitives to demonstrated security impact. Record reachability and affected context; flow-endpoint and asset relationships are ideal when supported but are not required. A confirmed chain requires proof-of-vulnerability evidence and independent review approval; do not use chain for an isolated flaw or an unlinked list of observations. Record its mechanism in attributes.rootCause and a stable lowercase-hyphenated attributes.rootCauseKey.",
+    description: "An end-to-end attacker path linking one or more primitives to demonstrated security impact. Record reachability and affected context; sink relationships are useful when supported but are not required. A confirmed chain requires proof-of-vulnerability evidence and independent review approval; do not use chain for an isolated flaw or an unlinked list of observations. Record its mechanism in attributes.rootCause and a stable lowercase-hyphenated attributes.rootCauseKey.",
     group: "Established results",
     icon: "link",
     color: "rose",
@@ -433,11 +433,9 @@ const SECURITY_MEMORY_TYPE_DEFINITIONS: readonly Omit<ResearchProfileMemoryType,
 
 const SECURITY_MEMORY_TYPES: readonly ResearchProfileMemoryType[] = SECURITY_MEMORY_TYPE_DEFINITIONS.map((type) => ({
   ...type,
-  ...(type.id === "bug" || type.id === "hypothesis" || type.id === "primitive" || type.id === "chain"
+  ...(type.id === "asset" || type.id === "bug" || type.id === "hypothesis" || type.id === "primitive" || type.id === "chain"
     ? { lifecycle: "retired" as const, creatable: false }
-    : type.id === "source" || type.id === "sink"
-      ? { lifecycle: "retired" as const, creatable: false, replacedBy: "flow-endpoint" }
-      : type.id === "procedure"
+    : type.id === "source" || type.id === "flow-endpoint" || type.id === "procedure"
         ? { lifecycle: "retired" as const, creatable: false }
         : { lifecycle: "active" as const, creatable: true }),
 }));
@@ -445,7 +443,7 @@ const SECURITY_MEMORY_TYPES: readonly ResearchProfileMemoryType[] = SECURITY_MEM
 export const DEFAULT_SECURITY_RESEARCH_PROFILE: ResearchProfile = {
   schemaVersion: RESEARCH_PROFILE_SCHEMA_VERSION,
   id: "security-research",
-  version: "1.16.1",
+  version: "1.17.0",
   name: "Security",
   description: "Authorized open-ended vulnerability discovery, high-upside longshot hunting, chaining, verification, and reporting.",
   agent: {
@@ -459,7 +457,7 @@ export const DEFAULT_SECURITY_RESEARCH_PROFILE: ResearchProfile = {
       "Do not narrate routine memory updates unless they materially affect the conclusion.",
     ],
     memoryInstructions: [
-      "Search claims, knowledge memories, and runbooks together with history.search early and as research crosses system boundaries. Favor security-sensitive code near sink-role flow endpoints, established findings, cited historical precedent, and relevant successful trajectories.",
+      "Search claims, knowledge memories, and runbooks together with history.search early and as research crosses system boundaries. Favor security-sensitive code near sinks, established findings, cited historical precedent, and relevant successful trajectories.",
       "On the first Auto-Reviewed touch of each tracked resource or canonical repository revision, complete the emitted baseline: capture exact provenance and build identity; inspect advisories, vendor bulletins, release notes, security-content pages, fixed-version records, upstream and vendor source history or drops, and referenced fixes before treating a candidate as novel. For vendor-maintained components include official source releases and upstream project history. Record dated no-match queries and deferrals as explicitly as matches.",
       "Before saving, use history.search to find an existing memory with the same underlying fact or root cause and refine it instead of creating a differently worded duplicate.",
       "When multiple leads or findings represent the same underlying claim, keep the strongest evidence-bearing record canonical and mark the weaker records as its duplicates. Preserve related primitives, variants, conditions, and chain components as distinct claims.",
