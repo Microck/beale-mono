@@ -44,6 +44,17 @@ interface SavedBrowserContext {
   lastUrl: string;
 }
 
+function browserAccessApproved(file: string): boolean {
+  try {
+    const saved: unknown = JSON.parse(readFileSync(file, 'utf8'));
+    return saved !== null && typeof saved === 'object' && !Array.isArray(saved)
+      && 'version' in saved && saved.version === 1
+      && 'approved' in saved && saved.approved === true;
+  } catch {
+    return false;
+  }
+}
+
 function restoredContexts(file: string): Map<string, BrowserContextState> {
   const contexts = new Map<string, BrowserContextState>([[DEFAULT_BROWSER_CONTEXT.id, {
     summary: DEFAULT_BROWSER_CONTEXT, guest: null, client: null
@@ -111,8 +122,10 @@ export class InAgentBrowserBridge {
   readonly #onAcknowledge: (sessionId: string) => Promise<boolean>;
   readonly #clearStorage: (partition: string) => Promise<void>;
   readonly #contextsFile: string;
+  readonly #approvalFile: string;
+  #approved: boolean;
   readonly #acknowledgedSessions = new Set<string>();
-  readonly #pendingAcknowledgements = new Map<string, Promise<boolean>>();
+  #pendingApproval: Promise<boolean> | null = null;
 
   constructor(
     discoveryFile = DISCOVERY_FILE,
@@ -122,6 +135,8 @@ export class InAgentBrowserBridge {
   ) {
     this.#discoveryFile = discoveryFile;
     this.#contextsFile = join(dirname(discoveryFile), 'browser-contexts.json');
+    this.#approvalFile = join(dirname(discoveryFile), 'browser-access-consent.json');
+    this.#approved = browserAccessApproved(this.#approvalFile);
     this.#contexts = restoredContexts(this.#contextsFile);
     this.#onChange = onChange;
     this.#onAcknowledge = onAcknowledge;
@@ -215,15 +230,30 @@ export class InAgentBrowserBridge {
       throw new Error('Invalid research session identity.');
     }
     if (this.#acknowledgedSessions.has(sessionId)) return true;
-    let pending = this.#pendingAcknowledgements.get(sessionId);
-    if (!pending) {
-      pending = this.#onAcknowledge(sessionId).then((accepted) => {
-        if (accepted) this.#acknowledgedSessions.add(sessionId);
-        return accepted;
-      }).finally(() => this.#pendingAcknowledgements.delete(sessionId));
-      this.#pendingAcknowledgements.set(sessionId, pending);
+    if (!this.#approved) {
+      if (!this.#pendingApproval) {
+        this.#pendingApproval = this.#onAcknowledge(sessionId).then((accepted) => {
+          if (accepted) this.#saveApproval();
+          return accepted;
+        }).finally(() => { this.#pendingApproval = null; });
+      }
+      if (!await this.#pendingApproval) return false;
     }
-    return pending;
+    this.#acknowledgedSessions.add(sessionId);
+    return true;
+  }
+
+  #saveApproval(): void {
+    const temporaryFile = `${this.#approvalFile}.${randomUUID()}.tmp`;
+    mkdirSync(dirname(this.#approvalFile), { recursive: true });
+    try {
+      writeFileSync(temporaryFile, JSON.stringify({ version: 1, approved: true }), { mode: 0o600 });
+      renameSync(temporaryFile, this.#approvalFile);
+    } catch (error) {
+      rmSync(temporaryFile, { force: true });
+      throw error;
+    }
+    this.#approved = true;
   }
 
   async removeContext(id: string): Promise<void> {

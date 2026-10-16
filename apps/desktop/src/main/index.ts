@@ -1225,9 +1225,9 @@ if (!hasSingleInstanceLock) {
       async () => {
         const options = {
           type: 'warning' as const,
-          title: 'Allow browser access for this research session?',
-          message: 'Allow this research session to control the open Browser contexts?',
-          detail: 'Full browser control can read page content, form values, cookies, session tokens, and network data. Complete sign-in and leave the password form before allowing access. This acknowledgement applies to this research session while Beale remains open.',
+          title: 'Allow browser access in Beale?',
+          message: 'Allow research sessions to control open Browser contexts?',
+          detail: 'Full browser control can read page content, form values, cookies, session tokens, and network data. Complete sign-in and leave the password form before allowing access. This approval is saved on this machine and will not be requested again for later research sessions.',
           buttons: ['Cancel', 'Allow browser access'],
           defaultId: 0,
           cancelId: 0,

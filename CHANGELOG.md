@@ -36,6 +36,7 @@
 
 #### Changed
 
+- Embedded Browser access approval is now saved once per machine. Later research sessions and app restarts reuse it while each session still authenticates to the local browser bridge.
 - The Security profile now creates sink memories without source or flow-endpoint roles and no longer creates asset memories. Existing asset, source, and flow-endpoint memories remain readable as retired types. Sink filters include historical sink-role endpoints but exclude source-role endpoints.
 - Fleet browser keyboard input now stays on a dedicated browser input target, so select-all and paste do not affect Beale session content.
 - Plugins separates Installed and Available sidebar lists. Bundled managed plugins start Available, install with one click or when a registered Apple, Microsoft, or Meta research kit uses them, and return to Available when removed. Registered dependent kits block removal with an explanation. Earlier filesystem imports of the same bundled plugin migrate to one Installed entry while preserving enablement; existing implicit bundled entries remain Available until explicitly installed.

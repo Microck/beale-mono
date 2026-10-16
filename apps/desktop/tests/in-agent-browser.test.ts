@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createElement } from 'react';
@@ -147,6 +147,66 @@ describe('in-agent browser', () => {
     }
   });
 
+  it('saves browser approval across sessions and bridge restarts', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-browser-approval-test-'));
+    const discoveryFile = join(directory, 'browser.json');
+    const promptedSessions: string[] = [];
+    const bridge = new InAgentBrowserBridge(discoveryFile, undefined, async (sessionId) => {
+      promptedSessions.push(sessionId);
+      return true;
+    });
+    try {
+      expect(await Promise.all([
+        bridge.acknowledgeSession('session-example-001'),
+        bridge.acknowledgeSession('session-example-002')
+      ])).toEqual([true, true]);
+      expect(promptedSessions).toEqual(['session-example-001']);
+      expect(await bridge.acknowledgeSession('session-example-003')).toBe(true);
+      expect(promptedSessions).toEqual(['session-example-001']);
+      expect(JSON.parse(readFileSync(join(directory, 'browser-access-consent.json'), 'utf8'))).toEqual({ version: 1, approved: true });
+    } finally {
+      bridge.stop();
+    }
+
+    const restarted = new InAgentBrowserBridge(discoveryFile, undefined, async () => {
+      throw new Error('Approval should not be requested again.');
+    });
+    try {
+      expect(await restarted.acknowledgeSession('session-example-004')).toBe(true);
+      await expect(restarted.acknowledgeSession('invalid session')).rejects.toThrow('Invalid research session identity');
+    } finally {
+      restarted.stop();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('does not save denied or failed browser approvals', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-browser-denial-test-'));
+    const discoveryFile = join(directory, 'browser.json');
+    let prompts = 0;
+    const denied = new InAgentBrowserBridge(discoveryFile, undefined, async () => {
+      prompts += 1;
+      return false;
+    });
+    try {
+      expect(await denied.acknowledgeSession('session-example-001')).toBe(false);
+      expect(await denied.acknowledgeSession('session-example-002')).toBe(false);
+      expect(prompts).toBe(2);
+      expect(() => readFileSync(join(directory, 'browser-access-consent.json'))).toThrow();
+    } finally {
+      denied.stop();
+    }
+
+    mkdirSync(join(directory, 'browser-access-consent.json'));
+    const unwritable = new InAgentBrowserBridge(discoveryFile, undefined, async () => true);
+    try {
+      await expect(unwritable.acknowledgeSession('session-example-003')).rejects.toThrow();
+    } finally {
+      unwritable.stop();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('keeps labeled browser contexts and CDP connections isolated', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'beale-browser-test-'));
     const discoveryFile = join(directory, 'browser.json');
@@ -194,16 +254,17 @@ describe('in-agent browser', () => {
       expect(updates).toEqual([created.id]);
       expect(bridge.listContexts()[0]?.partition).not.toBe(bridge.listContexts()[1]?.partition);
       expect(bridge.contextIdForPartition(bridge.listContexts()[1]?.partition ?? '')).toBe(created.id);
+      const denied = new BrowserCdpSession(async () => JSON.parse(readFileSync(discoveryFile, 'utf8')).endpoint as string, 'session-example-denied');
+      await expect(denied.connect(undefined, '8')).rejects.toThrow('not approved');
+      expect(acknowledgements).toEqual(['session-example-denied']);
       expect(await browser.targets()).toMatchObject([
         { id: '7', description: 'Beale browser context: Primary', url: 'https://example.test/' },
         { id: '8', description: 'Beale browser context: Member', url: 'https://example.test/' }
       ]);
+      expect(acknowledgements).toEqual(['session-example-denied', 'session-example-001']);
       const defaultConnection = await browser.connect();
       const adminConnection = await browser.connect(undefined, '8');
-      expect(acknowledgements).toEqual(['session-example-001']);
-      const denied = new BrowserCdpSession(async () => JSON.parse(readFileSync(discoveryFile, 'utf8')).endpoint as string, 'session-example-denied');
-      await expect(denied.connect(undefined, '8')).rejects.toThrow('not acknowledged');
-      expect(acknowledgements).toEqual(['session-example-001', 'session-example-denied']);
+      expect(acknowledgements).toEqual(['session-example-denied', 'session-example-001']);
       expect(await browser.command(defaultConnection, 'Page.navigate', { url: 'https://example.test/next' })).toMatchObject({
         result: { guestId: 7, method: 'Page.navigate' }
       });
@@ -219,7 +280,7 @@ describe('in-agent browser', () => {
       expect(await nextSession.targets()).toHaveLength(2);
       const reusedConnection = await nextSession.connect(undefined, '8');
       expect(await nextSession.command(reusedConnection, 'DOM.getDocument')).toMatchObject({ result: { guestId: 8 } });
-      expect(acknowledgements).toEqual(['session-example-001', 'session-example-denied', 'session-example-002']);
+      expect(acknowledgements).toEqual(['session-example-denied', 'session-example-001']);
       await nextSession.cleanup();
       await expect(browser.createContext('two words')).rejects.toThrow('one word');
       await expect(browser.createContext('member')).rejects.toThrow('already exists');
