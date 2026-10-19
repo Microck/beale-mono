@@ -8277,7 +8277,8 @@ button.subagent-catalog-item:hover:not(:disabled),
   font: inherit;
 }
 
-.session-next-steps-back {
+.session-next-steps-back,
+.session-next-steps-regenerate {
   min-height: 28px;
   display: inline-flex;
   align-items: center;
@@ -8292,7 +8293,9 @@ button.subagent-catalog-item:hover:not(:disabled),
 }
 
 .session-next-steps-back:hover:not(:disabled),
-.session-next-steps-back:focus-visible {
+.session-next-steps-back:focus-visible,
+.session-next-steps-regenerate:hover:not(:disabled),
+.session-next-steps-regenerate:focus-visible {
   background: transparent;
   color: var(--text);
 }
@@ -13365,7 +13368,7 @@ button.runbook-catalog-item:not(.breakout-room-catalog-item):hover:not(:disabled
 
 .new-research-suggestion-panel .session-next-steps-header {
   grid-row: 2;
-  justify-content: flex-start;
+  justify-content: space-between;
   border-bottom: 0;
   padding: 7px 0 0;
 }

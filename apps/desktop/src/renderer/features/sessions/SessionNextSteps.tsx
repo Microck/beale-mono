@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import type { JSX } from 'react';
-import { ArrowLeft, ArrowRight, Lightbulb } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Lightbulb, RefreshCw } from 'lucide-react';
 import type { ResearchGoalPhase } from '@shared/types';
 
 const NEXT_STEP_COUNT = 3;
@@ -18,6 +18,7 @@ export const SessionNextStepsWidget = memo(function SessionNextStepsWidget({
   title = 'Suggestions',
   suggestionLimit = NEXT_STEP_COUNT,
   onBack,
+  onRegenerate,
   onSelect
 }: {
   loading: boolean;
@@ -26,6 +27,7 @@ export const SessionNextStepsWidget = memo(function SessionNextStepsWidget({
   title?: string | null;
   suggestionLimit?: number;
   onBack?: () => void;
+  onRegenerate?: () => void;
   onSelect: (sentence: string) => void;
 }): JSX.Element {
   const visibleSuggestions = useMemo(
@@ -40,6 +42,12 @@ export const SessionNextStepsWidget = memo(function SessionNextStepsWidget({
           <button type="button" className="session-next-steps-back" onClick={onBack}>
             <ArrowLeft size={14} aria-hidden="true" />
             Categories
+          </button>
+        ) : null}
+        {onRegenerate ? (
+          <button type="button" className="session-next-steps-regenerate" onClick={onRegenerate} disabled={loading}>
+            <RefreshCw size={14} aria-hidden="true" />
+            Regenerate
           </button>
         ) : null}
       </header>

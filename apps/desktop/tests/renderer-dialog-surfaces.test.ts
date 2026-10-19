@@ -441,8 +441,8 @@ describe('renderer dialog surfaces', () => {
     const optionLabelStyles = styles.match(/\.new-research-workflow-option > span\s*\{([^}]*)\}/)?.[1] ?? '';
     const optionNameStyles = styles.match(/\.new-research-workflow-option strong\s*\{([^}]*)\}/)?.[1] ?? '';
     const descriptionStyles = styles.match(/\.new-research-workflow-option span span\s*\{([^}]*)\}/)?.[1] ?? '';
-    const backStyles = styles.match(/\.session-next-steps-back\s*\{([^}]*)\}/)?.[1] ?? '';
-    const backHoverStyles = styles.match(/\.session-next-steps-back:hover:not\(:disabled\),\s*\.session-next-steps-back:focus-visible\s*\{([^}]*)\}/)?.[1] ?? '';
+    const backStyles = styles.match(/\.session-next-steps-back,\s*\.session-next-steps-regenerate\s*\{([^}]*)\}/)?.[1] ?? '';
+    const backHoverStyles = styles.match(/\.session-next-steps-back:hover:not\(:disabled\),[\s\S]*?\.session-next-steps-regenerate:focus-visible\s*\{([^}]*)\}/)?.[1] ?? '';
     const suggestionRowStyles = styles.match(/\.new-research-suggestion-panel \.session-next-step-button\s*\{([^}]*)\}/)?.[1] ?? '';
     const suggestionTextStyles = styles.match(/\.new-research-suggestion-panel \.session-next-step-button > span\s*\{([^}]*)\}/)?.[1] ?? '';
     const suggestionChevronStyles = styles.match(/\.new-research-suggestion-panel \.session-next-step-button > svg:last-child\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -476,7 +476,7 @@ describe('renderer dialog surfaces', () => {
     expect(suggestionChevronStyles).toContain('display: none');
     expect(suggestionPanelStyles).toContain('grid-template-rows: minmax(0, 1fr) auto');
     expect(suggestionHeaderStyles).toContain('grid-row: 2');
-    expect(suggestionHeaderStyles).toContain('justify-content: flex-start');
+    expect(suggestionHeaderStyles).toContain('justify-content: space-between');
     expect(suggestionListStyles).toContain('grid-row: 1');
     expect(suggestionListStyles).toContain('border-top: 1px solid var(--panel-border)');
   });
@@ -711,6 +711,7 @@ describe('renderer dialog surfaces', () => {
       title: null,
       suggestionLimit: 4,
       onBack: () => undefined,
+      onRegenerate: () => undefined,
       onSelect: () => undefined
     }));
 
@@ -718,7 +719,21 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('<header class="session-next-steps-header"><button');
     expect(html).toContain('class="session-next-steps-back"');
     expect(html).toContain('Categories');
+    expect(html).toContain('class="session-next-steps-regenerate"');
+    expect(html).toContain('Regenerate');
+    expect(html.indexOf('Categories')).toBeLessThan(html.indexOf('Regenerate'));
     expect(html.match(/class="session-next-step-button"/g)).toHaveLength(4);
+
+    const loadingHtml = renderToStaticMarkup(createElement(SessionNextStepsWidget, {
+      loading: true,
+      suggestions: [],
+      error: null,
+      title: null,
+      onBack: () => undefined,
+      onRegenerate: () => undefined,
+      onSelect: () => undefined
+    }));
+    expect(loadingHtml).toMatch(/class="session-next-steps-regenerate" disabled=""/u);
   });
 
   it('seeds the shared New Research composer from a session suggestion', () => {

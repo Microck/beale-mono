@@ -6,6 +6,7 @@
 
 #### Added
 
+- New Research suggestion lists have a Regenerate button beside Categories to request fresh ideas for the selected category.
 - New workspaces can import public Bugcrowd engagement briefs, including in-scope and out-of-scope targets, rules, and guidance. Bugcrowd Research Kits can refresh these imports from the current public brief.
 - Fleet Browsers now has a Default page setting. New embedded and streamed browser pages open there (default: DuckDuckGo); existing pages retain their current location. The updated control contract requires rebuilt Desktop and app-server binaries.
 - Provider settings now show reported subscription limits, including a Session Limit when available, weekly allowance, remaining percentage, reset time, and manual refresh. Provider usage rings occupy the bottom of the left rail, with Settings in the upper icon group, per-provider tooltips, and a 20-minute refresh. The updated control contract timestamp requires rebuilt Desktop and app-server binaries.

@@ -1009,6 +1009,7 @@ export function ResearchSettingsForm({
               onLoadResearchGoalSuggestions(workflowId);
             }}
             onSelect={selectGoalSentence}
+            onRegenerate={onRetryResearchGoalSuggestions}
           />
         )}
         preComposerContent={(
@@ -1553,7 +1554,8 @@ function NewResearchWelcome({
   errors,
   visible,
   onOpenWorkflow,
-  onSelect
+  onSelect,
+  onRegenerate
 }: {
   workspaceName: string;
   workflows: readonly ResearchProfileWorkflow[];
@@ -1563,6 +1565,7 @@ function NewResearchWelcome({
   visible: boolean;
   onOpenWorkflow: (workflowId: ResearchGoalPhase) => void;
   onSelect: (sentence: string, workflowId: ResearchGoalPhase) => void;
+  onRegenerate: (workflowId: ResearchGoalPhase) => void;
 }): JSX.Element {
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<ResearchGoalPhase | null>(null);
   const selectedWorkflow = workflows.find((workflow) => workflow.id === selectedWorkflowId) ?? null;
@@ -1584,6 +1587,7 @@ function NewResearchWelcome({
               title={null}
               suggestionLimit={suggestionLimit}
               onBack={() => setSelectedWorkflowId(null)}
+              onRegenerate={() => onRegenerate(selectedWorkflow.id)}
               onSelect={(sentence) => onSelect(sentence, selectedWorkflow.id)}
             />
           </div>
