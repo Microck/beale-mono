@@ -1874,7 +1874,7 @@ code {
   width: 100%;
   display: grid;
   justify-items: center;
-  gap: 4px;
+  gap: 8px;
 }
 
 .app-navigation-limit-icon {

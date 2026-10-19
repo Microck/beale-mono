@@ -52,6 +52,7 @@ export const IPC_CHANNELS = {
   getFleetRemoteMachines: 'beale:get-fleet-remote-machines',
   getFleetRemoteCatalog: 'beale:get-fleet-remote-catalog',
   getFleetRemoteWorkspaceDetails: 'beale:get-fleet-remote-workspace-details',
+  getFleetRemoteWorkspaceDocument: 'beale:get-fleet-remote-workspace-document',
   getFleetRemoteQuickChats: 'beale:get-fleet-remote-quick-chats',
   startFleetRemoteQuickChat: 'beale:start-fleet-remote-quick-chat',
   continueFleetRemoteQuickChat: 'beale:continue-fleet-remote-quick-chat',

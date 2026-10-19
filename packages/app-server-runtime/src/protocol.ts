@@ -8,6 +8,8 @@ import type {
   ResearchResourceKind,
   ResearchGoalSuggestionInput,
   ResearchGoalSuggestionSelectionInput,
+  KnowledgeReportDocument,
+  KnowledgeRunbookDocument,
 } from "@beale/research-agent";
 
 export type {
@@ -54,7 +56,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-19T21:52:47.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-19T22:43:11.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -427,6 +429,52 @@ export function decodeBealeAppServerWorkspaceDetails(value: unknown): BealeAppSe
   return value as unknown as BealeAppServerWorkspaceDetails;
 }
 
+export type BealeAppServerWorkspaceDocument =
+  | { schemaVersion: 1; kind: "runbook"; resourceId: string; document: KnowledgeRunbookDocument }
+  | { schemaVersion: 1; kind: "report"; resourceId: string; document: KnowledgeReportDocument };
+
+function validWorkspaceRunbookCell(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.id !== "string"
+    || !["markdown", "code", "raw"].includes(String(value.type))
+    || typeof value.source !== "string" || !Array.isArray(value.features)
+    || !value.features.every((feature) => typeof feature === "string")
+    || typeof value.active !== "boolean"
+    || !(value.language === null || typeof value.language === "string")
+    || !(value.executionCount === null || typeof value.executionCount === "number")
+    || !(value.latestRun === null || isRecord(value.latestRun))
+    || !Array.isArray(value.outputs)
+    || !value.outputs.every((output) => isRecord(output)
+      && ["stream", "display", "error"].includes(String(output.kind))
+      && typeof output.text === "string"
+      && (output.streamName === null || output.streamName === "stdout" || output.streamName === "stderr")
+      && (output.mimeType === null || typeof output.mimeType === "string"))
+    || !isRecord(value.executor)) return false;
+  const executor = value.executor;
+  return executor.kind === "host" && typeof executor.timeoutSeconds === "number"
+    || executor.kind === "tart-vm" && executor.workspacePath === null
+      && typeof executor.vmName === "string" && typeof executor.timeoutSeconds === "number"
+      && Array.isArray(executor.argv) && executor.argv.every((argument) => typeof argument === "string");
+}
+
+export function decodeBealeAppServerWorkspaceDocument(value: unknown): BealeAppServerWorkspaceDocument {
+  if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.resourceId !== "string"
+    || !isRecord(value.document)) throw new Error("The app-server returned an invalid workspace document.");
+  if (value.kind === "report" && value.document.reportId === value.resourceId
+    && typeof value.document.content === "string") return value as BealeAppServerWorkspaceDocument;
+  if (value.kind === "runbook" && value.document.runbookId === value.resourceId
+    && value.document.nbformat === 4 && Array.isArray(value.document.cells)
+    && typeof value.document.nbformatMinor === "number"
+    && (value.document.language === null || typeof value.document.language === "string")
+    && (value.document.revision === null || typeof value.document.revision === "number")
+    && Array.isArray(value.document.enabledFeatures)
+    && value.document.enabledFeatures.every((feature) => typeof feature === "string")
+    && (value.document.latestRun === null || isRecord(value.document.latestRun))
+    && value.document.cells.every(validWorkspaceRunbookCell)) {
+    return value as BealeAppServerWorkspaceDocument;
+  }
+  throw new Error("The app-server returned an invalid workspace document.");
+}
+
 export interface BealeAppServerCanonicalResult<T = unknown> {
   controlVersion: typeof BEALE_APP_SERVER_CONTROL_VERSION;
   workspace: BealeAppServerWorkspaceSummary;
@@ -582,7 +630,7 @@ export const APP_SERVER_PROTOCOL_OPERATIONS = [
   "fleet.state", "fleet.browser_home_page", "fleet.configure", "fleet.test_ssh", "fleet.test_app_server", "fleet.clone", "fleet.clone_for_session", "fleet.start", "fleet.stop",
   "fleet.prepare", "fleet.connect", "fleet.complete", "fleet.stage", "fleet.export", "fleet.reserve", "fleet.release",
   "fleet.broker", "fleet.relay_broker",
-  "fleet.remote_machines", "fleet.remote_catalog", "fleet.remote_workspace_details", "fleet.remote_quick_chats", "fleet.remote_quick_chat_start", "fleet.remote_quick_chat_continue", "fleet.remote_session", "fleet.remote_launch", "fleet.remote_prompt_expand", "fleet.remote_goal_suggestions", "fleet.remote_control", "fleet.remote_browser_attach", "fleet.relay_stage", "fleet.relay_export",
+  "fleet.remote_machines", "fleet.remote_catalog", "fleet.remote_workspace_details", "fleet.remote_workspace_document", "fleet.remote_quick_chats", "fleet.remote_quick_chat_start", "fleet.remote_quick_chat_continue", "fleet.remote_session", "fleet.remote_launch", "fleet.remote_prompt_expand", "fleet.remote_goal_suggestions", "fleet.remote_control", "fleet.remote_browser_attach", "fleet.relay_stage", "fleet.relay_export",
   "fleet.restart_app_server", "fleet.restart_guest_app_server",
   "resource.prior_art.list", "resource.prior_art.get",
   "protocol.describe", "session.create", "session.begin_attempt", "session.append_event", "session.append_event_receipt",

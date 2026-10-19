@@ -187,6 +187,34 @@ test('remote workspace details use the shared workspace endpoint and reject malf
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('remote workspace documents use read-only operations and omit runbook host paths', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'beale-fleet-documents-'));
+  const fleet = new FleetService(join(root, 'fleet.json'), 'darwin', { async run() { return '[]'; }, launch() {} });
+  const calls = [];
+  fleet.callRemote = async (_serverId, operation, input) => {
+    calls.push({ operation, input });
+    return operation === 'runbook.get'
+      ? { runbookId: 'runbook-example', nbformat: 4, nbformatMinor: 0, language: null, revision: 1, enabledFeatures: [], latestRun: null,
+        cells: [{ id: 'cell-example', type: 'code', source: 'echo example', features: [], active: true,
+          language: 'sh', executionCount: null, outputs: [], latestRun: null,
+          executor: { kind: 'tart-vm', vmName: 'example-vm', timeoutSeconds: 30, argv: [], workspacePath: '/example-host/workspace' } }] }
+      : { reportId: 'report-example', content: 'Synthetic report content.' };
+  };
+  try {
+    const runbook = await fleet.remoteWorkspaceDocument('server-example', 'workspace-example', 'runbook', 'runbook-example');
+    assert.equal(runbook.document.cells[0].executor.workspacePath, null);
+    const report = await fleet.remoteWorkspaceDocument('server-example', 'workspace-example', 'report', 'report-example');
+    assert.equal(report.document.content, 'Synthetic report content.');
+    assert.deepEqual(calls, [
+      { operation: 'runbook.get', input: { workspaceId: 'workspace-example', runbookId: 'runbook-example' } },
+      { operation: 'report.get', input: { workspaceId: 'workspace-example', reportId: 'report-example' } }
+    ]);
+    await assert.rejects(fleet.remoteWorkspaceDocument('server-example', 'workspace-example', 'report', ''), /Invalid remote workspace document request/);
+    fleet.callRemote = async () => ({ reportId: 'other-report', content: 'Wrong document.' });
+    await assert.rejects(fleet.remoteWorkspaceDocument('server-example', 'workspace-example', 'report', 'report-example'), /invalid workspace document/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('remote Quick Chats use the versioned host endpoints', async () => {
   const root = mkdtempSync(join(tmpdir(), 'beale-fleet-quick-chat-'));
   const fleet = new FleetService(join(root, 'fleet.json'), 'darwin', { async run() { return '[]'; }, launch() {} });

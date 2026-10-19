@@ -58,8 +58,12 @@ test('remote workspace details render the workspace dashboard from the shared de
     reports: [{ id: 'report-example', title: 'Example report', summary: 'Synthetic report.', status: 'complete', updatedAt: '2026-01-01T00:00:00.000Z' }],
     targets: [{ id: 'local', name: 'Local', ready: true }]
   };
-  const html = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details }));
+  const html = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details }));
   expect(html).toContain('aria-label="Workspace dashboard"');
+  expect(html).toContain('main-session-grid workspace-context workspace-main-only');
+  expect(html).toContain('research-side-column');
+  expect(html).not.toContain('role="dialog"');
+  expect(html).not.toContain('Open Browser');
   expect(html).toContain('Campaign');
   expect(html).toContain('Resources');
   expect(html).toContain('Rules');
@@ -73,19 +77,20 @@ test('remote workspace details render the workspace dashboard from the shared de
   expect(html).not.toContain('remote-workspace-details-panel');
   expect(html).not.toContain('New Research prompt');
 
-  const settings = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details, initialView: 'overview' }));
+  const settings = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details, initialView: 'overview' }));
   expect(settings).toContain('workspace-overview-layout');
   expect(settings).toContain('aria-label="Workspace Name"');
   expect(settings).not.toContain('workspace-removal-form');
   expect(settings).not.toContain('workspace-directories-field');
 
-  const resources = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details, initialView: 'resources' }));
+  const resources = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details, initialView: 'resources' }));
   expect(resources).toContain('workspace-surface-item');
   expect(resources).toContain('example.test');
   expect(resources).not.toContain('Add resource type');
 
-  const targets = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details, initialView: 'targets' }));
+  const targets = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details, initialView: 'targets' }));
   expect(targets).toContain('workspace-targets-panel');
+  expect(targets).toContain('<h2>ExampleCo Research Targets</h2>');
   expect(targets).toContain('Selected on this app server');
 
   const populated: BealeAppServerWorkspaceDetails = { ...details, memory: { ...details.memory,
@@ -99,10 +104,10 @@ test('remote workspace details render the workspace dashboard from the shared de
       impact: 'Example impact.', securityTracking: null, confidence: 0.7, evidenceCount: 0,
       createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', revision: 1 }]
   } };
-  expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details: populated }))).toContain('Example claim');
-  expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details: populated, initialView: 'memory' }))).toContain('Example observation');
-  expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details: populated, initialView: 'runbooks' }))).toContain('Example runbook');
-  expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details: populated, initialView: 'reports' }))).toContain('Example report');
+  expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details: populated }))).toContain('Example claim');
+  expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details: populated, initialView: 'memory' }))).toContain('Example observation');
+  expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details: populated, initialView: 'runbooks' }))).toContain('Example runbook');
+  expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details: populated, initialView: 'reports' }))).toContain('Example report');
 });
 
 test('remote workspace selection and New Research have distinct views', () => {

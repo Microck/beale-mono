@@ -2329,6 +2329,7 @@ export interface BealeApi {
   getFleetRemoteMachines(): Promise<import('@beale/app-server-runtime/protocol').FleetMachine[]>;
   getFleetRemoteCatalog(serverId: string): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteCatalog>;
   getFleetRemoteWorkspaceDetails(serverId: string, workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDetails>;
+  getFleetRemoteWorkspaceDocument(serverId: string, workspaceId: string, kind: 'runbook' | 'report', resourceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDocument>;
   getFleetRemoteQuickChats(serverId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatList>;
   startFleetRemoteQuickChat(serverId: string, input: import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatStartInput): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatStartResult>;
   continueFleetRemoteQuickChat(serverId: string, workspaceId: string, sessionId: string, instruction: string): Promise<{ sessionId: string }>;

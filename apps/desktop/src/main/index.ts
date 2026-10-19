@@ -780,6 +780,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteMachines, () => workspaceService.getFleetRemoteMachines());
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteCatalog, (_event, serverId: string) => workspaceService.getFleetRemoteCatalog(serverId));
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteWorkspaceDetails, (_event, serverId: string, workspaceId: string) => workspaceService.getFleetRemoteWorkspaceDetails(serverId, workspaceId));
+  ipcMain.handle(IPC_CHANNELS.getFleetRemoteWorkspaceDocument, (_event, serverId: string, workspaceId: string, kind: 'runbook' | 'report', resourceId: string) => workspaceService.getFleetRemoteWorkspaceDocument(serverId, workspaceId, kind, resourceId));
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteQuickChats, (_event, serverId: string) => workspaceService.getFleetRemoteQuickChats(serverId));
   ipcMain.handle(IPC_CHANNELS.startFleetRemoteQuickChat, (_event, serverId: string, input: import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatStartInput) => workspaceService.startFleetRemoteQuickChat(serverId, input));
   ipcMain.handle(IPC_CHANNELS.continueFleetRemoteQuickChat, (_event, serverId: string, workspaceId: string, sessionId: string, instruction: string) => workspaceService.continueFleetRemoteQuickChat(serverId, workspaceId, sessionId, instruction));

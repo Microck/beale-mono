@@ -279,6 +279,9 @@ const api: BealeApi = {
   getFleetRemoteWorkspaceDetails(serverId: string, workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDetails> {
     return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteWorkspaceDetails, serverId, workspaceId);
   },
+  getFleetRemoteWorkspaceDocument(serverId: string, workspaceId: string, kind: 'runbook' | 'report', resourceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDocument> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteWorkspaceDocument, serverId, workspaceId, kind, resourceId);
+  },
   getFleetRemoteQuickChats(serverId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatList> {
     return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteQuickChats, serverId);
   },

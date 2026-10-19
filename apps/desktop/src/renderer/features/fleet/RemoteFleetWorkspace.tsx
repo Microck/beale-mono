@@ -219,7 +219,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
         <h1>{workspace?.name ?? (automations ? 'Automations' : 'Research')}</h1></> : null}
       {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
       {showingWorkspaceDetails ? workspaceDetails?.workspace.workspaceId === workspaceId
-        ? <RemoteWorkspaceDetails key={`${serverId}:${workspaceId}`} details={workspaceDetails} />
+        ? <RemoteWorkspaceDetails key={`${serverId}:${workspaceId}`} serverId={serverId} details={workspaceDetails} />
         : <p className="remote-fleet-details-status" role={workspaceDetailsError ? 'alert' : 'status'}>{workspaceDetailsError ?? 'Loading workspace details…'}</p>
       : null}
       {session ? <>{detailError ? <p className="settings-form-error" role="alert">{detailError}</p> : null}

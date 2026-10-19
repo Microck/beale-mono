@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import type { BealeAppServerWorkspaceDetails, BealeWorkspaceResearchClaim } from '@beale/app-server-runtime/protocol';
+import type { BealeAppServerWorkspaceDetails, BealeAppServerWorkspaceDocument, BealeWorkspaceResearchClaim } from '@beale/app-server-runtime/protocol';
 import type {
   AppServerFindingSummary, AppServerMemorySummary, AppServerMemoryNodeSummary,
   AppServerReportSummary, AppServerRunbookSummary, ScopeAssetKind, WorkspaceScopeVersion
 } from '../../../shared/types';
 import { isResearchKitId } from '../../../shared/researchKits';
-import { Modal } from '../../app/Modal';
+import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceDashboardView } from '../workspaces/WorkspaceUnderstandingView';
 
@@ -104,12 +104,32 @@ function remoteMemory(details: BealeAppServerWorkspaceDetails): AppServerMemoryS
   };
 }
 
-export function RemoteWorkspaceDetails({ details, initialView = 'board' }: { details: BealeAppServerWorkspaceDetails; initialView?: WorkspaceDashboardView }): JSX.Element {
-  const [selected, setSelected] = useState<{ title: string; summary: string } | null>(null);
+export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board' }: { serverId: string; details: BealeAppServerWorkspaceDetails; initialView?: WorkspaceDashboardView }): JSX.Element {
+  const [selected, setSelected] = useState<{ kind: 'claim' | 'memory' | 'runbook' | 'report'; id: string } | null>(null);
+  const [documentState, setDocumentState] = useState<{ key: string; value: BealeAppServerWorkspaceDocument | null; error: string | null } | null>(null);
   const scope = useMemo(() => remoteScope(details), [details]);
   const memory = useMemo(() => remoteMemory(details), [details]);
   const workspaceName = scope?.workspaceName ?? details.workspace.name;
-  return <>
+  const selectedRunbook = selected?.kind === 'runbook' ? memory.runbooks.find((item) => item.id === selected.id) ?? null : null;
+  const selectedReport = selected?.kind === 'report' ? memory.reports.find((item) => item.id === selected.id) ?? null : null;
+  const documentKey = selectedRunbook ? `runbook:${selectedRunbook.id}` : selectedReport ? `report:${selectedReport.id}` : null;
+  const open = (kind: 'claim' | 'memory' | 'runbook' | 'report', id: string): void => {
+    setDocumentState(null);
+    setSelected({ kind, id });
+  };
+  const close = (): void => { setSelected(null); setDocumentState(null); };
+  useEffect(() => {
+    if (!documentKey || !selected || (selected.kind !== 'runbook' && selected.kind !== 'report')) return undefined;
+    let active = true;
+    setDocumentState({ key: documentKey, value: null, error: null });
+    void window.beale.getFleetRemoteWorkspaceDocument(serverId, details.workspace.workspaceId, selected.kind, selected.id)
+      .then((value) => { if (active) setDocumentState({ key: documentKey, value, error: null }); })
+      .catch((caught: unknown) => { if (active) setDocumentState({ key: documentKey, value: null, error: caught instanceof Error ? caught.message : String(caught) }); });
+    return () => { active = false; };
+  }, [serverId, details.workspace.workspaceId, documentKey]);
+  const visibleDocument = documentState?.key === documentKey ? documentState : null;
+  const documentLoading = Boolean(documentKey && (!visibleDocument || !visibleDocument.value && !visibleDocument.error));
+  return <div className={`main-session-grid workspace-context${selected ? ' research-details-open' : ' workspace-main-only'}`} data-session-view-state="workspace">
     <WorkspaceUnderstandingView
       busy={false}
       initialView={initialView}
@@ -127,22 +147,48 @@ export function RemoteWorkspaceDetails({ details, initialView = 'board' }: { det
       workspaceId={details.workspace.workspaceId}
       workspaceName={workspaceName}
       runs={[]}
-      onOpenClaim={(id) => {
-        const claim = [...details.memory.leads, ...details.memory.findings].find((item) => item.id === id);
-        if (claim) setSelected({ title: claim.title, summary: claim.summary });
-      }}
-      onOpenMemory={(id) => {
-        const node = details.memory.nodes.find((item) => item.id === id);
-        if (node) setSelected({ title: node.title, summary: node.summary });
-      }}
-      onOpenRunbook={(id) => {
-        const runbook = details.runbooks.find((item) => item.id === id);
-        if (runbook) setSelected({ title: runbook.title, summary: runbook.purpose });
-      }}
-      onOpenReport={(report) => setSelected({ title: report.title, summary: report.summary })}
+      onOpenClaim={(id) => open('claim', id)}
+      onOpenMemory={(id) => open('memory', id)}
+      onOpenRunbook={(id) => open('runbook', id)}
+      onOpenReport={(report) => open('report', report.id)}
     />
-    {selected ? <Modal title={selected.title} onClose={() => setSelected(null)}>
-      <p>{selected.summary || 'No summary recorded.'}</p>
-    </Modal> : null}
-  </>;
+    <div className="research-side-resize-handle" aria-hidden="true" />
+    <div className="research-side-column">
+      <ResearchSidePanel
+        browserContextsEnabled={false}
+        detail={null}
+        events={[]}
+        memory={memory}
+        providerModelCatalog={[]}
+        runId={`workspace:${details.workspace.workspaceId}`}
+        runStatus={null}
+        expanded={Boolean(selected)}
+        selectedRunbook={selectedRunbook}
+        selectedRunbookDocument={visibleDocument?.value?.kind === 'runbook' ? visibleDocument.value.document : null}
+        selectedRunbookId={selectedRunbook?.id ?? null}
+        selectedClaimId={selected?.kind === 'claim' ? selected.id : null}
+        selectedMemoryNodeId={selected?.kind === 'memory' ? selected.id : null}
+        runbookLoading={documentLoading}
+        runbookError={visibleDocument?.error ?? null}
+        selectedReport={selectedReport}
+        selectedReportDocument={visibleDocument?.value?.kind === 'report' ? visibleDocument.value.document : null}
+        selectedReportId={selectedReport?.id ?? null}
+        reportLoading={documentLoading}
+        reportError={visibleDocument?.error ?? null}
+        selectedSubagentPath={null}
+        searchHighlightQuery=""
+        onSelectSubagent={() => undefined}
+        onOpenClaim={(id) => open('claim', id)}
+        onOpenRunbook={(id) => open('runbook', id)}
+        onOpenReport={(id) => open('report', id)}
+        onBackToRunbooks={close}
+        onBackToReports={close}
+        onBackToClaim={close}
+        onBackToMemory={close}
+        onBackToSubagents={() => undefined}
+        onExpandedChange={(expanded) => { if (!expanded) close(); }}
+        viewSpace="workspace"
+      />
+    </div>
+  </div>;
 }

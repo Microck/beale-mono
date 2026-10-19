@@ -1007,6 +1007,10 @@ export class WorkspaceService {
     return invokeAppServerOperation({ operation: 'fleet.remote_workspace_details', input: { serverId, workspaceId } });
   }
 
+  public getFleetRemoteWorkspaceDocument(serverId: string, workspaceId: string, kind: 'runbook' | 'report', resourceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDocument> {
+    return invokeAppServerOperation({ operation: 'fleet.remote_workspace_document', input: { serverId, workspaceId, kind, resourceId } });
+  }
+
   public getFleetRemoteQuickChats(serverId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatList> {
     return invokeAppServerOperation({ operation: 'fleet.remote_quick_chats', input: { serverId } });
   }

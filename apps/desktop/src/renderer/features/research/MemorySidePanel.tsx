@@ -303,7 +303,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   onBackToSubagents,
   expanded,
   onExpandedChange,
-  viewSpace = 'session'
+  viewSpace = 'session',
+  browserContextsEnabled = true
 }: {
   detail: RunDetail | null;
   events: TraceDisplayEvent[];
@@ -344,24 +345,26 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   viewSpace?: ResearchViewSpace;
+  browserContextsEnabled?: boolean;
 }): JSX.Element {
   const featureAvailability = researchProfileFeatureAvailability(researchProfile);
   const subagentsAvailable = featureAvailability.collaboration && viewSpace === 'session';
   const [browserContexts, setBrowserContexts] = useState<BrowserContextSummary[]>([DEFAULT_BROWSER_CONTEXT]);
   const [fleetBrowserMachine, setFleetBrowserMachine] = useState<string | null | undefined>(undefined);
   useEffect(() => {
-    if (viewSpace !== 'session' || !runId) { setFleetBrowserMachine(null); return; }
+    if (!browserContextsEnabled || viewSpace !== 'session' || !runId) { setFleetBrowserMachine(null); return; }
     let active = true;
     setFleetBrowserMachine(undefined);
     void window.beale.fleetBrowserMachine(runId).then((machine) => {
       if (active) setFleetBrowserMachine(machine);
     }).catch(() => { if (active) setFleetBrowserMachine(null); });
     return () => { active = false; };
-  }, [runId, viewSpace]);
+  }, [browserContextsEnabled, runId, viewSpace]);
   const visibleBrowserContexts = fleetBrowserMachine ? [DEFAULT_BROWSER_CONTEXT] : browserContexts;
   const enabledViews = [
-    ...researchSideViewsForProfile(researchProfile).filter((view) => viewSpace === 'session' || view !== 'subagents'),
-    ...visibleBrowserContexts.filter((context) => context.id !== DEFAULT_BROWSER_CONTEXT.id).map((context) => browserSideViewId(context.id))
+    ...researchSideViewsForProfile(researchProfile).filter((view) => (viewSpace === 'session' || view !== 'subagents')
+      && (browserContextsEnabled || !isBrowserSideView(view))),
+    ...(browserContextsEnabled ? visibleBrowserContexts.filter((context) => context.id !== DEFAULT_BROWSER_CONTEXT.id).map((context) => browserSideViewId(context.id)) : [])
   ];
   const browserContextLabels = Object.fromEntries(visibleBrowserContexts.map((context) => [browserSideViewId(context.id), context.label]));
   const enabledViewsKey = enabledViews.join(':');
@@ -370,6 +373,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     initialResearchSideNavigation(selectedSubagentPath, selectedRunbookId, selectedReportId, enabledViews)
   );
   useEffect(() => {
+    if (!browserContextsEnabled) return undefined;
     let active = true;
     let receivedUpdate = false;
     const unsubscribe = window.beale.onBrowserContextsChanged((update) => {
@@ -387,7 +391,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       active = false;
       unsubscribe();
     };
-  }, [onExpandedChange]);
+  }, [browserContextsEnabled, onExpandedChange]);
   const runIdRef = useRef(runId);
   const [query, setQuery] = useState('');
   const [reportQuery, setReportQuery] = useState('');
@@ -777,7 +781,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   };
   const browserPages = (
     <Fragment key="browser-pages">
-      {fleetBrowserMachine !== undefined && visibleBrowserContexts.filter((context) => visibleNavigation.openViews.includes(browserSideViewId(context.id))).map((context) => (
+      {browserContextsEnabled && fleetBrowserMachine !== undefined && visibleBrowserContexts.filter((context) => visibleNavigation.openViews.includes(browserSideViewId(context.id))).map((context) => (
         fleetBrowserMachine
           ? <FleetBrowserSideView key={context.id} runId={runId}
               visible={detailsOpen && activeView === browserSideViewId(context.id) && !visibleSelectedSubagentPath && !visibleSelectedRunbookId && !visibleSelectedReportId && !selectedNode && !selectedClaim} />
@@ -786,7 +790,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       ))}
     </Fragment>
   );
-  const browserSummaryRows = visibleBrowserContexts.map((context) => (
+  const browserSummaryRows = (browserContextsEnabled ? visibleBrowserContexts : []).map((context) => (
     <button
       key={context.id}
       type="button"
@@ -1009,8 +1013,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             onActivate={activateDetails}
             onClose={closeDetails}
             onOpen={openDetails}
-            onCreateBrowserContext={fleetBrowserMachine ? undefined : (label) => window.beale.createBrowserContext(label).then(() => undefined)}
-            onRenameBrowserContext={fleetBrowserMachine ? undefined : (id, label) => window.beale.renameBrowserContext(id, label).then(() => undefined)}
+            onCreateBrowserContext={!browserContextsEnabled || fleetBrowserMachine ? undefined : (label) => window.beale.createBrowserContext(label).then(() => undefined)}
+            onRenameBrowserContext={!browserContextsEnabled || fleetBrowserMachine ? undefined : (id, label) => window.beale.renameBrowserContext(id, label).then(() => undefined)}
             trailing={activeView === 'memory' ? (
               <FloatingTextPicker
                 className="memory-catalog-filter memory-catalog-level-filter research-side-memory-scope"

@@ -315,6 +315,12 @@ export class AppServerHostService {
       if (request.operation === 'fleet.remote_machines') return this.fleet.remoteMachines();
       if (request.operation === 'fleet.remote_catalog') return this.fleet.remoteCatalog(nonEmpty(input.serverId) ?? '');
       if (request.operation === 'fleet.remote_workspace_details') return this.fleet.remoteWorkspaceDetails(nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '');
+      if (request.operation === 'fleet.remote_workspace_document') {
+        if (input.kind !== 'runbook' && input.kind !== 'report') throw new Error('Invalid remote workspace document kind.');
+        return this.fleet.remoteWorkspaceDocument(
+          nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '', input.kind, nonEmpty(input.resourceId) ?? ''
+        );
+      }
       if (request.operation === 'fleet.remote_quick_chats') return this.fleet.remoteQuickChats(nonEmpty(input.serverId) ?? '');
       if (request.operation === 'fleet.remote_quick_chat_start') return this.fleet.remoteStartQuickChat(nonEmpty(input.serverId) ?? '', input.quickChat);
       if (request.operation === 'fleet.remote_quick_chat_continue') return this.fleet.remoteContinueQuickChat(

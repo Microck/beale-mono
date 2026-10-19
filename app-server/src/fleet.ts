@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { homedir, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { APP_SERVER_SESSION_LAUNCH_VERSION, BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION, BEALE_APP_SERVER_OPERATIONS_PATH, BEALE_APP_SERVER_PROVIDERS_PATH, BEALE_APP_SERVER_QUICK_CHATS_PATH, BEALE_APP_SERVER_SERVER_PATH, BEALE_APP_SERVER_WORKSPACES_PATH, BEALE_APP_SERVER_SESSIONS_PATH, BEALE_APP_SERVER_SUPERVISOR_HTTPS_PORT, BEALE_APP_SERVER_SUPERVISOR_RESTART_PATH, DEFAULT_BROWSER_HOME_PAGE, bealeAppServerWorkspaceDetailsPath, decodeBealeAppServerProviderCatalog, decodeBealeAppServerQuickChatList, decodeBealeAppServerQuickChatStartInput, decodeBealeAppServerQuickChatStartResult, decodeBealeAppServerWorkspaceDetails, decodeGeneratedResearchGoalSuggestions, type AppServerProtocolOperation, type BealeAppServerQuickChatList, type BealeAppServerQuickChatStartResult, type BealeAppServerWorkspaceDetails, type FleetBackend, type FleetMachine, type FleetRemoteCatalog, type FleetRemoteGoalSuggestions, type FleetRemotePromptExpansionInput, type FleetRemotePromptExpansionResult, type FleetRemoteResearchInput, type FleetSshTestInput, type FleetSshTestResult, type FleetState } from '@beale/app-server-runtime/protocol';
+import { APP_SERVER_SESSION_LAUNCH_VERSION, BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION, BEALE_APP_SERVER_OPERATIONS_PATH, BEALE_APP_SERVER_PROVIDERS_PATH, BEALE_APP_SERVER_QUICK_CHATS_PATH, BEALE_APP_SERVER_SERVER_PATH, BEALE_APP_SERVER_WORKSPACES_PATH, BEALE_APP_SERVER_SESSIONS_PATH, BEALE_APP_SERVER_SUPERVISOR_HTTPS_PORT, BEALE_APP_SERVER_SUPERVISOR_RESTART_PATH, DEFAULT_BROWSER_HOME_PAGE, bealeAppServerWorkspaceDetailsPath, decodeBealeAppServerProviderCatalog, decodeBealeAppServerQuickChatList, decodeBealeAppServerQuickChatStartInput, decodeBealeAppServerQuickChatStartResult, decodeBealeAppServerWorkspaceDetails, decodeBealeAppServerWorkspaceDocument, decodeGeneratedResearchGoalSuggestions, type AppServerProtocolOperation, type BealeAppServerQuickChatList, type BealeAppServerQuickChatStartResult, type BealeAppServerWorkspaceDetails, type BealeAppServerWorkspaceDocument, type FleetBackend, type FleetMachine, type FleetRemoteCatalog, type FleetRemoteGoalSuggestions, type FleetRemotePromptExpansionInput, type FleetRemotePromptExpansionResult, type FleetRemoteResearchInput, type FleetSshTestInput, type FleetSshTestResult, type FleetState } from '@beale/app-server-runtime/protocol';
 import { sshConnectionArgs } from './fleetSsh.js';
 import { detectFleetBrowsers } from './fleetBrowsers.js';
 import { normalizeTailnetOrigin, verifySameTailnet } from './tailnetRemote.js';
@@ -371,6 +371,23 @@ export class FleetService {
     return decodeBealeAppServerWorkspaceDetails(await this.remoteGet(
       server, bealeAppServerWorkspaceDetailsPath(workspaceId)
     ));
+  }
+
+  public async remoteWorkspaceDocument(serverId: string, workspaceId: string, kind: 'runbook' | 'report', resourceId: string): Promise<BealeAppServerWorkspaceDocument> {
+    if (!WORKSPACE_ID.test(workspaceId) || !resourceId.trim() || !['runbook', 'report'].includes(kind)) {
+      throw new Error('Invalid remote workspace document request.');
+    }
+    const document = await this.callRemote<unknown>(serverId, kind === 'runbook' ? 'runbook.get' : 'report.get', {
+      workspaceId, [kind === 'runbook' ? 'runbookId' : 'reportId']: resourceId
+    });
+    if (!isRecord(document)) throw new Error('Remote app server returned an invalid workspace document.');
+    const sanitized = kind === 'runbook' && Array.isArray(document.cells)
+      ? { ...document, cells: document.cells.map((cell) => {
+        if (!isRecord(cell) || !isRecord(cell.executor) || cell.executor.kind !== 'tart-vm') return cell;
+        return { ...cell, executor: { ...cell.executor, workspacePath: null } };
+      }) }
+      : document;
+    return decodeBealeAppServerWorkspaceDocument({ schemaVersion: 1, kind, resourceId, document: sanitized });
   }
 
   public async remoteQuickChats(serverId: string): Promise<BealeAppServerQuickChatList> {

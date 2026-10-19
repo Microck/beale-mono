@@ -376,7 +376,7 @@ export function WorkspaceUnderstandingView({
         workspaceDirectories={workspaceDirectories ?? (workspacePath ? [workspacePath] : [])}
       /> : null}
 
-      {activeView === 'targets' ? <WorkspaceTargetsPanel workspaceId={workspaceId} disabled={busy} remoteTargets={remoteTargets} /> : null}
+      {activeView === 'targets' ? <WorkspaceTargetsPanel workspaceId={workspaceId} workspaceName={activeScope?.workspaceName || workspaceName} disabled={busy} remoteTargets={remoteTargets} /> : null}
 
       {activeView === 'resources' ? <WorkspaceResearchSurface
         onEditStateChange={setResourceEditState}

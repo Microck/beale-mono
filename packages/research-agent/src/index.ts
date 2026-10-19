@@ -19,6 +19,8 @@ export * from "./memory-summary.js";
 export * from "./knowledge-artifacts.js";
 export type {
   CampaignGraphSummary,
+  ReportDocument as KnowledgeReportDocument,
+  RunbookDocument as KnowledgeRunbookDocument,
   MemoryNodeSummary,
   ResearchClaimRating,
   ResearchProfileSnapshot,

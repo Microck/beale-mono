@@ -6,6 +6,7 @@
 
 #### Added
 
+- Remote workspace claims, memories, runbooks, and reports now open in the shared expanded right sidebar. The remote detail views are read-only.
 - New Research on a connected app server now uses the standard composer with that server's provider models, workspace targets, research suggestions, Goal Mode, Add Context, and Repeat. The selected app server owns suggestions, prompt expansion, the resulting session, and its repeat schedule. Rebuild Desktop and app-server binaries together; clients that pin the control timestamp must also update.
 - Quick Chat on a connected app server now opens a remote dock, starts chats in an app-server-owned internal workspace, and lets users reopen recent chats.
 - Selecting a workspace on a connected app server opens the same workspace dashboard used for local workspaces, with read-only settings, resources, rules, targets, claims, memories, runbooks, and reports. Remote New Research remains a separate action.
@@ -1301,6 +1302,7 @@
 
 #### Added
 
+- Connected app servers can fetch read-only workspace runbook and report documents through the versioned control protocol. The remote runbook projection excludes host workspace paths; rebuild Desktop and app-server clients together for the updated contract.
 - Connected app-server catalogs now expose provider availability, and client-neutral operations route research suggestions, prompt expansion, and session launches to the selected host. Repeat schedules persist in canonical session metadata for host-owned reruns.
 - Added single-session execution across selected local, VM, and browser targets. The versioned launch contract carries target IDs, routes shell and browser tools to those targets, and releases all VM and browser resources when the session ends. Control contract v49 requires rebuilt clients and hosts.
 - Added authenticated, versioned Quick Chat list and start endpoints for Desktop and iOS clients. Quick Chats run in a hidden app-server-owned workspace and use the existing session update and control endpoints.
