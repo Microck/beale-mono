@@ -8,7 +8,7 @@
 
 - New Research on a connected app server now uses the standard composer with that server's provider models, workspace targets, research suggestions, Goal Mode, Add Context, and Repeat. The selected app server owns suggestions, prompt expansion, the resulting session, and its repeat schedule. Rebuild Desktop and app-server binaries together; clients that pin the control timestamp must also update.
 - Quick Chat on a connected app server now opens a remote dock, starts chats in an app-server-owned internal workspace, and lets users reopen recent chats.
-- Selecting a workspace on a connected app server opens a read-only details dashboard with scope, resources, rules, targets, claims, memories, runbooks, and reports. Remote New Research remains a separate action.
+- Selecting a workspace on a connected app server opens the same workspace dashboard used for local workspaces, with read-only settings, resources, rules, targets, claims, memories, runbooks, and reports. Remote New Research remains a separate action.
 - Development Desktop sessions let agents record Beale harness flaws, quirks, and limitations through `harness.feedback`; a compact end-of-session button opens the recorded feedback.
 - New Research suggestion lists have a Regenerate button beside Categories to request fresh ideas for the selected category.
 - New workspaces can import public Bugcrowd engagement briefs, including in-scope and out-of-scope targets, rules, and guidance. Bugcrowd Research Kits can refresh these imports from the current public brief.
@@ -43,6 +43,7 @@
 
 #### Changed
 
+- Quick Chat on a connected app server now uses the local dock and composer, including model selection, resizing, collapse, and close controls. The selected app server continues to own the chat session.
 - New Research now supports selecting multiple workspace targets for one session. The target picker keeps selections visible as the first target with a count; connected app servers accept the same selection.
 - New Research shows the selected app server and target in its top tab, with Goal Mode, Add Context, and Repeat in a nested settings menu. In-Agent Browser is no longer offered as a research target; saved selections resolve to Local.
 - The sidebar machine selector now sizes to the selected name and uses a flat, keyboard-accessible menu for switching app servers.

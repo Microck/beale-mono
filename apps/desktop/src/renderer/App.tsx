@@ -2593,7 +2593,9 @@ export function App(): JSX.Element {
         }}
       />
       {selectedFleetServerId !== 'local' ? <RemoteQuickChatDock
+        key={selectedFleetServerId}
         serverId={selectedFleetServerId}
+        catalog={remoteCatalog}
         chats={remoteQuickChats.filter((chat) => chat.serverId === selectedFleetServerId)}
         onClose={(id) => setRemoteQuickChats((current) => current.filter((chat) => chat.id !== id))}
         onStarted={(id, workspaceId, sessionId) => setRemoteQuickChats((current) => current.map((chat) => chat.id === id ? { ...chat, workspaceId, sessionId } : chat))}

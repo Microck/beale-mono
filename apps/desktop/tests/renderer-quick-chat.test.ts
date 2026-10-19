@@ -100,6 +100,22 @@ describe('quick chats', () => {
     expect(html).not.toContain('aria-label="Close quick chat"');
   });
 
+  it('keeps remote chat history available from the shared card header', () => {
+    const html = renderToStaticMarkup(createElement(QuickChatDock, {
+      chats: [{ id: 'remote-chat-example', remote: { serverId: 'server-example' } }],
+      remoteHistory: [{ sessionId: 'session-example', workspaceId: 'workspace-example',
+        title: 'Example chat', promptMarkdown: 'Inspect example.test', status: 'completed',
+        updatedAt: '2026-01-01T00:00:00.000Z' }],
+      providerModelCatalog: [],
+      onClose: () => undefined,
+      onRunStarted: () => undefined
+    }));
+    expect(html).toContain('aria-label="Recent Quick Chats"');
+    expect(html).toContain('aria-label="Resize quick chat"');
+    expect(html).toContain('Any topic, any workspace');
+    expect(html).not.toContain('remote-quick-chat-start');
+  });
+
   it('bundles explicit current-or-selected workspace query and edit tools', () => {
     const server = readFileSync(new URL('../../../app-server/resources/harness-features/beale-introspection/server.mjs', import.meta.url), 'utf8');
     expect(server).toContain("name: 'get_workspace'");

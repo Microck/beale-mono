@@ -4,7 +4,7 @@ import { expect, test } from 'vitest';
 import type { BealeAppServerWorkspaceDetails, FleetRemoteCatalog } from '@beale/app-server-runtime/protocol';
 import { RemoteFleetSidebar, RemoteFleetWorkspace } from '../src/renderer/features/fleet/RemoteFleetWorkspace';
 import { RemoteWorkspaceDetails } from '../src/renderer/features/fleet/RemoteWorkspaceDetails';
-import { RemoteQuickChatDock } from '../src/renderer/features/fleet/RemoteQuickChatDock';
+import { RemoteQuickChatDock, remoteQuickChatModels } from '../src/renderer/features/fleet/RemoteQuickChatDock';
 import { CommentaryView } from '../src/renderer/features/commentary/CommentaryView';
 import { mergeRemoteSessionHistory, remoteRunDetail, remoteSessionHistoryPage, remoteWorkspaceRegistry } from '../src/renderer/features/fleet/remoteFleetProjection';
 import { buildTraceDisplayEventsForAgentPath } from '../src/renderer/view-models/traceDisplay';
@@ -68,7 +68,41 @@ test('remote workspace details render the workspace dashboard from the shared de
   expect(html).toContain('Runbooks');
   expect(html).toContain('Reports');
   expect(html).toContain('ExampleCo Research Claims');
+  expect(html).toContain('campaign-board-lanes');
+  expect(html).toContain('aria-label="Filter claims"');
+  expect(html).not.toContain('remote-workspace-details-panel');
   expect(html).not.toContain('New Research prompt');
+
+  const settings = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details, initialView: 'overview' }));
+  expect(settings).toContain('workspace-overview-layout');
+  expect(settings).toContain('aria-label="Workspace Name"');
+  expect(settings).not.toContain('workspace-removal-form');
+  expect(settings).not.toContain('workspace-directories-field');
+
+  const resources = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details, initialView: 'resources' }));
+  expect(resources).toContain('workspace-surface-item');
+  expect(resources).toContain('example.test');
+  expect(resources).not.toContain('Add resource type');
+
+  const targets = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details, initialView: 'targets' }));
+  expect(targets).toContain('workspace-targets-panel');
+  expect(targets).toContain('Selected on this app server');
+
+  const populated: BealeAppServerWorkspaceDetails = { ...details, memory: { ...details.memory,
+    nodeCount: 1, nodeTypeCounts: { observation: 1 },
+    nodes: [{ id: 'memory-example', sessionIds: [], type: 'observation', title: 'Example observation',
+      summary: 'Observed on example.test.', status: 'confirmed', confidence: 0.8, tags: [],
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', revision: 1, duplicateMemories: [] }],
+    findings: [{ id: 'claim-example', sessionIds: [], projection: 'finding', maturity: 'observed',
+      freshness: 'current', workflow: 'open', rating: 'low', classification: 'example.class',
+      componentClaimIds: [], duplicateClaims: [], title: 'Example claim', summary: 'Synthetic claim.',
+      impact: 'Example impact.', securityTracking: null, confidence: 0.7, evidenceCount: 0,
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', revision: 1 }]
+  } };
+  expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details: populated }))).toContain('Example claim');
+  expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details: populated, initialView: 'memory' }))).toContain('Example observation');
+  expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details: populated, initialView: 'runbooks' }))).toContain('Example runbook');
+  expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details: populated, initialView: 'reports' }))).toContain('Example report');
 });
 
 test('remote workspace selection and New Research have distinct views', () => {
@@ -89,12 +123,18 @@ test('remote workspace selection and New Research have distinct views', () => {
 
 test('remote Quick Chat opens in the dock without selecting a workspace', () => {
   const html = renderToStaticMarkup(createElement(RemoteQuickChatDock, {
-    serverId: 'server-example', chats: [{ id: 'quick-chat-example', serverId: 'server-example' }],
+    serverId: 'server-example', catalog, chats: [{ id: 'quick-chat-example', serverId: 'server-example' }],
     onClose: () => undefined, onStarted: () => undefined
   }));
-  expect(html).toContain('aria-label="Remote quick chats"');
+  expect(html).toContain('aria-label="Quick chats"');
+  expect(html).toContain('aria-label="Resize quick chat"');
   expect(html).toContain('Send a quick chat message');
-  expect(html).toContain('This chat will be saved on this app server.');
+  expect(html).toContain('Any topic, any workspace');
+  expect(html).toContain('This chat will be automatically archived.');
+  expect(html).not.toContain('Recent Quick Chats');
+  expect(remoteQuickChatModels(catalog).initialSelection).toEqual({
+    provider: 'openai-codex', model: 'gpt-example', reasoningEffort: 'high'
+  });
 });
 
 test('remote canonical events feed the local commentary projection', () => {

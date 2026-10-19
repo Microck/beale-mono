@@ -84,7 +84,9 @@ export function CampaignBoardView({
       <header className="campaign-header campaign-board-header">
         <div className="settings-form-heading campaign-view-heading">
           <h2 className="campaign-view-title" id="workspace-campaign-board-heading">{workspaceName.trim() || 'Workspace'} Claims</h2>
-          <p>Drag findings between columns to change status. Human moves are recorded as overrides; proposed leads are excluded.</p>
+          <p>{onTransitionClaim
+            ? 'Drag findings between columns to change status. Human moves are recorded as overrides; proposed leads are excluded.'
+            : 'Findings are grouped by maturity; proposed leads are excluded.'}</p>
           {pendingClaimId ? <p className="campaign-board-transition-pending" role="status">Updating claim status…</p> : null}
           {transitionError ? <p className="campaign-board-transition-error" role="alert">{transitionError}</p> : null}
         </div>

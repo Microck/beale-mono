@@ -209,6 +209,9 @@ export function WorkspaceUnderstandingView({
   onActiveViewChange,
   onViewSelectionChange,
   initialView = 'board',
+  readOnly = false,
+  remoteTargets,
+  researchProfileLabel,
   nowMs
 }: {
   busy: boolean;
@@ -227,6 +230,9 @@ export function WorkspaceUnderstandingView({
   workspaceName: string;
   runs: RunRow[];
   initialView?: WorkspaceDashboardView;
+  readOnly?: boolean;
+  remoteTargets?: readonly { id: string; name: string; ready: boolean }[];
+  researchProfileLabel?: string;
   onAddResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onCloneRepository?: (assetId: string, cloneMode: RepositoryCloneMode) => Promise<void>;
@@ -253,7 +259,7 @@ export function WorkspaceUnderstandingView({
   const [activeCampaignView, setActiveCampaignView] = useState<WorkspaceCampaignView>(() => workspaceCampaignView(initialView));
   const [clockNowMs, setClockNowMs] = useState(() => Date.now());
   const researchKit = researchKitDefinition(researchKitId);
-  const dashboardViews = researchKit.refresh
+  const dashboardViews = researchKit.refresh && !readOnly
     ? WORKSPACE_DASHBOARD_VIEWS
     : WORKSPACE_DASHBOARD_VIEWS.filter((view) => view !== 'kit');
   useEffect(() => {
@@ -360,6 +366,8 @@ export function WorkspaceUnderstandingView({
         memoryBackendLocked={runs.some(({ run }) => isLiveResearchRunStatus(run.status) || run.status === 'paused')}
         researchSubjectLocked={runs.some(({ run }) => isLiveResearchRunStatus(run.status))}
         researchProfile={researchProfile}
+        researchProfileLabel={researchProfileLabel}
+        readOnly={readOnly}
         researchKitId={researchKitId}
         researchSubjectName={researchSubjectName}
         workspaceName={workspaceName}
@@ -368,7 +376,7 @@ export function WorkspaceUnderstandingView({
         workspaceDirectories={workspaceDirectories ?? (workspacePath ? [workspacePath] : [])}
       /> : null}
 
-      {activeView === 'targets' ? <WorkspaceTargetsPanel workspaceId={workspaceId} disabled={busy} /> : null}
+      {activeView === 'targets' ? <WorkspaceTargetsPanel workspaceId={workspaceId} disabled={busy} remoteTargets={remoteTargets} /> : null}
 
       {activeView === 'resources' ? <WorkspaceResearchSurface
         onEditStateChange={setResourceEditState}
@@ -382,6 +390,7 @@ export function WorkspaceUnderstandingView({
         onChangeResource={onChangeResource}
         onCloneRepository={onCloneRepository}
         workspaceName={activeScope?.workspaceName || workspaceName}
+        readOnly={readOnly}
       /> : null}
 
       {pendingResourceNavigation ? <Modal title="Discard resource changes?" onClose={() => setPendingResourceNavigation(null)} footer={<>
@@ -407,6 +416,7 @@ export function WorkspaceUnderstandingView({
       {activeView === 'rules' ? <WorkspaceRulesPanel
         busy={busy}
         onAddRule={onAddRule}
+        readOnly={readOnly}
         rules={workspaceRules}
         workspaceName={activeScope?.workspaceName || workspaceName}
       /> : null}
@@ -611,11 +621,13 @@ export function WorkspaceResearchKitPanel({
 function WorkspaceRulesPanel({
   busy,
   onAddRule,
+  readOnly,
   rules,
   workspaceName
 }: {
   busy: boolean;
   onAddRule: (text: string) => Promise<void>;
+  readOnly: boolean;
   rules: readonly WorkspaceRule[];
   workspaceName: string;
 }): JSX.Element {
@@ -647,10 +659,10 @@ function WorkspaceRulesPanel({
       <div className="workspace-rules-layout settings-form">
         <header className="settings-form-heading">
           <h2>{workspaceName} Rules</h2>
-          <p>Append concise operating constraints for every research session in this workspace.</p>
+          <p>{readOnly ? 'Operating constraints for research in this workspace.' : 'Append concise operating constraints for every research session in this workspace.'}</p>
         </header>
-        <div className="settings-form-squircle workspace-rules-surface">
-          <form className="workspace-rule-composer" onSubmit={(event) => void submit(event)}>
+        <div className={`settings-form-squircle workspace-rules-surface${readOnly ? ' is-read-only' : ''}`}>
+          {!readOnly ? <form className="workspace-rule-composer" onSubmit={(event) => void submit(event)}>
             <input
               aria-label="New workspace rule"
               disabled={busy || submitting}
@@ -663,7 +675,7 @@ function WorkspaceRulesPanel({
               <Plus aria-hidden="true" size={14} />
               Add Rule
             </button>
-          </form>
+          </form> : null}
           {error ? <p className="workspace-rules-error" role="alert">{error}</p> : null}
           {rules.length > 0 ? (
             <ol aria-label="Workspace rules" className="workspace-rule-list">
@@ -688,6 +700,8 @@ function WorkspaceOverviewPanel({
   memoryBackend,
   memoryBackendLocked,
   researchProfile,
+  researchProfileLabel,
+  readOnly,
   researchKitId,
   researchSubjectName,
   researchSubjectLocked,
@@ -707,6 +721,8 @@ function WorkspaceOverviewPanel({
   memoryBackend: WorkspaceMemoryBackendId;
   memoryBackendLocked: boolean;
   researchProfile: ResearchProfile | null;
+  researchProfileLabel?: string;
+  readOnly: boolean;
   researchKitId: ResearchKitId;
   researchSubjectName: string;
   researchSubjectLocked: boolean;
@@ -847,7 +863,7 @@ function WorkspaceOverviewPanel({
                   aria-label="Research Profile"
                   className="workspace-overview-input"
                   disabled
-                  value={workspaceResearchProfileLabel(researchProfile)}
+                  value={researchProfileLabel ?? workspaceResearchProfileLabel(researchProfile)}
                 />
               </label>
               <label className="settings-form-control-row workspace-overview-control-row">
@@ -870,7 +886,7 @@ function WorkspaceOverviewPanel({
                 <select
                   aria-label="Memory"
                   className="workspace-overview-input"
-                  disabled={busy || memoryBackendLocked || memorySaving}
+                  disabled={readOnly || busy || memoryBackendLocked || memorySaving}
                   title={memoryBackendLocked ? 'Memory cannot be changed while a research session is queued, active, or paused' : undefined}
                   value={memoryBackend}
                   onChange={(event) => void changeMemoryBackend(event.target.value as WorkspaceMemoryBackendId)}
@@ -887,7 +903,7 @@ function WorkspaceOverviewPanel({
                 <input
                   aria-label="Research Subject"
                   className="workspace-overview-input"
-                  disabled={busy || researchSubjectLocked || researchSubjectSaving}
+                  disabled={readOnly || busy || researchSubjectLocked || researchSubjectSaving}
                   maxLength={500}
                   required
                   title={researchSubjectLocked ? 'Research Subject cannot be changed while a research session is queued or active' : undefined}
@@ -907,7 +923,7 @@ function WorkspaceOverviewPanel({
                 <input
                   aria-label="Workspace Name"
                   className="workspace-overview-input"
-                  disabled={busy}
+                  disabled={readOnly || busy}
                   required
                   value={workspaceNameDraft}
                   onChange={(event) => setWorkspaceNameDraft(event.target.value)}
@@ -917,7 +933,7 @@ function WorkspaceOverviewPanel({
                   }}
                 />
               </label>
-              <WorkspaceDirectoriesField
+              {!readOnly ? <WorkspaceDirectoriesField
                 directories={workspaceDirectories}
                 disabled={busy}
                 lockedDirectory={workspacePath}
@@ -930,20 +946,20 @@ function WorkspaceOverviewPanel({
                   await onChangeDirectories([...workspaceDirectories, selectedPath]);
                 }}
                 onRemove={(directory) => onChangeDirectories(workspaceDirectories.filter((item) => workspaceDirectoryKey(item) !== workspaceDirectoryKey(directory)))}
-              />
+              /> : null}
               <div className="settings-form-control-row workspace-overview-control-row workspace-overview-textarea-row">
                 <div className="workspace-guidance-field-heading">
                   <span className="settings-form-control-copy">
                     <strong>Workspace Guidance</strong>
-                    <small>Reads and writes the primary workspace's AGENTS.md instructions.</small>
+                    <small>{readOnly ? 'Instructions recorded by this app server.' : "Reads and writes the primary workspace's AGENTS.md instructions."}</small>
                   </span>
-                  {guidanceEditing ? (
+                  {guidanceEditing && !readOnly ? (
                     <button className="workspace-guidance-show-markdown" onClick={showGuidancePreview} type="button">
                       Show Markdown
                     </button>
                   ) : null}
                 </div>
-                {guidanceEditing ? (
+                {guidanceEditing && !readOnly ? (
                   <textarea
                     aria-label="Workspace Guidance"
                     autoFocus
@@ -964,26 +980,26 @@ function WorkspaceOverviewPanel({
                   >
                     <div
                       aria-label="Workspace Guidance"
-                      aria-disabled={busy || undefined}
+                      aria-disabled={busy || readOnly || undefined}
                       className="workspace-guidance-preview-content"
-                      onClick={showGuidanceEditor}
-                      onKeyDown={(event) => {
+                      onClick={readOnly ? undefined : showGuidanceEditor}
+                      onKeyDown={readOnly ? undefined : (event) => {
                         if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
                         event.preventDefault();
                         showGuidanceEditor();
                       }}
-                      role="button"
-                      tabIndex={busy ? -1 : 0}
-                      title="Edit Workspace Guidance"
+                      role={readOnly ? undefined : 'button'}
+                      tabIndex={busy || readOnly ? -1 : 0}
+                      title={readOnly ? undefined : 'Edit Workspace Guidance'}
                     >
                       {descriptionDraft.trim()
                         ? renderTraceProseText(descriptionDraft, 'agent_output')
-                        : <p className="workspace-guidance-preview-empty">Click to add workspace guidance.</p>}
+                        : <p className="workspace-guidance-preview-empty">{readOnly ? 'No workspace guidance recorded.' : 'Click to add workspace guidance.'}</p>}
                     </div>
                   </div>
                 )}
               </div>
-              <WorkspaceRemovalForm busy={busy} onRemove={onRemoveWorkspace} workspaceName={resolvedWorkspaceName} />
+              {!readOnly ? <WorkspaceRemovalForm busy={busy} onRemove={onRemoveWorkspace} workspaceName={resolvedWorkspaceName} /> : null}
             </div>
           </div>
           {saveError ? <p className="workspace-overview-error" role="alert">{saveError}</p> : null}
@@ -1569,6 +1585,7 @@ function WorkspaceResearchSurface({
   onAddResource,
   onChangeResource,
   onCloneRepository,
+  readOnly,
   workspaceName
 }: {
   onEditStateChange: (state: { dirty: boolean; pending: boolean }) => void;
@@ -1581,6 +1598,7 @@ function WorkspaceResearchSurface({
   onAddResource: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onCloneRepository: (assetId: string, cloneMode: RepositoryCloneMode) => Promise<void>;
+  readOnly: boolean;
   workspaceName: string;
 }): JSX.Element {
   const items = useMemo(
@@ -1671,7 +1689,7 @@ function WorkspaceResearchSurface({
     }
   };
 
-  if (selectedItem) return (
+  if (selectedItem && !readOnly) return (
     <section key="resource-detail" className="workspace-dashboard-panel workspace-resource-detail" aria-label="Resource details" id="workspace-dashboard-resources-panel" role="tabpanel">
       <WorkspaceResourceEditor
         key={`editor:${selectedItem.asset.id}`}
@@ -1714,7 +1732,7 @@ function WorkspaceResearchSurface({
                 <WorkspaceAssetIcon kind={kind} size={14} />
                 <span>{workspaceAssetKindLabel(kind)}</span>
               </button>
-              <button
+              {!readOnly ? <button
                 aria-label={`Add ${workspaceAssetKindLabel(kind).toLowerCase()}`}
                 className="research-side-view-tab-close workspace-resource-tab-add"
                 onClick={() => openResourceDialog(kind)}
@@ -1722,11 +1740,11 @@ function WorkspaceResearchSurface({
                 type="button"
               >
                 <Plus aria-hidden="true" size={14} />
-              </button>
+              </button> : null}
             </div>
           ))}
         </div>
-        <div className="research-side-view-picker workspace-resource-kind-picker" ref={kindPickerRef}>
+        {!readOnly ? <div className="research-side-view-picker workspace-resource-kind-picker" ref={kindPickerRef}>
           <button
             aria-expanded={kindPickerOpen}
             aria-haspopup="menu"
@@ -1749,7 +1767,7 @@ function WorkspaceResearchSurface({
               ))}
             </div>
           ) : null}
-        </div>
+        </div> : null}
       </div>
       {visibleItems.length > 0 ? (
         <div className="workspace-surface-scroll" ref={surfaceScrollRef}>
@@ -1767,7 +1785,8 @@ function WorkspaceResearchSurface({
               >
                 <button
                   className="workspace-surface-item-open"
-                  onClick={() => setSelectedResource({ kind: item.asset.kind, value: item.asset.value, direction: item.asset.direction })}
+                  onClick={readOnly ? undefined : () => setSelectedResource({ kind: item.asset.kind, value: item.asset.value, direction: item.asset.direction })}
+                  disabled={readOnly}
                   title={`Open ${item.label}`}
                   type="button"
                 >
@@ -1791,7 +1810,7 @@ function WorkspaceResearchSurface({
                     </div>
                   </div>
                 </button>
-                {item.asset.direction === 'in_scope' && item.repositoryCloned === false && item.repositoryCloneAssetId ? (
+                {!readOnly && item.asset.direction === 'in_scope' && item.repositoryCloned === false && item.repositoryCloneAssetId ? (
                   <button
                     className="workspace-repository-clone-button"
                     disabled={cloningAssetIds.has(item.repositoryCloneAssetId)}

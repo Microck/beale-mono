@@ -5,6 +5,7 @@ import type {
   PointerEvent as ReactPointerEvent
 } from 'react';
 import { ChevronDown, ChevronUp, FileText, MessageSquare, X } from 'lucide-react';
+import type { BealeAppServerQuickChatSummary } from '@beale/app-server-runtime/protocol';
 import type {
   ApprovalRecord,
   PolicyReviewDecision,
@@ -18,8 +19,10 @@ import type {
 import { CommentaryView } from '../commentary/CommentaryView';
 import { BealeWelcomeIcon } from '../../app/BealeWelcomeIcon';
 import { useRunDetailPolling } from '../../hooks/useRunDetailPolling';
-import { buildTraceDisplayEvents } from '../../view-models/traceDisplay';
+import { buildTraceDisplayEvents, buildTraceDisplayEventsForAgentPath } from '../../view-models/traceDisplay';
 import { errorMessage } from '../../lib/errors';
+import { mergeRemoteSessionHistory, remoteRunDetail, remoteSessionHistoryPage } from '../fleet/remoteFleetProjection';
+import type { RemoteSessionHistoryPage } from '../fleet/remoteFleetProjection';
 
 const QUICK_CHAT_MIN_WIDTH = 280;
 const QUICK_CHAT_MIN_HEIGHT = 260;
@@ -39,6 +42,7 @@ export interface QuickChatDescriptor {
   runState?: RunStatus;
   kind?: 'quick-chat' | 'report-edit';
   title?: string;
+  remote?: { serverId: string; workspaceId?: string; sessionId?: string };
 }
 
 interface PresentQuickChat {
@@ -52,6 +56,8 @@ export const QuickChatDock = memo(function QuickChatDock({
   initialModelSelection,
   onClose,
   onRunStarted,
+  onRemoteStarted,
+  remoteHistory = [],
   reportShellApproval = null,
   reportShellApprovalBusy = false,
   reportBusy = false,
@@ -65,6 +71,8 @@ export const QuickChatDock = memo(function QuickChatDock({
   initialModelSelection?: ResearchModelSelection;
   onClose: (id: string) => void;
   onRunStarted: (chatId: string, run: RunRecord) => void;
+  onRemoteStarted?: (chatId: string, workspaceId: string, sessionId: string) => void;
+  remoteHistory?: readonly BealeAppServerQuickChatSummary[];
   reportShellApproval?: ApprovalRecord | null;
   reportShellApprovalBusy?: boolean;
   reportBusy?: boolean;
@@ -118,6 +126,8 @@ export const QuickChatDock = memo(function QuickChatDock({
           initialModelSelection={initialModelSelection}
           onClose={onClose}
           onRunStarted={onRunStarted}
+          onRemoteStarted={onRemoteStarted}
+          remoteHistory={remoteHistory}
           reportShellApproval={reportShellApproval}
           reportShellApprovalBusy={reportShellApprovalBusy}
           reportBusy={reportBusy}
@@ -138,6 +148,8 @@ function QuickChatCard({
   initialModelSelection,
   onClose,
   onRunStarted,
+  onRemoteStarted,
+  remoteHistory,
   reportShellApproval,
   reportShellApprovalBusy,
   reportBusy,
@@ -152,6 +164,8 @@ function QuickChatCard({
   initialModelSelection?: ResearchModelSelection;
   onClose: (id: string) => void;
   onRunStarted: (chatId: string, run: RunRecord) => void;
+  onRemoteStarted?: (chatId: string, workspaceId: string, sessionId: string) => void;
+  remoteHistory: readonly BealeAppServerQuickChatSummary[];
   reportShellApproval: ApprovalRecord | null;
   reportShellApprovalBusy: boolean;
   reportBusy: boolean;
@@ -166,6 +180,7 @@ function QuickChatCard({
 }): JSX.Element {
   const reportEditing = chat.kind === 'report-edit';
   const [collapsed, setCollapsed] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [runId, setRunId] = useState<string | null>(chat.runId ?? null);
@@ -174,14 +189,38 @@ function QuickChatCard({
   const cardRef = useRef<HTMLElement | null>(null);
   const closedRef = useRef(false);
   const activeResizeCleanupRef = useRef<(() => void) | null>(null);
-  const { runDetail, primeRunDetail } = useRunDetailPolling({
-    selectedRunId: runId,
+  const remote = chat.remote;
+  const [remoteDetail, setRemoteDetail] = useState<unknown>(null);
+  const [olderRemotePages, setOlderRemotePages] = useState<RemoteSessionHistoryPage[]>([]);
+  const { runDetail: localRunDetail, primeRunDetail } = useRunDetailPolling({
+    selectedRunId: remote ? null : runId,
     selectedRunState: runState,
     projection: 'commentary',
     refreshKey: chat.id,
     onError: setError
   });
-  const events = useMemo(() => runDetail ? buildTraceDisplayEvents(runDetail) : [], [runDetail]);
+  useEffect(() => {
+    setRemoteDetail(null);
+    setOlderRemotePages([]);
+    if (!remote?.workspaceId || !remote.sessionId) return undefined;
+    let active = true;
+    const refresh = (): void => {
+      void window.beale.getFleetRemoteSession(remote.serverId, remote.workspaceId!, remote.sessionId!)
+        .then((value) => { if (active) { setRemoteDetail(value); setError(null); } })
+        .catch((caught: unknown) => { if (active) setError(errorMessage(caught)); });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 3_000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [remote?.serverId, remote?.workspaceId, remote?.sessionId]);
+  const mergedRemoteDetail = useMemo(() => mergeRemoteSessionHistory(remoteDetail, olderRemotePages), [remoteDetail, olderRemotePages]);
+  const projectedRemoteDetail = useMemo(() => remoteRunDetail(mergedRemoteDetail), [mergedRemoteDetail]);
+  const runDetail = remote
+    ? projectedRemoteDetail?.run.id === remote.sessionId ? projectedRemoteDetail : null
+    : localRunDetail;
+  const events = useMemo(() => runDetail
+    ? remote ? buildTraceDisplayEventsForAgentPath(runDetail, null) : buildTraceDisplayEvents(runDetail)
+    : [], [remote, runDetail]);
 
   useEffect(() => {
     if (runDetail?.run.status) setRunState(runDetail.run.status);
@@ -193,6 +232,11 @@ function QuickChatCard({
     setRunState(chat.runState ?? null);
   }, [chat.runId, chat.runState]);
 
+  useEffect(() => {
+    if (remote?.sessionId) setRunId(remote.sessionId);
+    setHistoryOpen(false);
+  }, [remote?.sessionId]);
+
   useEffect(
     () => () => {
       activeResizeCleanupRef.current?.();
@@ -200,6 +244,15 @@ function QuickChatCard({
     },
     []
   );
+
+  useEffect(() => {
+    if (!historyOpen) return undefined;
+    const dismiss = (event: PointerEvent): void => {
+      if (!cardRef.current?.contains(event.target as Node)) setHistoryOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [historyOpen]);
 
   const resizeTo = (width: number, height: number): void => {
     setSize({
@@ -262,7 +315,21 @@ function QuickChatCard({
     setBusy(true);
     setError(null);
     try {
-      const nextRun = reportEditing && onReportSessionAction
+      if (remote) {
+        if (action.type === 'steer' && remote.workspaceId && remote.sessionId
+          && runDetail?.run.status && ['blocked', 'completed', 'failed', 'stopped'].includes(runDetail.run.status)) {
+          await window.beale.continueFleetRemoteQuickChat(remote.serverId, remote.workspaceId, remote.sessionId, action.instruction);
+          setRemoteDetail(null);
+          setOlderRemotePages([]);
+        } else if (action.type === 'pause' || action.type === 'resume' || action.type === 'stop' || action.type === 'steer') {
+          await window.beale.controlFleetRemoteSession(remote.serverId, action.runId, action.type,
+            action.type === 'steer' || action.type === 'resume' ? action.instruction : undefined);
+          if (action.type === 'steer' && runDetail?.run.status === 'paused') {
+            await window.beale.controlFleetRemoteSession(remote.serverId, action.runId, 'resume');
+          }
+        } else throw new Error('This Quick Chat action is unavailable on the selected app server.');
+      }
+      const nextRun = remote ? null : reportEditing && onReportSessionAction
         ? await onReportSessionAction(action)
         : (await window.beale.steerRun(action)).runs.find((row) => row.run.id === action.runId)?.run ?? null;
       if (nextRun && !closedRef.current) setRunState(nextRun.status);
@@ -275,8 +342,10 @@ function QuickChatCard({
 
   const close = (): void => {
     closedRef.current = true;
-    if (runId && runState && ['queued', 'active', 'paused'].includes(runState)) {
-      void window.beale.steerRun({ type: 'stop', runId, note: 'Quick chat closed.' }).catch(() => undefined);
+    if (runId && (remote ? !runState || ['queued', 'active', 'paused'].includes(runState)
+      : runState && ['queued', 'active', 'paused'].includes(runState))) {
+      if (remote) void window.beale.controlFleetRemoteSession(remote.serverId, runId, 'stop').catch(() => undefined);
+      else void window.beale.steerRun({ type: 'stop', runId, note: 'Quick chat closed.' }).catch(() => undefined);
     }
     onClose(chat.id);
   };
@@ -288,6 +357,22 @@ function QuickChatCard({
     setBusy(true);
     setError(null);
     try {
+      if (remote) {
+        const result = await window.beale.startFleetRemoteQuickChat(remote.serverId, {
+          promptMarkdown: instruction,
+          provider: { id: modelSelection.provider, model: modelSelection.model,
+            reasoningEffort: modelSelection.reasoningEffort, fastMode: modelSelection.fastMode === true,
+            ...(modelSelection.provider === 'openai-codex' ? { daybreakBlue: modelSelection.daybreakBlue === true } : {}) }
+        });
+        if (closedRef.current) {
+          void window.beale.controlFleetRemoteSession(remote.serverId, result.sessionId, 'stop').catch(() => undefined);
+          return;
+        }
+        setRunId(result.sessionId);
+        setRunState('queued');
+        onRemoteStarted?.(chat.id, result.workspaceId, result.sessionId);
+        return;
+      }
       const run = reportEditing && onReportInitialInstruction
         ? await onReportInitialInstruction(instruction, modelSelection, 'auto_review')
         : (await window.beale.startQuickChat({ promptMarkdown: instruction, modelSelection })).run;
@@ -307,6 +392,7 @@ function QuickChatCard({
   };
 
   const title = reportEditing ? chat.title ?? 'Report' : quickChatTitle(runDetail?.run ?? null);
+  const availableRemoteHistory = remoteHistory.filter((item) => item.sessionId !== remote?.sessionId).slice(0, 8);
   return (
     <section
       ref={cardRef}
@@ -326,8 +412,16 @@ function QuickChatCard({
       ) : null}
       <header className="quick-chat-header">
         {reportEditing ? <FileText size={14} aria-hidden="true" /> : <MessageSquare size={14} aria-hidden="true" />}
-        <span title={title}>{title}</span>
-        <button type="button" title={collapsed ? 'Expand quick chat' : 'Collapse quick chat'} aria-label={collapsed ? 'Expand quick chat' : 'Collapse quick chat'} onClick={() => setCollapsed((value) => !value)}>
+        {remote && !collapsed && availableRemoteHistory.length > 0 ? <button
+          type="button"
+          className="quick-chat-title-button"
+          title="Recent Quick Chats"
+          aria-label="Recent Quick Chats"
+          aria-haspopup="menu"
+          aria-expanded={historyOpen}
+          onClick={() => setHistoryOpen((open) => !open)}
+        ><span>{title}</span><ChevronDown size={11} aria-hidden="true" /></button> : <span title={title}>{title}</span>}
+        <button type="button" title={collapsed ? 'Expand quick chat' : 'Collapse quick chat'} aria-label={collapsed ? 'Expand quick chat' : 'Collapse quick chat'} onClick={() => { setHistoryOpen(false); setCollapsed((value) => !value); }}>
           {collapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
         {!reportEditing ? (
@@ -336,6 +430,18 @@ function QuickChatCard({
           </button>
         ) : null}
       </header>
+      {historyOpen && remote && availableRemoteHistory.length > 0 ? <div className="quick-chat-history-menu" role="menu" aria-label="Recent Quick Chats" onKeyDown={(event) => {
+        if (event.key === 'Escape') { event.preventDefault(); setHistoryOpen(false); }
+      }}>
+        {availableRemoteHistory.map((item) => <button
+          key={item.sessionId} type="button" role="menuitem" onClick={() => {
+            setHistoryOpen(false);
+            setRunId(item.sessionId);
+            setRunState(null);
+            onRemoteStarted?.(chat.id, item.workspaceId, item.sessionId);
+          }}
+        >{item.title}</button>)}
+      </div> : null}
       {!collapsed ? (
         <div className="quick-chat-body">
           {error ? <div className="quick-chat-error" role="alert">{error}</div> : null}
@@ -361,6 +467,19 @@ function QuickChatCard({
             shellApprovalBusy={reportEditing && reportShellApprovalBusy}
             showCollaboration={false}
             responseSuggestionsEnabled={reportEditing && reportResponseSuggestionsEnabled}
+            onLoadOlderHistory={remote ? async () => {
+              const beforeEventId = runDetail?.historyCursor?.beforeEventId;
+              if (!beforeEventId || !remote.workspaceId || !remote.sessionId) return false;
+              try {
+                const page = remoteSessionHistoryPage(await window.beale.getFleetRemoteSession(
+                  remote.serverId, remote.workspaceId, remote.sessionId, beforeEventId
+                ));
+                if (!page || page.events.length === 0) return false;
+                setOlderRemotePages((current) => [page, ...current]);
+                return true;
+              } catch (caught) { setError(errorMessage(caught)); return false; }
+            } : undefined}
+            onRequestToolCallDetail={remote ? async (toolCall) => toolCall : undefined}
             onBackToMain={() => undefined}
             onInitialInstruction={(instruction, modelSelection) => {
               void start(instruction, modelSelection);
