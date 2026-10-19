@@ -8,6 +8,9 @@ import {
   MANAGED_TOOL_PLUGIN_IDS,
   APP_SERVER_SESSION_LAUNCH_VERSION,
   type BealeAppServerCanonicalResult,
+  type BealeAppServerWorkspaceDetails,
+  type BealeAppServerQuickChatList,
+  type BealeAppServerQuickChatStartInput,
   type BealeAppServerProviderCatalog,
   type BealeProviderLimitId,
   type BealeProviderUsageLimits,
@@ -17,6 +20,8 @@ import {
   type BealeWorkspaceMemoryNode,
   type BealeAppServerWorkspaceList,
   decodeAppServerSessionLaunchRequest,
+  decodeFleetRemoteResearchInput,
+  decodeFleetRemotePromptExpansionInput,
   decodeWorkspaceProjectRequest,
   type AppServerProtocolOperation,
   type AppServerSessionLaunchRequest,
@@ -25,6 +30,7 @@ import {
 import { getProviderModelCatalog, readWorkspaceProject, readWorkspaceResearchCacheState, resolveStoredResearchWorkspaceBinding, workspaceResearchIndexNeedsRebuild } from '@beale/app-server-runtime/runtime-services';
 import { bundledPluginsRequiredByResearchKit, decodeResearchPluginCatalog, researchKitsRequiringBundledPlugin, validateResearchSystemPromptTemplate, verifyBrokerModelAccess } from '@beale/research-agent';
 import { runWorkspaceCheckpoint, workspaceOperationKey } from './workspaceCheckpoints.js';
+import { projectWorkspaceDetails } from './workspaceDetails.js';
 import {
   AppServerHostRegistry,
   type AppServerHostRegistryOptions,
@@ -147,7 +153,7 @@ export class AppServerHostService {
   private readonly fleetRemote: FleetRemoteController;
   private readonly fleetWorkspace: FleetWorkspaceStore;
   private readonly fleetBroker: FleetModelBrokerQueue;
-  private readonly fleetSessionMachines = new Map<string, string>();
+  private readonly fleetSessionMachines = new Map<string, string[]>();
   private readonly invokeProtocol: ProtocolInvoker;
   private readonly databaseCoordinator: AppServerWorkerDatabaseCoordinator;
   private providerSemanticsPromise: Promise<{
@@ -179,10 +185,10 @@ export class AppServerHostService {
   public browserHomePage(): string { return this.fleet.browserHomePage(); }
 
   public async releaseSessionTarget(sessionId: string): Promise<void> {
-    const machineId = this.fleetSessionMachines.get(sessionId);
-    if (!machineId) return;
+    const machineIds = this.fleetSessionMachines.get(sessionId);
+    if (!machineIds) return;
     this.fleetSessionMachines.delete(sessionId);
-    await this.fleet.releaseSessionTarget(machineId, sessionId);
+    await Promise.all(machineIds.map((machineId) => this.fleet.releaseSessionTarget(machineId, sessionId)));
   }
 
   public brokerSubmit(sessionId: string, token: string, request: ModelBrokerRequest): void {
@@ -203,6 +209,62 @@ export class AppServerHostService {
     };
   }
 
+  public async quickChats(): Promise<BealeAppServerQuickChatList> {
+    const workspace = this.registry.quickChatWorkspace();
+    if (!workspace) return { schemaVersion: 1, chats: [] };
+    const catalog = await this.workspaceSessions(workspace.workspaceId, 500);
+    const sessions = Array.isArray(catalog.result) ? catalog.result : [];
+    return { schemaVersion: 1, chats: sessions.flatMap((value) => {
+      if (!isRecord(value) || typeof value.id !== 'string') return [];
+      return [{
+        sessionId: value.id,
+        workspaceId: workspace.workspaceId,
+        title: nonEmpty(value.title) ?? 'Quick Chat',
+        promptMarkdown: nonEmpty(value.prompt) ?? '',
+        status: nonEmpty(value.status) ?? 'queued',
+        updatedAt: nonEmpty(value.updatedAt) ?? new Date(0).toISOString()
+      }];
+    }) };
+  }
+
+  public async quickChatLaunchRequest(input: BealeAppServerQuickChatStartInput): Promise<AppServerSessionLaunchRequest> {
+    const workspace = this.registry.ensureQuickChatWorkspace();
+    const storage = this.registry.storageForProfile(workspace.researchProfileId);
+    const state = await this.invokeProtocol<unknown>('workspace.state', {
+      args: ['workspace', 'state'],
+      input: {
+        action: 'initialize', workspacePath: workspace.workspacePath, workspaceId: workspace.workspaceId,
+        researchKitId: workspace.researchKitId, artifactRoot: join(workspace.workspacePath, '.beale', 'artifacts')
+      }, storage
+    });
+    const activeScope = isRecord(state) && isRecord(state.activeScope) ? state.activeScope : null;
+    if (activeScope?.workspaceName !== 'Quick Chats') {
+      await this.invokeProtocol('workspace.state', {
+        args: ['workspace', 'state'],
+        input: {
+          action: 'saveScope', workspacePath: workspace.workspacePath, workspaceId: workspace.workspaceId,
+          researchKitId: workspace.researchKitId, artifactRoot: join(workspace.workspacePath, '.beale', 'artifacts'),
+          args: [{ workspaceName: 'Quick Chats', scopeOwner: 'Beale',
+            descriptionMarkdown: 'Internal workspace for Quick Chat sessions.', rulesMarkdown: '', expiresAt: null, assets: [] },
+          { refreshInventory: false }]
+        }, storage
+      });
+    }
+    return {
+      launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
+      launch: {
+        workspaceId: workspace.workspaceId,
+        machineId: 'local',
+        mode: 'quick-chat',
+        promptMarkdown: input.promptMarkdown.trim(),
+        ...(input.provider ? { provider: input.provider } : {}),
+        shellSafetyMode: 'auto_review',
+        researchProfileId: 'security-research',
+        generateTitle: true
+      }
+    };
+  }
+
   public providerCatalog(): BealeAppServerProviderCatalog {
     const settings = this.registry.providerSettings();
     const connectedProviderIds = new Set([
@@ -220,6 +282,7 @@ export class AppServerHostService {
           return {
             providerId: catalog.providerId,
             providerName: catalog.providerName,
+            riskAcknowledged: settings.riskAcknowledgements.includes(catalog.providerId as (typeof settings.riskAcknowledgements)[number]),
             defaultLeadModel: defaults?.leadModel ?? null,
             defaultSubagentModel: defaults?.smallModel ?? null,
             defaultReasoningEffort: defaults?.reasoningEffort ?? null,
@@ -251,11 +314,26 @@ export class AppServerHostService {
       if (request.operation === 'fleet.browser_home_page') return this.fleet.browserHomePage();
       if (request.operation === 'fleet.remote_machines') return this.fleet.remoteMachines();
       if (request.operation === 'fleet.remote_catalog') return this.fleet.remoteCatalog(nonEmpty(input.serverId) ?? '');
+      if (request.operation === 'fleet.remote_workspace_details') return this.fleet.remoteWorkspaceDetails(nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '');
+      if (request.operation === 'fleet.remote_quick_chats') return this.fleet.remoteQuickChats(nonEmpty(input.serverId) ?? '');
+      if (request.operation === 'fleet.remote_quick_chat_start') return this.fleet.remoteStartQuickChat(nonEmpty(input.serverId) ?? '', input.quickChat);
+      if (request.operation === 'fleet.remote_quick_chat_continue') return this.fleet.remoteContinueQuickChat(
+        nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '', nonEmpty(input.sessionId) ?? '', nonEmpty(input.instruction) ?? ''
+      );
       if (request.operation === 'fleet.remote_session') return this.fleet.remoteSession(
         nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '', nonEmpty(input.sessionId) ?? '', nonEmpty(input.beforeEventId)
       );
       if (request.operation === 'fleet.remote_browser_attach') return this.fleet.remoteBrowserAttach(nonEmpty(input.serverId) ?? '', nonEmpty(input.sessionId) ?? '');
-      if (request.operation === 'fleet.remote_launch') return this.fleet.remoteLaunch(nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '', nonEmpty(input.promptMarkdown) ?? '', nonEmpty(input.machineId) ?? 'local');
+      if (request.operation === 'fleet.remote_launch') {
+        const workspaceId = nonEmpty(input.workspaceId) ?? '';
+        return this.fleet.remoteLaunch(nonEmpty(input.serverId) ?? '', workspaceId, decodeFleetRemoteResearchInput(input.research, workspaceId));
+      }
+      if (request.operation === 'fleet.remote_prompt_expand') return this.fleet.remoteExpandPrompt(
+        nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '', decodeFleetRemotePromptExpansionInput(input.expansion)
+      );
+      if (request.operation === 'fleet.remote_goal_suggestions') return this.fleet.remoteGoalSuggestions(
+        nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '', nonEmpty(input.phase) ?? '', input.refresh === true
+      );
       if (request.operation === 'fleet.remote_control') return this.fleet.remoteControl(nonEmpty(input.serverId) ?? '', nonEmpty(input.sessionId) ?? '', nonEmpty(input.type) ?? '', nonEmpty(input.instruction));
       if (request.operation === 'fleet.restart_app_server') return this.fleet.restartRemoteAppServer(nonEmpty(input.serverId) ?? '');
       if (request.operation === 'fleet.restart_guest_app_server') return this.fleetRemote.restartGuestAppServer(nonEmpty(input.machineId) ?? '');
@@ -597,16 +675,21 @@ export class AppServerHostService {
     const sessionId = request.sessionId ?? generatedSessionId;
     const workspace = this.requireWorkspace(request.launch.workspaceId);
     const targetId = request.launch.machineId ?? 'local';
+    const selectedTargetIds = request.launch.targetIds ?? [targetId];
     if (request.launch.mode !== 'quick-chat' && !request.launch.continuation) {
       const state = await this.fleet.state();
       const allowed = state.workspaceTargets[workspace.workspaceId] ?? ['local', 'browser:in-agent'];
-      if (!allowed.includes(targetId)) throw new Error('This target is not enabled for the workspace.');
-      if (targetId !== 'local' && !state.enabled) throw new Error('Fleet is disabled on this Beale instance.');
-      if (targetId.startsWith('browser:') && !state.browsers.some((browser) => browser.enabled && `browser:${browser.id}` === targetId)) {
-        throw new Error('The selected browser is unavailable in Fleet.');
-      }
-      if (targetId !== 'local' && !targetId.startsWith('browser:') && !targetId.startsWith('vm:')) {
-        throw new Error('Select a configured workspace target.');
+      for (const selectedId of selectedTargetIds) {
+        if (!allowed.includes(selectedId) && !(selectedId === 'local' && allowed.includes('browser:in-agent'))) {
+          throw new Error('This target is not enabled for the workspace.');
+        }
+        if (selectedId !== 'local' && !state.enabled) throw new Error('Fleet is disabled on this Beale instance.');
+        if (selectedId.startsWith('browser:') && !state.browsers.some((browser) => browser.enabled && `browser:${browser.id}` === selectedId)) {
+          throw new Error('The selected browser is unavailable in Fleet.');
+        }
+        if (selectedId !== 'local' && !selectedId.startsWith('browser:') && !selectedId.startsWith('vm:')) {
+          throw new Error('Select a configured workspace target.');
+        }
       }
     }
     const attemptId = request.launch.attemptId ?? `attempt-${randomUUID()}`;
@@ -755,9 +838,18 @@ export class AppServerHostService {
       ...(daybreakBlue ? { daybreakBlue: true } : {}),
       profileId
     });
-    const remoteShell = targetId.startsWith('vm:')
-      ? await this.fleet.prepareSessionTarget(targetId, workspace.workspaceId, sessionId, !request.launch.continuation)
-      : null;
+    const remoteShells: Record<string, Awaited<ReturnType<FleetService['prepareSessionTarget']>>> = {};
+    try {
+      for (const selectedId of selectedTargetIds) {
+        if (selectedId.startsWith('vm:')) {
+          remoteShells[selectedId] = await this.fleet.prepareSessionTarget(selectedId, workspace.workspaceId, sessionId, !request.launch.continuation);
+        }
+      }
+    } catch (error) {
+      await Promise.allSettled(Object.values(remoteShells).map((shell) => this.fleet.releaseSessionTarget(shell.machineId, sessionId)));
+      throw error;
+    }
+    const remoteShell = selectedTargetIds.length === 1 ? remoteShells[selectedTargetIds[0]!] ?? null : null;
     try {
       await this.ensureCanonicalSession({
       sessionId,
@@ -769,6 +861,13 @@ export class AppServerHostService {
       ...(model ? { model } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(request.launch.workflowId ? { workflowId: request.launch.workflowId } : {}),
+      ...(request.launch.repeatSchedule && request.launch.repeatSchedule.type !== 'none'
+        ? { repeatSchedule: request.launch.repeatSchedule,
+            machineId: request.launch.machineId ?? 'local', targetIds: [...selectedTargetIds],
+            goal: request.launch.goal, fastMode, daybreakBlue,
+            collaboration: request.launch.collaboration,
+            shellSafetyMode: request.launch.shellSafetyMode?.trim() || 'auto_review' }
+        : {}),
       profileId,
       ...(request.launch.researchProfileHash
         ? { profileHash: request.launch.researchProfileHash }
@@ -778,10 +877,10 @@ export class AppServerHostService {
       ...(continuation?.resumeAttemptId ? { parentAttemptId: continuation.resumeAttemptId } : {})
       });
     } catch (error) {
-      if (remoteShell) await this.fleet.releaseSessionTarget(remoteShell.machineId, sessionId).catch(() => undefined);
+      await Promise.allSettled(Object.values(remoteShells).map((shell) => this.fleet.releaseSessionTarget(shell.machineId, sessionId)));
       throw error;
     }
-    if (remoteShell) this.fleetSessionMachines.set(sessionId, remoteShell.machineId);
+    if (Object.keys(remoteShells).length > 0) this.fleetSessionMachines.set(sessionId, Object.values(remoteShells).map((shell) => shell.machineId));
     return {
       sessionId,
       attemptId,
@@ -823,6 +922,9 @@ export class AppServerHostService {
         },
         shellSafetyMode: request.launch.shellSafetyMode?.trim() || 'auto_review',
         ...(remoteShell ? { remoteShell: { sshArgs: remoteShell.sshArgs, guestPlatform: remoteShell.guestPlatform, guestCwd: remoteShell.guestCwd } } : {}),
+        ...(selectedTargetIds.length > 1 ? { selectedTargets: { ids: selectedTargetIds,
+          remoteShells: Object.fromEntries(Object.entries(remoteShells).map(([id, shell]) => [id,
+            { sshArgs: shell.sshArgs, guestPlatform: shell.guestPlatform, guestCwd: shell.guestCwd }])) } } : {}),
         ...(existsSync(this.registry.shellOptionsPath) ? { shellOptionsPath: this.registry.shellOptionsPath } : {}),
         ...(collaborationConfigPath ? { collaborationConfigPath } : {}),
         ...(promptTemplatePath ? { promptTemplatePath } : {}),
@@ -1186,7 +1288,11 @@ export class AppServerHostService {
     workspaceIdentifier: string
   ): Promise<BealeAppServerCanonicalResult<BealeWorkspaceMemoryCatalog>> {
     const workspace = this.requireWorkspace(workspaceIdentifier);
-    const storage = this.registry.storageForProfile(workspace.researchProfileId);
+    const result = await this.workspaceMemorySummary(workspace);
+    return canonicalResult(workspace, pathFreeWorkspaceMemoryCatalog(workspace.workspaceId, result));
+  }
+
+  private async workspaceMemorySummary(workspace: AppServerHostWorkspace): Promise<unknown> {
     const result = await this.invokeProtocol<unknown>('memory.summary', {
       args: ['knowledge', 'summary'],
       input: {
@@ -1194,12 +1300,41 @@ export class AppServerHostService {
         workspaceRoot: workspace.workspacePath,
         researchProfileId: workspace.researchProfileId
       },
+      storage: this.registry.storageForProfile(workspace.researchProfileId)
+    });
+    return workspace.memoryBackend === 'disabled' ? withoutWorkspaceMemory(result) : result;
+  }
+
+  public async workspaceDetails(workspaceIdentifier: string): Promise<BealeAppServerWorkspaceDetails> {
+    const workspace = this.requireWorkspace(workspaceIdentifier);
+    const storage = this.registry.storageForProfile(workspace.researchProfileId);
+    const state = await this.invokeProtocol<unknown>('workspace.state', {
+      args: ['workspace', 'state'],
+      input: {
+        action: 'initialize',
+        workspacePath: workspace.workspacePath,
+        workspaceId: workspace.workspaceId,
+        researchKitId: workspace.researchKitId,
+        artifactRoot: join(workspace.workspacePath, '.beale', 'artifacts')
+      },
       storage
     });
-    return canonicalResult(workspace, pathFreeWorkspaceMemoryCatalog(
-      workspace.workspaceId,
-      workspace.memoryBackend === 'disabled' ? withoutWorkspaceMemory(result) : result
-    ));
+    const memorySummary = await this.workspaceMemorySummary(workspace);
+    const memory = pathFreeWorkspaceMemoryCatalog(workspace.workspaceId, memorySummary);
+    const fleet = await this.fleet.state();
+    const allowed = new Set(fleet.workspaceTargets[workspace.workspaceId] ?? ['local', 'browser:in-agent']);
+    const availableTargets: BealeAppServerWorkspaceDetails['targets'] = [
+      { id: 'local', name: 'Local', ready: true },
+      ...fleet.browsers.filter((browser) => browser.enabled).map((browser) => ({
+        id: `browser:${browser.id}`, name: browser.name, ready: fleet.enabled
+      })),
+      ...fleet.machines.flatMap((machine) => [
+        ...(machine.canRun ? [{ id: `vm:run:${machine.id}`, name: `${machine.name} · Run`, ready: fleet.enabled && machine.sshConfigured && machine.state !== 'unknown' && !machine.owner }] : []),
+        ...(machine.canClone ? [{ id: `vm:clone:${machine.id}`, name: `${machine.name} · Clone`, ready: fleet.enabled && machine.sshConfigured && machine.state === 'stopped' && !machine.owner }] : [])
+      ])
+    ];
+    const { workspacePath: _workspacePath, workspaceDirectories: _workspaceDirectories, memoryBackend: _memoryBackend, ...summary } = workspace;
+    return projectWorkspaceDetails(summary, state, memory, memorySummary, availableTargets.filter((target) => allowed.has(target.id)));
   }
 
   public async workspaceMemoryNotifications(
@@ -1458,6 +1593,14 @@ export class AppServerHostService {
     model?: string;
     reasoningEffort?: string;
     workflowId?: string;
+    repeatSchedule?: import('@beale/app-server-runtime/protocol').AppServerRepeatSchedule;
+    machineId?: string;
+    targetIds?: string[];
+    goal?: { objective?: string };
+    fastMode?: boolean;
+    daybreakBlue?: boolean;
+    collaboration?: Record<string, unknown>;
+    shellSafetyMode?: string;
     profileId: string;
     profileHash?: string;
     continuation: boolean;
@@ -1493,7 +1636,15 @@ export class AppServerHostService {
           },
           metadata: {
             source: 'beale-app-server',
-            appServerRestartLaunch: input.restartLaunch
+            appServerRestartLaunch: input.restartLaunch,
+            ...(input.repeatSchedule ? { shellSafetyMode: input.shellSafetyMode,
+              bealeRun: { budget: {
+                repeatSchedule: input.repeatSchedule,
+                machineId: input.machineId ?? 'local', targetIds: input.targetIds ?? ['local'],
+                goalEnabled: Boolean(input.goal), goalObjective: input.goal?.objective ?? null,
+                fastMode: input.fastMode === true, daybreakBlue: input.daybreakBlue === true,
+                ...(input.collaboration ? { collaboration: input.collaboration } : {})
+              } } } : {})
           }
         }
       });
@@ -1904,6 +2055,7 @@ function restartLaunchDescriptor(
     launch: {
       workspaceId: request.launch.workspaceId,
       ...(request.launch.machineId ? { machineId: request.launch.machineId } : {}),
+      ...(request.launch.targetIds ? { targetIds: request.launch.targetIds } : {}),
       promptMarkdown: request.launch.promptMarkdown,
       ...(request.launch.goal ? { goal: request.launch.goal } : {}),
       provider: {
@@ -1947,7 +2099,10 @@ function dueAutomation(
   const storedRun = isRecord(metadata.bealeRun) ? metadata.bealeRun : {};
   const budget = isRecord(storedRun.budget) ? storedRun.budget : {};
   const targetId = typeof budget.machineId === 'string' ? budget.machineId : 'local';
-  if (targetId !== 'local' && !targetId.startsWith('browser:')) return null;
+  const targetIds = Array.isArray(budget.targetIds) && budget.targetIds.length > 0
+    && budget.targetIds.every((id: unknown) => typeof id === 'string')
+    ? budget.targetIds as string[] : [targetId];
+  if (targetIds.some((id) => id !== 'local' && !id.startsWith('browser:'))) return null;
   const schedule = automationInterval(budget.repeatSchedule);
   if (!schedule) return null;
   const latestStartedAt = latestAutomationAttemptStartedAt(session.attempts) ?? nonEmpty(session.createdAt);
@@ -1978,7 +2133,9 @@ function dueAutomation(
       sessionId,
       launch: {
         workspaceId,
-        ...(targetId.startsWith('browser:') ? { machineId: targetId } : {}),
+        machineId: targetIds.length > 1 ? 'local' : targetId,
+        targetIds,
+        ...(targetIds.some((id) => id.startsWith('browser:')) ? { browserRelay: true } : {}),
         promptMarkdown,
         ...(goalEnabled ? { goal: { objective: goalObjective } } : {}),
         ...(providerId || model || reasoningEffort || fastMode || daybreakBlue ? {

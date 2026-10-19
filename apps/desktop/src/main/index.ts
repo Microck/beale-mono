@@ -1,11 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, safeStorage, session, shell } from 'electron';
 import { installPreBealeEnvironmentAliases } from '@beale/research-agent/legacy-compatibility';
-import type { IpcMainInvokeEvent } from 'electron';
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import type { IpcMainInvokeEvent, MessageBoxOptions } from 'electron';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { installUndiciTypeOfServiceCompatibility } from '@beale/app-server-runtime/node-network-compatibility';
-import { decodeGeneratedResearchGoalSuggestions } from '@beale/app-server-runtime/protocol';
+import { BEALE_APP_SERVER_CONTRACT_TIMESTAMP, decodeGeneratedResearchGoalSuggestions } from '@beale/app-server-runtime/protocol';
 import { IPC_CHANNELS } from '@shared/ipc';
 import { runDetailProjectionMetricLabel } from '../shared/runDetailProjection';
 import type {
@@ -64,10 +64,10 @@ import {
 } from './providerCredentialStore';
 import { restoreAndFocusWindow } from './windowLifecycle';
 import { rendererRecoveryDecision } from './rendererRecovery';
+import { DesktopRestartPromptController } from './desktopRestartPrompt';
 import { IosDeviceCaptureService } from './iosDeviceCaptureService';
 import { getWorkspaceEditorCatalogForHost, openWorkspaceInEditor } from './workspaceEditors';
 import { resolveContentLink } from './contentLinks';
-import { WorkspaceTerminalService } from './workspaceTerminalService';
 import { TicketingService } from './ticketingService';
 import { allowedBrowserUrl, InAgentBrowserBridge } from './inAgentBrowserBridge';
 import { FleetBrowserViewer } from './fleetBrowserViewer';
@@ -99,13 +99,11 @@ const APP_NAME = 'Beale';
 let mainWindow: BrowserWindow | null = null;
 let workspaceService: WorkspaceService;
 let iosDeviceCaptureService: IosDeviceCaptureService;
-let workspaceTerminalService: WorkspaceTerminalService;
 let ticketingService: TicketingService;
 let inAgentBrowserBridge: InAgentBrowserBridge | null = null;
 const fleetBrowserViewer = new FleetBrowserViewer((update) => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC_CHANNELS.fleetBrowserUpdate, update);
 });
-let appServerRestartDialog: Promise<boolean> | null = null;
 const runDetailRequestControllers = new Map<string, AbortController>();
 const researchGoalSuggestionControllers = new Map<string, AbortController>();
 const smokeTestMode = process.argv.includes('--smoke-test');
@@ -115,6 +113,48 @@ const WINDOW_BACKGROUND_EFFECTS = new Set(['solid', 'semi-transparent', 'gradien
 app.setPath('userData', join(app.getPath('appData'), 'beale'));
 app.setName(APP_NAME);
 process.title = APP_NAME;
+
+const desktopRestartAttemptPath = (): string => join(app.getPath('userData'), 'desktop-restart-attempt');
+const desktopRestartPrompt = new DesktopRestartPromptController({
+  showDialog: async (restartAvailable) => {
+    const options: MessageBoxOptions = restartAvailable ? {
+      type: 'warning',
+      title: 'Restart Beale',
+      message: 'Beale needs to restart to finish updating.',
+      detail: 'The running app-server uses a newer control contract than this Beale process. Restart Beale to load the matching desktop code.',
+      buttons: ['Restart Beale', 'Not Now'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true
+    } : {
+      type: 'warning',
+      title: 'Update Beale',
+      message: 'This Beale build is older than the app-server.',
+      detail: 'Restarting loaded the same Desktop build. Install or rebuild a matching Beale version, then reopen it.',
+      buttons: ['OK'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true
+    };
+    const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
+    const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options);
+    return restartAvailable && result.response === 0 ? 'restart' : 'later';
+  },
+  wasRestartAttempted: () => {
+    try { return readFileSync(desktopRestartAttemptPath(), 'utf8').trim() === BEALE_APP_SERVER_CONTRACT_TIMESTAMP; }
+    catch { return false; }
+  },
+  markRestartAttempt: () => {
+    mkdirSync(app.getPath('userData'), { recursive: true });
+    writeFileSync(desktopRestartAttemptPath(), `${BEALE_APP_SERVER_CONTRACT_TIMESTAMP}\n`, { mode: 0o600 });
+  },
+  clearRestartAttempt: () => { rmSync(desktopRestartAttemptPath(), { force: true }); },
+  relaunch: () => { app.relaunch(); },
+  exit: () => { app.exit(0); },
+  reportFailure: (error) => {
+    dialog.showErrorBox('Beale restart failed', error instanceof Error ? error.message : String(error));
+  }
+});
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -189,8 +229,6 @@ function createWindow(): void {
       if (!window.isDestroyed() && mainWindow === window) window.webContents.reload();
     }, decision.reloadAfterMs);
   });
-  const webContentsId = window.webContents.id;
-  window.webContents.on('destroyed', () => workspaceTerminalService?.closeOwner(webContentsId));
   window.on('closed', () => {
     if (recoveryTimer) clearTimeout(recoveryTimer);
     if (mainWindow === window) mainWindow = null;
@@ -741,8 +779,14 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.restartFleetGuestAppServer, (_event, machineId: string) => workspaceService.restartFleetGuestAppServer(machineId));
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteMachines, () => workspaceService.getFleetRemoteMachines());
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteCatalog, (_event, serverId: string) => workspaceService.getFleetRemoteCatalog(serverId));
+  ipcMain.handle(IPC_CHANNELS.getFleetRemoteWorkspaceDetails, (_event, serverId: string, workspaceId: string) => workspaceService.getFleetRemoteWorkspaceDetails(serverId, workspaceId));
+  ipcMain.handle(IPC_CHANNELS.getFleetRemoteQuickChats, (_event, serverId: string) => workspaceService.getFleetRemoteQuickChats(serverId));
+  ipcMain.handle(IPC_CHANNELS.startFleetRemoteQuickChat, (_event, serverId: string, input: import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatStartInput) => workspaceService.startFleetRemoteQuickChat(serverId, input));
+  ipcMain.handle(IPC_CHANNELS.continueFleetRemoteQuickChat, (_event, serverId: string, workspaceId: string, sessionId: string, instruction: string) => workspaceService.continueFleetRemoteQuickChat(serverId, workspaceId, sessionId, instruction));
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteSession, (_event, serverId: string, workspaceId: string, sessionId: string, beforeEventId?: string) => workspaceService.getFleetRemoteSession(serverId, workspaceId, sessionId, beforeEventId));
-  ipcMain.handle(IPC_CHANNELS.startFleetRemoteSession, (_event, serverId: string, workspaceId: string, promptMarkdown: string, machineId: string) => workspaceService.startFleetRemoteSession(serverId, workspaceId, promptMarkdown, machineId));
+  ipcMain.handle(IPC_CHANNELS.startFleetRemoteSession, (_event, serverId: string, workspaceId: string, research: import('@beale/app-server-runtime/protocol').FleetRemoteResearchInput) => workspaceService.startFleetRemoteSession(serverId, workspaceId, research));
+  ipcMain.handle(IPC_CHANNELS.expandFleetRemoteResearchPrompt, (_event, serverId: string, workspaceId: string, expansion: import('@beale/app-server-runtime/protocol').FleetRemotePromptExpansionInput) => workspaceService.expandFleetRemoteResearchPrompt(serverId, workspaceId, expansion));
+  ipcMain.handle(IPC_CHANNELS.getFleetRemoteResearchGoalSuggestions, (_event, serverId: string, workspaceId: string, phase: string, refresh: boolean) => workspaceService.getFleetRemoteResearchGoalSuggestions(serverId, workspaceId, phase, refresh));
   ipcMain.handle(IPC_CHANNELS.controlFleetRemoteSession, (_event, serverId: string, sessionId: string, type: 'pause' | 'resume' | 'stop' | 'steer', instruction?: string) => workspaceService.controlFleetRemoteSession(serverId, sessionId, type, instruction));
   ipcMain.handle(IPC_CHANNELS.configureFleet, (_event, input: Record<string, unknown>) => workspaceService.configureFleet(input));
   ipcMain.handle(IPC_CHANNELS.testFleetVmConnection, (_event, input: import('@beale/app-server-runtime/protocol').FleetSshTestInput) => workspaceService.testFleetVmConnection(input));
@@ -820,33 +864,6 @@ function registerIpc(): void {
     if (!workspacePath) throw new Error('No Beale workspace is open.');
     await openWorkspaceInEditor(editorId, workspacePath);
   });
-  ipcMain.handle(IPC_CHANNELS.startWorkspaceTerminal, (event, sessionId: string, columns: number, rows: number) => {
-    const workspacePath = workspaceService.getSnapshot()?.workspace.workspacePath;
-    if (!workspacePath) throw new Error('No Beale workspace is open.');
-    const sender = event.sender;
-    return workspaceTerminalService.start(
-      sender.id,
-      sessionId,
-      workspacePath,
-      columns,
-      rows,
-      (terminalEvent) => {
-        if (!sender.isDestroyed()) sender.send(IPC_CHANNELS.workspaceTerminalData, terminalEvent);
-      },
-      (terminalEvent) => {
-        if (!sender.isDestroyed()) sender.send(IPC_CHANNELS.workspaceTerminalExit, terminalEvent);
-      }
-    );
-  });
-  ipcMain.handle(IPC_CHANNELS.writeWorkspaceTerminal, (event, sessionId: string, data: string) =>
-    workspaceTerminalService.write(event.sender.id, sessionId, data)
-  );
-  ipcMain.handle(IPC_CHANNELS.resizeWorkspaceTerminal, (event, sessionId: string, columns: number, rows: number) =>
-    workspaceTerminalService.resize(event.sender.id, sessionId, columns, rows)
-  );
-  ipcMain.handle(IPC_CHANNELS.closeWorkspaceTerminal, (event, sessionId: string) =>
-    workspaceTerminalService.close(event.sender.id, sessionId)
-  );
   ipcMain.handle(IPC_CHANNELS.getIosDeviceCaptureState, () => iosDeviceCaptureService.getState());
   ipcMain.handle(IPC_CHANNELS.startIosDeviceCapture, () => iosDeviceCaptureService.start());
   ipcMain.handle(IPC_CHANNELS.stopIosDeviceCapture, () => iosDeviceCaptureService.stop());
@@ -1217,7 +1234,6 @@ if (!hasSingleInstanceLock) {
       broadcastIosDeviceCaptureState,
       broadcastIosDeviceCaptureFrame
     );
-    workspaceTerminalService = new WorkspaceTerminalService();
     const browserBridge = new InAgentBrowserBridge(
       undefined,
       (update) => {
@@ -1266,7 +1282,6 @@ if (!hasSingleInstanceLock) {
   app.on('before-quit', () => {
     fleetBrowserViewer.close();
     inAgentBrowserBridge?.stop();
-    workspaceTerminalService?.dispose();
     iosDeviceCaptureService?.dispose();
     workspaceService?.dispose();
   });
@@ -1276,6 +1291,7 @@ async function ensureAppServerContract(refreshProviderEnvironment = false): Prom
   try {
     if (refreshProviderEnvironment) await restartBealeAppServer();
     else await ensureBealeAppServerRunning();
+    desktopRestartPrompt.compatible();
     return true;
   } catch (error) {
     if (!(error instanceof BealeDesktopRestartRequiredError)) {
@@ -1287,24 +1303,6 @@ async function ensureAppServerContract(refreshProviderEnvironment = false): Prom
   }
 }
 
-function promptForDesktopRestart(_error: BealeDesktopRestartRequiredError): Promise<boolean> {
-  if (appServerRestartDialog) return appServerRestartDialog;
-  appServerRestartDialog = dialog.showMessageBox({
-    type: 'warning',
-    title: 'Restart Beale',
-    message: 'Beale needs to restart to finish updating.',
-    detail: 'The running app-server uses a newer control contract than this Beale process. Restart Beale to load the matching desktop code.',
-    buttons: ['Restart Beale', 'Not Now'],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true
-  }).then((result) => {
-    if (result.response !== 0) return true;
-    app.relaunch();
-    app.exit(0);
-    return false;
-  }).finally(() => {
-    appServerRestartDialog = null;
-  });
-  return appServerRestartDialog;
+function promptForDesktopRestart(error: BealeDesktopRestartRequiredError): Promise<boolean> {
+  return desktopRestartPrompt.prompt(error.serverContractTimestamp);
 }

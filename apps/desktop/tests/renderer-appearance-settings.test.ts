@@ -107,7 +107,7 @@ describe('renderer appearance settings', () => {
     expect(styles).toContain('ellipse 115% 82% at 50% 0%');
     expect(styles).toContain('--appearance-gradient-heat-color: color-mix(');
     expect(styles).toContain('var(--session-heat-window-surface) 88%');
-    expect(styles).toMatch(/data-background='semi-transparent'\] \.workbench,[\s\S]*?background:\s*transparent;/u);
+    expect(styles).toMatch(/data-background='semi-transparent'\] \.workbench\s*\{\s*background:\s*transparent;/u);
     expect(preloadSource).toContain('ipcRenderer.invoke(IPC_CHANNELS.setWindowBackgroundEffect, effect)');
     expect(mainSource).toContain("window.setVibrancy(blurEnabled ? 'under-window' : null)");
     expect(mainSource).toContain("window.setBackgroundMaterial(blurEnabled ? 'acrylic' : 'none')");

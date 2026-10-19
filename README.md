@@ -94,7 +94,7 @@ Requirements: Node.js >= 22.19.0 and pnpm 11 (see `packageManager` in `package.j
 pnpm install
 ```
 
-Dependency build scripts are denied by default; `electron` and `node-pty` are explicitly allowed because they need native install steps. See `pnpm-workspace.yaml`.
+Dependency build scripts are denied by default; `electron` is explicitly allowed because it needs native install steps. See `pnpm-workspace.yaml`.
 
 ### Research runtime and app-server
 

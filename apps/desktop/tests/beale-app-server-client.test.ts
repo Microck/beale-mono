@@ -825,7 +825,7 @@ function discoveryRecord(overrides: Partial<BealeAppServerDiscovery>): BealeAppS
 
 function sessionLaunchRequest(sessionId: string) {
   return {
-    launchVersion: 2 as const,
+    launchVersion: 3 as const,
     sessionId,
     launch: {
       workspaceId: 'workspace-test',

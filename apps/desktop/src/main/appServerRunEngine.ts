@@ -251,6 +251,7 @@ export class AppServerRunEngine {
         ...input.budget,
         runEngine: 'app-server',
         machineId: input.machineId ?? 'local',
+        ...(input.targetIds?.length ? { targetIds: [...input.targetIds] } : {}),
         modelProvider: input.provider?.trim() || null,
         fastMode: input.fastMode === true,
         ...(input.provider === 'openai-codex' ? { daybreakBlue: input.daybreakBlue === true } : {}),
@@ -2861,7 +2862,8 @@ function appServerSessionLaunchRequest(
     launch: {
       workspaceId,
       machineId: input.machineId ?? 'local',
-      ...(input.machineId && isStreamedHostBrowserTargetId(input.machineId)
+      ...(input.targetIds?.length ? { targetIds: [...input.targetIds] } : {}),
+      ...((input.targetIds ?? (input.machineId ? [input.machineId] : [])).some(isStreamedHostBrowserTargetId)
         ? { browserRelay: true }
         : {}),
       mode: input.mode,
@@ -2909,6 +2911,7 @@ function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunI
     goalObjective: persistedGoalObjective, promptMarkdown: run.promptMarkdown });
   return {
     machineId: machineIdFromRun(run),
+    ...(Array.isArray(run.budget.targetIds) ? { targetIds: run.budget.targetIds.filter((id): id is string => typeof id === 'string') } : {}),
     provider: typeof run.budget.modelProvider === 'string' ? run.budget.modelProvider : undefined,
     shellSafetyMode: run.shellSafetyMode,
     goalEnabled: goal.enabled,

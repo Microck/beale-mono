@@ -6,6 +6,9 @@
 
 #### Added
 
+- New Research on a connected app server now uses the standard composer with that server's provider models, workspace targets, research suggestions, Goal Mode, Add Context, and Repeat. The selected app server owns suggestions, prompt expansion, the resulting session, and its repeat schedule. Rebuild Desktop and app-server binaries together; clients that pin the control timestamp must also update.
+- Quick Chat on a connected app server now opens a remote dock, starts chats in an app-server-owned internal workspace, and lets users reopen recent chats.
+- Selecting a workspace on a connected app server opens a read-only details dashboard with scope, resources, rules, targets, claims, memories, runbooks, and reports. Remote New Research remains a separate action.
 - Development Desktop sessions let agents record Beale harness flaws, quirks, and limitations through `harness.feedback`; a compact end-of-session button opens the recorded feedback.
 - New Research suggestion lists have a Regenerate button beside Categories to request fresh ideas for the selected category.
 - New workspaces can import public Bugcrowd engagement briefs, including in-scope and out-of-scope targets, rules, and guidance. Bugcrowd Research Kits can refresh these imports from the current public brief.
@@ -22,6 +25,7 @@
 
 #### Removed
 
+- Removed the bottom panel, its workspace Terminal, and the header toggle. Desktop no longer bundles the terminal emulator or native PTY dependency.
 - Removed Campaign Highlights and its priority-claim presentation, plus Workspace Utilities, Dream, and Dejunk controls. Campaign opens on Claims; existing workspace Settings contains Remove Workspace. Historical stored data remains intact.
 - Removed automatic workspace Git initialization, managed commit hooks, research-session Git checkpoints, and Git checkpoint repair controls. Existing Git history is retained; canonical publication metadata for new workspaces lives under `.beale/publication/`. Control contract v44 requires rebuilt clients and hosts.
 - Removed session workflow creation, assignment, notebook execution gates, progress UI, and the built-in Repository Auditor. Existing workflow records remain in local storage but are no longer used when sessions continue.
@@ -39,6 +43,9 @@
 
 #### Changed
 
+- New Research now supports selecting multiple workspace targets for one session. The target picker keeps selections visible as the first target with a count; connected app servers accept the same selection.
+- New Research shows the selected app server and target in its top tab, with Goal Mode, Add Context, and Repeat in a nested settings menu. In-Agent Browser is no longer offered as a research target; saved selections resolve to Local.
+- The sidebar machine selector now sizes to the selected name and uses a flat, keyboard-accessible menu for switching app servers.
 - Embedded Browser access approval is now saved once per machine. Later research sessions and app restarts reuse it while each session still authenticates to the local browser bridge.
 - The Security profile now creates sink memories without source or flow-endpoint roles and no longer creates asset memories. Existing asset, source, and flow-endpoint memories remain readable as retired types. Sink filters include historical sink-role endpoints but exclude source-role endpoints.
 - Fleet browser keyboard input now stays on a dedicated browser input target, so select-all and paste do not affect Beale session content.
@@ -151,6 +158,7 @@
 
 #### Fixed
 
+- The Desktop update prompt now keeps a dismissal for the current app-server contract and makes only one restart attempt per Desktop build. If the same build returns, it asks for an updated installation instead of repeating the restart prompt.
 - Workspace Campaign loading now settles after the background summary completes, with renderer refresh if its update notification is missed; older open responses cannot restore the loading state.
 - Selecting In-Agent Browser for a local research session now opens Beale's embedded host browser instead of the streamed Fleet browser view. External host browsers use the session browser relay.
 - New Research rejects malformed app-server suggestion responses. Renderer view failures now show a reload control instead of an empty window.
@@ -1292,6 +1300,10 @@
 
 #### Added
 
+- Connected app-server catalogs now expose provider availability, and client-neutral operations route research suggestions, prompt expansion, and session launches to the selected host. Repeat schedules persist in canonical session metadata for host-owned reruns.
+- Added single-session execution across selected local, VM, and browser targets. The versioned launch contract carries target IDs, routes shell and browser tools to those targets, and releases all VM and browser resources when the session ends. Control contract v49 requires rebuilt clients and hosts.
+- Added authenticated, versioned Quick Chat list and start endpoints for Desktop and iOS clients. Quick Chats run in a hidden app-server-owned workspace and use the existing session update and control endpoints.
+- Added a versioned workspace-details response for Desktop and future iOS clients, with host storage paths omitted. Connected app servers proxy the same response; the updated control contract requires rebuilt clients and hosts.
 - Development Desktop launches enable the session-scoped harness feedback tool in hosted research workers. Feedback is retained in the canonical session trace. Control contract v48 requires rebuilt clients and hosts.
 - Added an authenticated provider-limits read for OpenAI Codex, xAI, and Anthropic with host-only credential probes, a five-minute cache, and sanitized responses. Other providers report unsupported limits.
 - Added resource-rooted research surfaces with agent-created child surfaces, one-time workspace-wide touch, bug-history/coverage/threat-model foundations, bounded lookup, and recorded agent focus changes. Subagent spawns now require a surface assignment; workspace publication retains the surface tree and movement history.

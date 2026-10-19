@@ -14,6 +14,7 @@ import {
   BEALE_APP_SERVER_OPERATIONS_PATH,
   BEALE_APP_SERVER_PROVIDERS_PATH,
   BEALE_APP_SERVER_PROVIDER_LIMITS_PATH,
+  BEALE_APP_SERVER_QUICK_CHATS_PATH,
   BEALE_APP_SERVER_SERVER_PATH,
   BEALE_APP_SERVER_SESSIONS_PATH,
   BEALE_APP_SERVER_SHUTDOWN_PATH,
@@ -25,6 +26,7 @@ import {
   decodeBealeAppServerSessionContinuationRequest,
   decodeBealeAppServerSessionControlRequest,
   decodeAppServerSessionLaunchRequest,
+  decodeBealeAppServerQuickChatStartInput,
   appServerServerHello,
   appServerSessionEvent,
   type BealeAppServerDescriptor,
@@ -582,6 +584,26 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
       sendJson(response, 200, hostService.listWorkspaces());
       return;
     }
+    if (request.method === 'GET' && url.pathname === BEALE_APP_SERVER_QUICK_CHATS_PATH) {
+      sendJson(response, 200, await hostCall(() => hostService.quickChats()));
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === BEALE_APP_SERVER_QUICK_CHATS_PATH) {
+      let input;
+      try { input = decodeBealeAppServerQuickChatStartInput(await readJsonBody(request)); }
+      catch (error) { throw new HttpError(400, error instanceof Error ? error.message : 'Invalid Quick Chat request.'); }
+      const launch = await hostCall(() => hostService.quickChatLaunchRequest(input));
+      const started = await startSession(launch);
+      sendJson(response, 201, { schemaVersion: 1, sessionId: started.session.sessionId, workspaceId: launch.launch.workspaceId });
+      return;
+    }
+    const workspaceDetailsMatch = request.method === 'GET'
+      ? /^\/v1\/workspaces\/([^/]+)\/details$/.exec(url.pathname)
+      : null;
+    if (workspaceDetailsMatch) {
+      sendJson(response, 200, await hostCall(() => hostService.workspaceDetails(pathPart(workspaceDetailsMatch, 1))));
+      return;
+    }
     if (request.method === 'POST' && url.pathname === BEALE_APP_SERVER_OPERATIONS_PATH) {
       const body = await readJsonBody(request);
       if (!isRecord(body) || typeof body.operation !== 'string'
@@ -985,7 +1007,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
       const diagnostic = runtime.diagnostic ?? detail;
       runtime.diagnostic = boundedDiagnostic(diagnostic);
       await recordSessionLaunchFailure(runtime, diagnostic);
-      await fleetBrowserSessions.close(sessionId).catch(() => undefined);
+      await fleetBrowserSessions.closeSessionTargets(sessionId).catch(() => undefined);
       await hostService.recordSessionTerminalState?.({ request: runtime.request, sessionId, attemptId, state: 'failed' }).catch(() => undefined);
       throw new HttpError(502, `app-server session failed to start: ${diagnostic}`);
     }
@@ -1152,8 +1174,22 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
   ): Promise<void> {
     const { args, env } = prepareAppServerSessionLaunch(prepared.launch);
     delete env.BEALE_FLEET_BROWSER_ENDPOINT;
+    delete env.BEALE_FLEET_BROWSER_TARGET_ENDPOINTS;
     const targetId = runtime.request.launch.machineId ?? 'local';
-    if (targetId.startsWith('browser:') && targetId !== 'browser:in-agent') {
+    const browserTargets = (runtime.request.launch.targetIds ?? [])
+      .filter((id) => id.startsWith('browser:') && id !== 'browser:in-agent');
+    if (browserTargets.length > 0) {
+      const endpoints: Record<string, string> = {};
+      for (const [index, browserTarget] of browserTargets.entries()) {
+        endpoints[browserTarget] = await fleetBrowserSessions.launch(
+          index === 0 ? runtime.sessionId : `${runtime.sessionId}::${browserTarget}`,
+          browserTarget.slice(8), hostService.browserHomePage()
+        );
+      }
+      env.BEALE_FLEET_BROWSER_TARGET_ENDPOINTS = JSON.stringify(endpoints);
+      env.BEALE_FLEET_BROWSER_ENDPOINT = endpoints[browserTargets[0]!]!;
+      if (runtime.request.launch.browserRelay === true) fleetBrowser.tokenFor(runtime.sessionId);
+    } else if (targetId.startsWith('browser:') && targetId !== 'browser:in-agent') {
       env.BEALE_FLEET_BROWSER_ENDPOINT = await fleetBrowserSessions.launch(
         runtime.sessionId, targetId.slice(8), hostService.browserHomePage()
       );
@@ -1458,7 +1494,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     runtime.exitCode = exitCode;
     runtime.state = state;
     runtime.diagnostic = state === 'failed' ? boundedDiagnostic(diagnostic ?? '') : null;
-    void fleetBrowserSessions.close(runtime.sessionId).catch(() => undefined);
+    void fleetBrowserSessions.closeSessionTargets(runtime.sessionId).catch(() => undefined);
     teardownRuntime(runtime, state === 'completed' ? 1000 : 1011);
     notifyChange();
     void recordSessionTerminalState(runtime, state);

@@ -298,8 +298,8 @@ describe('automation workspace', () => {
       onSubmit: () => undefined
     }));
 
-    expect(html).toContain('aria-label="Repeat schedule" aria-haspopup="dialog" aria-expanded="true"');
-    expect(html).toContain('role="dialog" aria-label="Repeat schedule" tabindex="-1"');
+    expect(html).toContain('aria-label="New research settings" title="New research settings" aria-haspopup="menu" aria-expanded="true"');
+    expect(html).toContain('role="menu" aria-label="Repeat"');
     const appSource = readFileSync(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');
     expect(appSource).toContain('autoOpenSchedule={openScheduleOnNewResearch}');
     expect(appSource).toContain('onStartNewResearch={() => openNewResearch(true)}');

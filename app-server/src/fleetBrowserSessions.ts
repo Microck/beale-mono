@@ -68,6 +68,12 @@ export class FleetBrowserSessionManager {
     await removeProfile(session.profilePath);
   }
 
+  public async closeSessionTargets(sessionId: string): Promise<void> {
+    await Promise.allSettled([...this.sessions.keys()]
+      .filter((key) => key === sessionId || key.startsWith(`${sessionId}::`))
+      .map((key) => this.close(key)));
+  }
+
   public async closeAll(): Promise<void> {
     await Promise.allSettled([...this.sessions.keys()].map((sessionId) => this.close(sessionId)));
   }

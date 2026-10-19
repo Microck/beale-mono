@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -14,6 +14,7 @@ import {
   preBealeRuntimeId,
   readCompatibleEnvironment
 } from '@beale/research-agent/legacy-compatibility';
+import { WorkspaceRegistry } from './workspaceRegistryStore.js';
 
 export type AppServerMemoryBackendId = 'app-server' | 'disabled';
 export type AppServerProviderContextSize = 'default' | 'large';
@@ -115,6 +116,46 @@ export class AppServerHostRegistry {
       const workspace = row ? projectHostWorkspace(row) : null;
       return workspace?.researchProfileId === 'security-research' ? workspace : null;
     }, null);
+  }
+
+  public quickChatWorkspace(): AppServerHostWorkspace | null {
+    const workspacePath = join(this.registryDirectory, 'internal-workspaces', 'quick-chats');
+    return this.withDatabase((database) => {
+      if (!tableExists(database, 'workspaces')) return null;
+      const row = database.prepare(`${workspaceProjection(database)} WHERE w.workspace_path = ? LIMIT 1`)
+        .get(workspacePath) as SqlRow | undefined;
+      return row ? projectHostWorkspace(row) : null;
+    }, null);
+  }
+
+  public ensureQuickChatWorkspace(): AppServerHostWorkspace {
+    const workspacePath = join(this.registryDirectory, 'internal-workspaces', 'quick-chats');
+    mkdirSync(workspacePath, { recursive: true, mode: 0o700 });
+    try {
+      writeFileSync(join(workspacePath, 'AGENTS.md'),
+        '# Beale Quick Chat\n\nThis is the app-server internal workspace for Quick Chat sessions. Answer the user directly. Do not assume that a selected research workspace is in scope.\n',
+        { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error;
+    }
+    const registry = new WorkspaceRegistry(this.registryDirectory);
+    registry.close();
+    const database = new DatabaseSync(this.registryPath);
+    try {
+      const now = new Date().toISOString();
+      database.prepare(`INSERT OR IGNORE INTO workspaces (
+        id, workspace_path, workspace_directories_json, workspace_id, workspace_name,
+        research_profile_id, research_kit_id, scope_owner, description_markdown,
+        rules_markdown, expires_at, created_at, updated_at, last_opened_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        `workspace_${randomUUID()}`, workspacePath, JSON.stringify([workspacePath]), `quick-chat-${randomUUID()}`,
+        'Quick Chats', 'security-research', 'general', 'Beale',
+        'Internal workspace for Quick Chat sessions.', '', null, now, now, now
+      );
+    } finally { database.close(); }
+    const workspace = this.quickChatWorkspace();
+    if (!workspace) throw new Error('The Quick Chat workspace could not be created.');
+    return workspace;
   }
 
   /** Register a staged Fleet copy without exposing its path to the client protocol. */

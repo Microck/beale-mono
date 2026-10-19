@@ -77,7 +77,7 @@ export function ProviderLimitIndicator({ limit }: { limit: BealeProviderUsageLim
           </>
         ) : null}
       </svg>
-      <ProviderIcon className="app-navigation-limit-provider-icon" provider={limit.providerId} size={12} aria-hidden="true" />
+      <ProviderIcon className="app-navigation-limit-provider-icon" provider={limit.providerId} size={15} aria-hidden="true" />
       <ProviderLimitTooltip limit={limit} />
     </div>
   );

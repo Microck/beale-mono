@@ -24,6 +24,8 @@ import {
   decodeWorkspaceProjectRequest,
   decodeClaimBoardTransitionRequest,
   decodeFleetSshTestInput,
+  decodeFleetRemoteResearchInput,
+  decodeFleetRemotePromptExpansionInput,
   decodeBealeAppServerSessionControlRequest,
   decodeBealeAppServerSessionControlResult,
   decodeGeneratedResearchGoalSuggestions,
@@ -142,6 +144,8 @@ test("protocol describe omits removed workflow operations", () => {
   assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("session.openai-fast-mode.v1"));
   assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("session.event-identity.v1"));
   assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("session.continuation.v1"));
+  assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("session.typed-launch.v3"));
+  assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("fleet.multi-target-session.v1"));
   assert.ok(BEALE_APP_SERVER_CAPABILITIES.includes("workspace.prompt-expansion.v1"));
   assert.ok(!BEALE_APP_SERVER_CAPABILITIES.includes("knowledge.campaign-tracks.v2"));
   assert.ok(!BEALE_APP_SERVER_CAPABILITIES.includes("maintenance.repository-consolidation.v1"));
@@ -271,6 +275,42 @@ test("a connected primary can request a browser relay for its local session", ()
   assert.deepEqual(decodeAppServerSessionLaunchRequest(request), request);
   assert.throws(() => decodeAppServerSessionLaunchRequest({ ...request,
     launch: { ...request.launch, browserRelay: 'yes' } }), /browserRelay must be a boolean/u);
+});
+
+test("one research launch accepts distinct selected targets and rejects inconsistent routing", () => {
+  const request = { launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
+    launch: { workspaceId: 'workspace-example', promptMarkdown: 'Inspect the example scope.',
+      machineId: 'local', targetIds: ['local', 'vm:run:tart:example-vm', 'browser:example'] } };
+  assert.deepEqual(decodeAppServerSessionLaunchRequest(request), request);
+  for (const targetIds of [[], ['local', 'local'], [''], Array(17).fill('local')]) {
+    assert.throws(() => decodeAppServerSessionLaunchRequest({ ...request,
+      launch: { ...request.launch, targetIds } }), /targetIds must contain/u);
+  }
+  assert.throws(() => decodeAppServerSessionLaunchRequest({ ...request,
+    launch: { ...request.launch, machineId: 'vm:run:tart:example-vm' } }), /must run on the workspace app-server/u);
+  assert.throws(() => decodeAppServerSessionLaunchRequest({ ...request,
+    launch: { ...request.launch, targetIds: ['local'], machineId: 'browser:example' } }), /must match machineId/u);
+});
+
+test('remote New Research input validates targets, launch settings, and repeat schedule', () => {
+  const input = { promptMarkdown: 'Inspect example.test.', targetIds: ['local', 'browser:example'],
+    provider: { id: 'openai-codex', model: 'gpt-example', reasoningEffort: 'high' },
+    repeatSchedule: { type: 'hourly', interval: 2 } };
+  assert.deepEqual(decodeFleetRemoteResearchInput(input, 'workspace-example'), input);
+  assert.throws(() => decodeFleetRemoteResearchInput(input, ''), /workspaceId/u);
+  for (const invalid of [
+    { ...input, targetIds: ['local', 'local'] },
+    { ...input, repeatSchedule: { type: 'hourly', interval: 0 } },
+    { ...input, provider: { id: 'openai-codex', fastMode: 'yes' } },
+  ]) assert.throws(() => decodeFleetRemoteResearchInput(invalid, 'workspace-example'));
+});
+
+test('remote Add Context input only accepts bounded workspace prompt settings', () => {
+  const input = { promptMarkdown: 'Inspect example.test.', phase: 'discovery',
+    provider: { id: 'openai-codex', model: 'gpt-example' } };
+  assert.deepEqual(decodeFleetRemotePromptExpansionInput(input), input);
+  assert.throws(() => decodeFleetRemotePromptExpansionInput({ ...input, promptMarkdown: 'x'.repeat(12_001) }));
+  assert.throws(() => decodeFleetRemotePromptExpansionInput({ ...input, provider: { id: 'openai-codex' } }));
 });
 
 test("app-server control DTOs share strict version, route, replay, and error semantics", () => {

@@ -8,7 +8,9 @@ export interface FleetTargetChoice {
 }
 
 export function configuredWorkspaceTargets(state: FleetState, workspaceId: string): string[] {
-  return state.workspaceTargets[workspaceId] ?? ['local', 'browser:in-agent'];
+  return [...new Set((state.workspaceTargets[workspaceId] ?? ['local']).map((targetId) => (
+    targetId === 'browser:in-agent' ? 'local' : targetId
+  )))];
 }
 
 export function availableFleetTargets(state: FleetState): FleetTargetChoice[] {
@@ -16,9 +18,9 @@ export function availableFleetTargets(state: FleetState): FleetTargetChoice[] {
     { id: 'local', name: 'Local', ready: true, detail: 'Run on this machine' },
   ];
   if (state.enabled) {
-    targets.push(...state.browsers.filter((browser) => browser.enabled).map((browser) => ({
+    targets.push(...state.browsers.filter((browser) => browser.enabled && browser.id !== 'in-agent').map((browser) => ({
       id: `browser:${browser.id}`, name: browser.name, ready: true,
-      detail: browser.kind === 'embedded' ? 'In-Agent Browser' : 'Separate CDP profile',
+      detail: 'Separate CDP profile',
     })));
     if (state.role === 'primary') {
       for (const machine of state.machines) {

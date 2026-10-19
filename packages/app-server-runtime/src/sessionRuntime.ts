@@ -68,6 +68,7 @@ import {
   createResearchStorageLayout,
   createResearchToolRegistry,
   createShellTool,
+  createMultiTargetShellTool,
   createShellSafetyAuthorizer,
   createToolActionAuthorizer,
   BUNDLED_RESEARCH_PROFILE_IDS,
@@ -3731,10 +3732,9 @@ async function prepareRuntimeConfigInputs(input: {
     : mergedWorkspaceContext;
   return { resolvedRuntimeTools, runtimeTools, workspaceContext };
 }
-function readFleetRemoteShell(): { sshArgs: string[]; guestPlatform: 'win32' | 'darwin' | 'linux'; guestCwd: string } | null {
-  const raw = process.env.BEALE_FLEET_REMOTE_SHELL;
-  if (!raw) return null;
-  const parsed: unknown = JSON.parse(raw);
+type FleetRemoteShell = { sshArgs: string[]; guestPlatform: 'win32' | 'darwin' | 'linux'; guestCwd: string };
+
+function parseFleetRemoteShell(parsed: unknown): FleetRemoteShell {
   if (!parsed || typeof parsed !== 'object' || !('sshArgs' in parsed) || !('guestPlatform' in parsed) || !('guestCwd' in parsed)
     || !Array.isArray(parsed.sshArgs) || parsed.sshArgs.length > 32
     || !parsed.sshArgs.every((arg: unknown) => typeof arg === 'string' && arg.length <= 4096)
@@ -3743,6 +3743,46 @@ function readFleetRemoteShell(): { sshArgs: string[]; guestPlatform: 'win32' | '
     throw new Error('Invalid Fleet remote shell configuration.');
   }
   return { sshArgs: parsed.sshArgs as string[], guestPlatform: parsed.guestPlatform, guestCwd: parsed.guestCwd };
+}
+
+function readFleetRemoteShell(): FleetRemoteShell | null {
+  const raw = process.env.BEALE_FLEET_REMOTE_SHELL;
+  return raw ? parseFleetRemoteShell(JSON.parse(raw) as unknown) : null;
+}
+
+function readFleetTargets(): { id: string; remote?: FleetRemoteShell }[] | null {
+  const raw = process.env.BEALE_FLEET_SELECTED_TARGETS;
+  if (!raw) return null;
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' || !('ids' in parsed) || !Array.isArray(parsed.ids)
+    || parsed.ids.length < 2 || parsed.ids.length > 16
+    || !parsed.ids.every((id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 256)
+    || new Set(parsed.ids).size !== parsed.ids.length
+    || !('remoteShells' in parsed) || !parsed.remoteShells || typeof parsed.remoteShells !== 'object'
+    || Array.isArray(parsed.remoteShells)) throw new Error('Invalid Fleet selected targets.');
+  const shells = parsed.remoteShells as Record<string, unknown>;
+  const ids = parsed.ids as string[];
+  if (Object.keys(shells).some((id) => !ids.includes(id) || !id.startsWith('vm:'))
+    || ids.some((id) => id.startsWith('vm:') && !shells[id])) {
+    throw new Error('Invalid Fleet target shell mapping.');
+  }
+  return ids.map((id) => ({ id, ...(shells[id] ? { remote: parseFleetRemoteShell(shells[id]) } : {}) }));
+}
+
+function readFleetBrowserTargets(): Record<string, string> {
+  const raw = process.env.BEALE_FLEET_BROWSER_TARGET_ENDPOINTS;
+  if (!raw) return {};
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid Fleet browser target endpoints.');
+  const entries = Object.entries(parsed);
+  if (entries.length > 16 || entries.some(([id, endpoint]) => {
+    if (!id.startsWith('browser:') || typeof endpoint !== 'string') return true;
+    try {
+      const url = new URL(endpoint);
+      return url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username !== '' || url.password !== '';
+    } catch { return true; }
+  })) throw new Error('Invalid Fleet browser target endpoints.');
+  return Object.fromEntries(entries) as Record<string, string>;
 }
 
 async function createRuntimeConfig(args: {
@@ -3793,6 +3833,7 @@ async function createRuntimeConfig(args: {
 }> {
   const workspaceRoot = args.workspaceRoot ?? process.cwd();
   const fleetRemoteShell = readFleetRemoteShell();
+  const fleetTargets = readFleetTargets();
   const resolvedResearchProfile = args.resolvedResearchProfile ?? await resolveResearchProfile({
     workspaceRoot,
   });
@@ -4104,9 +4145,8 @@ async function createRuntimeConfig(args: {
       assertWorkspaceChild(workspaceRoot, scratch);
       await mkdir(scratch, { recursive: true });
     }
-    const tool = createShellTool({
+    const shellOptions = {
       workspaceRoot,
-      ...(fleetRemoteShell ? { remote: fleetRemoteShell } : {}),
       ...(scratch ? { defaultWorkingDirectory: scratch } : {}),
       ...(args.shellAuthorizer ? { authorize: args.shellAuthorizer } : {}),
       ...(runtimeTools.shellOptionsPath
@@ -4115,7 +4155,10 @@ async function createRuntimeConfig(args: {
       ...(runtimeTools.toolMaxBytes
         ? { maxOutputBytes: runtimeTools.toolMaxBytes }
         : {}),
-    });
+    };
+    const tool = fleetTargets
+      ? createMultiTargetShellTool(shellOptions, fleetTargets)
+      : createShellTool({ ...shellOptions, ...(fleetRemoteShell ? { remote: fleetRemoteShell } : {}) });
     shellTool = tool;
     executableTools.push(tool);
     toolDescriptors.push(tool.descriptor);
@@ -4261,7 +4304,7 @@ async function createRuntimeConfig(args: {
       } catch { /* The desktop browser is optional. */ }
       return "http://127.0.0.1:9222";
     }, args.sessionId);
-    const browserTools = createBrowserTools(browserSession);
+    const browserTools = createBrowserTools(browserSession, readFleetBrowserTargets());
     executableTools.push(...browserTools);
     toolDescriptors.push(...browserTools.map((tool) => tool.descriptor));
     cleanupCallbacks.push(() => browserSession.cleanup());

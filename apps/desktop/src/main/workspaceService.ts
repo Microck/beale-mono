@@ -1003,12 +1003,36 @@ export class WorkspaceService {
     return invokeAppServerOperation({ operation: 'fleet.remote_catalog', input: { serverId } });
   }
 
+  public getFleetRemoteWorkspaceDetails(serverId: string, workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDetails> {
+    return invokeAppServerOperation({ operation: 'fleet.remote_workspace_details', input: { serverId, workspaceId } });
+  }
+
+  public getFleetRemoteQuickChats(serverId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatList> {
+    return invokeAppServerOperation({ operation: 'fleet.remote_quick_chats', input: { serverId } });
+  }
+
+  public startFleetRemoteQuickChat(serverId: string, quickChat: import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatStartInput): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatStartResult> {
+    return invokeAppServerOperation({ operation: 'fleet.remote_quick_chat_start', input: { serverId, quickChat } });
+  }
+
+  public continueFleetRemoteQuickChat(serverId: string, workspaceId: string, sessionId: string, instruction: string): Promise<{ sessionId: string }> {
+    return invokeAppServerOperation({ operation: 'fleet.remote_quick_chat_continue', input: { serverId, workspaceId, sessionId, instruction } });
+  }
+
   public getFleetRemoteSession(serverId: string, workspaceId: string, sessionId: string, beforeEventId?: string): Promise<unknown> {
     return invokeAppServerOperation({ operation: 'fleet.remote_session', input: { serverId, workspaceId, sessionId, ...(beforeEventId ? { beforeEventId } : {}) } });
   }
 
-  public startFleetRemoteSession(serverId: string, workspaceId: string, promptMarkdown: string, machineId: string): Promise<{ sessionId: string }> {
-    return invokeAppServerOperation({ operation: 'fleet.remote_launch', input: { serverId, workspaceId, promptMarkdown, machineId } });
+  public startFleetRemoteSession(serverId: string, workspaceId: string, research: import('@beale/app-server-runtime/protocol').FleetRemoteResearchInput): Promise<{ sessionId: string }> {
+    return invokeAppServerOperation({ operation: 'fleet.remote_launch', input: { serverId, workspaceId, research } });
+  }
+
+  public expandFleetRemoteResearchPrompt(serverId: string, workspaceId: string, expansion: import('@beale/app-server-runtime/protocol').FleetRemotePromptExpansionInput): Promise<import('@beale/app-server-runtime/protocol').FleetRemotePromptExpansionResult> {
+    return invokeAppServerOperation({ operation: 'fleet.remote_prompt_expand', input: { serverId, workspaceId, expansion } });
+  }
+
+  public getFleetRemoteResearchGoalSuggestions(serverId: string, workspaceId: string, phase: string, refresh: boolean): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteGoalSuggestions> {
+    return invokeAppServerOperation({ operation: 'fleet.remote_goal_suggestions', input: { serverId, workspaceId, phase, refresh } });
   }
 
   public controlFleetRemoteSession(serverId: string, sessionId: string, type: 'pause' | 'resume' | 'stop' | 'steer', instruction?: string): Promise<void> {
@@ -4114,6 +4138,7 @@ export class WorkspaceService {
           : null;
         const forkInput: StartRunInput = {
           machineId: typeof run.budget.machineId === 'string' ? run.budget.machineId : 'local',
+          ...(Array.isArray(run.budget.targetIds) ? { targetIds: run.budget.targetIds.filter((id): id is string => typeof id === 'string') } : {}),
           provider: typeof run.budget.modelProvider === 'string' ? run.budget.modelProvider : undefined,
           shellSafetyMode: run.shellSafetyMode === 'danger' ? DEFAULT_SHELL_SAFETY_MODE : run.shellSafetyMode,
           goalEnabled: run.budget.goalEnabled === true,
@@ -7668,6 +7693,8 @@ function automationSettingsFromSession(
   const workflowId = stringFromRecord(budget, 'researchWorkflowId').trim() || session.workflowId?.trim() || '';
   return {
     runEngine: 'app-server',
+    ...(typeof budget.machineId === 'string' ? { machineId: budget.machineId } : {}),
+    ...(Array.isArray(budget.targetIds) ? { targetIds: budget.targetIds.filter((id): id is string => typeof id === 'string') } : {}),
     ...(provider ? { provider } : {}),
     shellSafetyMode: normalizeShellSafetyMode(session.metadata.shellSafetyMode ?? storedRun?.shellSafetyMode),
     goalEnabled: budget.goalEnabled === true,
@@ -7694,6 +7721,8 @@ function automationSettingsFromRun(run: RunRecord, schedule: ActiveRepeatSchedul
   const workflowId = stringFromRecord(run.budget, 'researchWorkflowId').trim();
   return {
     runEngine: 'app-server',
+    ...(typeof run.budget.machineId === 'string' ? { machineId: run.budget.machineId } : {}),
+    ...(Array.isArray(run.budget.targetIds) ? { targetIds: run.budget.targetIds.filter((id): id is string => typeof id === 'string') } : {}),
     ...(provider ? { provider } : {}),
     shellSafetyMode: run.shellSafetyMode,
     goalEnabled: run.budget.goalEnabled === true,

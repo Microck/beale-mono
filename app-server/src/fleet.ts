@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { homedir, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { APP_SERVER_SESSION_LAUNCH_VERSION, BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION, BEALE_APP_SERVER_OPERATIONS_PATH, BEALE_APP_SERVER_SERVER_PATH, BEALE_APP_SERVER_WORKSPACES_PATH, BEALE_APP_SERVER_SESSIONS_PATH, BEALE_APP_SERVER_SUPERVISOR_HTTPS_PORT, BEALE_APP_SERVER_SUPERVISOR_RESTART_PATH, DEFAULT_BROWSER_HOME_PAGE, type AppServerProtocolOperation, type FleetBackend, type FleetMachine, type FleetRemoteCatalog, type FleetSshTestInput, type FleetSshTestResult, type FleetState } from '@beale/app-server-runtime/protocol';
+import { APP_SERVER_SESSION_LAUNCH_VERSION, BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION, BEALE_APP_SERVER_OPERATIONS_PATH, BEALE_APP_SERVER_PROVIDERS_PATH, BEALE_APP_SERVER_QUICK_CHATS_PATH, BEALE_APP_SERVER_SERVER_PATH, BEALE_APP_SERVER_WORKSPACES_PATH, BEALE_APP_SERVER_SESSIONS_PATH, BEALE_APP_SERVER_SUPERVISOR_HTTPS_PORT, BEALE_APP_SERVER_SUPERVISOR_RESTART_PATH, DEFAULT_BROWSER_HOME_PAGE, bealeAppServerWorkspaceDetailsPath, decodeBealeAppServerProviderCatalog, decodeBealeAppServerQuickChatList, decodeBealeAppServerQuickChatStartInput, decodeBealeAppServerQuickChatStartResult, decodeBealeAppServerWorkspaceDetails, decodeGeneratedResearchGoalSuggestions, type AppServerProtocolOperation, type BealeAppServerQuickChatList, type BealeAppServerQuickChatStartResult, type BealeAppServerWorkspaceDetails, type FleetBackend, type FleetMachine, type FleetRemoteCatalog, type FleetRemoteGoalSuggestions, type FleetRemotePromptExpansionInput, type FleetRemotePromptExpansionResult, type FleetRemoteResearchInput, type FleetSshTestInput, type FleetSshTestResult, type FleetState } from '@beale/app-server-runtime/protocol';
 import { sshConnectionArgs } from './fleetSsh.js';
 import { detectFleetBrowsers } from './fleetBrowsers.js';
 import { normalizeTailnetOrigin, verifySameTailnet } from './tailnetRemote.js';
@@ -331,6 +331,7 @@ export class FleetService {
   public async remoteCatalog(serverId: string): Promise<FleetRemoteCatalog> {
     const server = await this.connectedRemoteAppServer(serverId);
     const fleetState = await this.callRemote<FleetState>(serverId, 'fleet.state', {});
+    const providerCatalog = decodeBealeAppServerProviderCatalog(await this.remoteGet(server, BEALE_APP_SERVER_PROVIDERS_PATH));
     const workspacesResult = await this.remoteGet(server, BEALE_APP_SERVER_WORKSPACES_PATH);
     if (!isRecord(workspacesResult) || !Array.isArray(workspacesResult.workspaces)) throw new Error('Remote workspace catalog is invalid.');
     const workspaces = workspacesResult.workspaces.flatMap((value: unknown) => {
@@ -356,12 +357,45 @@ export class FleetService {
           automation: typeof schedule.type === 'string' && schedule.type !== 'none' }];
       });
     }))).flat();
-    return { serverId, workspaces, sessions: sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+    return { serverId, providerCatalog, workspaces, sessions: sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
       machines: fleetState.machines,
       browsers: fleetState.browsers,
       workspaceTargets: fleetState.workspaceTargets,
       requiredWorkspaceIds: fleetState.requiredWorkspaceIds, optionalWorkspaceIds: fleetState.optionalWorkspaceIds,
       hasBaseVm: fleetState.machines.some((machine) => machine.base) };
+  }
+
+  public async remoteWorkspaceDetails(serverId: string, workspaceId: string): Promise<BealeAppServerWorkspaceDetails> {
+    if (!WORKSPACE_ID.test(workspaceId)) throw new Error('Invalid workspace ID.');
+    const server = await this.connectedRemoteAppServer(serverId);
+    return decodeBealeAppServerWorkspaceDetails(await this.remoteGet(
+      server, bealeAppServerWorkspaceDetailsPath(workspaceId)
+    ));
+  }
+
+  public async remoteQuickChats(serverId: string): Promise<BealeAppServerQuickChatList> {
+    const server = await this.connectedRemoteAppServer(serverId);
+    return decodeBealeAppServerQuickChatList(await this.remoteGet(server, BEALE_APP_SERVER_QUICK_CHATS_PATH));
+  }
+
+  public async remoteStartQuickChat(serverId: string, input: unknown): Promise<BealeAppServerQuickChatStartResult> {
+    const quickChat = decodeBealeAppServerQuickChatStartInput(input);
+    const server = await this.connectedRemoteAppServer(serverId);
+    return decodeBealeAppServerQuickChatStartResult(await this.remotePost(server, BEALE_APP_SERVER_QUICK_CHATS_PATH, quickChat));
+  }
+
+  public async remoteContinueQuickChat(serverId: string, workspaceId: string, sessionId: string, instruction: string): Promise<{ sessionId: string }> {
+    if (!WORKSPACE_ID.test(workspaceId) || !VM_NAME.test(sessionId) || !instruction.trim() || instruction.length > 131_072) {
+      throw new Error('Invalid Quick Chat continuation.');
+    }
+    const server = await this.connectedRemoteAppServer(serverId);
+    const payload = await this.remotePost(server, `${BEALE_APP_SERVER_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/continuations`, {
+      workspaceId, instruction: instruction.trim()
+    });
+    if (!isRecord(payload) || !isRecord(payload.session) || payload.session.sessionId !== sessionId) {
+      throw new Error('Remote app server returned an invalid Quick Chat continuation.');
+    }
+    return { sessionId };
   }
 
   public async remoteSession(serverId: string, workspaceId: string, sessionId: string, beforeEventId: string | null = null): Promise<unknown> {
@@ -385,29 +419,68 @@ export class FleetService {
     return { url: url.href, token: transport.token };
   }
 
-  public async remoteLaunch(serverId: string, workspaceId: string, promptMarkdown: string, machineId = 'local'): Promise<{ sessionId: string }> {
+  public async remoteLaunch(serverId: string, workspaceId: string, research: FleetRemoteResearchInput): Promise<{ sessionId: string }> {
     const server = await this.connectedRemoteAppServer(serverId);
+    const promptMarkdown = research.promptMarkdown;
     if (!promptMarkdown.trim() || promptMarkdown.length > 131_072) throw new Error('Enter a research prompt.');
+    const targetIds = [...research.targetIds];
+    if (targetIds.length < 1 || targetIds.length > 16
+      || targetIds.some((id) => typeof id !== 'string' || id.length < 1 || id.length > 256)
+      || new Set(targetIds).size !== targetIds.length) {
+      throw new Error('Select 1 to 16 distinct remote targets.');
+    }
+    if (research.repeatSchedule?.type !== undefined && research.repeatSchedule.type !== 'none'
+      && targetIds.some((id) => id.startsWith('vm:'))) {
+      throw new Error('Repeating sessions are available on Local and browser targets only.');
+    }
     const fleetState = await this.callRemote<FleetState>(serverId, 'fleet.state', {});
     const allowed = fleetState.workspaceTargets[workspaceId] ?? ['local', 'browser:in-agent'];
-    if (!allowed.includes(machineId)) throw new Error('Select a target enabled for this remote workspace.');
-    if (machineId !== 'local' && !fleetState.enabled) throw new Error('Fleet is disabled on the remote app server.');
-    if (machineId.startsWith('browser:') && !fleetState.browsers.some((browser) => browser.enabled && machineId === `browser:${browser.id}`)) {
-      throw new Error('Select an enabled remote browser target.');
-    }
-    if (machineId.startsWith('vm:') && !fleetState.machines.some((machine) =>
-      machineId === `vm:run:${machine.id}` && machine.canRun
-      || machineId === `vm:clone:${machine.id}` && machine.canClone && machine.state === 'stopped')) {
-      throw new Error('Select an available remote VM target.');
+    for (const machineId of targetIds) {
+      if (!allowed.includes(machineId) && !(machineId === 'local' && allowed.includes('browser:in-agent'))) throw new Error('Select a target enabled for this remote workspace.');
+      if (machineId !== 'local' && !fleetState.enabled) throw new Error('Fleet is disabled on the remote app server.');
+      if (machineId.startsWith('browser:') && !fleetState.browsers.some((browser) => browser.enabled && machineId === `browser:${browser.id}`)) {
+        throw new Error('Select an enabled remote browser target.');
+      }
+      if (machineId.startsWith('vm:') && !fleetState.machines.some((machine) =>
+        machineId === `vm:run:${machine.id}` && machine.canRun
+        || machineId === `vm:clone:${machine.id}` && machine.canClone && machine.state === 'stopped')) {
+        throw new Error('Select an available remote VM target.');
+      }
     }
     const payload = await this.remotePost(server, BEALE_APP_SERVER_SESSIONS_PATH, {
       launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION, launch: { workspaceId, promptMarkdown: promptMarkdown.trim(),
-        machineId, browserRelay: true },
+        machineId: targetIds.length > 1 ? 'local' : targetIds[0], targetIds, browserRelay: true,
+        ...(research.mode ? { mode: research.mode } : {}),
+        ...(research.goal ? { goal: research.goal } : {}),
+        ...(research.provider ? { provider: research.provider } : {}),
+        ...(research.shellSafetyMode ? { shellSafetyMode: research.shellSafetyMode } : {}),
+        ...(research.workflowId ? { workflowId: research.workflowId } : {}),
+        ...(research.collaboration ? { collaboration: research.collaboration } : {}),
+        ...(research.repeatSchedule && research.repeatSchedule.type !== 'none' ? { repeatSchedule: research.repeatSchedule } : {}),
+        generateTitle: true },
     });
     if (!isRecord(payload) || !isRecord(payload.session) || typeof payload.session.sessionId !== 'string') {
       throw new Error('Remote app server returned an invalid session start.');
     }
     return { sessionId: payload.session.sessionId };
+  }
+
+  public async remoteExpandPrompt(serverId: string, workspaceId: string, expansion: FleetRemotePromptExpansionInput): Promise<FleetRemotePromptExpansionResult> {
+    if (!WORKSPACE_ID.test(workspaceId)) throw new Error('Invalid workspace ID.');
+    const result = await this.callRemote<unknown>(serverId, 'prompt.expand', { workspaceId, ...expansion });
+    if (!isRecord(result) || typeof result.phase !== 'string' || typeof result.promptMarkdown !== 'string'
+      || !result.promptMarkdown.trim() || result.promptMarkdown.length > 131_072) {
+      throw new Error('Remote app server returned an invalid expanded prompt.');
+    }
+    return { phase: result.phase, promptMarkdown: result.promptMarkdown };
+  }
+
+  public async remoteGoalSuggestions(serverId: string, workspaceId: string, phase: string, refresh: boolean): Promise<FleetRemoteGoalSuggestions> {
+    if (!WORKSPACE_ID.test(workspaceId) || !VM_NAME.test(phase)) throw new Error('Invalid remote research suggestion request.');
+    const result = decodeGeneratedResearchGoalSuggestions(await this.callRemote<unknown>(serverId, 'suggestion.generate', {
+      workspaceId, phase, refresh
+    }), phase);
+    return { phase: result.phase, suggestions: result.suggestions };
   }
 
   public async remoteControl(serverId: string, sessionId: string, type: string, instruction: string | null): Promise<void> {

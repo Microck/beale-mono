@@ -63,6 +63,42 @@ export interface ShellToolOptions {
   remote?: { sshArgs: readonly string[]; guestPlatform: 'win32' | 'darwin' | 'linux'; guestCwd: string; sshExecutable?: string };
 }
 
+export function createMultiTargetShellTool(
+  options: Omit<ShellToolOptions, 'remote'>,
+  targets: readonly { id: string; remote?: ShellToolOptions['remote'] }[]
+): ResearchExecutableTool {
+  if (targets.length < 2 || new Set(targets.map((target) => target.id)).size !== targets.length) {
+    throw new Error('Multi-target shell requires distinct target IDs.');
+  }
+  const tools = new Map(targets.map((target) => [target.id, createShellTool({ ...options, ...(target.remote ? { remote: target.remote } : {}) })]));
+  const first = tools.get(targets[0]!.id)!;
+  const baseParameters = first.parameters as { type: 'object'; properties: Record<string, unknown> };
+  const parameters = {
+    ...baseParameters,
+    required: ['targetId'],
+    properties: {
+      ...baseParameters.properties,
+      targetId: { type: 'string' as const, enum: targets.map((target) => target.id),
+        description: 'Selected execution target for this command.' }
+    }
+  } as NonNullable<ResearchExecutableTool['parameters']>;
+  return {
+    descriptor: {
+      ...first.descriptor,
+      description: `Run a shell command on one selected target. Pass targetId on every model call. Available targets: ${targets.map((target) => target.id).join(', ')}. Shell safety policy applies to each target.`,
+      inputSchema: parameters,
+      metadata: { ...first.descriptor.metadata, executionTarget: 'selected-target' }
+    },
+    parameters,
+    async execute(action, context) {
+      const targetId = typeof action.input.targetId === 'string' ? action.input.targetId : targets[0]!.id;
+      const tool = tools.get(targetId);
+      if (!tool) throw new Error(`Target ${targetId} is not selected for this session.`);
+      return tool.execute(action, context);
+    }
+  };
+}
+
 interface RequestedShellInvocation {
   kind: "command" | "utility";
   utility: string;

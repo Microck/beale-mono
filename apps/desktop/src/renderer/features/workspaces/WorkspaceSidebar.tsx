@@ -204,12 +204,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
             </div>
           ) : null}
         </div>
-        {!remote ? <div className="sidebar-quick-actions">
+        <div className="sidebar-quick-actions">
           <button type="button" className="sidebar-utility-button sidebar-quick-chat" title="Open a quick chat" onClick={onOpenQuickChat}>
             <Zap size={15} />
             <span>Quick Chat</span>
           </button>
-        </div> : null}
+        </div>
       </div>
       <div className="sidebar-section workspace-list">
         <div className={`section-row workspace-list-header${sessionSearchOpen ? ' search-open' : ''}`}>

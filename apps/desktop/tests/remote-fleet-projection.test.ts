@@ -1,8 +1,10 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, test } from 'vitest';
-import type { FleetRemoteCatalog } from '@beale/app-server-runtime/protocol';
-import { RemoteFleetSidebar } from '../src/renderer/features/fleet/RemoteFleetWorkspace';
+import type { BealeAppServerWorkspaceDetails, FleetRemoteCatalog } from '@beale/app-server-runtime/protocol';
+import { RemoteFleetSidebar, RemoteFleetWorkspace } from '../src/renderer/features/fleet/RemoteFleetWorkspace';
+import { RemoteWorkspaceDetails } from '../src/renderer/features/fleet/RemoteWorkspaceDetails';
+import { RemoteQuickChatDock } from '../src/renderer/features/fleet/RemoteQuickChatDock';
 import { CommentaryView } from '../src/renderer/features/commentary/CommentaryView';
 import { mergeRemoteSessionHistory, remoteRunDetail, remoteSessionHistoryPage, remoteWorkspaceRegistry } from '../src/renderer/features/fleet/remoteFleetProjection';
 import { buildTraceDisplayEventsForAgentPath } from '../src/renderer/view-models/traceDisplay';
@@ -10,6 +12,7 @@ import { commentaryMessagesForSession } from '../src/renderer/view-models/commen
 
 const catalog: FleetRemoteCatalog = {
   serverId: 'server-example',
+  providerCatalog: { controlVersion: 1, defaultProviderId: 'openai-codex', providers: [{ providerId: 'openai-codex', providerName: 'OpenAI', riskAcknowledged: true, defaultLeadModel: 'gpt-example', defaultSubagentModel: null, defaultReasoningEffort: 'high', models: [{ id: 'gpt-example', name: 'Example model', reasoning: true, effortLevels: ['high'] }] }] },
   workspaces: [{ id: 'registry-example', workspaceId: 'workspace-example', name: 'ExampleCo Research', runCount: 1 }],
   sessions: [{ id: 'session-example', workspaceId: 'workspace-example', title: 'Inspect example service', status: 'running', prompt: 'Inspect example.test', updatedAt: '2026-01-01T00:00:00.000Z', automation: false }],
   machines: [],
@@ -33,12 +36,65 @@ test('remote workspaces and sessions use the standard sidebar hierarchy', () => 
     collapsed: false,
     serverSelector: null,
     onSelect: () => undefined,
+    onStartNewResearch: () => undefined,
+    onOpenQuickChat: () => undefined,
     onResizePointerDown: () => undefined
   }));
   expect(html).toContain('workspace-list');
   expect(html).toContain('workspace-session-list');
   expect(html).toContain('ExampleCo Research');
   expect(html).toContain('Inspect example service');
+  expect(html).toContain('Quick Chat');
+});
+
+test('remote workspace details render the workspace dashboard from the shared details DTO', () => {
+  const details: BealeAppServerWorkspaceDetails = {
+    schemaVersion: 1,
+    workspace: { id: 'registry-example', workspaceId: 'workspace-example', name: 'ExampleCo Research', researchProfileId: 'security-research', researchKitId: 'general', runCount: 1, lastRunAt: null, updatedAt: '2026-01-01T00:00:00.000Z' },
+    scope: { id: 'scope-example', name: 'ExampleCo Research', owner: 'ExampleCo', descriptionMarkdown: 'Research **example.test** only.', expiresAt: null, resources: [{ id: 'resource-example', kind: 'domain', direction: 'in_scope', value: 'example.test', sensitivity: 'public' }] },
+    researchSubject: 'ExampleCo', rules: [{ id: 'rule-example', text: 'Stay within example.test.' }],
+    memory: { schemaVersion: 4, workspaceId: 'workspace-example', status: 'ready', nodeCount: 0, nodeTypeCounts: {}, nodes: [], leads: [], findings: [] },
+    runbooks: [{ id: 'runbook-example', title: 'Example runbook', purpose: 'Verify example.test.', updatedAt: '2026-01-01T00:00:00.000Z' }],
+    reports: [{ id: 'report-example', title: 'Example report', summary: 'Synthetic report.', status: 'complete', updatedAt: '2026-01-01T00:00:00.000Z' }],
+    targets: [{ id: 'local', name: 'Local', ready: true }]
+  };
+  const html = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { details }));
+  expect(html).toContain('aria-label="Workspace dashboard"');
+  expect(html).toContain('Campaign');
+  expect(html).toContain('Resources');
+  expect(html).toContain('Rules');
+  expect(html).toContain('Targets');
+  expect(html).toContain('Settings');
+  expect(html).toContain('Runbooks');
+  expect(html).toContain('Reports');
+  expect(html).toContain('ExampleCo Research Claims');
+  expect(html).not.toContain('New Research prompt');
+});
+
+test('remote workspace selection and New Research have distinct views', () => {
+  const props = {
+    serverId: 'server-example', serverName: 'Example server', catalog,
+    workspaceId: 'workspace-example', sessionId: null, automations: false,
+    error: null, onLaunched: () => undefined
+  };
+  const details = renderToStaticMarkup(createElement(RemoteFleetWorkspace, { ...props, newResearchOpen: false }));
+  const newResearch = renderToStaticMarkup(createElement(RemoteFleetWorkspace, { ...props, newResearchOpen: true }));
+  expect(details).toContain('Loading workspace details');
+  expect(details).not.toContain('New Research prompt');
+  expect(newResearch).toContain('new-research-options-tray');
+  expect(newResearch).toContain('Example server');
+  expect(newResearch).toContain('Research targets: Local, ready');
+  expect(newResearch).toContain('Research suggestion categories');
+});
+
+test('remote Quick Chat opens in the dock without selecting a workspace', () => {
+  const html = renderToStaticMarkup(createElement(RemoteQuickChatDock, {
+    serverId: 'server-example', chats: [{ id: 'quick-chat-example', serverId: 'server-example' }],
+    onClose: () => undefined, onStarted: () => undefined
+  }));
+  expect(html).toContain('aria-label="Remote quick chats"');
+  expect(html).toContain('Send a quick chat message');
+  expect(html).toContain('This chat will be saved on this app server.');
 });
 
 test('remote canonical events feed the local commentary projection', () => {

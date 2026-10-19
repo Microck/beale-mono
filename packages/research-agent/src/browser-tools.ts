@@ -286,7 +286,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function createBrowserTools(session: BrowserCdpSession): ResearchExecutableTool[] {
+export function createBrowserTools(
+  session: BrowserCdpSession,
+  targetEndpoints: Readonly<Record<string, string>> = {}
+): ResearchExecutableTool[] {
   const tool = (name: string, description: string, properties: Record<string, unknown>, required: string[], run: (input: Record<string, unknown>, context?: ResearchToolExecutionContext) => Promise<unknown>): ResearchExecutableTool => {
     const parameters = { type: "object", properties, required, additionalProperties: false } as const;
     return {
@@ -307,15 +310,18 @@ export function createBrowserTools(session: BrowserCdpSession): ResearchExecutab
       },
     };
   };
-  const endpoint = { type: "string", description: `HTTP(S) CDP discovery endpoint or, for connect, a direct WebSocket URL. Defaults to Beale's embedded browser when available, otherwise ${DEFAULT_ENDPOINT}.` };
+  const targetIds = Object.keys(targetEndpoints);
+  const endpoint = { type: "string", description: `Selected browser target ID${targetIds.length ? ` (${targetIds.join(', ')})` : ''}, HTTP(S) CDP discovery endpoint, or a direct WebSocket URL for connect. Defaults to Beale's embedded browser when available, otherwise ${DEFAULT_ENDPOINT}.` };
+  const resolveEndpoint = (value: unknown): string | undefined => typeof value === 'string'
+    ? targetEndpoints[value] ?? value : undefined;
   const connectionId = { type: "string", description: "Connection ID returned by browser.connect." };
   return [
     tool("browser.contexts", "List Beale's isolated embedded browser contexts and their one-word labels. Open the Browser sidebar tab to attach their pages.", {}, [], async (_input, context) => ({ contexts: await session.contexts(context?.signal) })),
     tool("browser.context.create", "Create a separate embedded browser context with isolated cookies and storage. The label must be one word, up to 24 letters, numbers, hyphens, or underscores. Use browser.targets to find its page after the tab opens.", { label: { type: "string", minLength: 1, maxLength: 24, pattern: "^[A-Za-z0-9_][A-Za-z0-9_-]*$" } }, ["label"], async (input, context) => ({ context: await session.createContext(String(input.label), context?.signal) })),
     tool("browser.context.close", "Close a named embedded browser context and its page. The Default context cannot be closed.", { contextId: { type: "string" } }, ["contextId"], async (input, context) => { await session.closeContext(String(input.contextId), context?.signal); return { closed: true }; }),
     tool("browser.context.open", "Open an existing embedded browser context in the sidebar so this research session can attach to its page. Use browser.contexts to find its ID, then browser.targets and browser.connect. Inspecting its targets or connecting may ask for one-time Browser control approval.", { contextId: { type: "string" } }, ["contextId"], async (input, context) => ({ context: await session.openContext(String(input.contextId), context?.signal) })),
-    tool("browser.targets", "List debuggable targets. Beale's embedded page appears after its Browser tab opens; inspecting embedded targets on first use asks the user to approve full CDP access.", { endpoint }, [], async (input, context) => ({ targets: await session.targets(typeof input.endpoint === "string" ? input.endpoint : undefined, context?.signal) })),
-    tool("browser.connect", "Open a run-local CDP WebSocket. Open or reuse a Beale Browser context, then omit targetId for its default page or select a listed targetId. Embedded Browser control approval is requested once and saved on this machine. An explicit endpoint can connect to an external browser.", { endpoint, targetId: { type: "string" } }, [], async (input, context) => ({ connectionId: await session.connect(typeof input.endpoint === "string" ? input.endpoint : undefined, typeof input.targetId === "string" ? input.targetId : undefined, context?.signal) })),
+    tool("browser.targets", "List debuggable targets. Pass a selected browser target ID through endpoint to inspect that browser without exposing its connection URL. Beale's embedded page appears after its Browser tab opens; inspecting embedded targets on first use asks the user to approve full CDP access.", { endpoint }, [], async (input, context) => ({ targets: await session.targets(resolveEndpoint(input.endpoint), context?.signal) })),
+    tool("browser.connect", "Open a run-local CDP WebSocket. Pass a selected browser target ID through endpoint to use that browser, then omit targetId for its default page or select a listed targetId. Embedded Browser control approval is requested once and saved on this machine.", { endpoint, targetId: { type: "string" } }, [], async (input, context) => ({ connectionId: await session.connect(resolveEndpoint(input.endpoint), typeof input.targetId === "string" ? input.targetId : undefined, context?.signal) })),
     tool("browser.command", "Send any Chrome DevTools Protocol method and parameters. Pass sessionId for flattened target sessions. CDP errors are returned with their code and message.", { connectionId, method: { type: "string" }, params: { type: "object", additionalProperties: true }, sessionId: { type: "string" } }, ["connectionId", "method"], async (input, context) => {
       const response = await session.command(String(input.connectionId), String(input.method), isRecord(input.params) ? input.params : {}, typeof input.sessionId === "string" ? input.sessionId : undefined, context?.signal);
       return response.error ? { error: response.error } : { result: response.result === undefined ? {} : response.result, ...(response.sessionId ? { sessionId: response.sessionId } : {}) };

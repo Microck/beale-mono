@@ -7,6 +7,27 @@ import { BrowserCdpSession, createBrowserTools, managedToolPluginId } from "../p
 const requireFromServer = createRequire(new URL("../app-server/package.json", import.meta.url));
 const { WebSocketServer } = requireFromServer("ws");
 
+test('selected browser IDs resolve to session-local endpoints', async () => {
+  const calls = [];
+  const session = {
+    async targets(endpoint) { calls.push(['targets', endpoint]); return [{ id: 'page-example' }]; },
+    async connect(endpoint, targetId) { calls.push(['connect', endpoint, targetId]); return 'connection-example'; },
+  };
+  const tools = createBrowserTools(session, { 'browser:example': 'http://127.0.0.1:9223' });
+  const targets = tools.find((tool) => tool.descriptor.name === 'browser.targets');
+  const connect = tools.find((tool) => tool.descriptor.name === 'browser.connect');
+  assert.match(targets.descriptor.description, /selected browser target ID/u);
+  assert.doesNotMatch(JSON.stringify(targets.descriptor), /127\.0\.0\.1:9223/u);
+  assert.equal((await targets.execute({ id: 'targets-example', toolName: 'browser.targets', actionClass: 'inspect',
+    input: { endpoint: 'browser:example' } })).status, 'complete');
+  assert.equal((await connect.execute({ id: 'connect-example', toolName: 'browser.connect', actionClass: 'inspect',
+    input: { endpoint: 'browser:example', targetId: 'page-example' } })).status, 'complete');
+  assert.deepEqual(calls, [
+    ['targets', 'http://127.0.0.1:9223'],
+    ['connect', 'http://127.0.0.1:9223', 'page-example'],
+  ]);
+});
+
 test("browser tools expose arbitrary CDP commands, flattened sessions, events, and cleanup", async () => {
   const contexts = [{ id: "default", label: "Default" }];
   const server = createServer(async (request, response) => {

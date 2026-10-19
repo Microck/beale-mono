@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import type { FleetState } from '@beale/app-server-runtime/protocol';
 import type { HostEnvironment, RunDetail, RunRow, WorkspaceSnapshot } from '@shared/types';
 import { AppHeaderTitle, StaticAppHeaderTitle, type AppHeaderViewIcon } from '../src/renderer/app/AppHeaderTitle';
-import { BottomPanel, DEFAULT_BOTTOM_PANEL_OPEN } from '../src/renderer/app/BottomPanel';
 import { AppNavigationRail, ProviderLimitIndicator, resolveAppNavigationDestination } from '../src/renderer/app/AppNavigationRail';
 import { FleetSidebar } from '../src/renderer/features/fleet/FleetSidebar';
 import { FleetSettingsView } from '../src/renderer/features/settings/FleetSettingsView';
@@ -172,7 +171,7 @@ describe('renderer app shell view model', () => {
     expect(html).toContain('role="tooltip"');
     expect(html).toContain('class="app-navigation-limit-icon has-inner"');
     expect(html).toContain('viewBox="0 0 36 36"');
-    expect(html).toContain('height="12"');
+    expect(html).toContain('height="15"');
     expect(html).toMatch(/data-limit="Weekly"[^>]*stroke-dasharray="30 100"|stroke-dasharray="30 100"[^>]*data-limit="Weekly"/u);
     expect(html).toMatch(/data-limit="Session"[^>]*stroke-dasharray="75 100"|stroke-dasharray="75 100"[^>]*data-limit="Session"/u);
     expect(html).toContain('>OpenAI</div>');
@@ -384,7 +383,6 @@ describe('renderer app shell view model', () => {
       workspaceViewTitle: null,
       activeRunDetail: null,
       profilingEnabled: false,
-      bottomPanelOpen: true,
       workspaceEditors: {
         editors: [
           { id: 'vscode', name: 'Visual Studio Code', iconDataUrl: 'data:image/png;base64,dnNjb2Rl' },
@@ -393,7 +391,6 @@ describe('renderer app shell view model', () => {
         defaultEditorId: 'cursor'
       },
       onOpenProfiling: () => undefined,
-      onToggleBottomPanel: () => undefined,
       onOpenWorkspaceInEditor: () => undefined,
       onAddWorkspace: () => undefined,
       onToggleRightSidenav: () => undefined,
@@ -408,8 +405,7 @@ describe('renderer app shell view model', () => {
     expect(header).toContain('class="workspace-editor-icon"');
     expect(header).toContain('data:image/png;base64,Y3Vyc29y');
     expect(header.indexOf('workspace-editor-control')).toBeLessThan(header.indexOf('right-sidenav-toggle-button'));
-    expect(header).toContain('aria-label="Hide bottom panel"');
-    expect(header.indexOf('bottom-panel-toggle-button')).toBeLessThan(header.indexOf('right-sidenav-toggle-button'));
+    expect(header).not.toContain('bottom-panel-toggle-button');
   });
 
   it('shows New Research and Quick Chat beside the sidebar toggle whenever the sidebar is collapsed', () => {
@@ -428,10 +424,8 @@ describe('renderer app shell view model', () => {
       workspaceName: 'Example Workspace',
       activeRunDetail: null,
       profilingEnabled: false,
-      bottomPanelOpen: false,
       workspaceEditors: null,
       onOpenProfiling: () => undefined,
-      onToggleBottomPanel: () => undefined,
       onOpenWorkspaceInEditor: () => undefined,
       onAddWorkspace: () => undefined,
       onToggleRightSidenav: () => undefined,
@@ -488,44 +482,23 @@ describe('renderer app shell view model', () => {
     expect(styles).toMatch(/\.top-bar\s*\{[^}]*--header-control-active-background: color-mix\(in srgb, var\(--text\) 4\.5%, transparent\);/u);
     expect(styles).toMatch(/\.workspace-editor-open-button,\s*\.workspace-editor-menu-button\s*\{[^}]*background: var\(--header-control-active-background\);/u);
     expect(styles).toMatch(
-      /\.sidebar-toggle-button\[aria-pressed='true'\],\s*\.window-control-button\.bottom-panel-toggle-button\[aria-pressed='true'\],\s*\.window-control-button\.right-sidenav-toggle-button\[aria-pressed='true'\]\s*\{[^}]*background: var\(--header-control-active-background\);/u
+      /\.sidebar-toggle-button\[aria-pressed='true'\],\s*\.window-control-button\.right-sidenav-toggle-button\[aria-pressed='true'\]\s*\{[^}]*background: var\(--header-control-active-background\);/u
     );
   });
 
-  it('renders a separate fixed-height terminal panel below the workbench', () => {
-    expect(DEFAULT_BOTTOM_PANEL_OPEN).toBe(false);
-    const panel = renderToStaticMarkup(createElement(BottomPanel, {
-      open: true,
-      workspacePath: 'C:\\research\\parser',
-      onClose: () => undefined
-    }));
-    expect(panel).toContain('aria-label="Bottom panel"');
-    expect(panel).toContain('lucide-square-terminal');
-    expect(panel).toContain('role="tab"');
-    expect(panel).toContain('aria-selected="true"');
-    expect(panel).toContain('<span>Terminal</span>');
-    expect(panel).toContain('class="research-side-view-tab-close"');
-    expect(panel).toContain('aria-label="Close Terminal"');
-    expect(panel).toContain('lucide-x');
-    expect(panel).toContain('class="bottom-panel-terminal"');
-
+  it('keeps the workbench at full height beneath the header', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     expect(styles).toContain('--app-header-height: 44px');
-    expect(styles).toContain('grid-template-rows: var(--app-header-height) minmax(0, 1fr) 8px 250px 6px;');
-    expect(styles).toContain('grid-template-rows: var(--app-header-height) minmax(0, 1fr) 0 0 6px;');
+    expect(styles).toContain('grid-template-rows: var(--app-header-height) minmax(0, 1fr) 6px;');
     expect(styles).toMatch(/\.top-bar\s*\{[^}]*min-height: var\(--app-header-height\);/u);
     expect(styles).toMatch(/\.window-controls\s*\{[^}]*align-items: center;/u);
     const mainSource = readFileSync(new URL('../src/main/index.ts', import.meta.url), 'utf8');
     expect(mainSource).toContain('trafficLightPosition: { x: 16, y: 16 }');
     expect(styles).toMatch(/\.workbench\s*\{[^}]*margin: 0 6px 0 0;[^}]*padding: 0 12px;/u);
-    expect(styles).toMatch(/\.bottom-panel\s*\{[^}]*grid-column: 3;[^}]*grid-row: 4;[^}]*height: 0;/u);
-    expect(styles).toMatch(/\.bottom-panel\s*\{[^}]*margin: 0 6px 0 0;[^}]*padding: 0;/u);
-    expect(styles).toMatch(/\.app-shell\.bottom-panel-open \.bottom-panel\s*\{[^}]*height: 250px;/u);
-    expect(styles).toMatch(/\.bottom-panel-terminal\s*\{[^}]*padding-inline: 10px;/u);
-    expect(styles).toMatch(/\.sidebar\s*\{[^}]*grid-row: 2 \/ 5;/u);
+    expect(styles).toMatch(/\.sidebar\s*\{[^}]*grid-row: 2;/u);
   });
 
-  it('hides the bottom-panel toggle wherever the right-sidenav toggle is unavailable', () => {
+  it('hides the right-sidenav toggle when it is unavailable', () => {
     const header = renderToStaticMarkup(createElement(TopBar, {
       sidebarCollapsed: false,
       workspaceOpen: true,
@@ -542,10 +515,8 @@ describe('renderer app shell view model', () => {
       workspaceViewTitle: null,
       activeRunDetail: null,
       profilingEnabled: false,
-      bottomPanelOpen: false,
       workspaceEditors: null,
       onOpenProfiling: () => undefined,
-      onToggleBottomPanel: () => undefined,
       onOpenWorkspaceInEditor: () => undefined,
       onAddWorkspace: () => undefined,
       onToggleRightSidenav: () => undefined,
@@ -554,11 +525,10 @@ describe('renderer app shell view model', () => {
       onStartNewResearchForWorkspace: () => undefined,
       onOpenQuickChat: () => undefined
     }));
-    expect(header).not.toContain('bottom-panel-toggle-button');
     expect(header).not.toContain('right-sidenav-toggle-button');
   });
 
-  it('hides panel toggles when research controls are unavailable', () => {
+  it('hides the right-sidenav toggle when research controls are unavailable', () => {
     const header = renderToStaticMarkup(createElement(TopBar, {
       sidebarCollapsed: false,
       workspaceOpen: true,
@@ -575,11 +545,8 @@ describe('renderer app shell view model', () => {
       workspaceViewTitle: null,
       activeRunDetail: null,
       profilingEnabled: false,
-      bottomPanelAvailable: false,
-      bottomPanelOpen: false,
       workspaceEditors: null,
       onOpenProfiling: () => undefined,
-      onToggleBottomPanel: () => undefined,
       onOpenWorkspaceInEditor: () => undefined,
       onAddWorkspace: () => undefined,
       onToggleRightSidenav: () => undefined,
@@ -588,7 +555,6 @@ describe('renderer app shell view model', () => {
       onStartNewResearchForWorkspace: () => undefined,
       onOpenQuickChat: () => undefined
     }));
-    expect(header).not.toContain('bottom-panel-toggle-button');
     expect(header).not.toContain('right-sidenav-toggle-button');
   });
 

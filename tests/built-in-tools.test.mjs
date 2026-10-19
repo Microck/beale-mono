@@ -19,6 +19,7 @@ import {
   createResearchStorageLayout,
   createResearchToolRegistry,
   createShellTool,
+  createMultiTargetShellTool,
   createToolResultMessage,
   createStorageListTool,
   createStructuredFileReadTool,
@@ -86,6 +87,32 @@ test('Fleet shell routes authorized commands through the configured remote trans
     const decoded = Buffer.from(encoded, 'base64').toString('utf16le');
     assert.match(decoded, /Set-Location -LiteralPath 'C:\\Users\\example'/);
     assert.match(decoded, /Write-Output example/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('one shell tool routes each command to its selected target', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'beale-multi-target-shell-'));
+  try {
+    const tool = createMultiTargetShellTool({ workspaceRoot: root, authorize: allowShell }, [
+      { id: 'local' },
+      { id: 'vm:run:tart:example-vm', remote: { sshExecutable: process.execPath,
+        sshArgs: ['-e', 'process.stdout.write(process.argv[1] ?? "")'],
+        guestPlatform: 'linux', guestCwd: '/home/example' } },
+    ]);
+    assert.deepEqual(tool.parameters.required, ['targetId']);
+    assert.deepEqual(tool.parameters.properties.targetId.enum, ['local', 'vm:run:tart:example-vm']);
+    const registry = createResearchToolRegistry([tool]);
+    const local = await registry.execute({ id: 'multi-local', actionClass: 'inspect', toolName: 'shell.run',
+      input: { targetId: 'local', utility: 'printf', args: ['local-example'] } });
+    assert.equal(local.result.status, 'complete');
+    assert.equal(local.result.output.stdout, 'local-example');
+    const remote = await registry.execute({ id: 'multi-vm', actionClass: 'inspect', toolName: 'shell.run',
+      input: { targetId: 'vm:run:tart:example-vm', utility: 'printf', args: ['vm-example'] } });
+    assert.equal(remote.result.status, 'complete');
+    assert.match(remote.result.output.stdout, /home\/example/);
+    assert.match(remote.result.output.stdout, /vm-example/);
+    await assert.rejects(registry.execute({ id: 'multi-invalid', actionClass: 'inspect', toolName: 'shell.run',
+      input: { targetId: 'vm:run:tart:other-vm', utility: 'printf', args: ['invalid'] } }), /not selected for this session/u);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

@@ -23,6 +23,7 @@ import {
   startAppServer,
 } from "../dist/index.js";
 import {
+  APP_SERVER_SESSION_LAUNCH_VERSION,
   BEALE_APP_SERVER_CAPABILITIES,
   BEALE_APP_SERVER_CONTRACT_TIMESTAMP,
   BEALE_APP_SERVER_CONTROL_VERSION,
@@ -598,6 +599,7 @@ test("publishes a path-free model catalog for connected providers with host defa
   assert.equal(payload.providers[0].defaultLeadModel, "grok-4.6");
   assert.equal(payload.providers[0].defaultSubagentModel, "grok-4.3");
   assert.equal(payload.providers[0].defaultReasoningEffort, "high");
+  assert.equal(payload.providers[0].riskAcknowledged, true);
   assert.ok(payload.providers[0].models.some((model) => model.id === "grok-4.6"));
   assert.ok(payload.providers[0].models.some((model) => model.id === "grok-4.7"));
   assert.doesNotMatch(JSON.stringify(payload), /credential|token|auth|workspacePath|databasePath/u);
@@ -1342,6 +1344,24 @@ test("serves host workspaces and canonical app-server reads from one authenticat
   assert.equal(workspaceResponse.status, 200);
   assert.equal((await workspaceResponse.json()).workspaces[0].workspaceId, "workspace-test");
 
+  const workspaceDetailsResponse = await fetch(`${server.url}/v1/workspaces/workspace-test/details`, { headers });
+  assert.equal(workspaceDetailsResponse.status, 200);
+  assert.equal((await fetch(`${server.url}/v1/workspaces/workspace-test/details`)).status, 401);
+  const workspaceDetails = await workspaceDetailsResponse.json();
+  assert.equal(workspaceDetails.schemaVersion, 1);
+  assert.equal(workspaceDetails.workspace.workspaceId, "workspace-test");
+  assert.equal(workspaceDetails.scope.name, "Test workspace");
+  assert.equal(workspaceDetails.targets[0].name, "Local");
+
+  const quickChatsResponse = await fetch(`${server.url}/v1/quick-chats`, { headers });
+  assert.equal(quickChatsResponse.status, 200);
+  assert.deepEqual(await quickChatsResponse.json(), { schemaVersion: 1, chats: [] });
+  assert.equal((await fetch(`${server.url}/v1/quick-chats`)).status, 401);
+  const invalidQuickChat = await fetch(`${server.url}/v1/quick-chats`, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ promptMarkdown: "" })
+  });
+  assert.equal(invalidQuickChat.status, 400);
+
   const reads = [
     ["memory", "memory"],
     ["memory-notifications", "memory-notifications"],
@@ -1371,6 +1391,59 @@ test("serves host workspaces and canonical app-server reads from one authenticat
   const retiredTopicEndpoint = await fetch(`${server.url}/v1/workspaces/workspace-test/topics`, { headers });
   assert.equal(retiredTopicEndpoint.status, 404);
 
+});
+
+test("starts a Quick Chat through the authenticated client-neutral endpoint", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "beale-quick-chat-http-example-"));
+  temporaryDirectories.push(directory);
+  const upstream = await createFakeAppServerSessionHost();
+  const hostService = testHostService(directory);
+  hostService.quickChatLaunchRequest = (input) => ({
+    launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
+    launch: { workspaceId: "quick-chat-workspace-example", mode: "quick-chat", promptMarkdown: input.promptMarkdown.trim(), machineId: "local" }
+  });
+  const server = await startAppServer({ hostService, spawnSession: upstream.spawnSession });
+  servers.push(server);
+  const response = await fetch(`${server.url}/v1/quick-chats`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${server.operatorToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ promptMarkdown: "Explain example.test" })
+  });
+  assert.equal(response.status, 201);
+  const result = await response.json();
+  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.workspaceId, "quick-chat-workspace-example");
+  assert.equal(typeof result.sessionId, "string");
+  upstream.complete();
+});
+
+test("workspace details use the owning app-server state and configured targets", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "beale-workspace-details-example-"));
+  temporaryDirectories.push(directory);
+  const calls = [];
+  const host = new AppServerHostService({
+    registry: hostRegistryFixture(directory),
+    invokeProtocol: async (operation, options) => {
+      calls.push({ operation, options });
+      if (operation === "workspace.state") return {
+        activeScope: { id: "scope-example", workspaceName: "ExampleCo Research", scopeOwner: "ExampleCo", descriptionMarkdown: "Research example.test.", assets: [{ id: "asset-example", kind: "domain", direction: "in_scope", value: "example.test", sensitivity: "public" }] },
+        researchSubject: { name: "ExampleCo" },
+        workspaceRules: [{ id: "rule-example", text: "Stay in scope." }],
+      };
+      if (operation === "memory.summary") return { status: "empty", nodeCount: 0, nodes: [], leads: [], findings: [],
+        runbooks: [{ id: "runbook-example", title: "Example runbook", purpose: "Synthetic check", updatedAt: "2026-01-01T00:00:00.000Z" }], reports: [] };
+      throw new Error(`Unexpected operation ${operation}`);
+    },
+  });
+  host.fleet.state = async () => ({ workspaceTargets: { "workspace-test": ["local"] }, browsers: [], machines: [] });
+  const details = await host.workspaceDetails("workspace-test");
+  assert.equal(details.scope.resources[0].value, "example.test");
+  assert.equal(details.rules[0].text, "Stay in scope.");
+  assert.equal(details.runbooks[0].title, "Example runbook");
+  assert.deepEqual(details.targets, [{ id: "local", name: "Local", ready: true }]);
+  assert.equal(calls[0].operation, "workspace.state");
+  assert.equal(calls[0].options.input.workspacePath, directory);
+  assert.equal(JSON.stringify(details).includes(directory), false);
 });
 
 test("resolves workspace identity and host policy from the shared Beale registry", () => {
@@ -1838,6 +1911,53 @@ test('app-server rejects session targets outside the workspace allowlist', async
   } }, 'session-target-allowlist'), /not enabled for the workspace/);
 });
 
+test('app-server prepares and releases every VM in one selected-target session', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-multi-target-session-'));
+  temporaryDirectories.push(directory);
+  const service = new AppServerHostService({
+    registry: hostRegistryFixture(directory),
+    invokeProtocol: async (operation) => {
+      if (operation === 'provider.describe') return { defaultSmallModels: {}, sessionTitleEffort: 'medium', shellReviewEffort: 'medium' };
+      if (operation === 'plugin.runtime') return { skillDirs: [], selectedSkillIds: [], allowedMcpServers: [] };
+      if (operation === 'session.get') throw new Error('Session not found: session-multi-target');
+      if (operation === 'session.create') return { revision: 1 };
+      throw new Error(`Unexpected operation: ${operation}`);
+    },
+  });
+  const vmTargets = ['vm:run:tart:example-one', 'vm:run:tart:example-two'];
+  service.fleet.state = async () => ({ enabled: true,
+    workspaceTargets: { 'workspace-test': ['local', ...vmTargets] }, browsers: [], machines: [] });
+  const preparedIds = [];
+  const releasedIds = [];
+  service.fleet.prepareSessionTarget = async (targetId) => {
+    preparedIds.push(targetId);
+    return { machineId: targetId, sshArgs: ['example@192.0.2.10'], guestPlatform: 'linux', guestCwd: '/home/example' };
+  };
+  service.fleet.releaseSessionTarget = async (machineId) => { releasedIds.push(machineId); };
+  const request = sessionLaunchRequest(directory, { sessionId: 'session-multi-target' });
+  request.launch.machineId = 'local';
+  request.launch.targetIds = ['local', ...vmTargets];
+  const prepared = await service.prepareSession(request, 'unused-generated-session');
+  assert.deepEqual(preparedIds, vmTargets);
+  assert.deepEqual(prepared.launch.selectedTargets.ids, ['local', ...vmTargets]);
+  assert.deepEqual(Object.keys(prepared.launch.selectedTargets.remoteShells), vmTargets);
+  assert.deepEqual(JSON.parse(appServerSessionEnvironment(prepared.launch, {}).BEALE_FLEET_SELECTED_TARGETS).ids,
+    ['local', ...vmTargets]);
+  await service.releaseSessionTarget('session-multi-target');
+  assert.deepEqual(releasedIds, vmTargets);
+  preparedIds.length = 0;
+  releasedIds.length = 0;
+  service.fleet.prepareSessionTarget = async (targetId) => {
+    if (targetId === vmTargets[1]) throw new Error('Synthetic VM preparation failure.');
+    preparedIds.push(targetId);
+    return { machineId: targetId, sshArgs: ['example@192.0.2.10'], guestPlatform: 'linux', guestCwd: '/home/example' };
+  };
+  await assert.rejects(service.prepareSession({ ...request, sessionId: 'session-multi-target-failed' },
+    'unused-generated-session'), /Synthetic VM preparation failure/u);
+  assert.deepEqual(preparedIds, [vmTargets[0]]);
+  assert.deepEqual(releasedIds, [vmTargets[0]]);
+});
+
 test("app-server preserves launch options through restart metadata and runtime arguments", async () => {
   const directory = mkdtempSync(join(tmpdir(), "beale-app-server-fast-mode-"));
   temporaryDirectories.push(directory);
@@ -2062,6 +2182,8 @@ test("app-server owns built-in plugins and pins canonical session profile identi
           allowedMcpServers: ["beale-introspection.beale", "example.tools"],
         };
       }
+      if (operation === "plugin.list") return { plugins: [{ id: "meta-skills-builtin", installed: false }] };
+      if (operation === "plugin.set_enabled") return { enabled: true };
       if (operation === "session.get") throw new Error("Session not found: session-policy");
       if (operation === "session.create") return { revision: 1 };
       throw new Error(`Unexpected operation: ${operation}`);
@@ -2078,6 +2200,7 @@ test("app-server owns built-in plugins and pins canonical session profile identi
       generateTitle: true,
       researchProfileId: "security-research",
       researchProfileHash: hash,
+      repeatSchedule: { type: "hourly", interval: 2 },
     },
   }, "generated-session");
 
@@ -2106,7 +2229,7 @@ test("app-server owns built-in plugins and pins canonical session profile identi
   assert.equal(pluginCall.options.input.builtinPlugins.some((plugin) => plugin.id === "beale-browser-use-builtin"), false);
   assert.equal(pluginCall.options.input.builtinPlugins.some((plugin) => plugin.id === "beale-terminator-builtin"), false);
   assert.ok(pluginCall.options.input.builtinPlugins.some((plugin) =>
-    plugin.id === "meta-skills-builtin" && plugin.enabledByDefault !== false
+    plugin.id === "meta-skills-builtin" && plugin.enabledByDefault === false
       && plugin.path.endsWith(join("managed-plugins", "meta-skills"))
   ));
   assert.ok(pluginCall.options.input.builtinPlugins.some((plugin) =>
@@ -2121,6 +2244,8 @@ test("app-server owns built-in plugins and pins canonical session profile identi
   ));
   const createCall = calls.find((call) => call.operation === "session.create");
   assert.deepEqual(createCall.options.input.profile, { id: "security-research", hash });
+  assert.deepEqual(createCall.options.input.metadata.bealeRun.budget.repeatSchedule, { type: "hourly", interval: 2 });
+  assert.deepEqual(createCall.options.input.metadata.bealeRun.budget.targetIds, ["local"]);
   assert.deepEqual(createCall.options.input.metadata.appServerRestartLaunch, {
     schemaVersion: 1,
     eligible: true,
@@ -2136,6 +2261,8 @@ test("app-server owns built-in plugins and pins canonical session profile identi
   managedPluginIds = [];
   registry.resolveWorkspace("workspace-test").researchKitId = "meta-bug-bounty";
   const next = await service.prepareSession({ ...sessionLaunchRequest(directory), sessionId: "session-plugin-disabled" }, "generated-disabled-session");
+  assert.ok(calls.some((call) => call.operation === "plugin.set_enabled"
+    && call.options.input.pluginId === "meta-skills-builtin"));
   assert.deepEqual(next.launch.pluginRuntime.managedPluginIds, []);
   assert.deepEqual(next.launch.pluginRuntime.skillDirectories, [metaSkillDirectory]);
   assert.deepEqual(next.launch.pluginRuntime.selectedSkillIds, ["meta-bug-bounty-tools"]);
@@ -2313,6 +2440,7 @@ test("discovers overdue automations from canonical session metadata and rebuilds
             shellSafetyMode: "auto_review",
             budget: {
               repeatSchedule: { type: "hourly", interval: 2 },
+              targetIds: ["local", "browser:example"],
               fastMode: true,
               goalEnabled: true,
               goalObjective: "Keep the parser audit moving.",
@@ -2331,10 +2459,13 @@ test("discovers overdue automations from canonical session metadata and rebuilds
   assert.equal(due.length, 1);
   assert.equal(due[0].dueAt, "2026-08-28T18:00:00.000Z");
   assert.deepEqual(due[0].request, {
-    launchVersion: 2,
+    launchVersion: 3,
     sessionId: "session-automation",
     launch: {
       workspaceId: "workspace-test",
+      machineId: "local",
+      targetIds: ["local", "browser:example"],
+      browserRelay: true,
       promptMarkdown: "Recheck the parser boundary.",
       goal: { objective: "Keep the parser audit moving." },
       provider: { id: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high", fastMode: true },
@@ -3597,7 +3728,7 @@ function controlAcknowledgement(message) {
 
 function sessionLaunchRequest(directory, options = {}) {
   return {
-    launchVersion: 2,
+    launchVersion: 3,
     sessionId: options.sessionId ?? "session-test",
     launch: {
       workspaceId: "workspace-test",
@@ -3645,6 +3776,7 @@ function resolvedSessionLaunch(directory, options = {}) {
 
 function testHostService(directory, options = {}) {
   return {
+    browserHomePage() { return 'https://example.test/'; },
     listWorkspaces() {
       return {
         controlVersion: 1,
@@ -3691,6 +3823,16 @@ function testHostService(directory, options = {}) {
       };
     },
     async workspaceMemory() { return canonicalFixture("memory"); },
+    async quickChats() { return { schemaVersion: 1, chats: [] }; },
+    async workspaceDetails() { return {
+      schemaVersion: 1,
+      workspace: { id: "registry-workspace-test", workspaceId: "workspace-test", name: "Test workspace", researchProfileId: "security-research", researchKitId: "general", runCount: 0, lastRunAt: null, updatedAt: "2026-08-21T00:00:00.000Z" },
+      scope: { id: "scope-test", name: "Test workspace", owner: "ExampleCo", descriptionMarkdown: "Research example.test.", expiresAt: null, resources: [] },
+      researchSubject: "ExampleCo", rules: [],
+      memory: { schemaVersion: 4, workspaceId: "workspace-test", status: "empty", nodeCount: 0, nodeTypeCounts: {}, nodes: [], leads: [], findings: [] },
+      runbooks: [], reports: [],
+      targets: [{ id: "local", name: "Local", ready: true }],
+    }; },
     async workspaceMemoryNotifications() { return canonicalFixture("memory-notifications"); },
     async workspaceSessions() { return canonicalFixture("sessions"); },
     async sessionUpdate() { return canonicalFixture("update"); },

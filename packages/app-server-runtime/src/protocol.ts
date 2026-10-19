@@ -46,7 +46,7 @@ export interface ResourcePriorArtGetInput extends Omit<ResourcePriorArtListInput
 
 export const APP_SERVER_PROTOCOL_NAME = "app-server" as const;
 export const APP_SERVER_PROTOCOL_VERSION = 1 as const;
-export const APP_SERVER_CONTRACT_VERSION = 48 as const;
+export const APP_SERVER_CONTRACT_VERSION = 49 as const;
 export const APP_SERVER_RUNTIME_VERSION = "0.1.0" as const;
 export const APP_SERVER_PROTOCOL_WEBSOCKET_PATH = "/v1/session" as const;
 export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as const;
@@ -54,12 +54,13 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-19T12:06:20.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-19T21:52:47.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
   "fleet.lifecycle.v1",
   "fleet.session.v1",
+  "fleet.multi-target-session.v1",
   "fleet.session-clone.v1",
   "fleet.remote-servers.v1",
   "fleet.session-ownership.v1",
@@ -67,7 +68,9 @@ export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.browser-relay.v1",
   "fleet.remote-browser-relay.v1",
   "workspace.research-project.v3",
-  "session.typed-launch.v2",
+  "workspace.details.v1",
+  "quick-chat.v1",
+  "session.typed-launch.v3",
   "session.openai-fast-mode.v1",
   "session.openai-daybreak-blue.v1",
   "session.introspection-runtime.v1",
@@ -117,6 +120,10 @@ export const BEALE_APP_SERVER_CAPABILITIES = [
 export const BEALE_APP_SERVER_SERVER_PATH = "/v1/server" as const;
 export const BEALE_APP_SERVER_SESSIONS_PATH = "/v1/sessions" as const;
 export const BEALE_APP_SERVER_WORKSPACES_PATH = "/v1/workspaces" as const;
+export const BEALE_APP_SERVER_QUICK_CHATS_PATH = "/v1/quick-chats" as const;
+export function bealeAppServerWorkspaceDetailsPath(workspaceId: string): string {
+  return `${BEALE_APP_SERVER_WORKSPACES_PATH}/${encodeURIComponent(workspaceId)}/details`;
+}
 export const BEALE_APP_SERVER_PROVIDERS_PATH = "/v1/providers" as const;
 export const BEALE_APP_SERVER_PROVIDER_LIMITS_PATH = "/v1/providers/limits" as const;
 export const BEALE_APP_SERVER_OPERATIONS_PATH = "/v1/operations" as const;
@@ -162,6 +169,7 @@ export interface BealeAppServerProviderModel {
 export interface BealeAppServerProviderCatalogEntry {
   providerId: string;
   providerName: string;
+  riskAcknowledged?: boolean;
   defaultLeadModel: string | null;
   defaultSubagentModel: string | null;
   defaultReasoningEffort: string | null;
@@ -305,6 +313,118 @@ export interface BealeAppServerWorkspaceSummary {
 export interface BealeAppServerWorkspaceList {
   controlVersion: typeof BEALE_APP_SERVER_CONTROL_VERSION;
   workspaces: BealeAppServerWorkspaceSummary[];
+}
+
+/** Quick Chats belong to the app server's internal workspace, not a client workspace. */
+export interface BealeAppServerQuickChatSummary {
+  sessionId: string;
+  workspaceId: string;
+  title: string;
+  promptMarkdown: string;
+  status: string;
+  updatedAt: string;
+}
+
+export interface BealeAppServerQuickChatList {
+  schemaVersion: 1;
+  chats: BealeAppServerQuickChatSummary[];
+}
+
+export interface BealeAppServerQuickChatStartInput {
+  promptMarkdown: string;
+  provider?: AppServerSessionLaunchProvider;
+}
+
+export interface BealeAppServerQuickChatStartResult {
+  schemaVersion: 1;
+  sessionId: string;
+  workspaceId: string;
+}
+
+export function decodeBealeAppServerQuickChatStartInput(value: unknown): BealeAppServerQuickChatStartInput {
+  if (!isRecord(value)) throw new Error("Quick Chat request must be an object.");
+  requiredBoundedString(value, "promptMarkdown", 131_072);
+  if (value.provider !== undefined) {
+    const provider = requiredRecord(value, "provider");
+    optionalBoundedString(provider, "id", 128);
+    optionalBoundedString(provider, "model", 512);
+    optionalBoundedString(provider, "reasoningEffort", 64);
+    if (provider.fastMode !== undefined && typeof provider.fastMode !== "boolean") throw new Error("Invalid Quick Chat fast mode.");
+    if (provider.daybreakBlue !== undefined && typeof provider.daybreakBlue !== "boolean") throw new Error("Invalid Quick Chat Daybreak Blue mode.");
+  }
+  return value as unknown as BealeAppServerQuickChatStartInput;
+}
+
+export function decodeBealeAppServerQuickChatList(value: unknown): BealeAppServerQuickChatList {
+  if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.chats)
+    || !value.chats.every((chat) => isRecord(chat) && typeof chat.sessionId === "string"
+      && typeof chat.workspaceId === "string" && typeof chat.title === "string"
+      && typeof chat.promptMarkdown === "string" && typeof chat.status === "string"
+      && typeof chat.updatedAt === "string")) throw new Error("The app-server returned an invalid Quick Chat list.");
+  return value as unknown as BealeAppServerQuickChatList;
+}
+
+export function decodeBealeAppServerQuickChatStartResult(value: unknown): BealeAppServerQuickChatStartResult {
+  if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.sessionId !== "string"
+    || typeof value.workspaceId !== "string") throw new Error("The app-server returned an invalid Quick Chat start result.");
+  return value as unknown as BealeAppServerQuickChatStartResult;
+}
+
+/** Read-only workspace context shared by Desktop and mobile clients. Host paths and credentials are excluded. */
+export interface BealeAppServerWorkspaceDetails {
+  schemaVersion: 1;
+  workspace: BealeAppServerWorkspaceSummary;
+  scope: {
+    id: string;
+    name: string;
+    owner: string;
+    descriptionMarkdown: string;
+    expiresAt: string | null;
+    resources: Array<{
+      id: string;
+      kind: string;
+      direction: "in_scope" | "out_of_scope";
+      value: string | null;
+      sensitivity: string;
+    }>;
+  } | null;
+  researchSubject: string;
+  rules: Array<{ id: string; text: string }>;
+  memory: BealeWorkspaceMemoryCatalog;
+  runbooks: Array<{ id: string; title: string; purpose: string; updatedAt: string }>;
+  reports: Array<{ id: string; title: string; summary: string; status: "complete" | "stale"; updatedAt: string }>;
+  targets: Array<{ id: string; name: string; ready: boolean }>;
+}
+
+export function decodeBealeAppServerWorkspaceDetails(value: unknown): BealeAppServerWorkspaceDetails {
+  if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.workspace)
+    || typeof value.workspace.id !== "string" || typeof value.workspace.workspaceId !== "string"
+    || typeof value.workspace.name !== "string" || typeof value.workspace.researchProfileId !== "string"
+    || typeof value.workspace.researchKitId !== "string" || typeof value.workspace.runCount !== "number"
+    || !(value.scope === null || isRecord(value.scope) && typeof value.scope.id === "string"
+      && typeof value.scope.name === "string" && typeof value.scope.owner === "string"
+      && typeof value.scope.descriptionMarkdown === "string" && Array.isArray(value.scope.resources)
+      && value.scope.resources.every((asset) => isRecord(asset) && typeof asset.id === "string"
+        && typeof asset.kind === "string" && (asset.direction === "in_scope" || asset.direction === "out_of_scope")
+        && (asset.value === null || typeof asset.value === "string") && typeof asset.sensitivity === "string"))
+    || typeof value.researchSubject !== "string" || !Array.isArray(value.rules)
+    || !value.rules.every((rule) => isRecord(rule) && typeof rule.id === "string" && typeof rule.text === "string")
+    || !isRecord(value.memory) || value.memory.schemaVersion !== 4
+    || value.memory.workspaceId !== value.workspace.workspaceId
+    || !Array.isArray(value.memory.nodes) || !Array.isArray(value.memory.leads) || !Array.isArray(value.memory.findings)
+    || !Array.isArray(value.runbooks)
+    || !value.runbooks.every((runbook) => isRecord(runbook) && typeof runbook.id === "string"
+      && typeof runbook.title === "string" && typeof runbook.purpose === "string" && typeof runbook.updatedAt === "string")
+    || !Array.isArray(value.reports)
+    || !value.reports.every((report) => isRecord(report) && typeof report.id === "string"
+      && typeof report.title === "string" && typeof report.summary === "string"
+      && (report.status === "complete" || report.status === "stale") && typeof report.updatedAt === "string")
+    || !Array.isArray(value.targets)
+    || !value.targets.every((target) => isRecord(target) && typeof target.id === "string"
+      && typeof target.name === "string" && typeof target.ready === "boolean")) {
+    throw new Error("The app-server returned invalid workspace details.");
+  }
+  return value as unknown as BealeAppServerWorkspaceDetails;
 }
 
 export interface BealeAppServerCanonicalResult<T = unknown> {
@@ -462,7 +582,7 @@ export const APP_SERVER_PROTOCOL_OPERATIONS = [
   "fleet.state", "fleet.browser_home_page", "fleet.configure", "fleet.test_ssh", "fleet.test_app_server", "fleet.clone", "fleet.clone_for_session", "fleet.start", "fleet.stop",
   "fleet.prepare", "fleet.connect", "fleet.complete", "fleet.stage", "fleet.export", "fleet.reserve", "fleet.release",
   "fleet.broker", "fleet.relay_broker",
-  "fleet.remote_machines", "fleet.remote_catalog", "fleet.remote_session", "fleet.remote_launch", "fleet.remote_control", "fleet.remote_browser_attach", "fleet.relay_stage", "fleet.relay_export",
+  "fleet.remote_machines", "fleet.remote_catalog", "fleet.remote_workspace_details", "fleet.remote_quick_chats", "fleet.remote_quick_chat_start", "fleet.remote_quick_chat_continue", "fleet.remote_session", "fleet.remote_launch", "fleet.remote_prompt_expand", "fleet.remote_goal_suggestions", "fleet.remote_control", "fleet.remote_browser_attach", "fleet.relay_stage", "fleet.relay_export",
   "fleet.restart_app_server", "fleet.restart_guest_app_server",
   "resource.prior_art.list", "resource.prior_art.get",
   "protocol.describe", "session.create", "session.begin_attempt", "session.append_event", "session.append_event_receipt",
@@ -531,6 +651,7 @@ export interface FleetRemoteSessionSummary {
 
 export interface FleetRemoteCatalog {
   serverId: string;
+  providerCatalog: BealeAppServerProviderCatalog;
   workspaces: Array<{ id: string; workspaceId: string; name: string; runCount: number }>;
   sessions: FleetRemoteSessionSummary[];
   machines: FleetMachine[];
@@ -539,6 +660,79 @@ export interface FleetRemoteCatalog {
   requiredWorkspaceIds: string[];
   optionalWorkspaceIds: string[];
   hasBaseVm: boolean;
+}
+
+/** Client-neutral New Research input for a session owned by another app-server. */
+export interface FleetRemoteResearchInput {
+  promptMarkdown: string;
+  targetIds: string[];
+  mode?: string;
+  goal?: { objective?: string };
+  provider?: AppServerSessionLaunchProvider;
+  shellSafetyMode?: string;
+  workflowId?: string;
+  collaboration?: Record<string, unknown>;
+  repeatSchedule?: AppServerRepeatSchedule;
+}
+
+export interface FleetRemotePromptExpansionInput {
+  promptMarkdown: string;
+  phase?: string;
+  provider?: { id: string; model: string };
+}
+
+export interface FleetRemotePromptExpansionResult {
+  phase: string;
+  promptMarkdown: string;
+}
+
+export interface FleetRemoteGoalSuggestions {
+  phase: string;
+  suggestions: string[];
+}
+
+export function decodeFleetRemotePromptExpansionInput(value: unknown): FleetRemotePromptExpansionInput {
+  if (!isRecord(value) || !nonEmptyString(value.promptMarkdown) || value.promptMarkdown.length > 12_000
+    || (value.phase !== undefined && (typeof value.phase !== 'string' || value.phase.length > 128))
+    || (value.provider !== undefined && (!isRecord(value.provider)
+      || !nonEmptyString(value.provider.id) || !nonEmptyString(value.provider.model)
+      || value.provider.id.length > 100 || value.provider.model.length > 200))) {
+    throw new Error('Invalid remote research prompt expansion input.');
+  }
+  return value as unknown as FleetRemotePromptExpansionInput;
+}
+
+export type AppServerRepeatSchedule = { type: 'none' } | {
+  type: 'minutely' | 'hourly' | 'daily' | 'weekly' | 'monthly';
+  interval: number;
+};
+
+export function decodeFleetRemoteResearchInput(value: unknown, workspaceId: string): FleetRemoteResearchInput {
+  if (!isRecord(value) || !nonEmptyString(value.promptMarkdown) || value.promptMarkdown.length > 131_072
+    || !Array.isArray(value.targetIds) || value.targetIds.length < 1 || value.targetIds.length > 16
+    || !value.targetIds.every((id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 256)
+    || new Set(value.targetIds).size !== value.targetIds.length) {
+    throw new Error('Invalid remote research input.');
+  }
+  const launch = { workspaceId, promptMarkdown: value.promptMarkdown,
+    machineId: value.targetIds.length > 1 ? 'local' : value.targetIds[0], targetIds: value.targetIds,
+    ...(value.mode === undefined ? {} : { mode: value.mode }),
+    ...(value.goal === undefined ? {} : { goal: value.goal }),
+    ...(value.provider === undefined ? {} : { provider: value.provider }),
+    ...(value.shellSafetyMode === undefined ? {} : { shellSafetyMode: value.shellSafetyMode }),
+    ...(value.workflowId === undefined ? {} : { workflowId: value.workflowId }),
+    ...(value.collaboration === undefined ? {} : { collaboration: value.collaboration }) };
+  if (value.repeatSchedule !== undefined) {
+    const schedule = value.repeatSchedule;
+    if (!isRecord(schedule) || (schedule.type !== 'none' && schedule.type !== 'minutely'
+      && schedule.type !== 'hourly' && schedule.type !== 'daily' && schedule.type !== 'weekly'
+      && schedule.type !== 'monthly') || (schedule.type !== 'none'
+        && (!Number.isInteger(schedule.interval) || (schedule.interval as number) < 1 || (schedule.interval as number) > 99))) {
+      throw new Error('Invalid remote research repeat schedule.');
+    }
+  }
+  decodeAppServerSessionLaunchRequest({ launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION, launch });
+  return value as unknown as FleetRemoteResearchInput;
 }
 
 export interface FleetSshTestInput {
@@ -759,7 +953,7 @@ export type AppServerServerMessage = AppServerServerHello | AppServerSessionEven
  * app-server. Clients describe session intent; the app-server owns the
  * app-server hosted-runtime argument and worker-environment mapping.
  */
-export const APP_SERVER_SESSION_LAUNCH_VERSION = 2 as const;
+export const APP_SERVER_SESSION_LAUNCH_VERSION = 3 as const;
 
 export const APP_SERVER_PROVIDER_RISK_ACKNOWLEDGEMENTS = [
   "openai-codex",
@@ -792,6 +986,8 @@ export interface AppServerSessionLaunchIntent {
   /** Beale's durable workspace id, never a host filesystem path. */
   workspaceId: string;
   machineId?: string;
+  /** Selected execution and browser targets for one research session. */
+  targetIds?: readonly string[];
   /** Host-owned browser page for a session opened through a connected primary. */
   browserRelay?: boolean;
   fleetOwnerMachineId?: string;
@@ -808,6 +1004,7 @@ export interface AppServerSessionLaunchIntent {
   researchProfileId?: string;
   researchProfileHash?: string;
   collaboration?: Record<string, unknown>;
+  repeatSchedule?: AppServerRepeatSchedule;
   continuation?: AppServerSessionLaunchContinuation;
   generateTitle?: boolean;
   /** Enables agent-recorded harness feedback for sessions started by the development desktop. */
@@ -835,8 +1032,32 @@ export function decodeAppServerSessionLaunchRequest(value: unknown): AppServerSe
   const launch = requiredRecord(value, "launch");
   requiredBoundedString(launch, "workspaceId", 256);
   optionalBoundedString(launch, "machineId", 256);
+  if (launch.targetIds !== undefined) {
+    if (!Array.isArray(launch.targetIds) || launch.targetIds.length < 1 || launch.targetIds.length > 16
+      || launch.targetIds.some((id: unknown) => typeof id !== "string" || id.length < 1 || id.length > 256)
+      || new Set(launch.targetIds).size !== launch.targetIds.length) {
+      throw new Error("launch.targetIds must contain 1 to 16 distinct target IDs.");
+    }
+    if (launch.targetIds.length > 1 && launch.machineId !== "local") {
+      throw new Error("Multi-target sessions must run on the workspace app-server.");
+    }
+    if (launch.targetIds.length === 1 && launch.machineId !== undefined && launch.machineId !== launch.targetIds[0]) {
+      throw new Error("The session target must match machineId.");
+    }
+  }
   if (launch.browserRelay !== undefined && typeof launch.browserRelay !== "boolean") {
     throw new Error("launch.browserRelay must be a boolean.");
+  }
+  if (launch.repeatSchedule !== undefined) {
+    const schedule = requiredRecord(launch, "repeatSchedule");
+    if (schedule.type !== "none" && schedule.type !== "minutely" && schedule.type !== "hourly"
+      && schedule.type !== "daily" && schedule.type !== "weekly" && schedule.type !== "monthly") {
+      throw new Error("Invalid session repeat schedule.");
+    }
+    if (schedule.type !== "none" && (!Number.isInteger(schedule.interval)
+      || (schedule.interval as number) < 1 || (schedule.interval as number) > 99)) {
+      throw new Error("Invalid session repeat interval.");
+    }
   }
   optionalBoundedString(launch, "fleetOwnerMachineId", 128);
   if (launch.brokerAuthenticationPreferences !== undefined) {
@@ -1110,6 +1331,7 @@ export function decodeBealeAppServerProviderCatalog(value: unknown): BealeAppSer
     if (!isRecord(candidate)
       || !nonEmptyString(candidate.providerId)
       || !nonEmptyString(candidate.providerName)
+      || (candidate.riskAcknowledged !== undefined && typeof candidate.riskAcknowledged !== 'boolean')
       || !(candidate.defaultLeadModel === null || nonEmptyString(candidate.defaultLeadModel))
       || !(candidate.defaultSubagentModel === null || nonEmptyString(candidate.defaultSubagentModel))
       || !(candidate.defaultReasoningEffort === null || nonEmptyString(candidate.defaultReasoningEffort))

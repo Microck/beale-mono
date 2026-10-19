@@ -57,12 +57,13 @@ import type {
 } from '@shared/types';
 import { AppModals } from './app/AppModals';
 import { AppBackgroundPulses } from './app/AppBackgroundPulses';
-import { BottomPanel, DEFAULT_BOTTOM_PANEL_OPEN } from './app/BottomPanel';
 import { AppNavigationRail, resolveAppNavigationDestination } from './app/AppNavigationRail';
 import { TopBar } from './app/TopBar';
+import { SidebarServerSelector } from './app/SidebarServerSelector';
 import { NotificationStack, type WorkspaceAlert } from './features/notifications/Notifications';
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { RemoteFleetSidebar, RemoteFleetWorkspace } from './features/fleet/RemoteFleetWorkspace';
+import { RemoteQuickChatDock, type RemoteQuickChatDescriptor } from './features/fleet/RemoteQuickChatDock';
 import { remoteWorkspaceRegistry } from './features/fleet/remoteFleetProjection';
 import { FleetSidebar, type FleetSelection } from './features/fleet/FleetSidebar';
 import { FleetSettingsView } from './features/settings/FleetSettingsView';
@@ -131,7 +132,6 @@ export function App(): JSX.Element {
   const appShellRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [workspaceEditors, setWorkspaceEditors] = useState<WorkspaceEditorCatalog | null>(null);
-  const [bottomPanelOpen, setBottomPanelOpen] = useState(DEFAULT_BOTTOM_PANEL_OPEN);
   const [quickChats, setQuickChats] = useState<QuickChatDescriptor[]>([]);
   const openQuickChat = useCallback((): void => {
     setQuickChats((current) => [...current, { id: `quick-chat-${crypto.randomUUID()}` }]);
@@ -171,10 +171,12 @@ export function App(): JSX.Element {
   } = useWorkspaceRuntime(handleError);
   const [fleetServers, setFleetServers] = useState<FleetAppServer[]>([]);
   const [selectedFleetServerId, setSelectedFleetServerId] = useState('local');
+  const [remoteQuickChats, setRemoteQuickChats] = useState<RemoteQuickChatDescriptor[]>([]);
   const [remoteCatalog, setRemoteCatalog] = useState<FleetRemoteCatalog | null>(null);
   const [remoteCatalogError, setRemoteCatalogError] = useState<string | null>(null);
   const [remoteWorkspaceId, setRemoteWorkspaceId] = useState<string | null>(null);
   const [remoteSessionId, setRemoteSessionId] = useState<string | null>(null);
+  const [remoteResearchOpen, setRemoteResearchOpen] = useState(false);
   useEffect(() => {
     if (startupPhase !== 'ready') return;
     let active = true;
@@ -1866,17 +1868,13 @@ export function App(): JSX.Element {
     automationsOpen,
     pluginsOpen
   });
-  const bottomPanelVisible = bottomPanelOpen && headerResearchControlsAvailable;
-  useEffect(() => {
-    if (!headerResearchControlsAvailable) setBottomPanelOpen(false);
-  }, [headerResearchControlsAvailable]);
   const shellClassName = `${appShellClassName({
     sessionHeat,
     sessionActive: workspaceHasLiveResearchRun(snapshot),
     platform: windowControlPlatform,
     windowChromeState,
     sidebarCollapsed
-  })}${settingsOpen || fleetOpen ? ' settings-open' : ''}${bottomPanelVisible ? ' bottom-panel-open' : ''}`;
+  })}${settingsOpen || fleetOpen ? ' settings-open' : ''}`;
   const currentWorkspaceName = snapshot?.activeScope.workspaceName ?? 'No Workspace Selected';
   const automationScopeName = automationScopeWorkspaceId
     ? workspaceRegistry?.workspaces.find((workspace) => workspace.workspaceId === automationScopeWorkspaceId)?.workspaceName ?? 'Workspace'
@@ -1922,7 +1920,6 @@ export function App(): JSX.Element {
     setProfilingOpen(true);
   }, [flushProfilingReport]);
   const openSessionOverview = useCallback(() => setSessionOverviewOpen(true), []);
-  const toggleBottomPanel = useCallback(() => setBottomPanelOpen((current) => !current), []);
   const toggleRightSidenav = useCallback(() => setRightSidenavExpanded((current) => !current), []);
   const changeResearchDetailsOpen = useCallback((expanded: boolean): void => {
     setRightSidenavExpanded(headerResearchControlsAvailable && expanded);
@@ -2057,17 +2054,22 @@ export function App(): JSX.Element {
   ) : null;
   const navigationDestination = resolveAppNavigationDestination({ settingsOpen, fleetOpen, automationsOpen, pluginsOpen });
   const selectedFleetServer = fleetServers.find((server) => server.id === selectedFleetServerId);
+  const openSelectedQuickChat = (): void => {
+    if (selectedFleetServerId === 'local') openQuickChat();
+    else setRemoteQuickChats((current) => [...current, { id: `remote-quick-chat-${crypto.randomUUID()}`, serverId: selectedFleetServerId }]);
+  };
   const remoteWorkspace = selectedFleetServerId === 'local'
     ? null : remoteCatalog?.workspaces.find((workspace) => workspace.workspaceId === remoteWorkspaceId);
   const remoteSession = selectedFleetServerId === 'local'
     ? null : remoteCatalog?.sessions.find((session) => session.id === remoteSessionId && session.workspaceId === remoteWorkspaceId);
   const remoteRegistry = selectedFleetServerId === 'local' ? null : remoteWorkspaceRegistry(remoteCatalog, selectedFleetServerId);
-  const serverSelector = <select className="sidebar-server-selector" aria-label="App server" value={selectedFleetServerId} onChange={(event) => {
-    setSelectedFleetServerId(event.currentTarget.value);
+  const serverSelector = <SidebarServerSelector servers={fleetServers} value={selectedFleetServerId} collapsed={sidebarCollapsed} onChange={(serverId) => {
+    setSelectedFleetServerId(serverId);
     setRemoteCatalog(null);
     setRemoteWorkspaceId(null);
     setRemoteSessionId(null);
-  }}><option value="local">Local</option>{fleetServers.map((server) => <option key={server.id} value={server.id}>{server.name}</option>)}</select>;
+    setRemoteResearchOpen(false);
+  }} />;
   return (
     <div
       ref={appShellRef}
@@ -2108,29 +2110,27 @@ export function App(): JSX.Element {
         workspaceName={selectedFleetServerId !== 'local'
           ? remoteWorkspace?.name ?? 'No Workspace Selected'
           : workspaceDraft && !newResearchOpen ? 'New Workspace' : currentWorkspaceName}
-        workspaceViewTitle={selectedFleetServerId !== 'local' ? null : newResearchOpen
+        workspaceViewTitle={selectedFleetServerId !== 'local' ? remoteResearchOpen ? 'New Research' : remoteWorkspaceId && !remoteSessionId ? 'Workspace Details' : null : newResearchOpen
           ? snapshot?.researchProfile.profile.presentation?.newResearchLabel ?? 'New Research'
           : workspaceDraft ? workspaceDashboardViewName : (snapshot && !selectedRunId ? workspaceDashboardViewName : null)}
         activeRunDetail={selectedFleetServerId !== 'local' && remoteSession
           ? { run: { id: remoteSession.id, title: remoteSession.title, promptMarkdown: remoteSession.prompt } }
           : activeRunHeaderDetail}
         profilingEnabled={profilingState?.enabled ?? false}
-        bottomPanelAvailable={selectedFleetServerId === 'local' && headerResearchControlsAvailable}
-        bottomPanelOpen={selectedFleetServerId === 'local' && bottomPanelVisible}
         workspaceEditors={selectedFleetServerId === 'local' && headerResearchControlsAvailable ? workspaceEditors : null}
         onOpenProfiling={openProfiling}
         onOpenSessionOverview={activeRunDetail && activeSessionOverviewRun ? openSessionOverview : undefined}
-        onToggleBottomPanel={toggleBottomPanel}
         onOpenWorkspaceInEditor={openWorkspaceInEditor}
         onAddWorkspace={beginWorkspaceCreation}
         onToggleRightSidenav={toggleRightSidenav}
         onToggleSidebar={toggleSidebar}
-        onStartNewResearch={startNewResearch}
+        onStartNewResearch={selectedFleetServerId === 'local' ? startNewResearch : () => { if (remoteWorkspaceId) { setRemoteSessionId(null); setRemoteResearchOpen(true); } }}
         onStartNewResearchForWorkspace={selectedFleetServerId === 'local' ? startNewResearchForWorkspace : (workspace) => {
           setRemoteWorkspaceId(workspace.workspaceId);
           setRemoteSessionId(null);
+          setRemoteResearchOpen(true);
         }}
-        onOpenQuickChat={openQuickChat}
+        onOpenQuickChat={openSelectedQuickChat}
       />
       {sessionOverviewOpen && activeRunDetail && activeSessionOverviewRun ? (
         <SessionOverviewDialog
@@ -2193,7 +2193,9 @@ export function App(): JSX.Element {
           catalog={remoteCatalog} serverName={selectedFleetServer?.name ?? 'Remote'}
           selectedWorkspaceId={remoteWorkspaceId} selectedSessionId={remoteSessionId}
           automations={automationsOpen} collapsed={sidebarCollapsed} serverSelector={serverSelector}
-          onSelect={(workspaceId, sessionId) => { setRemoteWorkspaceId(workspaceId); setRemoteSessionId(sessionId); }}
+          onSelect={(workspaceId, sessionId) => { setRemoteWorkspaceId(workspaceId); setRemoteSessionId(sessionId); setRemoteResearchOpen(false); }}
+          onStartNewResearch={(workspaceId) => { setRemoteWorkspaceId(workspaceId); setRemoteSessionId(null); setRemoteResearchOpen(true); }}
+          onOpenQuickChat={openSelectedQuickChat}
           onResizePointerDown={beginSidebarResize}
         />
       ) : automationsOpen ? (
@@ -2346,12 +2348,14 @@ export function App(): JSX.Element {
           <div className="workspace-page">
             {selectedFleetServerId !== 'local' && !pluginsOpen ? (
               <RemoteFleetWorkspace
+                key={selectedFleetServerId}
                 serverId={selectedFleetServerId} serverName={selectedFleetServer?.name ?? 'Remote'}
                 catalog={remoteCatalog} workspaceId={remoteWorkspaceId} sessionId={remoteSessionId}
-                automations={automationsOpen} error={remoteCatalogError}
+                newResearchOpen={remoteResearchOpen} automations={automationsOpen} error={remoteCatalogError}
                 onLaunched={(workspaceId, sessionId) => {
                   setRemoteWorkspaceId(workspaceId);
                   setRemoteSessionId(sessionId);
+                  setRemoteResearchOpen(false);
                   void window.beale.getFleetRemoteCatalog(selectedFleetServerId).then(setRemoteCatalog).catch((caught: unknown) => setRemoteCatalogError(errorMessage(caught)));
                 }}
               />
@@ -2572,13 +2576,8 @@ export function App(): JSX.Element {
           </div>
         )}
       </main>
-      <BottomPanel
-        open={bottomPanelVisible}
-        workspacePath={snapshot?.workspace.workspacePath ?? null}
-        onClose={() => setBottomPanelOpen(false)}
-      />
       <QuickChatDock
-        chats={displayedQuickChats}
+        chats={selectedFleetServerId === 'local' ? displayedQuickChats : []}
         providerModelCatalog={quickChatInitialModelSelection ? enabledResearchProviderModelCatalog : []}
         initialModelSelection={quickChatInitialModelSelection ?? undefined}
         onClose={closeQuickChat}
@@ -2593,6 +2592,12 @@ export function App(): JSX.Element {
           if (inlineApproval) handleShellApprovalDecision(inlineApproval, decision);
         }}
       />
+      {selectedFleetServerId !== 'local' ? <RemoteQuickChatDock
+        serverId={selectedFleetServerId}
+        chats={remoteQuickChats.filter((chat) => chat.serverId === selectedFleetServerId)}
+        onClose={(id) => setRemoteQuickChats((current) => current.filter((chat) => chat.id !== id))}
+        onStarted={(id, workspaceId, sessionId) => setRemoteQuickChats((current) => current.map((chat) => chat.id === id ? { ...chat, workspaceId, sessionId } : chat))}
+      /> : null}
       <NotificationStack
         notifications={snapshot?.notifications ?? []}
         alerts={workspaceAlerts}

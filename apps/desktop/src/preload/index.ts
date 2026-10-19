@@ -34,9 +34,6 @@ import type {
   HostEnvironment,
   WorkspaceEditorCatalog,
   WorkspaceEditorId,
-  WorkspaceTerminalDataEvent,
-  WorkspaceTerminalExitEvent,
-  WorkspaceTerminalStartResult,
   WorkspaceMemoryBackendId,
   IosDeviceCaptureFrame,
   IosDeviceCaptureState,
@@ -279,11 +276,29 @@ const api: BealeApi = {
   getFleetRemoteCatalog(serverId: string): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteCatalog> {
     return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteCatalog, serverId);
   },
+  getFleetRemoteWorkspaceDetails(serverId: string, workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDetails> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteWorkspaceDetails, serverId, workspaceId);
+  },
+  getFleetRemoteQuickChats(serverId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatList> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteQuickChats, serverId);
+  },
+  startFleetRemoteQuickChat(serverId: string, input: import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatStartInput): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatStartResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.startFleetRemoteQuickChat, serverId, input);
+  },
+  continueFleetRemoteQuickChat(serverId: string, workspaceId: string, sessionId: string, instruction: string): Promise<{ sessionId: string }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.continueFleetRemoteQuickChat, serverId, workspaceId, sessionId, instruction);
+  },
   getFleetRemoteSession(serverId: string, workspaceId: string, sessionId: string, beforeEventId?: string): Promise<unknown> {
     return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteSession, serverId, workspaceId, sessionId, beforeEventId);
   },
-  startFleetRemoteSession(serverId: string, workspaceId: string, promptMarkdown: string, machineId: string): Promise<{ sessionId: string }> {
-    return ipcRenderer.invoke(IPC_CHANNELS.startFleetRemoteSession, serverId, workspaceId, promptMarkdown, machineId);
+  startFleetRemoteSession(serverId: string, workspaceId: string, research: import('@beale/app-server-runtime/protocol').FleetRemoteResearchInput): Promise<{ sessionId: string }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.startFleetRemoteSession, serverId, workspaceId, research);
+  },
+  expandFleetRemoteResearchPrompt(serverId: string, workspaceId: string, expansion: import('@beale/app-server-runtime/protocol').FleetRemotePromptExpansionInput): Promise<import('@beale/app-server-runtime/protocol').FleetRemotePromptExpansionResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.expandFleetRemoteResearchPrompt, serverId, workspaceId, expansion);
+  },
+  getFleetRemoteResearchGoalSuggestions(serverId: string, workspaceId: string, phase: string, refresh: boolean): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteGoalSuggestions> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteResearchGoalSuggestions, serverId, workspaceId, phase, refresh);
   },
   controlFleetRemoteSession(serverId: string, sessionId: string, type: 'pause' | 'resume' | 'stop' | 'steer', instruction?: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.controlFleetRemoteSession, serverId, sessionId, type, instruction);
@@ -397,28 +412,6 @@ const api: BealeApi = {
   },
   openWorkspaceInEditor(editorId: WorkspaceEditorId): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.openWorkspaceInEditor, editorId);
-  },
-  startWorkspaceTerminal(sessionId: string, columns: number, rows: number): Promise<WorkspaceTerminalStartResult> {
-    return ipcRenderer.invoke(IPC_CHANNELS.startWorkspaceTerminal, sessionId, columns, rows);
-  },
-  writeWorkspaceTerminal(sessionId: string, data: string): Promise<void> {
-    return ipcRenderer.invoke(IPC_CHANNELS.writeWorkspaceTerminal, sessionId, data);
-  },
-  resizeWorkspaceTerminal(sessionId: string, columns: number, rows: number): Promise<void> {
-    return ipcRenderer.invoke(IPC_CHANNELS.resizeWorkspaceTerminal, sessionId, columns, rows);
-  },
-  closeWorkspaceTerminal(sessionId: string): Promise<void> {
-    return ipcRenderer.invoke(IPC_CHANNELS.closeWorkspaceTerminal, sessionId);
-  },
-  onWorkspaceTerminalData(listener: (event: WorkspaceTerminalDataEvent) => void) {
-    const wrapped = (_event: Electron.IpcRendererEvent, terminalEvent: WorkspaceTerminalDataEvent): void => listener(terminalEvent);
-    ipcRenderer.on(IPC_CHANNELS.workspaceTerminalData, wrapped);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.workspaceTerminalData, wrapped);
-  },
-  onWorkspaceTerminalExit(listener: (event: WorkspaceTerminalExitEvent) => void) {
-    const wrapped = (_event: Electron.IpcRendererEvent, terminalEvent: WorkspaceTerminalExitEvent): void => listener(terminalEvent);
-    ipcRenderer.on(IPC_CHANNELS.workspaceTerminalExit, wrapped);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.workspaceTerminalExit, wrapped);
   },
   getIosDeviceCaptureState(): Promise<IosDeviceCaptureState> {
     return ipcRenderer.invoke(IPC_CHANNELS.getIosDeviceCaptureState);

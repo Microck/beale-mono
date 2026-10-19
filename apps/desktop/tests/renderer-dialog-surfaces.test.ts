@@ -10,6 +10,8 @@ import { expandedDeviceCapturePanelWidth, isIosDeviceOs, latestOverallRunbookExe
 import {
   enableCollaboratorAtTop,
   newResearchPromptPlaceholder,
+  newResearchTargetSummary,
+  toggleResearchTargetSelection,
   ProviderKeychainAccessDialog,
   ResearchGoalChooser,
   StartRunForm
@@ -376,10 +378,15 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('class="new-research-options-tray"');
     expect(html).toContain('class="new-research-options-tray-left"');
     expect(html).toContain('class="new-research-options-tray-right"');
-    expect(html.indexOf('new-research-repeat-picker')).toBeLessThan(html.indexOf('new-research-goal-toggle'));
+    expect(html).toContain('class="new-research-app-server-name" title="Local">');
+    expect(html).toContain('class="lucide lucide-monitor" aria-hidden="true"');
+    expect(html).toContain('<span>Local</span></span>');
+    expect(html.indexOf('lucide-monitor')).toBeLessThan(html.indexOf('<span>Local</span></span>'));
+    expect(html).toContain('aria-label="New research settings"');
+    expect(html.indexOf('new-research-app-server-name')).toBeLessThan(html.indexOf('new-research-settings-trigger'));
     expect(html.indexOf('new-research-options-tray')).toBeLessThan(html.indexOf('class="main-steer-input-row without-trace-filters"'));
-    expect(html.match(/class="new-research-goal-toggle"/g)).toHaveLength(1);
-    expect(html.match(/class="new-research-generate-toggle"/g)).toHaveLength(1);
+    expect(html).not.toContain('class="new-research-goal-toggle"');
+    expect(html).not.toContain('class="new-research-generate-toggle"');
     expect(html).not.toContain('aria-label="Shell safety mode"');
     expect(html).toContain('aria-label="Model settings for the next agent turn"');
     expect(html).toContain('aria-label="Send steering instruction"');
@@ -416,6 +423,49 @@ describe('renderer dialog surfaces', () => {
     expect(settingsSource).not.toContain("label: 'Challenge Rounds'");
     expect(settingsSource).toContain('setSelectedWorkflowId(workflow.id)');
     expect(settingsSource).toContain('onOpenWorkflow(workflow.id)');
+  });
+
+  it('summarizes selected New Research targets for the server breadcrumb', () => {
+    expect(newResearchTargetSummary([])).toBe('No target');
+    expect(newResearchTargetSummary(['Local'])).toBe('Local');
+    expect(newResearchTargetSummary(['Local', 'Example VM', 'Example Browser'])).toBe('Local +2');
+    expect(toggleResearchTargetSelection(['local'], 'vm:run:tart:example-vm')).toEqual(['local', 'vm:run:tart:example-vm']);
+    expect(toggleResearchTargetSelection(['local', 'vm:run:tart:example-vm'], 'local')).toEqual(['vm:run:tart:example-vm']);
+    expect(toggleResearchTargetSelection(Array.from({ length: 16 }, (_, index) => `example-target-${index}`), 'extra-target')).toHaveLength(16);
+  });
+
+  it('opens the Repeat submenu when New Research starts from Schedule a Job', () => {
+    const html = renderToStaticMarkup(createElement(StartRunForm, {
+      presentation: 'session',
+      appServerName: 'Example Server',
+      autoOpenSchedule: true,
+      snapshot: {
+        workspace: { workspaceId: 'workspace_example' },
+        activeScope: { id: 'scope_example', workspaceName: 'Example Workspace' }
+      } as WorkspaceSnapshot,
+      openAiStatus: null,
+      defaultProviderId: 'openai-codex',
+      providerModelDefaults: {},
+      researchProviderStatuses: [],
+      providerModelCatalog: [],
+      researchGoalSuggestions: phaseSuggestions(),
+      researchGoalSuggestionsLoading: phaseValues(false),
+      researchGoalSuggestionErrors: phaseValues(null),
+      busy: false,
+      runAction: async () => undefined,
+      onCancel: () => undefined,
+      onRetryResearchGoalSuggestions: () => undefined,
+      onStarted: () => undefined
+    }));
+
+    expect(html).toContain('class="new-research-app-server-name" title="Example Server">');
+    expect(html).toContain('<span>Example Server</span></span>');
+    expect(html).toContain('role="menu" aria-label="New research settings"');
+    expect(html).toContain('>Goal Mode</span>');
+    expect(html).toContain('>Add Context</span>');
+    expect(html).toContain('>Repeat</span>');
+    expect(html).toContain('role="menu" aria-label="Repeat"');
+    expect(html).toContain('aria-label="Repeat unit"');
   });
 
   it('changes the New Research prompt hint when context enrichment is enabled', () => {

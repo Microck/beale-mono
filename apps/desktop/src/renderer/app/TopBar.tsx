@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { JSX, MouseEvent } from 'react';
-import { ChevronDown, Code2, Minus, PanelBottomClose, PanelBottomOpen, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, SquarePen, X, Zap } from 'lucide-react';
+import { ChevronDown, Code2, Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Square, SquarePen, X, Zap } from 'lucide-react';
 import type { HostEnvironment, WorkspaceEditorCatalog, WorkspaceEditorId, WorkspaceEditorSummary, WorkspaceRegistryEntry, ZoomState } from '@shared/types';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { AppHeaderTitle, StaticAppHeaderTitle } from './AppHeaderTitle';
@@ -40,12 +40,9 @@ export const TopBar = memo(function TopBar({
   workspaceViewTitle,
   activeRunDetail,
   profilingEnabled,
-  bottomPanelAvailable,
-  bottomPanelOpen,
   workspaceEditors,
   onOpenProfiling,
   onOpenSessionOverview,
-  onToggleBottomPanel,
   onOpenWorkspaceInEditor,
   onAddWorkspace,
   onToggleRightSidenav,
@@ -69,12 +66,9 @@ export const TopBar = memo(function TopBar({
   workspaceViewTitle?: string | null;
   activeRunDetail: AppHeaderRun | null;
   profilingEnabled: boolean;
-  bottomPanelAvailable?: boolean;
-  bottomPanelOpen: boolean;
   workspaceEditors: WorkspaceEditorCatalog | null;
   onOpenProfiling: () => void;
   onOpenSessionOverview?: () => void;
-  onToggleBottomPanel: () => void;
   onOpenWorkspaceInEditor: (editorId: WorkspaceEditorId) => void;
   onAddWorkspace: () => void;
   onToggleRightSidenav: () => void;
@@ -86,7 +80,6 @@ export const TopBar = memo(function TopBar({
   useDevRenderProbe('topBar', () => ({ platform, sidebarCollapsed, profilingEnabled, workspaceName, run: activeRunDetail?.run.id ?? 'none' }));
   const SidebarToggleIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
   const RightSidenavToggleIcon = rightSidenavExpanded ? PanelRightClose : PanelRightOpen;
-  const BottomPanelToggleIcon = bottomPanelOpen ? PanelBottomClose : PanelBottomOpen;
   const isMac = platform === 'darwin';
   const showCollapsedWorkspaceActions = sidebarCollapsed;
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
@@ -440,18 +433,6 @@ export const TopBar = memo(function TopBar({
                 </div>
               ) : null}
             </div>
-          ) : null}
-          {(bottomPanelAvailable ?? rightSidenavAvailable) ? (
-            <button
-              type="button"
-              className="window-control-button bottom-panel-toggle-button"
-              title={bottomPanelOpen ? 'Hide bottom panel' : 'Show bottom panel'}
-              aria-label={bottomPanelOpen ? 'Hide bottom panel' : 'Show bottom panel'}
-              aria-pressed={bottomPanelOpen}
-              onClick={onToggleBottomPanel}
-            >
-              <BottomPanelToggleIcon size={15} aria-hidden="true" />
-            </button>
           ) : null}
           {rightSidenavAvailable ? (
             <button

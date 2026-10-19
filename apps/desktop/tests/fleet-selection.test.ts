@@ -32,8 +32,10 @@ describe('Fleet workspace targets', () => {
     expect(defaultFleetMachineId(previous, 'workspace-example')).toBe('vm:run:tart:example-base');
   });
 
-  it('starts unconfigured workspaces with Local and the In-Agent Browser', () => {
-    expect(allowedFleetTargets(state, 'new-workspace').map((target) => target.id)).toEqual(['local', 'browser:in-agent']);
+  it('starts unconfigured workspaces with Local and omits the embedded browser target', () => {
+    expect(allowedFleetTargets(state, 'new-workspace').map((target) => target.id)).toEqual(['local']);
+    expect(isAllowedFleetMachine({ ...state, workspaceTargets: { 'new-workspace': ['local', 'browser:in-agent'] } }, 'new-workspace', 'browser:in-agent')).toBe(false);
+    expect(allowedFleetTargets({ ...state, workspaceTargets: { 'new-workspace': ['browser:in-agent'] } }, 'new-workspace').map((target) => target.id)).toEqual(['local']);
   });
 
   it('keeps the In-Agent Browser in the embedded host view', () => {

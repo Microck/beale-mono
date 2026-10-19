@@ -287,23 +287,6 @@ export interface WorkspaceEditorCatalog {
   defaultEditorId: WorkspaceEditorId | null;
 }
 
-export interface WorkspaceTerminalStartResult {
-  sessionId: string;
-  cwd: string;
-  shell: string;
-}
-
-export interface WorkspaceTerminalDataEvent {
-  sessionId: string;
-  data: string;
-}
-
-export interface WorkspaceTerminalExitEvent {
-  sessionId: string;
-  exitCode: number;
-  signal: number | null;
-}
-
 export interface WindowChromeState {
   isMaximized: boolean;
   isFullScreen: boolean;
@@ -1615,6 +1598,7 @@ export interface StartRunInput {
   goalObjective: string | null;
   promptMarkdown: string;
   machineId?: string;
+  targetIds?: string[];
   workflowId?: string;
   resourceContext?: ReportResourceContext;
   mode: string;
@@ -1638,6 +1622,7 @@ export interface StartRunInput {
     goalObjective?: string | null;
     researchWorkflowId?: string | null;
     machineId?: string | null;
+    targetIds?: string[] | null;
     collaboration?: ResearchCollaborationPreferences | null;
   };
   /** Internal host metadata. Renderer-created research sessions must not set this. */
@@ -2343,8 +2328,14 @@ export interface BealeApi {
   restartFleetGuestAppServer(machineId: string): Promise<void>;
   getFleetRemoteMachines(): Promise<import('@beale/app-server-runtime/protocol').FleetMachine[]>;
   getFleetRemoteCatalog(serverId: string): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteCatalog>;
+  getFleetRemoteWorkspaceDetails(serverId: string, workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDetails>;
+  getFleetRemoteQuickChats(serverId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatList>;
+  startFleetRemoteQuickChat(serverId: string, input: import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatStartInput): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatStartResult>;
+  continueFleetRemoteQuickChat(serverId: string, workspaceId: string, sessionId: string, instruction: string): Promise<{ sessionId: string }>;
   getFleetRemoteSession(serverId: string, workspaceId: string, sessionId: string, beforeEventId?: string): Promise<unknown>;
-  startFleetRemoteSession(serverId: string, workspaceId: string, promptMarkdown: string, machineId: string): Promise<{ sessionId: string }>;
+  startFleetRemoteSession(serverId: string, workspaceId: string, research: import('@beale/app-server-runtime/protocol').FleetRemoteResearchInput): Promise<{ sessionId: string }>;
+  expandFleetRemoteResearchPrompt(serverId: string, workspaceId: string, expansion: import('@beale/app-server-runtime/protocol').FleetRemotePromptExpansionInput): Promise<import('@beale/app-server-runtime/protocol').FleetRemotePromptExpansionResult>;
+  getFleetRemoteResearchGoalSuggestions(serverId: string, workspaceId: string, phase: string, refresh: boolean): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteGoalSuggestions>;
   controlFleetRemoteSession(serverId: string, sessionId: string, type: 'pause' | 'resume' | 'stop' | 'steer', instruction?: string): Promise<void>;
   configureFleet(input: Record<string, unknown>): Promise<import('@beale/app-server-runtime/protocol').FleetState>;
   testFleetVmConnection(input: import('@beale/app-server-runtime/protocol').FleetSshTestInput): Promise<import('@beale/app-server-runtime/protocol').FleetSshTestResult>;
@@ -2382,12 +2373,6 @@ export interface BealeApi {
   getHostEnvironment(): Promise<HostEnvironment>;
   getWorkspaceEditors(): Promise<WorkspaceEditorCatalog>;
   openWorkspaceInEditor(editorId: WorkspaceEditorId): Promise<void>;
-  startWorkspaceTerminal(sessionId: string, columns: number, rows: number): Promise<WorkspaceTerminalStartResult>;
-  writeWorkspaceTerminal(sessionId: string, data: string): Promise<void>;
-  resizeWorkspaceTerminal(sessionId: string, columns: number, rows: number): Promise<void>;
-  closeWorkspaceTerminal(sessionId: string): Promise<void>;
-  onWorkspaceTerminalData(listener: (event: WorkspaceTerminalDataEvent) => void): () => void;
-  onWorkspaceTerminalExit(listener: (event: WorkspaceTerminalExitEvent) => void): () => void;
   getIosDeviceCaptureState(): Promise<IosDeviceCaptureState>;
   startIosDeviceCapture(): Promise<IosDeviceCaptureState>;
   stopIosDeviceCapture(): Promise<IosDeviceCaptureState>;
