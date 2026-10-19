@@ -1,6 +1,7 @@
-import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { basename, dirname } from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, dirname, win32 } from 'node:path';
 import { readClaudeSubscriptionRateLimits, readXaiSubscriptionAccessToken } from '@beale/research-agent';
 import type { BealeProviderLimitId, BealeProviderUsageLimits, BealeProviderUsageWindow } from '@beale/app-server-runtime/protocol';
 import { resolveAppServerCodexAuthFile } from './sessionLaunch.js';
@@ -104,7 +105,7 @@ async function readCodexRateLimits(): Promise<unknown> {
   const authFile = resolveAppServerCodexAuthFile();
   if (!authFile) return null;
   if (basename(authFile) !== 'auth.json') throw new Error('Codex usage needs an auth.json credential file.');
-  const child = spawn(process.env.BEALE_CODEX_COMMAND?.trim() || 'codex', ['app-server', '--listen', 'stdio://'], {
+  const child = spawn(resolveCodexUsageCommand(), ['app-server', '--listen', 'stdio://'], {
     stdio: ['pipe', 'pipe', 'ignore'],
     windowsHide: true,
     env: { ...process.env, CODEX_HOME: dirname(authFile) },
@@ -144,6 +145,42 @@ async function readCodexRateLimits(): Promise<unknown> {
     });
     child.stdin.write(`${JSON.stringify({ id: 1, method: 'initialize', params: { clientInfo: { name: 'beale', title: 'Beale', version: '0.1.0' }, capabilities: null } })}\n`);
   });
+}
+
+export function resolveCodexUsageCommand(
+  environment: NodeJS.ProcessEnv = process.env,
+  platform = process.platform,
+  userHome = homedir()
+): string {
+  const configured = environment.BEALE_CODEX_COMMAND?.trim();
+  if (configured) return configured;
+  return platform === 'win32' ? findWindowsCodexDesktopCommand(environment, userHome) || 'codex' : 'codex';
+}
+
+function findWindowsCodexDesktopCommand(environment: NodeJS.ProcessEnv, userHome: string): string | null {
+  const localAppData = environment.LOCALAPPDATA?.trim() || win32.join(userHome, 'AppData', 'Local');
+  const binRoot = win32.join(localAppData, 'OpenAI', 'Codex', 'bin');
+  try {
+    const installed = readdirSync(binRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => win32.join(binRoot, entry.name, 'codex.exe'))
+      .filter((candidate) => existsSync(candidate))
+      .map((candidate) => ({ candidate, modifiedAt: statSync(candidate).mtimeMs }))
+      .sort((left, right) => right.modifiedAt - left.modifiedAt)[0]?.candidate;
+    if (installed) return installed;
+  } catch { /* Codex Desktop may not have a per-user bin directory. */ }
+
+  const systemRoot = environment.SystemRoot?.trim() || 'C:\\Windows';
+  const powershell = win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const script = '$package = Get-AppxPackage -Name OpenAI.Codex -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1; if ($null -ne $package) { Write-Output $package.InstallLocation }';
+  const result = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8', timeout: 3_000, windowsHide: true, env: environment
+  });
+  if (result.error || result.status !== 0) return null;
+  const installLocation = result.stdout.trim().split(/\r?\n/u).filter(Boolean).at(-1);
+  if (!installLocation) return null;
+  const command = win32.join(installLocation, 'app', 'resources', 'codex.exe');
+  return existsSync(command) ? command : null;
 }
 
 async function probeProviderUsageLimits(providerId: BealeProviderLimitId): Promise<BealeProviderUsageLimits> {

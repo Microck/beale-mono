@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, win32 } from 'node:path';
 import { test } from 'node:test';
 import {
   ProviderUsageLimitsService,
   codexRateLimitsToSnapshot,
+  resolveCodexUsageCommand,
   xaiBillingToSnapshot,
   claudeRateLimitsToSnapshot
 } from '../dist/providerUsageLimits.js';
@@ -33,6 +37,22 @@ test('Codex excludes a model-specific bucket and handles a monthly primary windo
   assert.equal(codexRateLimitsToSnapshot({ rateLimits: {
     planType: 'free', primary: { usedPercent: 20 }
   } }).windows[0].label, 'Monthly Limit');
+});
+
+test('Codex usage resolves the Windows Desktop executable without PATH', { skip: process.platform !== 'win32' }, (context) => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-codex-usage-'));
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  const binDirectory = win32.join(directory, 'OpenAI', 'Codex', 'bin', 'desktop-build');
+  mkdirSync(binDirectory, { recursive: true });
+  const executable = win32.join(binDirectory, 'codex.exe');
+  writeFileSync(executable, 'synthetic executable');
+
+  assert.equal(resolveCodexUsageCommand({ LOCALAPPDATA: directory, PATH: '', SystemRoot: directory }, 'win32', directory), executable);
+});
+
+test('Codex usage respects an explicit command override', () => {
+  assert.equal(resolveCodexUsageCommand({ BEALE_CODEX_COMMAND: 'custom-codex' }, 'win32'), 'custom-codex');
+  assert.equal(resolveCodexUsageCommand({ BEALE_CODEX_COMMAND: 'custom-codex' }, 'darwin'), 'custom-codex');
 });
 
 test('xAI uses the reported billing period and treats an omitted zero percent as unused', () => {
