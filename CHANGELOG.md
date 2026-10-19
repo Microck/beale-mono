@@ -44,6 +44,7 @@
 
 #### Changed
 
+- Research sessions now treat existing findings as prior art during new discovery, revisit them when directly requested, and check likely claim matches before creating a lead so evidence can be added to the canonical claim. Distinct claims in the same classification remain allowed after review.
 - Quick Chat on a connected app server now uses the local dock and composer, including model selection, resizing, collapse, and close controls. The selected app server continues to own the chat session.
 - New Research now supports selecting multiple workspace targets for one session. The target picker keeps selections visible as the first target with a count; connected app servers accept the same selection.
 - New Research shows the selected app server and target in its top tab, with Goal Mode, Add Context, and Repeat in a nested settings menu. In-Agent Browser is no longer offered as a research target; saved selections resolve to Local.

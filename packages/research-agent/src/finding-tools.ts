@@ -166,7 +166,7 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
       requiredString(input.id, "id"),
       optionalCompletionTarget(input.targetStatus) ?? "verified",
     )),
-    findingTool("lead.create", "lead_create", "Record one new research lead. Search claims with history.search first; do not duplicate an existing claim. This creates a proposed claim without asserting observation. The qualitative rating is an untrusted estimate for prioritization and notifications, not an evidence-backed severity assessment.", "write", {
+    findingTool("lead.create", "lead_create", "Record one new research lead after searching for the same underlying claim. Likely matches block creation until their details are inspected; append evidence with finding.transition and refine with finding.revise when they describe the same issue. Distinct affected conditions may be recorded separately after reviewing the suggested matches. This creates a proposed claim without asserting observation. The qualitative rating is an untrusted estimate for prioritization and notifications, not an evidence-backed severity assessment.", "write", {
       type: "object",
       required: ["title", "classification", "rating"],
       properties: {
@@ -177,18 +177,35 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
         sourceRevision: { type: "string", description: "Exact component identity. Use kind:resource-id:value (for example git:webkit:abc123) when automatic same-resource invalidation is desired." },
         environmentFingerprint: { type: "string", description: "Exact target identity. Use environment:resource-id:value when automatic same-target invalidation is desired." },
         evidence: { type: "array", items: EVIDENCE_SCHEMA },
+        distinctFromClaimIds: { type: "array", items: { type: "string" }, description: "IDs of every suggested matching claim inspected with claim.get and found to describe a different root cause or affected condition." },
+        distinctReason: { type: "string", description: "Concrete reason the new lead is distinct from the inspected matches; required when distinctFromClaimIds is supplied." },
       },
-    }, (input, context) => store.create({
-      title: requiredString(input.title, "title"),
-      classification: requiredClassification(input.classification, defaults.classifications),
-      rating: requiredResearchClaimRating(input.rating),
-      ...(string(input.summary) ? { summary: string(input.summary)! } : {}),
-      ...(string(input.impact) ? { impact: string(input.impact)! } : {}),
-      ...(typeof input.confidence === "number" ? { confidence: input.confidence } : {}),
-      ...(string(input.sourceRevision) ? { sourceRevision: string(input.sourceRevision)! } : {}),
-      ...(string(input.environmentFingerprint) ? { environmentFingerprint: string(input.environmentFingerprint)! } : {}),
-      ...(Array.isArray(input.evidence) ? { evidence: input.evidence.map(parseEvidence) } : {}),
-    }, context?.modelAuthor, context?.agentId)),
+    }, (input, context) => {
+      const draft = {
+        title: requiredString(input.title, "title"),
+        classification: requiredClassification(input.classification, defaults.classifications),
+        rating: requiredResearchClaimRating(input.rating),
+        ...(string(input.summary) ? { summary: string(input.summary)! } : {}),
+        ...(string(input.impact) ? { impact: string(input.impact)! } : {}),
+        ...(typeof input.confidence === "number" ? { confidence: input.confidence } : {}),
+        ...(string(input.sourceRevision) ? { sourceRevision: string(input.sourceRevision)! } : {}),
+        ...(string(input.environmentFingerprint) ? { environmentFingerprint: string(input.environmentFingerprint)! } : {}),
+        ...(Array.isArray(input.evidence) ? { evidence: input.evidence.map(parseEvidence) } : {}),
+      };
+      const matches = store.findCreationMatches(draft);
+      if (matches.length > 0) {
+        const reviewed = Array.isArray(input.distinctFromClaimIds)
+          ? new Set(input.distinctFromClaimIds.map((id) => requiredString(id, "distinctFromClaimIds[]")))
+          : new Set<string>();
+        if (!matches.every((match) => reviewed.has(match.id)) || !string(input.distinctReason)) {
+          throw new Error(`Potential existing claims: ${matches.map((match) => `${match.id} (${match.reason}; revision ${match.revision}; ${match.title})`).join("; ")}. Inspect each with claim.get. If it is the same issue, append evidence using finding.transition and refine it using finding.revise. If distinct, retry with all matching IDs in distinctFromClaimIds and a concrete distinctReason.`);
+        }
+      }
+      return store.create({
+        ...draft,
+        ...(matches.length > 0 ? { creationReason: `Research lead created as distinct from ${matches.map((match) => match.id).join(", ")}: ${requiredString(input.distinctReason, "distinctReason")}` } : {}),
+      }, context?.modelAuthor, context?.agentId);
+    }),
     findingTool("finding.revise", "finding_revise", "Revise a canonical claim and its security tracking without changing evidence maturity. The qualitative rating remains an untrusted prioritization estimate. Reachability must cite existing finding evidence. CVSS stores the version, vector, assessed score, and nomenclature together. Risk treatment is operator-controlled and cannot be changed by this tool.", "write", {
       type: "object",
       required: ["id", "expectedRevision", "reason"],

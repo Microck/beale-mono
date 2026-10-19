@@ -82,6 +82,81 @@ test("same-status finding transitions append evidence without creating duplicate
   }
 });
 
+test("lead creation surfaces likely matches and permits reviewed distinct claims", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "app-server-lead-create-match-"));
+  const graph = new MemoryGraphStore({ workspaceRoot, context: { ...workspace, sessionId: "session_match" } });
+  const claims = new FindingStore(graph);
+  try {
+    let original = claims.create({
+      title: "Unchecked frame length reaches allocation",
+      summary: "An unchecked length controls the allocation size.",
+      classification: "security.primitive",
+      rating: "high",
+    });
+    original = claims.transition(original.id, {
+      expectedRevision: original.revision,
+      toStatus: "observed",
+      reason: "The parser passes the unchecked length to allocation.",
+      evidence: [{ kind: "code", referenceId: "src/example-frame.ts:42", summary: "Allocation receives the frame length." }],
+    });
+    const registry = createResearchToolRegistry(createFindingTools(claims));
+    const invoke = (id, input) => registry.execute({ id, toolName: "lead.create", actionClass: "synthesize", input });
+    const blocked = await invoke("matching_lead", {
+      title: "Frame length reaches unchecked allocation",
+      summary: "The unchecked frame length controls allocation.",
+      classification: "security.primitive", rating: "high",
+      evidence: [{ kind: "code", referenceId: "src/example-frame.ts:42", summary: "A second review confirms the same path." }],
+    });
+    assert.equal(blocked.result.status, "error");
+    assert.match(blocked.result.error.message, new RegExp(original.id));
+    assert.match(blocked.result.error.message, /finding\.transition.*finding\.revise/);
+    assert.equal(claims.list().length, 1);
+
+    original = claims.transition(original.id, {
+      expectedRevision: original.revision,
+      toStatus: original.status,
+      reason: "Add the second review to the existing claim.",
+      evidence: [{ kind: "code", referenceId: "src/example-validator.ts:17", summary: "Validation leaves the length unchanged." }],
+    });
+    original = claims.revise(original.id, {
+      expectedRevision: original.revision,
+      reason: "Clarify the affected allocation path.",
+      summary: "An unchecked frame length controls the parser allocation size.",
+    });
+    assert.equal(original.evidence.length, 2);
+    assert.equal(claims.list().length, 1);
+
+    const distinctInput = {
+      title: "Frame length bypasses output validation",
+      summary: "The same source location also affects a separate output validation path.",
+      classification: "security.primitive", rating: "medium",
+      evidence: [{ kind: "code", referenceId: "src/example-frame.ts:42", summary: "The value also reaches output validation." }],
+    };
+    const needsReview = await invoke("distinct_needs_review", distinctInput);
+    assert.equal(needsReview.result.status, "error");
+    assert.match(needsReview.result.error.message, /distinctFromClaimIds/);
+    const distinct = await invoke("distinct_reviewed", {
+      ...distinctInput,
+      distinctFromClaimIds: [original.id],
+      distinctReason: "The affected output validation path is separate from the allocation path.",
+    });
+    assert.equal(distinct.result.status, "complete");
+    assert.notEqual(distinct.result.output.id, original.id);
+    assert.match(distinct.result.output.transitions[0].reason, /affected output validation path is separate/);
+
+    const sameClass = await invoke("same_class_new_issue", {
+      title: "Unrelated authorization check skips an actor",
+      classification: "security.primitive", rating: "high",
+    });
+    assert.equal(sameClass.result.status, "complete");
+    assert.equal(claims.list().length, 3);
+  } finally {
+    claims.close();
+    graph.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test("duplicate claims are hidden from catalogs, nested under their canonical parent, and restorable", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "app-server-claim-deduplication-"));
   const layout = ensureResearchStorageLayout(createResearchStorageLayout({ workspaceRoot }));

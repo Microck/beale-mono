@@ -142,6 +142,19 @@ test("goal guidance separates session work, Goal mode, and disposition", () => {
   assert.doesNotMatch(persistent, /\n{3,}/);
 });
 
+test("discovery guidance treats existing findings as prior art while allowing requested follow-up", () => {
+  const prompt = createResearchSystemPrompt({
+    hasTools: true,
+    researchProfile: DEFAULT_SECURITY_RESEARCH_PROFILE,
+    pluginCatalog: pluginCatalog("beale-claims"),
+    promptTemplate: "{{boundary}}\n{{goal}}\n{{claims}}",
+  });
+  assert.match(prompt, /When the user asks to find a vulnerability, a severity, or a bug class, pursue a distinct new candidate/);
+  assert.match(prompt, /Work on an existing claim when the user directly asks for that claim or asks to continue, reproduce, verify, or report existing work/);
+  assert.match(prompt, /Before lead\.create, search and inspect plausible existing leads and findings for the same root cause and affected condition/);
+  assert.match(prompt, /sharing a classification or severity never makes two findings duplicates/);
+});
+
 test("collaboration guidance separates delegation, documentation, profile protocol, and runtime policy", () => {
   const options = {
     hasTools: true,

@@ -65,9 +65,17 @@ export interface CreateFindingInput {
   sourceRevision?: string | null;
   environmentFingerprint?: string | null;
   evidence?: FindingEvidenceInput[];
+  creationReason?: string;
 }
 
 export type CreateLeadInput = CreateFindingInput;
+
+export interface ClaimCreationMatch {
+  id: string;
+  title: string;
+  revision: number;
+  reason: "matching title" | "similar title" | "matching summary" | "shared evidence reference";
+}
 
 export interface TransitionFindingInput {
   expectedRevision: number;
@@ -181,6 +189,50 @@ export class ResearchClaimStore {
     return this.memoryGraph.getContext();
   }
 
+  /** Preflight for model-authored leads; matching a classification alone is never a duplicate. */
+  public findCreationMatches(input: CreateFindingInput): ClaimCreationMatch[] {
+    const workspaceId = this.memoryGraph.getContext().workspaceId;
+    const classification = claimClassification(input.classification ?? legacyClaimClassification(undefined));
+    const title = claimMatchTokens(input.title);
+    const summary = claimMatchTokens(input.summary ?? "");
+    const references = [...new Set((input.evidence ?? []).flatMap((item) =>
+      item.referenceId?.trim() ? [item.referenceId.trim()] : []))].slice(0, 16);
+    const rows = pagedRows(this.database, `SELECT id, title, summary, revision, classification
+      FROM app_server_research_claims
+      WHERE workspace_id = ? AND duplicate_of_claim_id IS NULL
+      ORDER BY updated_at DESC, id`, [workspaceId]);
+    const sharedReferences = new Set<string>();
+    if (references.length > 0) {
+      const referenceRows = this.database.prepare(`SELECT DISTINCT claim.id
+        FROM app_server_research_claims claim
+        JOIN app_server_claim_evidence evidence ON evidence.claim_id = claim.id
+        WHERE claim.workspace_id = ? AND claim.classification = ? AND claim.duplicate_of_claim_id IS NULL
+          AND evidence.reference_id IN (${references.map(() => "?").join(",")})`)
+        .all(workspaceId, classification, ...references) as SqlRow[];
+      for (const row of referenceRows) sharedReferences.add(requiredSqlText(row.id));
+    }
+    const matches: ClaimCreationMatch[] = [];
+    for (const row of rows) {
+      const candidateTitle = claimMatchTokens(requiredSqlText(row.title));
+      const titleOverlap = claimTokenOverlap(title, candidateTitle);
+      const sharedTitleTokens = title.filter((token) => candidateTitle.includes(token)).length;
+      const candidateSummary = claimMatchTokens(typeof row.summary === "string" ? row.summary : "");
+      const sameClassification = row.classification === classification;
+      const reason = title.length > 0 && title.join(" ") === candidateTitle.join(" ")
+        ? "matching title"
+        : sameClassification && sharedTitleTokens >= 3 && titleOverlap >= 0.8
+          ? "similar title"
+          : sameClassification && sharedTitleTokens >= 2 && summary.length >= 4 && claimTokenOverlap(summary, candidateSummary) >= 0.85
+            ? "matching summary"
+            : sameClassification && sharedTitleTokens >= 2 && sharedReferences.has(requiredSqlText(row.id))
+              ? "shared evidence reference"
+              : null;
+      if (reason) matches.push({ id: requiredSqlText(row.id), title: requiredSqlText(row.title), revision: requiredSqlNumber(row.revision), reason });
+      if (matches.length === 5) break;
+    }
+    return matches;
+  }
+
   public create(input: CreateFindingInput, author?: ModelAuthor, actorId?: string): FindingSummary {
     const context = this.memoryGraph.getContext();
     const memory = input.memoryNodeId ? this.requireWorkspaceMemory(input.memoryNodeId) : null;
@@ -224,7 +276,7 @@ export class ResearchClaimStore {
       );
       const evidenceIds = this.insertEvidence(id, evidence, now);
       this.replaceComponents(id, componentClaimIds, now);
-      this.insertTransition(id, 1, null, "hypothesis", "Research lead created.", actorId ?? null, evidenceIds, now);
+      this.insertTransition(id, 1, null, "hypothesis", normalizedText(input.creationReason) ?? "Research lead created.", actorId ?? null, evidenceIds, now);
       this.insertAuthor(id, 1, author, now);
       this.database.exec("COMMIT");
     } catch (error) {
@@ -2227,6 +2279,16 @@ function* scopedClaimRows(database: DatabaseSync, table: string, ids: ReadonlySe
 }
 
 type SqlRow = Record<string, unknown>;
+const CLAIM_MATCH_STOP_WORDS = new Set(["a", "an", "and", "at", "by", "for", "from", "in", "into", "is", "of", "on", "or", "the", "through", "to", "with"]);
+function claimMatchTokens(value: string): string[] {
+  return [...new Set(value.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])]
+    .filter((token) => !CLAIM_MATCH_STOP_WORDS.has(token));
+}
+function claimTokenOverlap(left: readonly string[], right: readonly string[]): number {
+  if (left.length === 0 || right.length === 0) return 0;
+  const rightSet = new Set(right);
+  return left.filter((token) => rightSet.has(token)).length / Math.max(left.length, right.length);
+}
 function confidence(value: number): number { if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error("Finding confidence must be between 0 and 1."); return value; }
 function requiredText(value: unknown, label: string): string { const text = normalizedText(value); if (!text) throw new Error(`${label} must be a non-empty string.`); return text; }
 function normalizedText(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
