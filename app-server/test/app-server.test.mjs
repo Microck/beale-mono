@@ -1838,7 +1838,7 @@ test('app-server rejects session targets outside the workspace allowlist', async
   } }, 'session-target-allowlist'), /not enabled for the workspace/);
 });
 
-test("app-server preserves OpenAI Fast mode and Daybreak Blue through restart metadata and runtime arguments", async () => {
+test("app-server preserves launch options through restart metadata and runtime arguments", async () => {
   const directory = mkdtempSync(join(tmpdir(), "beale-app-server-fast-mode-"));
   temporaryDirectories.push(directory);
   const calls = [];
@@ -1875,6 +1875,7 @@ test("app-server preserves OpenAI Fast mode and Daybreak Blue through restart me
     fastMode: true,
     daybreakBlue: true,
   };
+  request.launch.devHarnessFeedback = true;
 
   const prepared = await service.prepareSession(request, "generated-session");
 
@@ -1884,6 +1885,7 @@ test("app-server preserves OpenAI Fast mode and Daybreak Blue through restart me
   assert.equal(appServerSessionEnvironment(prepared.launch, {}).APP_SERVER_OPENAI_CONTEXT_SIZE, "large");
   assert.ok(appServerSessionArgs(prepared.launch, {}).includes("--fast-mode"));
   assert.ok(appServerSessionArgs(prepared.launch, {}).includes("--daybreak-blue"));
+  assert.ok(appServerSessionArgs(prepared.launch, {}).includes("--dev-harness-feedback"));
   const createCall = calls.find((call) => call.operation === "session.create");
   assert.equal(
     createCall.options.input.metadata.appServerRestartLaunch.launch.provider.fastMode,
@@ -1893,6 +1895,7 @@ test("app-server preserves OpenAI Fast mode and Daybreak Blue through restart me
     createCall.options.input.metadata.appServerRestartLaunch.launch.provider.daybreakBlue,
     true,
   );
+  assert.equal(createCall.options.input.metadata.appServerRestartLaunch.launch.devHarnessFeedback, true);
 
   await assert.rejects(
     service.prepareSession({
@@ -2782,6 +2785,7 @@ test("expands typed session intent into app-server-owned runtime policy", () => 
   assert.ok(args.includes("--profile-tool-family-ceiling"));
   assert.ok(args.includes("--profile-side-effect-ceiling"));
   assert.equal(args.includes("--disable-tool-family"), false);
+  assert.equal(args.includes("--dev-harness-feedback"), false);
   assert.equal(args[args.indexOf("--tool-max-bytes") + 1], "123456");
   assert.throws(() => appServerSessionArgs(launch, {
     BEALE_APP_SERVER_PROFILE_TOOL_FAMILY_CEILING_JSON: JSON.stringify(["unknown-family"]),

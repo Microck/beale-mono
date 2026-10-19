@@ -50,6 +50,7 @@ export interface ResolvedAppServerSessionLaunch {
   attemptId: string;
   promptMarkdown: string;
   goal?: { objective?: string };
+  devHarnessFeedback?: boolean;
   provider: {
     id: string;
     model?: string;
@@ -138,6 +139,7 @@ export function appServerSessionArgs(
     args.push('--goal');
     if (launch.goal.objective) args.push('--goal-objective', launch.goal.objective);
   }
+  if (launch.devHarnessFeedback) args.push('--dev-harness-feedback');
   if (enabled(environment.BEALE_APP_SERVER_MOCK)) args.push('--mock');
   const configPath = environment.BEALE_APP_SERVER_CONFIG?.trim();
   if (configPath) args.push('--config', configPath);

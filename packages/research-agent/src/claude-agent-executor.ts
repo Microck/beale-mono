@@ -368,6 +368,7 @@ export function createClaudeAgentExecutor(options: CreateClaudeAgentExecutorOpti
                     createResearchSystemPrompt({
                       hasTools: mcpTools.length > 0,
                       hasSessionDispositionTool: !options.agentIdentity && hasTool(options.toolRegistry, "session_disposition"),
+                      hasHarnessFeedbackTool: hasTool(options.toolRegistry, "harness_feedback"),
                       hasCollaborationTools: collaborationMcpTools.length > 0,
                       ...(collaboration ? { collaborationGuidance: createCollaborationSystemGuidance(collaboration, workflow.id) } : {}),
                       goalEnabled: false,
@@ -461,6 +462,7 @@ export function createClaudeAgentExecutor(options: CreateClaudeAgentExecutorOpti
                   createResearchSystemPrompt({
                     hasTools: mcpTools.length > 0,
                     hasSessionDispositionTool: !options.agentIdentity && hasTool(options.toolRegistry, "session_disposition"),
+                    hasHarnessFeedbackTool: hasTool(options.toolRegistry, "harness_feedback"),
                     hasCollaborationTools: collaborationMcpTools.length > 0,
                     ...(collaboration ? { collaborationGuidance: createCollaborationSystemGuidance(collaboration, workflow.id) } : {}),
                     goalEnabled: false,

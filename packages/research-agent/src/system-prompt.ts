@@ -9,6 +9,7 @@ import { formatHarnessFeatureCatalog, formatResearchPluginCatalog, isHarnessFeat
 export interface CreateResearchSystemPromptOptions {
   hasTools: boolean;
   hasSessionDispositionTool?: boolean;
+  hasHarnessFeedbackTool?: boolean;
   agentPath?: string;
   hasCollaborationTools?: boolean;
   collaborationGuidance?: string;
@@ -156,6 +157,11 @@ export function createResearchSystemPrompt(
       "",
       "Session disposition:",
       "Before the root final response, call session.disposition exactly once. Record the evidence-grounded outcome, every unresolved dependency, and whether progress requires external state rather than more work in this session.",
+    ] : []),
+    ...(options.hasHarnessFeedbackTool ? [
+      "",
+      "Development harness feedback:",
+      "When you encounter a Beale behavior flaw, quirk, or limitation during this session, call harness.feedback with the concrete observation and any workaround. Record it when encountered, then continue the research. Do not invent feedback or include target findings.",
     ] : []),
     `${SECTION_MARKER}memory`,
     ...(hasKnowledgePlugin ? [

@@ -6,6 +6,7 @@
 
 #### Added
 
+- Development Desktop sessions let agents record Beale harness flaws, quirks, and limitations through `harness.feedback`; a compact end-of-session button opens the recorded feedback.
 - New Research suggestion lists have a Regenerate button beside Categories to request fresh ideas for the selected category.
 - New workspaces can import public Bugcrowd engagement briefs, including in-scope and out-of-scope targets, rules, and guidance. Bugcrowd Research Kits can refresh these imports from the current public brief.
 - Fleet Browsers now has a Default page setting. New embedded and streamed browser pages open there (default: DuckDuckGo); existing pages retain their current location. The updated control contract requires rebuilt Desktop and app-server binaries.
@@ -1291,6 +1292,7 @@
 
 #### Added
 
+- Development Desktop launches enable the session-scoped harness feedback tool in hosted research workers. Feedback is retained in the canonical session trace. Control contract v48 requires rebuilt clients and hosts.
 - Added an authenticated provider-limits read for OpenAI Codex, xAI, and Anthropic with host-only credential probes, a five-minute cache, and sanitized responses. Other providers report unsupported limits.
 - Added resource-rooted research surfaces with agent-created child surfaces, one-time workspace-wide touch, bug-history/coverage/threat-model foundations, bounded lookup, and recorded agent focus changes. Subagent spawns now require a surface assignment; workspace publication retains the surface tree and movement history.
 - VM targets keep the research worker, canonical storage, and provider credentials on the primary app-server. Shell commands execute over SSH in the chosen VM; no guest app-server installation is needed for new VM sessions. Fleet configuration migrates to version 3 with workspace target lists, browser settings, and independent VM run and clone options. Clients and hosts must rebuild for the updated control contract.

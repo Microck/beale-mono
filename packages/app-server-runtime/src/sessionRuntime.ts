@@ -85,6 +85,7 @@ import {
   getDefaultResearchToolConfigPath,
   createSynthesisTool,
   createSessionDispositionTool,
+  createHarnessFeedbackTool,
   getAuthStatus,
   getProviderModelCatalog,
   generateResearchSessionTitle,
@@ -296,6 +297,7 @@ interface ParsedArgs {
   initialRiskFlags: string[];
   userPreferences: string[];
   mock: boolean;
+  devHarnessFeedback: boolean;
   configPath: string | undefined;
   collaborationConfigPath: string | undefined;
   provider: string | undefined;
@@ -416,6 +418,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   let help = false;
   let version = false;
   let mock = false;
+  let devHarnessFeedback = false;
   let configPath: string | undefined;
   let collaborationConfigPath: string | undefined;
   let provider: string | undefined;
@@ -501,6 +504,8 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       index += 1;
     } else if (arg === "--goal") {
       goal = true;
+    } else if (arg === "--dev-harness-feedback") {
+      devHarnessFeedback = true;
     } else if (arg === "--goal-objective") {
       goalObjective = readOptionValue(argv, index, arg);
       goal = true;
@@ -775,6 +780,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
     initialRiskFlags,
     userPreferences,
     mock,
+    devHarnessFeedback,
     configPath,
     collaborationConfigPath,
     provider,
@@ -3756,6 +3762,7 @@ async function createRuntimeConfig(args: {
   preparedRuntimeConfig?: PreparedRuntimeConfigInputs;
   memoryBackend?: ResearchMemoryBackendId;
   mock?: boolean;
+  devHarnessFeedback?: boolean;
   runbookExecutionUpdateSink?: (update: RunbookExecutionUpdate) => void | Promise<void>;
 }): Promise<{
   events: ResearchEvent[];
@@ -3822,6 +3829,11 @@ async function createRuntimeConfig(args: {
   const dispositionTool = createSessionDispositionTool(dispositionRecorder);
   executableTools.push(dispositionTool);
   toolDescriptors.push(dispositionTool.descriptor);
+  if (args.devHarnessFeedback) {
+    const feedbackTool = createHarnessFeedbackTool();
+    executableTools.push(feedbackTool);
+    toolDescriptors.push(feedbackTool.descriptor);
+  }
   const storageLayout = createResearchStorageLayout({
     workspaceRoot,
   });

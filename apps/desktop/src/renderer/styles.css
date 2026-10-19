@@ -17938,3 +17938,47 @@ button.research-goal-choice:focus-visible {
 .prompt-settings-preview { max-height: 55vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-strong); font-size: 13px; line-height: 1.5; }
 .prompt-settings-actions { justify-content: flex-end; }
 .prompt-settings-actions span { margin-right: auto; color: var(--muted); }
+.harness-feedback-footer {
+  padding: 4px 18px 10px;
+  text-align: right;
+}
+
+.harness-feedback-button {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted, #999);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.harness-feedback-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 55%);
+  text-align: left;
+}
+
+.harness-feedback-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(70vh, 720px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--border-color, #555);
+  border-radius: 10px;
+  background: var(--surface-color, #202020);
+  color: var(--text-color, #eee);
+}
+
+.harness-feedback-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.harness-feedback-dialog h2 { margin: 0; font-size: 16px; }
+.harness-feedback-dialog ol { padding-left: 22px; }
+.harness-feedback-dialog li { margin-top: 16px; }
+.harness-feedback-dialog li p { margin: 6px 0; white-space: pre-wrap; }

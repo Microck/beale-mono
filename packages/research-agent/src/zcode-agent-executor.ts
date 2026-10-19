@@ -197,6 +197,7 @@ export function createZCodeAgentExecutor(options: CreateZCodeAgentExecutorOption
       const systemPrompt = createResearchSystemPrompt({
         hasTools: registryTools().length > 0,
         hasSessionDispositionTool: !options.agentIdentity && hasTool(options.toolRegistry, "session_disposition"),
+        hasHarnessFeedbackTool: hasTool(options.toolRegistry, "harness_feedback"),
         hasCollaborationTools: agentTools.length > 0,
         ...(collaboration ? { collaborationGuidance: createCollaborationSystemGuidance(collaboration, workflow.id) } : {}),
         goalEnabled: false,

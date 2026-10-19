@@ -77,6 +77,7 @@ Connected primary app servers remain configurable in Fleet for browsing and cont
 - A canonical research-claim ledger with one stable identity from Lead to Finding, append-only evidence-gated transitions, independent verification, source/environment staleness, profile classifications, composite claims, reversible duplicate coalescing, durable runbook/report/disclosure references, and unified workspace-history search across claims, memories, and runbooks
 - A workspace Campaign graph that maps authorized assets through research memory and findings to proof/report artifacts, ranks uncovered territory and contradictions, and seeds focused follow-up runs
 - app-server-backed research session execution
+- `dev:desktop` sessions expose agent-recorded harness feedback at the end of the session; agents record observed Beale flaws, quirks, limitations, and workarounds in the session trace.
 - A Security research profile with authorized scope, security claims, memory, prompts, collaboration settings, and catalogs
 - Durable research-subject identity that is independent of the recorded authorization owner
 - Workspace-lifetime research Channels with durable transcripts and subagent results, cross-session reuse, non-blocking multi-provider participation, and explicit deletion
@@ -100,7 +101,7 @@ Beale uses app-server's user-global `~/.beale/memory.sqlite` database. Operation
 
 For active runs, Beale sends only logical session intent to the Beale app-server. The server resolves workspace identity, host paths, storage, provider policy, plugins, capture/continuation files, and canonical profile snapshots before hosting app-server in an isolated worker. Worker events and controls use direct messages; only the client-facing app-server WebSocket remains. Desktop authenticates with a per-session bearer token, consumes the shared event stream, and reads bounded canonical state through the same control plane. Canonical operations use the authenticated app-server operation endpoint rather than spawning app-server commands.
 
-app-server protocol v1 is the transport boundary, while contract v47 identifies the executing runtime build, current claim-ledger and memory-summary schemas, file-authority workspace synchronization, reversible derived-index release, and required capabilities. Beale validates the app-server descriptor and WebSocket hello. Session persistence and derived research queries, claims, campaign projection, knowledge and artifact operations, auxiliary model jobs and provider semantics, Agent Plugins, and source materialization are app-server-owned operations hosted by app-server.
+app-server protocol v1 is the transport boundary, while contract v48 identifies the executing runtime build, current claim-ledger and memory-summary schemas, file-authority workspace synchronization, reversible derived-index release, and required capabilities. Beale validates the app-server descriptor and WebSocket hello. Session persistence and derived research queries, claims, campaign projection, knowledge and artifact operations, auxiliary model jobs and provider semantics, Agent Plugins, and source materialization are app-server-owned operations hosted by app-server.
 
 Beale is pre-alpha and uses append-only component-scoped migrations.
 

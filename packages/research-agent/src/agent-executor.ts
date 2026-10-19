@@ -138,7 +138,7 @@ const RECENT_TOOL_RESULTS_TO_KEEP = 8;
 const COMPACTED_TOOL_RESULT_MAX_CHARS = 1_200;
 const DEFAULT_MODEL_FIRST_EVENT_TIMEOUT_MS = 180_000;
 const MAX_TRANSIENT_MODEL_RETRIES = 4;
-const RUNTIME_CONTROL_TOOL_NAMES = new Set(["session_disposition", "features_preview", "features_load", "plugins_preview", "plugins_load"]);
+const RUNTIME_CONTROL_TOOL_NAMES = new Set(["session_disposition", "harness_feedback", "features_preview", "features_load", "plugins_preview", "plugins_load"]);
 
 export interface PiAgentResumableState {
   loadedPluginIds?: readonly string[];
@@ -896,6 +896,7 @@ export function createPiAgentExecutor(
             systemPrompt: createResearchSystemPrompt({
               hasTools: tools.length > 0,
               hasSessionDispositionTool: request.root === true && !options.agentIdentity && hasSessionDispositionTool,
+              hasHarnessFeedbackTool: researchToolNames.has("harness_feedback"),
               ...(request.root && !options.agentIdentity ? {} : { agentPath: request.path }),
               hasCollaborationTools: collaborationTools.length > 0,
               ...(collaboration ? { collaborationGuidance: createCollaborationSystemGuidance(collaboration, workflow.id, { lead: request.root === true }) } : {}),

@@ -46,7 +46,7 @@ export interface ResourcePriorArtGetInput extends Omit<ResourcePriorArtListInput
 
 export const APP_SERVER_PROTOCOL_NAME = "app-server" as const;
 export const APP_SERVER_PROTOCOL_VERSION = 1 as const;
-export const APP_SERVER_CONTRACT_VERSION = 47 as const;
+export const APP_SERVER_CONTRACT_VERSION = 48 as const;
 export const APP_SERVER_RUNTIME_VERSION = "0.1.0" as const;
 export const APP_SERVER_PROTOCOL_WEBSOCKET_PATH = "/v1/session" as const;
 export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as const;
@@ -54,7 +54,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-16T01:42:11.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-19T12:06:20.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -810,6 +810,8 @@ export interface AppServerSessionLaunchIntent {
   collaboration?: Record<string, unknown>;
   continuation?: AppServerSessionLaunchContinuation;
   generateTitle?: boolean;
+  /** Enables agent-recorded harness feedback for sessions started by the development desktop. */
+  devHarnessFeedback?: boolean;
   /** Host-only endpoint used by Beale sessions to load workspace introspection tools. */
   introspection?: {
     url: string;
@@ -861,6 +863,9 @@ export function decodeAppServerSessionLaunchRequest(value: unknown): AppServerSe
   optionalBoundedString(launch, "researchProfileHash", 256);
   if (launch.generateTitle !== undefined && typeof launch.generateTitle !== "boolean") {
     throw new Error("launch.generateTitle must be a boolean.");
+  }
+  if (launch.devHarnessFeedback !== undefined && typeof launch.devHarnessFeedback !== "boolean") {
+    throw new Error("launch.devHarnessFeedback must be a boolean.");
   }
   if (launch.introspection !== undefined) {
     const introspection = requiredRecord(launch, "introspection");

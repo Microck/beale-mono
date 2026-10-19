@@ -793,6 +793,7 @@ export class AppServerHostService {
         attemptId,
         promptMarkdown: request.launch.promptMarkdown,
         ...(request.launch.goal ? { goal: request.launch.goal } : {}),
+        ...(request.launch.devHarnessFeedback ? { devHarnessFeedback: true } : {}),
         provider: {
           id: providerId,
           ...(model ? { model } : {}),
@@ -1913,6 +1914,7 @@ function restartLaunchDescriptor(
         ...(resolved.daybreakBlue ? { daybreakBlue: true } : {})
       },
       shellSafetyMode: request.launch.shellSafetyMode?.trim() || 'auto_review',
+      ...(request.launch.devHarnessFeedback ? { devHarnessFeedback: true } : {}),
       ...(request.launch.workflowId ? { workflowId: request.launch.workflowId } : {}),
       researchProfileId: request.launch.researchProfileId?.trim() || resolved.profileId,
       ...(request.launch.researchProfileHash

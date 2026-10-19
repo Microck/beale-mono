@@ -17,6 +17,7 @@ import type {
 import { renderSearchHighlightedText, searchHighlightTerms } from '../search/searchHighlight';
 import { renderTraceProseText } from '../traces/traceMarkup';
 import { MainSteerArea, SessionLoadingState } from '../sessions/SessionComposer';
+import { HarnessFeedbackViewer } from './HarnessFeedbackViewer';
 import { devInstrumentation, useDevRenderProbe } from '../../devInstrumentation';
 import {
   commentaryMessagesForSession,
@@ -665,6 +666,8 @@ export const CommentaryView = memo(function CommentaryView({
           onSteerInstruction={onSteerInstruction}
         />
       ) : null}
+      {import.meta.env.DEV && !showBackToMain && detail && !isRunWorkingStatus(detail.run.status)
+        ? <HarnessFeedbackViewer key={detail.run.id} runId={detail.run.id} /> : null}
     </section>
   );
 });

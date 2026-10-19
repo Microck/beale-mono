@@ -2895,6 +2895,7 @@ function appServerSessionLaunchRequest(
       ...(collaboration ? { collaboration: collaboration as Record<string, unknown> } : {}),
       ...(continuation ? { continuation } : {}),
       ...(generateTitle ? { generateTitle: true } : {}),
+      ...(process.env.ELECTRON_RENDERER_URL ? { devHarnessFeedback: true } : {}),
       ...(input.introspection ? { introspection: input.introspection } : {})
     }
   };
