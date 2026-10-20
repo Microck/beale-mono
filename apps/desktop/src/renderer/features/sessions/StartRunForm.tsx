@@ -50,6 +50,32 @@ import { SessionNextStepsWidget } from './SessionNextSteps';
 
 const PROMPT_STREAM_RENDER_INTERVAL_MS = 90;
 const MAX_RENDERED_GOAL_SUGGESTIONS = 12;
+const FLEET_READ_TIMEOUT_MS = 20_000;
+
+export async function loadWorkspaceFleetStateWithRetry(
+  workspaceId: string,
+  getState: (workspaceId: string) => Promise<FleetState>,
+  waitToRetry: () => Promise<void> = () => new Promise((resolve) => setTimeout(resolve, 500)),
+  timeoutMs = FLEET_READ_TIMEOUT_MS
+): Promise<FleetState> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        getState(workspaceId),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('Target loading timed out. Retry to check this workspace again.')), timeoutMs);
+        })
+      ]);
+    } catch (error) {
+      if (attempt === 1) throw error;
+      await waitToRetry();
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+  throw new Error('Target loading failed.');
+}
 
 export function newResearchPromptPlaceholder(addContext: boolean): string {
   return addContext ? 'Write a sentence or two' : 'Write a full research prompt';
@@ -595,13 +621,11 @@ export function ResearchSettingsForm({
         return next;
       });
     };
-    const timeout = window.setTimeout(() => {
-      if (active) setFleetError('Target loading is taking too long. Retry to check this workspace again.');
-    }, 20_000);
-    void window.beale.getFleetState(fleetWorkspaceId).then(updateFleet).catch((caught: unknown) => {
-      if (active) setFleetError(userFacingErrorMessage(caught));
-    }).finally(() => window.clearTimeout(timeout));
-    return () => { active = false; window.clearTimeout(timeout); };
+    void loadWorkspaceFleetStateWithRetry(fleetWorkspaceId, (workspaceId) => window.beale.getFleetState(workspaceId))
+      .then(updateFleet).catch((caught: unknown) => {
+        if (active) setFleetError(userFacingErrorMessage(caught));
+      });
+    return () => { active = false; };
   }, [fleetWorkspaceId, formIdentity, initialInput?.machineId, Boolean(remoteTargetChoices), fleetLoadAttempt]);
 
   const remoteTargetKey = remoteTargetChoices?.map((target) => `${target.id}:${target.ready}`).join('|');

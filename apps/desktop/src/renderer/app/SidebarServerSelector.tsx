@@ -20,7 +20,6 @@ export function SidebarServerSelector({ servers, statuses, value, collapsed, onC
   const selectedIndex = Math.max(0, options.findIndex((option) => option.id === value));
   const selected = options[selectedIndex]!;
   const statusFor = (id: string): FleetAppServerStatus => statuses[id] ?? { id, state: 'offline', message: 'Status unavailable.' };
-  const selectedStatus = statusFor(selected.id);
 
   useEffect(() => {
     if (collapsed) setOpen(false);
@@ -66,8 +65,8 @@ export function SidebarServerSelector({ servers, statuses, value, collapsed, onC
         ref={triggerRef}
         type="button"
         className="sidebar-server-selector"
-        title={`${selected.name}: ${selectedStatus.message}`}
-        aria-label={`App server: ${selected.name}, ${selectedStatus.message}`}
+        title={selected.name}
+        aria-label={`App server: ${selected.name}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => { if (!open) onRefreshStatuses(); setOpen(!open); }}
@@ -78,7 +77,6 @@ export function SidebarServerSelector({ servers, statuses, value, collapsed, onC
           setOpen(true);
         }}
       >
-        <span className={`sidebar-server-status-dot ${selectedStatus.state}`} aria-hidden="true" />
         <span className="sidebar-server-selector-label">{selected.name}</span>
         <ChevronDown size={13} aria-hidden="true" />
       </button>

@@ -2,14 +2,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { AutomationSummary, RunDetail, WorkspaceRegistryEntry } from '@shared/types';
+import type { AutomationSummary, FleetState, RunDetail, WorkspaceRegistryEntry } from '@shared/types';
 import {
   automationAttemptDetail,
   AutomationsSidebar,
   AutomationsWorkspace,
   orderedAutomationAttempts
 } from '../src/renderer/features/automations/AutomationsWorkspace';
-import { ResearchSettingsForm, researchSettingsInput } from '../src/renderer/features/sessions/StartRunForm';
+import { loadWorkspaceFleetStateWithRetry, ResearchSettingsForm, researchSettingsInput } from '../src/renderer/features/sessions/StartRunForm';
 import { defaultRunInput } from '../src/renderer/view-models/runSettings';
 
 const workspace: WorkspaceRegistryEntry = {
@@ -28,6 +28,13 @@ const workspace: WorkspaceRegistryEntry = {
   lastOpenedAt: '2026-08-17T12:00:00.000Z',
   runCount: 2,
   lastRunAt: '2026-08-17T12:00:00.000Z'
+};
+
+const localFleetState: FleetState = {
+  machineId: 'machine-example', role: 'primary', enabled: true, available: true, error: null,
+  appServers: [], remoteMachines: [], browserHomePage: 'https://example.test/',
+  browsers: [], machines: [], primary: null, requiredWorkspaceIds: [], optionalWorkspaceIds: [],
+  lastMachineByWorkspace: {}, workspaceTargets: { 'workspace-example': ['local'] }
 };
 
 const activeAutomation: AutomationSummary = {
@@ -305,6 +312,30 @@ describe('automation workspace', () => {
     expect(appSource).toContain('onStartNewResearch={() => openNewResearch(true)}');
     expect(appSource).toContain('onStartNewResearchForWorkspace={(workspace) => openNewResearchForWorkspace(workspace, true)}');
   });
+
+  it('retries a transient target read while opening scheduled research', async () => {
+    const calls: string[] = [];
+    const result = await loadWorkspaceFleetStateWithRetry('workspace-example', async (workspaceId) => {
+      calls.push(workspaceId);
+      if (calls.length === 1) throw new Error('The app-server is starting.');
+      return localFleetState;
+    }, async () => undefined);
+
+    expect(result).toBe(localFleetState);
+    expect(calls).toEqual(['workspace-example', 'workspace-example']);
+  });
+
+  it('retries a stalled target read while opening scheduled research', async () => {
+    let attempts = 0;
+    const result = await loadWorkspaceFleetStateWithRetry('workspace-example', async () => {
+      attempts += 1;
+      return attempts === 1 ? new Promise<FleetState>(() => undefined) : localFleetState;
+    }, async () => undefined, 1);
+
+    expect(result).toBe(localFleetState);
+    expect(attempts).toBe(2);
+  });
+
   it('uses the shared centered regular-weight loading state', () => {
     const html = render(null, true);
 
