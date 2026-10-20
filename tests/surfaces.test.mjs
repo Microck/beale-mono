@@ -22,6 +22,11 @@ const foundation = {
   coverage: { summary: "Reviewed one parser path.", gaps: "Alternate input modes remain unexamined.", opportunities: "Check the boundary before dispatch." },
   threatModel: { attackerControl: "Supplied request bytes.", trustBoundaries: "Untrusted request to privileged parser.", assetsAtRisk: "ExampleCo service state.", plausibleImpacts: "Unauthorized state change if parsing fails open.", assumptions: "Reachability requires the enabled service." },
 };
+const completeFoundation = {
+  ...foundation,
+  coverage: { ...foundation.coverage, gaps: "", mappingComplete: true, sinksInvestigated: true,
+    openQuestions: [], unexploredConnections: [] },
+};
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), "beale-surfaces-example-"));
@@ -59,6 +64,9 @@ test("resource roots, agent-discovered children, lookup, and one-time first touc
 
     const first = state.surface.focus("agent-one", child.id);
     assert.equal(first.firstTouch, true);
+    assert.deepEqual(first.surfaceTrail, [
+      { id: root.id, name: "Example service" }, { id: child.id, name: "Request parser" },
+    ]);
     assert.equal(first.previousSurfaceId, null);
     assert.equal(state.surface.focus("agent-two", child.id).firstTouch, false);
     assert.equal(state.surface.focus("agent-one", root.id).firstTouch, true);
@@ -96,6 +104,12 @@ test("surface tools expose simple query and track focus without duplicate touch"
   const state = fixture();
   try {
     const tools = Object.fromEntries(createSurfaceTools(state.surface).map((tool) => [tool.descriptor.name, tool]));
+    assert.match(tools["surface.create"].descriptor.description, /security surface tree/);
+    assert.match(tools["surface.create"].parameters.properties.description.description, /attacker path, trust boundary/);
+    assert.match(tools["surface.update"].parameters.properties.foundation.properties.coverage.properties.summary.description,
+      /do not count general code browsing as security coverage/);
+    assert.match(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.plausibleImpacts.description,
+      /ordinary malfunction alone is not security impact/);
     const action = (name, input) => ({ id: `action-${name}`, toolName: name, actionClass: "recall", input });
     const entered = await tools["surface.focus"].execute(action("surface.focus", { surfaceId: state.rootId }), { agentId: "agent-example" });
     assert.equal(entered.output.firstTouch, true);
@@ -105,6 +119,118 @@ test("surface tools expose simple query and track focus without duplicate touch"
     assert.equal(query.output.surfaces[0].id, state.rootId);
     const missing = await tools["surface.get"].execute(action("surface.get", { surfaceId: "surface-missing" }));
     assert.equal(missing.status, "error");
+  } finally { state.close(); }
+});
+
+test("surface coverage requires a complete threat-model map, investigated sinks, resolved connections, and no unblocked findings", () => {
+  const state = fixture();
+  try {
+    const child = state.surface.create(state.rootId, "Request parser", "Parser boundary.");
+    assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements,
+      ["foundation", "surface_map", "sinks"]);
+    state.surface.update(child.id, child.revision, {
+      ...completeFoundation,
+      coverage: { ...completeFoundation.coverage, openQuestions: ["Does fallback parsing reach the same sink?"] },
+    });
+    assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements, ["open_questions"]);
+    state.surface.update(child.id, 2, completeFoundation);
+    assert.equal(state.surface.coverageState(child.id).covered, true);
+    assert.deepEqual(state.surface.coverageState(state.rootId).unmetRequirements,
+      ["foundation", "surface_map", "sinks"]);
+    state.surface.update(state.rootId, 1, completeFoundation);
+    assert.equal(state.surface.coverageState(state.rootId).covered, true);
+
+    const database = new DatabaseSync(state.databasePath);
+    try {
+      database.exec(`CREATE TABLE app_server_research_claims (
+        id TEXT, workspace_id TEXT, status TEXT, classification TEXT,
+        duplicate_of_claim_id TEXT, security_tracking_json TEXT
+      )`);
+      database.prepare(`INSERT INTO app_server_research_claims VALUES (?, ?, ?, ?, NULL, ?)`).run(
+        "claim-example", workspaceId, "observed", "security.primitive", JSON.stringify({ surfaceIds: [child.id], progressBlocker: null }),
+      );
+      assert.deepEqual(state.surface.coverageState(child.id).unblockedFindingIds, ["claim-example"]);
+      assert.equal(state.surface.coverageState(state.rootId).covered, false);
+      database.prepare("UPDATE app_server_research_claims SET security_tracking_json = ? WHERE id = ?").run(
+        JSON.stringify({ surfaceIds: [child.id], progressBlocker: { reason: "Reachability requires a separate chain." } }), "claim-example",
+      );
+      state.surface.update(child.id, 3, {
+        ...completeFoundation,
+        coverage: { ...completeFoundation.coverage, gaps: "The observed primitive remains blocked on reachability." },
+      });
+      assert.equal(state.surface.coverageState(state.rootId).covered, true);
+    } finally { database.close(); }
+  } finally { state.close(); }
+});
+
+test("the first focus automatically launches one foundation scout and reports its result to the root", async () => {
+  const state = fixture();
+  try {
+    const requests = [];
+    const activities = [];
+    const manager = new SubagentManager({
+      rootProvider: "openai", rootModel: "example-model", surfaceStore: state.surface,
+      allowManualDelegation: false,
+      onActivity(activity) { activities.push(activity); },
+      async run(request) {
+        requests.push(request);
+        const current = state.surface.get(state.rootId);
+        state.surface.update(current.id, current.revision, completeFoundation);
+        return { messages: [], text: "Foundation recorded with no remaining questions.", turnCount: 1,
+          toolCallCount: 1, modelCalls: [], toolEvents: [] };
+      },
+    });
+    assert.deepEqual(manager.createTools("root"), []);
+    const first = state.surface.focus("root", state.rootId);
+    assert.equal(first.foundationScout.status, "running");
+    assert.match(first.foundationScout.agentPath, /^\/root\/surface_foundation_/);
+    await manager.settle();
+    assert.equal(requests.length, 1);
+    assert.match(requests[0].prompt, /Map attacker-controlled entry paths, trust boundaries, privilege contexts, security-relevant sinks/);
+    assert.match(requests[0].prompt, /Define coverage against that threat model, not against general code exploration/);
+    assert.match(requests[0].prompt, /Treat harmless defects as context only unless a security consequence is supported/);
+    assert.deepEqual(activities.find((activity) => activity.type === "spawned")?.surfaceTrail,
+      [{ id: state.rootId, name: "Example service" }]);
+    assert.equal(state.surface.coverageState(state.rootId).covered, true);
+    assert.match(JSON.stringify(manager.collaborationFollowUp("root")), /Foundation recorded/);
+    assert.equal(state.surface.focus("root", state.rootId).firstTouch, false);
+    assert.equal(requests.length, 1);
+  } finally { state.close(); }
+});
+
+test("first touch stays one-time even when the foundation remains incomplete", async () => {
+  const state = fixture();
+  try {
+    let firstRuns = 0;
+    const firstManager = new SubagentManager({
+      rootProvider: "openai", rootModel: "example-model", surfaceStore: state.surface,
+      allowManualDelegation: false,
+      async run() {
+        firstRuns += 1;
+        return { messages: [], text: "Foundation remains incomplete.", turnCount: 1,
+          toolCallCount: 0, modelCalls: [], toolEvents: [] };
+      },
+    });
+    const firstFocus = state.surface.focus("root", state.rootId);
+    assert.equal(firstFocus.firstTouch, true);
+    assert.equal(firstFocus.foundationScout.status, "running");
+    assert.equal(state.surface.focus("root", state.rootId).foundationScout, undefined);
+    await firstManager.settle();
+    assert.equal(firstRuns, 1);
+
+    const laterSurface = new SurfaceStore({
+      databasePath: state.databasePath, workspaceId, sessionId: "session-example-later", resources: state.resources,
+    });
+    try {
+      new SubagentManager({
+        rootProvider: "openai", rootModel: "example-model", surfaceStore: laterSurface,
+        async run() { throw new Error("The later session must not launch another foundation scout."); },
+      });
+      const laterFocus = laterSurface.focus("root", state.rootId);
+      assert.equal(laterFocus.firstTouch, false);
+      assert.equal(laterFocus.foundationScout, undefined);
+      assert.equal(laterSurface.coverageState(state.rootId).covered, false);
+    } finally { laterSurface.close(); }
   } finally { state.close(); }
 });
 
@@ -130,7 +256,7 @@ test("subagent spawn requires a valid surface assignment and records first touch
     assert.equal(state.surface.get(child.id).firstTouchedAt !== null, true);
     await manager.settle();
     assert.match(requests[0].prompt, /Assigned surface: Example service \/ Parser/);
-    assert.match(requests[0].prompt, /one-time foundation/);
+    assert.match(requests[0].prompt, /one-time security foundation/);
     assert.equal(state.surface.current(result.details.agent_id).id, child.id);
     state.surface.focus(result.details.agent_id, state.rootId, "Moved to parent boundary");
     const listed = await manager.createTools("root").find((tool) => tool.name === "list_agents").execute("list-after-move", {});

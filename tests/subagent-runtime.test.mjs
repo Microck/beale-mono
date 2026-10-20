@@ -87,7 +87,7 @@ test("advanced subagent mode retains direct controls and requires explicit deleg
     ["discoverer", "prover", "reviewer", "reporter"],
   );
   const expectedInstructions = new Map([
-    ["discoverer", /Act as a bounded discovery scout/],
+    ["discoverer", /Act as a bounded discovery scout\. Map attacker-controlled entry paths/],
     ["prover", /Reproduce a specific finding/],
     ["reviewer", /Independently review the finding and its reproduction/],
     ["reporter", /Write a submission report only for a reviewed and approved finding/],

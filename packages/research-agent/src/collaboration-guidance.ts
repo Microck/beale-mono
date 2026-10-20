@@ -17,7 +17,7 @@ export function createCollaborationSystemGuidance(
     ...runtimeGuidance(config),
     "Startup context is bounded. Query relevant memory, claims, runbooks, reports, and workspace history as needed.",
     ...(lead ? [
-      "Before recording session disposition or sending the final response, resolve every active delegated subagent by waiting for its result or explicitly interrupting it when its result is no longer needed. After a reviewer or other subagent can mutate durable state, re-read the canonical record and base the final response on that current revision rather than the pre-delegation snapshot.",
+      "Before sending the final response, resolve every active delegated subagent by waiting for its result or explicitly interrupting it when its result is no longer needed. After a reviewer or other subagent can mutate durable state, re-read the canonical record and base the final response on that current revision rather than the pre-delegation snapshot.",
     ] : []),
     "",
     "Subagent workflow:",
@@ -58,8 +58,8 @@ function subagentModeGuidance(
 
 function advancedResearchGuidance(): readonly string[] {
   return [
-    "Maintain continuous discovery coverage with multiple bounded Discoverer scouts whenever material, independently explorable attack surface remains. Give every active Discoverer a distinct assignment that does not duplicate active or completed coverage, and run discovery alongside proof, review, and reporting work when those tasks are separable.",
-    "When a Discoverer completes, preserve its leads, observations, coverage, and negative results, then launch a fresh non-duplicative Discoverer assignment when meaningful unexplored surface remains and capacity permits. Stop refreshing scouts when coverage is exhausted or the remaining work is sequential; do not spawn merely to fill capacity.",
+    "Use bounded Discoverer scouts when independent attack-surface work would help the current task. Give each a distinct assignment and preserve its leads, observations, coverage gaps, and negative results in durable state.",
+    "A first-touch foundation scout is launched by the host. Coordinate with it and use its updates without repeating the same work.",
   ];
 }
 
@@ -82,6 +82,6 @@ function modeGuidance(
     ];
   }
   return [
-    "Do not initiate collaboration unless the user explicitly requests it. Continue the research in the lead session.",
+    "Do not manually initiate collaboration unless the user explicitly requests it. The host may still launch a first-touch foundation scout; coordinate with it while continuing the lead session.",
   ];
 }

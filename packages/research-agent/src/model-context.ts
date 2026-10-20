@@ -54,9 +54,9 @@ export interface ResearchModelWorkspaceContext {
     workspace: { id: string; name: string };
     subject?: { id: string; name: string };
   };
-  knownRepositories: readonly ResearchWorkspaceRepositoryContext[];
-  materializedSourcePaths: readonly string[];
-  projectNotes: readonly string[];
+  knownRepositories?: readonly ResearchWorkspaceRepositoryContext[];
+  materializedSourcePaths?: readonly string[];
+  projectNotes?: readonly string[];
 }
 
 export interface ResearchModelMemoryRelationship {
@@ -113,6 +113,7 @@ export interface ResearchModelSkillContext {
 
 export function createModelWorkspaceContext(
   context: ResearchWorkspaceContext,
+  options: { minimal?: boolean } = {},
 ): ResearchModelWorkspaceContext {
   const memory = context.memoryContext;
   return {
@@ -137,9 +138,11 @@ export function createModelWorkspaceContext(
           },
         }
       : {}),
-    knownRepositories: context.knownRepositories,
-    materializedSourcePaths: context.materializedSourcePaths,
-    projectNotes: context.projectNotes,
+    ...(options.minimal ? {} : {
+      knownRepositories: context.knownRepositories,
+      materializedSourcePaths: context.materializedSourcePaths,
+      projectNotes: context.projectNotes,
+    }),
   };
 }
 

@@ -353,7 +353,7 @@ export class AppServerHostService {
         nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '', decodeFleetRemotePromptExpansionInput(input.expansion)
       );
       if (request.operation === 'fleet.remote_goal_suggestions') return this.fleet.remoteGoalSuggestions(
-        nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '', nonEmpty(input.phase) ?? '', input.refresh === true
+        nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '', nonEmpty(input.phase) ?? '', input.refresh === true, input.incremental === true
       );
       if (request.operation === 'fleet.remote_control') return this.fleet.remoteControl(nonEmpty(input.serverId) ?? '', nonEmpty(input.sessionId) ?? '', nonEmpty(input.type) ?? '', nonEmpty(input.instruction));
       if (request.operation === 'fleet.restart_app_server') return this.fleet.restartRemoteAppServer(nonEmpty(input.serverId) ?? '');
@@ -1904,6 +1904,11 @@ function pathFreeClaimSecurityTracking(value: unknown): BealeWorkspaceClaimSecur
     riskTreatment,
     cvssAssessments,
     affectedAssetIds: stringArray(tracking.affectedAssetIds),
+    surfaceIds: stringArray(tracking.surfaceIds),
+    progressBlocker: tracking.progressBlocker && typeof tracking.progressBlocker === 'object' && !Array.isArray(tracking.progressBlocker)
+      ? { reason: nonEmpty((tracking.progressBlocker as Record<string, unknown>).reason) ?? '',
+          setAt: nonEmpty((tracking.progressBlocker as Record<string, unknown>).setAt) ?? new Date(0).toISOString() }
+      : null,
     affectedVersions,
     externalReferences
   };

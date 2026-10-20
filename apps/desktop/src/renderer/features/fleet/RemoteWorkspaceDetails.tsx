@@ -41,6 +41,8 @@ function remoteClaim(claim: BealeWorkspaceResearchClaim, workspaceId: string): A
     title: claim.title, summary: claim.summary, impact: claim.impact,
     securityTracking: claim.securityTracking ? {
       ...claim.securityTracking,
+      surfaceIds: claim.securityTracking.surfaceIds ?? [],
+      progressBlocker: claim.securityTracking.progressBlocker ?? null,
       reachability: { ...claim.securityTracking.reachability, evidenceIds: [], assessorId: null,
         sourceRevision: null, environmentFingerprint: null },
       riskDecisions: [],

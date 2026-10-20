@@ -117,7 +117,7 @@ export class WorkspaceRegistry {
     validateResearchSystemPromptTemplate(template);
     return createResearchSystemPrompt({
       hasTools: true,
-      hasSessionDispositionTool: !agentPath,
+      hasSessionDispositionTool: false,
       hasCollaborationTools: true,
       goalEnabled: false,
       ...(agentPath ? { agentPath } : {}),

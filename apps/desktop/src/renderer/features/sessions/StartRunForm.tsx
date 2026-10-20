@@ -1711,14 +1711,6 @@ export function ResearchGoalChooser({
             </div>
           </div>
         ) : null}
-        {loading[phase] ? Array.from({
-          length: Math.min(MAX_RENDERED_GOAL_SUGGESTIONS, Math.max(1, activeWorkflow.goalSuggestionCount))
-        }, (_, index) => index).map((index) => (
-          <div className="research-goal-choice research-goal-choice-loading" aria-hidden="true" key={index}>
-            <span />
-            <span />
-          </div>
-        )) : null}
         {suggestions[phase]?.slice(0, MAX_RENDERED_GOAL_SUGGESTIONS).map((sentence, index) => (
           <button
             type="button"
@@ -1730,6 +1722,15 @@ export function ResearchGoalChooser({
             <span className="research-goal-choice-text">{sentence}</span>
           </button>
         ))}
+        {loading[phase] ? Array.from({
+          length: Math.max(0, Math.min(MAX_RENDERED_GOAL_SUGGESTIONS, Math.max(1, activeWorkflow.goalSuggestionCount))
+            - (suggestions[phase]?.length ?? 0))
+        }, (_, index) => index).map((index) => (
+          <div className="research-goal-choice research-goal-choice-loading" aria-hidden="true" key={`loading-${index}`}>
+            <span />
+            <span />
+          </div>
+        )) : null}
       </MainSideScrollRegion>
     </section>
   );

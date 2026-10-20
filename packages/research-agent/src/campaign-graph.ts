@@ -41,7 +41,7 @@ export function buildCampaignGraph(input: BuildCampaignGraphInput): CampaignGrap
       id: campaignNodeId("asset", assetId),
       kind: "asset",
       label: assetId,
-      status: input.nodes.some((node) => node.assetIds.includes(assetId)) ? "covered" : "unexplored",
+      status: "tracked",
       memoryNodeId: null,
       findingId: null,
       claimId: null,
@@ -67,7 +67,7 @@ export function buildCampaignGraph(input: BuildCampaignGraphInput): CampaignGrap
       graphEdges.push({
         fromId: campaignNodeId("asset", assetId),
         toId: campaignNodeId("memory", node.id),
-        relation: "covered_by",
+        relation: "has_memory",
         contradictory: false,
       });
     }
@@ -205,13 +205,6 @@ function campaignCoverageGaps(
   contradictions: readonly CampaignContradictionSummary[],
 ): CampaignCoverageGapSummary[] {
   const gaps: CampaignCoverageGapSummary[] = [];
-  for (const assetId of input.assetIds) {
-    if (input.nodes.some((node) => node.assetIds.includes(assetId))) continue;
-    gaps.push(gap("unexplored_asset", "high", `Unexplored asset: ${assetId}`,
-      "No durable research memory is associated with this authorized asset.",
-      [campaignNodeId("asset", assetId)],
-      `Map the attack surface of authorized asset ${assetId}. Search existing memory first, avoid repeating covered territory, and record evidence-backed sinks or invariants when useful.`));
-  }
   for (const node of input.nodes) {
     if (SECURITY_RESEARCH_TYPES.has(node.type) && node.evidenceRefs.length === 0) {
       gaps.push(gap("unsupported_memory", "medium",

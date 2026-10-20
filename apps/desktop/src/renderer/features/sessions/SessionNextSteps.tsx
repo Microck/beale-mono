@@ -47,33 +47,24 @@ export const SessionNextStepsWidget = memo(function SessionNextStepsWidget({
         {onRegenerate ? (
           <button type="button" className="session-next-steps-regenerate" onClick={onRegenerate} disabled={loading}>
             <RefreshCw size={14} aria-hidden="true" />
-            Regenerate
+            {error ? 'Retry' : 'Regenerate'}
           </button>
         ) : null}
       </header>
       <div className="session-next-steps-list">
-        {loading
-          ? Array.from({ length: suggestionLimit }, (_, index) => (
-              <div className="session-next-step-skeleton" key={index} aria-hidden="true">
-                <span />
-              </div>
-            ))
-          : error
-            ? <div className="session-next-steps-error">{error}</div>
-            : visibleSuggestions.length === 0
-              ? <div className="session-next-steps-empty">No suggestions to show.</div>
-              : visibleSuggestions.map((suggestion) => (
-                <button
-                  type="button"
-                  className="session-next-step-button"
-                  key={suggestion}
-                  onClick={() => onSelect(suggestion)}
-                >
-                  <Lightbulb className="session-next-step-icon" size={14} aria-hidden="true" />
-                  <span>{suggestion}</span>
-                  <ArrowRight size={14} aria-hidden="true" />
-                </button>
-              ))}
+        {visibleSuggestions.map((suggestion) => (
+          <button type="button" className="session-next-step-button" key={suggestion} onClick={() => onSelect(suggestion)}>
+            <Lightbulb className="session-next-step-icon" size={14} aria-hidden="true" />
+            <span>{suggestion}</span>
+            <ArrowRight size={14} aria-hidden="true" />
+          </button>
+        ))}
+        {loading ? Array.from({ length: Math.max(0, suggestionLimit - visibleSuggestions.length) }, (_, index) => (
+          <div className="session-next-step-skeleton" key={`loading-${index}`} aria-hidden="true"><span /></div>
+        )) : null}
+        {error ? <div className="session-next-steps-error" role="alert">{error}</div> : null}
+        {!loading && !error && visibleSuggestions.length === 0
+          ? <div className="session-next-steps-empty">No suggestions to show.</div> : null}
       </div>
     </section>
   );

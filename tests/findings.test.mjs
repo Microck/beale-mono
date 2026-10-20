@@ -50,7 +50,9 @@ test("same-status finding transitions append evidence without creating duplicate
       reason: "No new evidence was supplied.",
     }), /requires at least one new evidence item/);
 
-    const registry = createResearchToolRegistry(createFindingTools(claims));
+    const registry = createResearchToolRegistry(createFindingTools(claims, {
+      surfaceStore: { current: () => ({ id: "surface-example" }) },
+    }));
     const appended = await registry.execute({
       id: "append_same_status_evidence",
       toolName: "finding.transition",
@@ -73,12 +75,54 @@ test("same-status finding transitions append evidence without creating duplicate
     assert.equal(claim.evidence[0].id, firstEvidenceId);
     assert.equal(claim.transitions.at(-1).fromStatus, "observed");
     assert.equal(claim.transitions.at(-1).toStatus, "observed");
+    assert.deepEqual(claim.securityTracking.surfaceIds, ["surface-example"]);
     assert.deepEqual(claim.transitions.at(-1).evidenceIds, [claim.evidence[1].id]);
     assert.equal(claims.list().length, 1);
   } finally {
     claims.close();
     graph.close();
     await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test("a progress blocker preserves observed maturity and can be cleared without refuting the finding", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "beale-finding-progress-blocker-"));
+  const graph = new MemoryGraphStore({ workspaceRoot, context: { ...workspace, sessionId: "session_blocker" } });
+  const claims = new FindingStore(graph);
+  try {
+    let claim = claims.create({ title: "Privileged parser primitive", classification: "security.primitive", rating: "medium" });
+    claim = claims.transition(claim.id, { expectedRevision: claim.revision, toStatus: "observed",
+      reason: "The parser behavior was directly observed.",
+      evidence: [{ kind: "code", referenceId: "src/example-parser.ts:40", summary: "The parser reaches the privileged branch." }] });
+    const registry = createResearchToolRegistry(createFindingTools(claims));
+    const block = await registry.execute({ id: "set_progress_blocker", toolName: "finding.revise", actionClass: "synthesize",
+      input: { id: claim.id, expectedRevision: claim.revision, reason: "Current entry points cannot reach the primitive.",
+        securityTracking: { surfaceIds: ["surface-example"], progressBlocker: { reason: "A reachable chain has not been found." } } } });
+    assert.equal(block.result.status, "complete");
+    claim = block.result.output;
+    assert.equal(claim.status, "observed");
+    assert.equal(claim.securityTracking.progressBlocker.reason, "A reachable chain has not been found.");
+    assert.deepEqual(claim.securityTracking.surfaceIds, ["surface-example"]);
+    const clear = await registry.execute({ id: "clear_progress_blocker", toolName: "finding.revise", actionClass: "synthesize",
+      input: { id: claim.id, expectedRevision: claim.revision, reason: "A separate reachable chain now uses the primitive.",
+        securityTracking: { progressBlocker: null } } });
+    assert.equal(clear.result.status, "complete");
+    assert.equal(clear.result.output.status, "observed");
+    assert.equal(clear.result.output.securityTracking.progressBlocker, null);
+    assert.deepEqual(clear.result.output.securityTracking.surfaceIds, ["surface-example"]);
+    const blockedAgain = claims.revise(claim.id, {
+      expectedRevision: clear.result.output.revision,
+      reason: "A second route remains unresolved.",
+      securityTracking: { progressBlocker: { reason: "No current entry point." } },
+    });
+    assert.ok(blockedAgain.securityTracking.progressBlocker);
+    const stale = claims.transition(claim.id, {
+      expectedRevision: blockedAgain.revision, toStatus: "stale",
+      reason: "The source revision changed.",
+    });
+    assert.equal(stale.securityTracking.progressBlocker, null);
+  } finally {
+    claims.close(); graph.close(); await rm(workspaceRoot, { recursive: true, force: true });
   }
 });
 
@@ -504,7 +548,7 @@ test("finding lifecycle is canonical, evidence-gated, and supports same-session 
   }
 });
 
-test("campaign graph exposes uncovered territory, lifecycle gates, contradictions, and typed momentum", () => {
+test("campaign graph does not infer asset coverage from a single memory", () => {
   const now = new Date().toISOString();
   const nodes = [
     { id: "memory_sink", sessionIds: [], workspaces: [{ id: "workspace_findings", name: "Findings" }], subjectId: "subject", subjectName: "Subject", type: "sink", title: "Shared state renderer", summary: "Candidate dangerous effect", body: "", status: "suspected", confidence: 0.5, assetIds: ["asset_one"], tags: [], attributes: {}, evidenceRefs: [], createdAt: now, updatedAt: now, revision: 1, authors: [] },
@@ -515,7 +559,9 @@ test("campaign graph exposes uncovered territory, lifecycle gates, contradiction
     edges: [{ fromId: "memory_sink", toId: "memory_refutation", relation: "contradicts", note: null, createdAt: now, updatedAt: now }],
     findings: [researchClaim({ id: "claim_shared_state", title: "Shared state crosses requests" })], runbooks: [], reports: [], assetIds: ["asset_one", "asset_two"],
   });
-  assert.ok(campaign.coverageGaps.some((gap) => gap.kind === "unexplored_asset"));
+  assert.equal(campaign.nodes.find((node) => node.id === "asset:asset_one")?.status, "tracked");
+  assert.equal(campaign.nodes.find((node) => node.id === "asset:asset_two")?.status, "tracked");
+  assert.equal(campaign.coverageGaps.some((gap) => gap.kind === "unexplored_asset"), false);
   assert.ok(campaign.coverageGaps.some((gap) => gap.kind === "unsupported_memory"));
   assert.ok(campaign.coverageGaps.some((gap) => gap.kind === "unobserved_hypothesis"));
   assert.equal(campaign.contradictions.length, 1);
@@ -529,7 +575,7 @@ test("campaign graph exposes uncovered territory, lifecycle gates, contradiction
   assert.equal("nodes" in modelContext, false);
   assert.equal("edges" in modelContext, false);
 
-  const terminalFindingWithUnexploredAsset = buildCampaignGraph({
+  const terminalFindingWithTrackedAsset = buildCampaignGraph({
     nodes: [], edges: [], runbooks: [], reports: [], assetIds: ["asset_two"],
     findings: [{
       id: "finding_done", workspaceId: "workspace_findings", subjectId: "subject", memoryNodeId: "memory_done",
@@ -542,8 +588,8 @@ test("campaign graph exposes uncovered territory, lifecycle gates, contradiction
       evidence: [], transitions: [], authors: [], createdAt: now, updatedAt: now, revision: 1,
     }],
   });
-  assert.equal(terminalFindingWithUnexploredAsset.momentum.state, "exploring");
-  assert.ok(terminalFindingWithUnexploredAsset.coverageGaps.some((gap) => gap.kind === "unexplored_asset"));
+  assert.equal(terminalFindingWithTrackedAsset.momentum.state, "complete");
+  assert.equal(terminalFindingWithTrackedAsset.coverageGaps.some((gap) => gap.kind === "unexplored_asset"), false);
 });
 
 test("legacy claim-shaped memories migrate once into stable lead and finding projections", async () => {

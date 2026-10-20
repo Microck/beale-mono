@@ -58,6 +58,7 @@ export interface CreateSubagentRuntimeOptions {
   onActivity?: (activity: SubagentActivity) => void | Promise<void>;
   onToolEvent?: (event: ResearchEvent) => void | Promise<void>;
   surfaceStore?: SurfaceStore;
+  allowManualDelegation?: boolean;
 }
 
 export interface SubagentRuntimeFactory {
@@ -99,6 +100,7 @@ export const simpleSubagentRuntimeFactory: SubagentRuntimeFactory = {
       ...(options.onActivity ? { onActivity: options.onActivity } : {}),
       ...(options.onToolEvent ? { onToolEvent: options.onToolEvent } : {}),
       ...(options.surfaceStore ? { surfaceStore: options.surfaceStore } : {}),
+      ...(options.allowManualDelegation !== undefined ? { allowManualDelegation: options.allowManualDelegation } : {}),
     };
     return new SubagentManager(managerOptions);
   },

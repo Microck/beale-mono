@@ -89,6 +89,8 @@ export interface TransitionFindingInput {
   disclosureReference?: string | null;
   classification?: string;
   componentClaimIds?: string[];
+  /** Host-supplied current focus; not evidence of reachability. */
+  surfaceId?: string;
 }
 
 export interface ReviseResearchClaimInput {
@@ -132,6 +134,8 @@ export interface FindingSecurityTrackingUpdate {
   };
   cvssAssessment?: Omit<FindingCvssAssessment, "assessorId"> & { assessorId?: string };
   affectedAssetIds?: string[];
+  surfaceIds?: string[];
+  progressBlocker?: { reason: string } | null;
   affectedVersions?: FindingAffectedVersion[];
   externalReferences?: FindingExternalReference[];
 }
@@ -322,6 +326,15 @@ export class ResearchClaimStore {
       reproductionRunbookId: input.reproductionRunbookId === undefined ? current.reproductionRunbookId : nullableText(input.reproductionRunbookId),
     };
     const classification = claimClassification(input.classification ?? current.classification);
+    const securityTracking = securityClassification(classification)
+      ? { ...(current.securityTracking ?? emptyFindingSecurityTracking()),
+          surfaceIds: input.toStatus === "observed" && input.surfaceId
+            ? uniqueTrackingStrings([...(current.securityTracking?.surfaceIds ?? []), input.surfaceId], "Surface id")
+            : current.securityTracking?.surfaceIds ?? [],
+          progressBlocker: input.toStatus === "observed" || input.toStatus === "reproduced"
+            ? current.securityTracking?.progressBlocker ?? null
+            : null }
+      : null;
     const componentClaimIds = input.componentClaimIds === undefined
       ? current.componentClaimIds
       : uniqueStrings(input.componentClaimIds);
@@ -348,7 +361,7 @@ export class ResearchClaimStore {
         : null;
       const result = this.database.prepare(`UPDATE app_server_research_claims SET
         status = ?, stale_from_status = ?, classification = ?, source_revision = ?, environment_fingerprint = ?,
-        reproduction_runbook_id = ?, report_id = ?, disclosure_reference = ?, stale_reason = ?,
+        reproduction_runbook_id = ?, report_id = ?, disclosure_reference = ?, stale_reason = ?, security_tracking_json = ?,
         updated_at = ?, revision = ? WHERE id = ? AND revision = ?`).run(
         input.toStatus,
         staleFromStatus,
@@ -363,6 +376,7 @@ export class ResearchClaimStore {
         input.reportId === undefined ? current.reportId : nullableText(input.reportId),
         input.disclosureReference === undefined ? current.disclosureReference : nullableText(input.disclosureReference),
         input.toStatus === "stale" ? requiredText(input.reason, "Staleness reason") : null,
+        stableJson(securityTracking),
         now,
         nextRevision,
         id,
@@ -1926,6 +1940,8 @@ function emptyFindingSecurityTracking(): FindingSecurityTracking {
     riskDecisions: [],
     cvssAssessments: [],
     affectedAssetIds: [],
+    surfaceIds: [],
+    progressBlocker: null,
     affectedVersions: [],
     externalReferences: [],
   };
@@ -1948,6 +1964,8 @@ function findingSecurityTracking(value: unknown, classification: string): Findin
     riskDecisions,
     cvssAssessments: storedArray(parsed.cvssAssessments, storedCvssAssessment),
     affectedAssetIds: uniqueTrackingStrings(storedStringArray(parsed.affectedAssetIds), "Affected asset id"),
+    surfaceIds: uniqueTrackingStrings(storedStringArray(parsed.surfaceIds), "Surface id"),
+    progressBlocker: storedProgressBlocker(parsed.progressBlocker),
     affectedVersions: storedArray(parsed.affectedVersions, storedAffectedVersion),
     externalReferences: storedArray(parsed.externalReferences, storedExternalReference),
   };
@@ -1993,6 +2011,9 @@ function revisedFindingSecurityTracking(
   const cvssAssessments = update.cvssAssessment
     ? uniqueRecords([...base.cvssAssessments, revisedCvssAssessment(update.cvssAssessment, resolvedActorId, now)])
     : base.cvssAssessments;
+  if (update.progressBlocker && current.status !== "observed" && current.status !== "reproduced") {
+    throw new Error("A progress blocker can only be set on an observed or reproduced finding.");
+  }
   return {
     reachability,
     riskTreatment,
@@ -2001,12 +2022,30 @@ function revisedFindingSecurityTracking(
     affectedAssetIds: update.affectedAssetIds === undefined
       ? base.affectedAssetIds
       : uniqueTrackingStrings(update.affectedAssetIds, "Affected asset id"),
+    surfaceIds: update.surfaceIds === undefined
+      ? base.surfaceIds
+      : uniqueTrackingStrings(update.surfaceIds, "Surface id"),
+    progressBlocker: update.progressBlocker === undefined
+      ? base.progressBlocker
+      : update.progressBlocker === null
+        ? null
+        : { reason: requiredText(update.progressBlocker.reason, "Progress blocker reason"), actorId: resolvedActorId, setAt: now },
     affectedVersions: update.affectedVersions === undefined
       ? base.affectedVersions
       : uniqueRecords(update.affectedVersions.map(storedAffectedVersion)),
     externalReferences: update.externalReferences === undefined
       ? base.externalReferences
       : uniqueRecords(update.externalReferences.map(storedExternalReference)),
+  };
+}
+
+function storedProgressBlocker(value: unknown): FindingSecurityTracking["progressBlocker"] {
+  if (value === undefined || value === null) return null;
+  if (!isRecord(value)) throw new Error("Stored progress blocker must be an object.");
+  return {
+    reason: requiredText(value.reason, "Progress blocker reason"),
+    actorId: requiredText(value.actorId, "Progress blocker actor"),
+    setAt: isoTimestamp(value.setAt, "Progress blocker timestamp"),
   };
 }
 

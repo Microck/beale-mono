@@ -44,32 +44,15 @@ export interface ResearchFinalDisposition {
 
 const PARAMETERS = {
   type: "object",
-  required: ["outcome", "summary", "blockerDependencies", "externalStateRequired"],
+  required: ["state"],
   properties: {
-    outcome: {
+    state: {
       type: "string",
-      enum: ["objective_achieved", "objective_partially_achieved", "blocked", "inconclusive"],
-      description: "Whether the requested objective was achieved, partially achieved, blocked, or remained inconclusive.",
+      enum: ["achieved", "continue", "waiting_on_external_state"],
+      description: "Complete the goal, continue research, or wait for a concrete external change.",
     },
-    summary: { type: "string", description: "Concise evidence-grounded final state of the session." },
-    blockerDependencies: {
-      type: "array",
-      description: "Unresolved dependencies that prevented stronger completion. Use an empty array when none remain.",
-      items: {
-        type: "object",
-        required: ["kind", "description", "requiredState", "external"],
-        properties: {
-          kind: { type: "string", enum: [...RESEARCH_BLOCKER_DEPENDENCY_KINDS] },
-          description: { type: "string" },
-          requiredState: { type: "string", description: "The concrete state or input that would unblock further research." },
-          external: { type: "boolean", description: "True when the dependency cannot be resolved by more work inside this session." },
-        },
-      },
-    },
-    externalStateRequired: {
-      type: "boolean",
-      description: "True only when meaningful progress requires user input or a change outside the current session and tools.",
-    },
+    reason: { type: "string", description: "Optional brief basis for this goal state; explain the result in the final response." },
+    requiredState: { type: "string", description: "For waiting_on_external_state, the concrete change or input required before research can continue." },
   },
 };
 
@@ -100,7 +83,7 @@ export function createSessionDispositionTool(
     descriptor: {
       name: "session.disposition",
       transportName: "session_disposition",
-      description: "Record the root session's structured final disposition exactly once before the final response. List concrete unresolved dependencies and mark externalStateRequired only when more in-session work cannot resolve them.",
+      description: "Record Goal mode progress once before the root response: achieved, continue, or waiting on a concrete external change.",
       actionClasses: ["synthesize", "respond"],
       sideEffects: "none",
       requiredPermissions: [],
@@ -124,7 +107,7 @@ export function createSessionDispositionTool(
           summary: message,
           error: { message },
           artifactRefs: [],
-          followUpActions: ["Correct and record the final disposition before responding."],
+          followUpActions: ["Correct and record Goal status before responding."],
         };
       }
     },
@@ -147,6 +130,8 @@ export function fallbackResearchFinalDisposition(status: "complete" | "error" | 
 
 function parseDisposition(value: unknown): ResearchFinalDisposition {
   const input = record(value, "session disposition");
+  if (input.state !== undefined) return parseGoalSignal(input);
+  // Existing saved/model continuations can still submit the prior shape.
   const outcome = requiredString(input.outcome, "outcome") as ResearchDispositionOutcome;
   if (!RESEARCH_DISPOSITION_OUTCOMES.slice(0, 4).includes(outcome as (typeof RESEARCH_DISPOSITION_OUTCOMES)[number])) {
     throw new Error(`Unsupported model-recorded session outcome: ${outcome}`);
@@ -176,6 +161,33 @@ function parseDisposition(value: unknown): ResearchFinalDisposition {
     blockerDependencies,
     externalStateRequired,
     ...(nextPromptSuggestions ? { nextPromptSuggestions } : {}),
+    recordedAt: nowIso(),
+  };
+}
+
+function parseGoalSignal(input: Record<string, unknown>): ResearchFinalDisposition {
+  const state = requiredString(input.state, "state");
+  const reason = optionalString(input.reason, "reason");
+  const requiredState = optionalString(input.requiredState, "requiredState");
+  if (state !== "achieved" && state !== "continue" && state !== "waiting_on_external_state") {
+    throw new Error(`Unsupported goal state: ${state}`);
+  }
+  if (state === "waiting_on_external_state" && !requiredState) {
+    throw new Error("waiting_on_external_state requires requiredState.");
+  }
+  if (state !== "waiting_on_external_state" && requiredState) {
+    throw new Error("requiredState is only valid when waiting_on_external_state.");
+  }
+  const blockerDependencies: ResearchBlockerDependency[] = requiredState
+    ? [{ kind: "other", description: reason ?? requiredState, requiredState, external: true }]
+    : [];
+  return {
+    outcome: state === "achieved" ? "objective_achieved"
+      : state === "continue" ? "objective_partially_achieved" : "blocked",
+    summary: reason ?? (state === "achieved" ? "Goal achieved."
+      : state === "continue" ? "Goal research continues." : `Waiting for external state: ${requiredState}`),
+    blockerDependencies,
+    externalStateRequired: blockerDependencies.length > 0,
     recordedAt: nowIso(),
   };
 }
@@ -215,7 +227,7 @@ function complete(action: ResearchToolAction, startedAt: string, disposition: Re
     status: "complete",
     startedAt,
     completedAt: nowIso(),
-    summary: "Session final disposition recorded.",
+    summary: "Goal status recorded.",
     output: disposition,
     artifactRefs: [],
     followUpActions: [],

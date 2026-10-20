@@ -8,8 +8,28 @@ import type { ResearchToolAction } from "./types.js";
 
 export interface SurfaceFoundation {
   bugHistory: { summary: string; limits: string };
-  coverage: { summary: string; gaps: string; opportunities: string };
+  coverage: {
+    summary: string;
+    gaps: string;
+    opportunities: string;
+    mappingComplete: boolean;
+    sinksInvestigated: boolean;
+    openQuestions: string[];
+    unexploredConnections: string[];
+  };
   threatModel: { attackerControl: string; trustBoundaries: string; assetsAtRisk: string; plausibleImpacts: string; assumptions: string };
+}
+
+export interface SurfaceCoverageState {
+  covered: boolean;
+  unmetRequirements: string[];
+  unblockedFindingIds: string[];
+}
+
+export interface SurfaceFoundationScout {
+  status: "running" | "queued" | "unavailable";
+  agentPath: string | null;
+  reason: string | null;
 }
 
 export interface ResearchSurface {
@@ -37,7 +57,8 @@ export interface SurfaceCard {
   focusEligible: boolean;
   firstTouchedAt: string | null;
   foundationReady: boolean;
-  coverage: { summary: string; gaps: string; opportunities: string } | null;
+  coverage: SurfaceFoundation["coverage"] | null;
+  coverageState: SurfaceCoverageState;
   updatedAt: string;
 }
 
@@ -55,6 +76,7 @@ export class SurfaceStore {
   readonly #workspaceId: string;
   readonly #sessionId: string;
   readonly #resources: ResearchResourceCatalog;
+  #firstTouchHandler: ((surface: ResearchSurface, agentId: string) => SurfaceFoundationScout) | null = null;
 
   public constructor(input: { databasePath: string; workspaceId: string; sessionId?: string; resources: ResearchResourceCatalog }) {
     this.#database = openResearchDatabase(input.databasePath);
@@ -94,6 +116,10 @@ export class SurfaceStore {
   }
 
   public close(): void { this.#database.close(); }
+
+  public setFirstTouchHandler(handler: ((surface: ResearchSurface, agentId: string) => SurfaceFoundationScout) | null): void {
+    this.#firstTouchHandler = handler;
+  }
 
   public get(id: string): ResearchSurface | null {
     const resource = this.#resources.get(nonempty(id, "surfaceId"));
@@ -162,11 +188,15 @@ export class SurfaceStore {
   }
 
   public path(id: string): string {
-    const names: string[] = [];
+    return this.hierarchy(id).map((surface) => surface.name).join(" / ");
+  }
+
+  public hierarchy(id: string): { id: string; name: string }[] {
+    const hierarchy: { id: string; name: string }[] = [];
     let surface = this.require(id);
     for (let depth = 0; depth < 64; depth += 1) {
-      names.unshift(surface.name);
-      if (!surface.parentId) return names.join(" / ");
+      hierarchy.unshift({ id: surface.id, name: surface.name });
+      if (!surface.parentId) return hierarchy;
       surface = this.require(surface.parentId);
     }
     throw new Error("Surface hierarchy is too deep.");
@@ -207,7 +237,7 @@ export class SurfaceStore {
     return this.require(id);
   }
 
-  public focus(agentId: string, surfaceId: string, reason = "research"): { surface: ResearchSurface; firstTouch: boolean; previousSurfaceId: string | null } {
+  public focus(agentId: string, surfaceId: string, reason = "research"): { surface: ResearchSurface; surfaceTrail: { id: string; name: string }[]; firstTouch: boolean; previousSurfaceId: string | null; foundationScout?: SurfaceFoundationScout } {
     const surface = this.require(surfaceId, true);
     const agent = nonempty(agentId, "agentId");
     const at = nowIso();
@@ -232,7 +262,18 @@ export class SurfaceStore {
             updated_at = excluded.updated_at`).run(this.#workspaceId, this.#sessionId, agent, surfaceId, at);
       }
       this.#database.exec("COMMIT");
-      return { surface: this.require(surfaceId), firstTouch: touched, previousSurfaceId: previous?.surface_id ?? null };
+      const focused = this.require(surfaceId);
+      let foundationScout: SurfaceFoundationScout | undefined;
+      if (touched) {
+        try {
+          foundationScout = this.#firstTouchHandler?.(focused, agent) ??
+            { status: "unavailable", agentPath: null, reason: "No foundation scout is available in this session." };
+        } catch (error) {
+          foundationScout = { status: "unavailable", agentPath: null, reason: error instanceof Error ? error.message : String(error) };
+        }
+      }
+      return { surface: focused, surfaceTrail: this.hierarchy(surfaceId), firstTouch: touched, previousSurfaceId: previous?.surface_id ?? null,
+        ...(foundationScout ? { foundationScout } : {}) };
     } catch (error) {
       this.#database.exec("ROLLBACK");
       throw error;
@@ -280,9 +321,49 @@ export class SurfaceStore {
       name: surface.name, path: this.path(surface.id), root: surface.root,
       focusEligible: this.#focusEligible(surface),
       firstTouchedAt: surface.firstTouchedAt, foundationReady: surface.foundation !== null,
-      coverage: coverage ? { summary: bounded(coverage.summary, 260), gaps: bounded(coverage.gaps, 260), opportunities: bounded(coverage.opportunities, 260) } : null,
+      coverage: coverage ? { ...coverage, summary: bounded(coverage.summary, 260), gaps: bounded(coverage.gaps, 260), opportunities: bounded(coverage.opportunities, 260) } : null,
+      coverageState: this.coverageState(surface.id),
       updatedAt: surface.updatedAt,
     };
+  }
+
+  public coverageState(id: string): SurfaceCoverageState {
+    const surface = this.require(id);
+    const coverage = surface.foundation?.coverage;
+    const unmetRequirements: string[] = [];
+    if (!surface.foundation) unmetRequirements.push("foundation");
+    if (!coverage?.mappingComplete) unmetRequirements.push("surface_map");
+    if (!coverage?.sinksInvestigated) unmetRequirements.push("sinks");
+    if (coverage?.openQuestions.length) unmetRequirements.push("open_questions");
+    if (coverage?.unexploredConnections.length) unmetRequirements.push("surface_connections");
+    const unblockedFindingIds = this.#unblockedFindingIds(surface);
+    if (unblockedFindingIds.length) unmetRequirements.push("unblocked_findings");
+    const children = this.#database.prepare("SELECT id FROM app_server_surfaces WHERE workspace_id = ? AND parent_id = ?")
+      .all(this.#workspaceId, id) as { id: string }[];
+    if (children.some((child) => !this.coverageState(child.id).covered)) unmetRequirements.push("child_surfaces");
+    return { covered: unmetRequirements.length === 0, unmetRequirements, unblockedFindingIds };
+  }
+
+  #unblockedFindingIds(surface: ResearchSurface): string[] {
+    const table = this.#database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'app_server_research_claims'").get();
+    if (!table) return [];
+    const rows = this.#database.prepare(`SELECT id, status, security_tracking_json FROM app_server_research_claims
+      WHERE workspace_id = ? AND duplicate_of_claim_id IS NULL
+        AND (classification = 'security' OR classification LIKE 'security.%')
+        AND status IN ('observed', 'reproduced', 'verified', 'report_ready')`).all(this.#workspaceId) as { id: string; status: string; security_tracking_json: string }[];
+    return rows.flatMap((row) => {
+      try {
+        const tracking: unknown = JSON.parse(row.security_tracking_json);
+        if (!tracking || typeof tracking !== "object" || Array.isArray(tracking)) return [];
+        const record = tracking as Record<string, unknown>;
+        const blocked = (row.status === "observed" || row.status === "reproduced") && Boolean(record.progressBlocker);
+        const surfaceIds = Array.isArray(record.surfaceIds) ? record.surfaceIds : [];
+        const unassigned = surface.root && surfaceIds.length === 0
+          && (!Array.isArray(record.affectedAssetIds) || record.affectedAssetIds.length === 0
+            || record.affectedAssetIds.includes(surface.resourceId));
+        return !blocked && (surfaceIds.includes(surface.id) || unassigned) ? [row.id] : [];
+      } catch { return []; }
+    });
   }
 
   #focusEligible(surface: ResearchSurface): boolean {
@@ -298,17 +379,24 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
     type: "object", required: ["bugHistory", "coverage", "threatModel"], additionalProperties: false,
     properties: {
       bugHistory: { type: "object", required: ["summary", "limits"], properties: {
-        summary: { type: "string", description: "What prior bugs or searches establish for this surface; include dated no-match findings only within their searched bounds." },
+        summary: { type: "string", description: "What prior security bugs, advisories, or bounded searches establish for this surface; include dated no-match findings only within their searched bounds." },
         limits: { type: "string", description: "Unsearched sources, versions, aliases, or other limits; write Unknown when needed." },
       } },
       coverage: { type: "object", required: ["summary", "gaps", "opportunities"], properties: {
-        summary: { type: "string", description: "Areas and modes actually inspected or tested, without implying exhaustive coverage." },
-        gaps: { type: "string", description: "Known missing, blocked, or stale areas." },
-        opportunities: { type: "string", description: "Promising adjacent areas or discriminating research directions." },
+        summary: { type: "string", description: "Attacker paths, trust boundaries, privilege contexts, and security-relevant sinks actually inspected or tested; do not count general code browsing as security coverage." },
+        gaps: { type: "string", description: "Narrative of known missing, blocked, or stale areas. Record unresolved work in the structured coverage fields; a blocked finding may remain here after its progress blocker is recorded." },
+        opportunities: { type: "string", description: "Promising security-relevant paths, chains, or experiments that could distinguish a plausible unauthorized effect from harmless behavior." },
+        mappingComplete: { type: "boolean", description: "Whether all threat-model-defined attacker paths, boundaries, and plausible unauthorized effects in this surface are mapped. Unknown counts as false." },
+        sinksInvestigated: { type: "boolean", description: "Whether every known security-relevant sink and effect in this surface has been investigated. Unknown counts as false." },
+        openQuestions: { type: "array", items: { type: "string" }, description: "Unanswered attacker-control, reachability, boundary, or security-impact questions." },
+        unexploredConnections: { type: "array", items: { type: "string" }, description: "Known security-relevant connections or possible chains to other surfaces that remain unexplored." },
       } },
       threatModel: { type: "object", required: ["attackerControl", "trustBoundaries", "assetsAtRisk", "plausibleImpacts", "assumptions"], properties: {
-        attackerControl: { type: "string" }, trustBoundaries: { type: "string" },
-        assetsAtRisk: { type: "string" }, plausibleImpacts: { type: "string" }, assumptions: { type: "string" },
+        attackerControl: { type: "string", description: "Concrete attacker-controlled inputs, entry points, and preconditions." },
+        trustBoundaries: { type: "string", description: "Where lower-trust control crosses into higher-trust parsing, identity, authority, or execution." },
+        assetsAtRisk: { type: "string", description: "Assets or privileges an attacker could affect." },
+        plausibleImpacts: { type: "string", description: "Plausible unauthorized effects, with reachability and evidence limits; ordinary malfunction alone is not security impact." },
+        assumptions: { type: "string", description: "Unknowns and assumptions required for the attacker path or impact." },
       } },
     },
   };
@@ -316,7 +404,7 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
     { name: "surface.list", transportName: "surface_list", effect: "read", properties: { resourceId: { type: "string" }, parentId: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: [] },
     { name: "surface.get", transportName: "surface_get", effect: "read", properties: { surfaceId: { type: "string" } }, required: ["surfaceId"] },
     { name: "surface.query", transportName: "surface_query", effect: "read", properties: { query: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: ["query"] },
-    { name: "surface.create", transportName: "surface_create", effect: "write", properties: { parentId: { type: "string" }, name: { type: "string" }, description: { type: "string" } }, required: ["parentId", "name", "description"] },
+    { name: "surface.create", transportName: "surface_create", effect: "write", properties: { parentId: { type: "string" }, name: { type: "string" }, description: { type: "string", description: "Security-relevant attacker path, trust boundary, privilege context, sink, or effect that distinguishes this child surface." } }, required: ["parentId", "name", "description"] },
     { name: "surface.update", transportName: "surface_update", effect: "write", properties: { surfaceId: { type: "string" }, expectedRevision: { type: "integer", minimum: 1 }, name: { type: "string" }, description: { type: "string" }, foundation: foundationSchema }, required: ["surfaceId", "expectedRevision", "foundation"] },
     { name: "surface.focus", transportName: "surface_focus", effect: "write", properties: { surfaceId: { type: "string" }, reason: { type: "string" } }, required: ["surfaceId"] },
   ] as const;
@@ -324,10 +412,10 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
     descriptor: {
       name: spec.name, transportName: spec.transportName,
       description: spec.name === "surface.focus"
-        ? "Declare a move to a surface. The first focus ever in this workspace records its one-time touch and starts its bug-history, coverage, and threat-model foundation. Focus neither authorizes target access nor restricts research tools."
+        ? "Declare a move to a security-relevant surface. The first focus ever in this workspace records its one-time touch and starts its security bug-history, coverage, and threat-model foundation. Focus neither authorizes target access nor restricts research tools."
         : spec.name === "surface.query"
           ? "Find surfaces by simple text across names, descriptions, paths, and foundation summaries."
-          : `Read or refine the resource-owned research surface tree (${spec.name}). Surface foundations summarize bug history, coverage, and threat model without duplicating memory or evidence.`,
+          : `Read or refine the resource-owned security surface tree (${spec.name}). Child surfaces distinguish attacker paths, trust boundaries, privilege contexts, or security-relevant sinks and effects. Foundations summarize relevant security bug history, threat model, and coverage without duplicating memory or evidence.`,
       actionClasses: [spec.effect === "read" ? "recall" : "synthesize"], sideEffects: spec.effect,
       requiredPermissions: ["research-resource:inventory"],
       inputSchema: { type: "object", required: spec.required, properties: spec.properties, additionalProperties: false },
@@ -340,14 +428,18 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
         let output: unknown;
         switch (spec.name) {
           case "surface.list": output = store.list({ ...(typeof input.resourceId === "string" ? { resourceId: input.resourceId } : {}), ...(typeof input.parentId === "string" ? { parentId: input.parentId } : {}), ...(typeof input.limit === "number" ? { limit: input.limit } : {}), ...(typeof input.offset === "number" ? { offset: input.offset } : {}) }); break;
-          case "surface.get": output = store.require(nonempty(input.surfaceId, "surfaceId")); break;
+          case "surface.get": {
+            const surface = store.require(nonempty(input.surfaceId, "surfaceId"));
+            output = { ...surface, coverageState: store.coverageState(surface.id) };
+            break;
+          }
           case "surface.query": output = store.query(nonempty(input.query, "query"), typeof input.limit === "number" ? input.limit : 20, typeof input.offset === "number" ? input.offset : 0); break;
           case "surface.create": output = store.create(nonempty(input.parentId, "parentId"), nonempty(input.name, "name"), nonempty(input.description, "description")); break;
           case "surface.update": output = store.update(nonempty(input.surfaceId, "surfaceId"), positive(input.expectedRevision, "expectedRevision"), parseFoundation(input.foundation), typeof input.name === "string" ? input.name : undefined, typeof input.description === "string" ? input.description : undefined); break;
           case "surface.focus": output = store.focus(context?.agentId ?? "root", nonempty(input.surfaceId, "surfaceId"), typeof input.reason === "string" ? input.reason : "research"); break;
         }
-        return { action, status: "complete", startedAt, completedAt: nowIso(), summary: `${spec.name} completed.`, output, followUpActions: spec.name === "surface.focus" && typeof output === "object" && output !== null && "surface" in output && output.surface !== null && typeof output.surface === "object" && "foundation" in output.surface && output.surface.foundation === null
-          ? ["Build or complete this surface's foundation: bug history, coverage map, and basic threat model. Record unknowns and limits explicitly; refine it as research proceeds."] : [] };
+        return { action, status: "complete", startedAt, completedAt: nowIso(), summary: `${spec.name} completed.`, output, followUpActions: spec.name === "surface.focus" && typeof output === "object" && output !== null && "foundationScout" in output && output.foundationScout
+          ? ["A first-touch foundation scout has been requested. Coordinate with it using its reported status and avoid duplicating its assignment."] : [] };
       } catch (error) {
         return { action, status: "error", startedAt, completedAt: nowIso(), summary: `${spec.name} failed.`, error: { message: error instanceof Error ? error.message : String(error) }, followUpActions: [] };
       }
@@ -375,9 +467,27 @@ function parseFoundation(value: unknown): SurfaceFoundation {
   const record = value as Record<string, unknown>;
   return {
     bugHistory: section(record.bugHistory, ["summary", "limits"], "foundation.bugHistory") as unknown as SurfaceFoundation["bugHistory"],
-    coverage: section(record.coverage, ["summary", "gaps", "opportunities"], "foundation.coverage") as unknown as SurfaceFoundation["coverage"],
+    coverage: parseCoverage(record.coverage),
     threatModel: section(record.threatModel, ["attackerControl", "trustBoundaries", "assetsAtRisk", "plausibleImpacts", "assumptions"], "foundation.threatModel") as unknown as SurfaceFoundation["threatModel"],
   };
+}
+function parseCoverage(value: unknown): SurfaceFoundation["coverage"] {
+  const text = section(value, ["summary", "opportunities"], "foundation.coverage") as Pick<SurfaceFoundation["coverage"], "summary" | "opportunities">;
+  const record = value as Record<string, unknown>;
+  if (typeof record.gaps !== "string") throw new Error("foundation.coverage.gaps must be a string.");
+  return {
+    ...text,
+    gaps: bounded(record.gaps, 4_000),
+    mappingComplete: record.mappingComplete === true,
+    sinksInvestigated: record.sinksInvestigated === true,
+    openQuestions: coverageList(record.openQuestions, "foundation.coverage.openQuestions"),
+    unexploredConnections: coverageList(record.unexploredConnections, "foundation.coverage.unexploredConnections"),
+  };
+}
+function coverageList(value: unknown, name: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 100) throw new Error(`${name} must be an array with at most 100 entries.`);
+  return [...new Set(value.map((item) => bounded(nonempty(item, name), 500)))];
 }
 function decodeFoundation(value: unknown): SurfaceFoundation | null {
   if (typeof value !== "string") return null;

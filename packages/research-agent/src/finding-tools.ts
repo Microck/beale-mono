@@ -7,6 +7,7 @@ import {
   type FindingSecurityTrackingUpdate,
 } from "./findings.js";
 import type { FindingEvidenceKind, FindingStatus, FindingSummary, ResearchClaimRating } from "./knowledge-types.js";
+import type { SurfaceStore } from "./surfaces.js";
 import type { ResearchExecutableTool, ResearchToolExecutionContext, ResearchToolExecutionResult } from "./tool-registry.js";
 import type { ResearchToolAction } from "./types.js";
 
@@ -54,6 +55,8 @@ const SECURITY_TRACKING_SCHEMA = {
       },
     },
     affectedAssetIds: { type: "array", items: { type: "string" } },
+    surfaceIds: { type: "array", items: { type: "string" }, description: "Surface IDs this finding affects. Used for surface coverage accounting." },
+    progressBlocker: { type: ["object", "null"], description: "Temporary or lasting reason an observed or reproduced finding cannot advance. Null clears the blocker without refuting the finding.", properties: { reason: { type: "string" } }, required: ["reason"] },
     affectedVersions: {
       type: "array",
       items: {
@@ -76,6 +79,7 @@ const SECURITY_TRACKING_SCHEMA = {
 export interface FindingToolDefaults {
   classifications?: readonly string[];
   referenceWorkspaces?: readonly ReadOnlyWorkspaceReference[];
+  surfaceStore?: SurfaceStore;
 }
 
 export interface ReadOnlyWorkspaceReference {
@@ -253,6 +257,8 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
       ...(input.disclosureReference !== undefined ? { disclosureReference: string(input.disclosureReference) } : {}),
       ...(input.classification !== undefined ? { classification: requiredClassification(input.classification, defaults.classifications) } : {}),
       ...(Array.isArray(input.componentClaimIds) ? { componentClaimIds: input.componentClaimIds.map((id) => requiredString(id, "componentClaimIds[]")) } : {}),
+      ...(defaults.surfaceStore?.current(context?.agentId ?? "root")?.id
+        ? { surfaceId: defaults.surfaceStore.current(context?.agentId ?? "root")!.id } : {}),
     }, context?.modelAuthor, context?.agentId, { freshSubagentContext: context?.freshSubagentContext === true })),
   ];
 }
@@ -413,6 +419,8 @@ function parseSecurityTrackingUpdate(value: unknown): FindingSecurityTrackingUpd
       },
     } : {}),
     ...(Array.isArray(input.affectedAssetIds) ? { affectedAssetIds: input.affectedAssetIds.map((id) => requiredString(id, "securityTracking.affectedAssetIds[]")) } : {}),
+    ...(Array.isArray(input.surfaceIds) ? { surfaceIds: input.surfaceIds.map((id) => requiredString(id, "securityTracking.surfaceIds[]")) } : {}),
+    ...(input.progressBlocker !== undefined ? { progressBlocker: input.progressBlocker === null ? null : { reason: requiredString(requiredRecord(input.progressBlocker, "securityTracking.progressBlocker").reason, "securityTracking.progressBlocker.reason") } } : {}),
     ...(Array.isArray(input.affectedVersions) ? {
       affectedVersions: input.affectedVersions.map((value) => {
         const version = requiredRecord(value, "securityTracking.affectedVersions[]");

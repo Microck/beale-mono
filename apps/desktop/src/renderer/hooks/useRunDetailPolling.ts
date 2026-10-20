@@ -8,6 +8,7 @@ import {
   mergeRunHistoryPage,
   runDetailMetricDetail,
   runDetailUpdateCursor,
+  runDetailUpdateIdentity,
   runDetailUpdateMetricDetail,
   shortMetricId
 } from '../view-models/runDetailUpdates';
@@ -140,13 +141,16 @@ export function useRunDetailPolling({
     let pollTimer: number | null = null;
     const scheduleNextPoll = (): void => {
       const needsEnrichment = runDetailNeedsEnrichment(detailRef.current, projection);
-      if (disposed || (selectedRunState !== 'active' && !needsEnrichment)) return;
+      if (disposed || !shouldPollRunDetail(selectedRunState, detailRef.current, projection)) return;
       if (pollTimer !== null) window.clearTimeout(pollTimer);
       pollTimer = window.setTimeout(
         refreshRunDetail,
         needsEnrichment && consecutiveFailures === 0
           ? 0
-          : activeRunDetailPollMs(detailRef.current, consecutiveFailures)
+          : Math.max(
+              selectedRunState === 'paused' ? 2_000 : 0,
+              activeRunDetailPollMs(detailRef.current, consecutiveFailures)
+            )
       );
     };
     const refreshRunDetail = (): void => {
@@ -165,7 +169,9 @@ export function useRunDetailPolling({
               { run: shortMetricId(selectedRunId), projection: projectionMetric }
             )
             .then(async (update) => {
-              if (!disposed && requestSeq === requestSeqRef.current && update.version.version === versionRef.current) {
+              const identity = runDetailUpdateIdentity(update);
+              const memoryEnriched = detailRef.current?.appServerMemory === undefined && update.appServerMemory !== undefined;
+              if (!disposed && requestSeq === requestSeqRef.current && identity === versionRef.current && !memoryEnriched) {
                 return null;
               }
               await yieldToRenderer();
@@ -177,7 +183,7 @@ export function useRunDetailPolling({
                 currentTraceEvents: mergeBase.traceEvents.length,
                 currentTranscripts: mergeBase.transcriptMessages.length
               });
-              return { detail, version: update.version.version, update };
+              return { detail, version: identity, update };
             });
       request
         .then((result) => {
@@ -193,7 +199,7 @@ export function useRunDetailPolling({
             devInstrumentation.recordPayload('ipc.getRunDetail.payload', detail, runDetailMetricDetail(detail));
           }
           if (!disposed && requestSeq === requestSeqRef.current) {
-            if (version !== versionRef.current) {
+            if (version !== versionRef.current || (detailRef.current?.appServerMemory === undefined && detail.appServerMemory !== undefined)) {
               projectionRefreshPending = false;
               const applyStartedAt = performance.now();
               const applyDetail = runDetailApplyMetricDetail(detail, update);
@@ -300,6 +306,20 @@ export function runDetailNeedsEnrichment(
   projection: RunDetailProjection
 ): boolean {
   return projection !== 'full' && Boolean(detail) && detail?.appServerMemory === undefined;
+}
+
+export function shouldPollRunDetail(
+  snapshotStatus: RunStatus | null,
+  detail: RunDetail | null,
+  projection: RunDetailProjection
+): boolean {
+  if (runDetailNeedsEnrichment(detail, projection)) return true;
+  if (snapshotStatus === 'active') return true;
+  // A recovering app-server session passes through paused before it resumes.
+  // The workspace snapshot may still say paused after the canonical session
+  // resumes, so keep checking until a terminal detail is observed.
+  return snapshotStatus === 'paused'
+    && (detail === null || detail.run.status === 'paused' || detail.run.status === 'active');
 }
 
 export function shouldReportRunDetailError(detail: RunDetail | null, selectedRunId: string): boolean {

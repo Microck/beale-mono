@@ -5593,6 +5593,93 @@ body.is-resizing-research-side .main-session-grid {
   gap: 0;
 }
 
+.session-surface-tracking {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 10px 2px 8px;
+}
+
+.session-surface-tracking h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.session-surface-tracking-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.session-surface-chart {
+  min-width: 0;
+  margin: 0;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+
+.session-surface-chart svg {
+  width: min(100%, 210px);
+  height: auto;
+  overflow: visible;
+}
+
+.session-surface-root {
+  fill: var(--panel-raised);
+  stroke: color-mix(in srgb, var(--text) 35%, transparent);
+  stroke-width: 1.5;
+}
+
+.session-surface-ring {
+  stroke: color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.session-surface-ring:hover {
+  stroke: color-mix(in srgb, var(--text) 32%, transparent);
+}
+
+.session-surface-agent {
+  transition: cx 520ms cubic-bezier(0.22, 1, 0.36, 1), cy 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  stroke: var(--panel-raised);
+  stroke-width: 1.5;
+}
+
+.session-surface-chart figcaption {
+  max-width: 100%;
+  color: var(--text);
+  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-surface-chart figcaption span {
+  color: var(--muted);
+}
+
+.session-surface-unassigned {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.session-surface-unassigned-dot {
+  width: 9px;
+  height: 9px;
+  border: 2px solid;
+  border-radius: 50%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-surface-agent { transition: none; }
+}
+
 .session-usage-summary {
   min-width: 0;
 }

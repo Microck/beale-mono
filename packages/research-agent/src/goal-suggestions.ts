@@ -3,14 +3,6 @@ import type { DatabaseSync } from "node:sqlite";
 import { openResearchDatabase } from "./database.js";
 import { completeAuxiliaryText, type CompleteAuxiliaryTextOptions } from "./auxiliary-completion.js";
 import { resolveAuxiliaryModelRoute, type AuxiliaryModelEffort } from "./auxiliary-model-job.js";
-import { discoverResearchAgentInstructions } from "./agent-instructions.js";
-import {
-  parseAndSelectResearchGoalSuggestionCandidates,
-  researchGoalSuggestionCandidateCount,
-  type ResearchGoalSuggestionGrounding,
-} from "./goal-suggestion-selection.js";
-import { getAppServerMemorySummary } from "./memory-summary.js";
-import type { MemorySummary as AppServerMemorySummary } from "./knowledge-types.js";
 import { providerSemanticsDescriptor } from "./provider-semantics.js";
 import { AppServerSessionStore } from "./session-store.js";
 import {
@@ -38,6 +30,8 @@ export interface ResearchGoalSuggestionInput {
   requestId?: string;
   refresh?: boolean;
   sourceRunId?: string;
+  /** Generate and persist one additional suggestion per request. */
+  incremental?: boolean;
 }
 
 export interface ResearchGoalSuggestionSelectionInput {
@@ -73,17 +67,7 @@ export interface ResearchGoalSuggestionDependencies {
 }
 
 const MAX_SUGGESTIONS = 12;
-const MAX_HISTORY = 256;
-const MAX_MODEL_HISTORY = 96;
-const SUGGESTION_GENERATOR_VERSION = "goal-suggestions-v2";
-
-interface StoredResearchGoalSuggestionHistory {
-  suggestion: string;
-  lastGeneratedAt: string;
-  selectedAt: string | null;
-  generationCount: number;
-  selectionCount: number;
-}
+const SUGGESTION_GENERATOR_VERSION = "goal-suggestions-v3";
 
 export async function generateStoredResearchGoalSuggestions(
   input: HostedResearchGoalSuggestionInput,
@@ -141,32 +125,25 @@ export async function generateStoredResearchGoalSuggestions(
     const database = openSuggestionDatabase(input.databasePath);
     try {
       const context = readSuggestionContext(database, workspaceId);
-      const sessionSummaries = sessions.listSummaries(workspaceId, 12)
+      const sessionSummaries = sessions.listSummaries(workspaceId, 4)
         .filter((session) => session.status !== "active")
         .map((session) => ({
           id: session.id,
-          title: boundedText(session.title, 300),
-          prompt: boundedText(session.prompt, 2_000),
-          summary: boundedText(session.summary, 2_000),
+          title: boundedText(session.title, 120),
+          summary: boundedText(session.summary, 300),
           status: session.status,
-          workflowId: session.workflowId,
           endedAt: session.endedAt,
-          disposition: session.finalDisposition
-            ? {
-                outcome: session.finalDisposition.outcome,
-                summary: boundedText(session.finalDisposition.summary, 2_000),
-                externalStateRequired: session.finalDisposition.externalStateRequired,
-              }
-            : null,
         }));
-      const contextRevision = suggestionContextRevision(context, sessionSummaries);
+      const contextRevision = suggestionContextRevision(database, workspaceId, context, sessionSummaries);
+      const cached = readSuggestionCache(database, workspaceId, context.scopeId, profile.hash, phase);
+      const currentCache = cached?.contextRevision.startsWith(`${SUGGESTION_GENERATOR_VERSION}::`) ? cached : null;
       if (input.refresh !== true) {
-        const cached = readSuggestionCache(database, workspaceId, context.scopeId, profile.hash, phase);
-        if (cached?.contextRevision.startsWith(`${SUGGESTION_GENERATOR_VERSION}::`)) {
+        if (currentCache && (currentCache.suggestions.length >= workflow.goalSuggestionCount
+          || currentCache.contextRevision !== contextRevision)) {
           return {
             phase,
-            suggestions: cached.suggestions,
-            ...(cached.contextRevision === contextRevision ? {} : { cacheStatus: "stale" as const }),
+            suggestions: currentCache.suggestions,
+            ...(currentCache.contextRevision === contextRevision ? {} : { cacheStatus: "stale" as const }),
           };
         }
       }
@@ -176,18 +153,6 @@ export async function generateStoredResearchGoalSuggestions(
         databasePath: input.databasePath,
         researchProfileId: input.researchProfileId,
       });
-      const instructions = discoverResearchAgentInstructions({ workingDirectory: input.workspaceRoot });
-      const priorSuggestionHistory = readSuggestionHistory(database, workspaceId, phase);
-      const priorSuggestions = priorSuggestionHistory.map((entry) => entry.suggestion);
-      const memory = input.memoryEnabled && profile.profile.capabilities.memoryEnabled
-        ? getAppServerMemorySummary({
-            databasePath: input.databasePath,
-            artifactDirectoryPath: input.artifactDirectoryPath,
-            workspaceId,
-            subjectId: binding.memoryContext.subjectId,
-            assetIds: binding.authorizedAssetIds,
-          })
-        : null;
       const providerSemantics = providerSemanticsDescriptor();
       const providerId = requiredText(input.provider.id, "provider", 100);
       const provider = providerSemantics.providers.find((candidate) => candidate === providerId)
@@ -202,105 +167,79 @@ export async function generateStoredResearchGoalSuggestions(
         fallbackModel: providerSemantics.defaultSmallModels[provider] ?? null,
         fallbackEffort: "low",
       });
-      const grounding = createSuggestionGrounding(binding, sessionSummaries, memory, workflow.id);
-      const candidateCount = researchGoalSuggestionCandidateCount(workflow.goalSuggestionCount);
-      const payload = JSON.stringify({
-        task: "suggest_next_research_goals",
+      const suggestions = input.refresh === true || !currentCache || currentCache.contextRevision !== contextRevision
+        ? [] : [...currentCache.suggestions];
+      const contextPayload = {
         workspace: {
-          id: workspaceId,
           name: context.workspaceName,
-          scopeOwner: context.scopeOwner,
-          description: boundedText(context.description, 4_000),
+          scope: boundedText(context.description, 2_000),
           rules: context.rules,
-          researchSubject: binding.memoryContext.subjectName,
-          resources: binding.resources.slice(0, 80).map((resource) => ({
+          subject: binding.memoryContext.subjectName,
+          resources: binding.resources.filter((resource) => resource.direction === "in_scope").slice(0, 20).map((resource) => ({
             id: resource.id,
-            direction: resource.direction,
             kind: resource.kind,
-            locator: boundedText(resource.locator, 500),
-            ...(resource.name ? { name: boundedText(resource.name, 300) } : {}),
-            ...(resource.instruction ? { instruction: boundedText(resource.instruction, 500) } : {}),
+            label: boundedText(resource.name ?? resource.locator, 120),
+            ...(resource.instruction ? { instruction: boundedText(resource.instruction, 240) } : {}),
           })),
-          projectNotes: binding.projectNotes,
-          agentInstructions: instructions.content ? boundedText(instructions.content, 12_000) : null,
+          excludedResources: binding.resources.filter((resource) => resource.direction === "out_of_scope").slice(0, 12)
+            .map((resource) => boundedText(resource.name ?? resource.locator, 120)),
         },
-        researchProfile: {
-          id: profile.profile.id,
-          version: profile.profile.version,
-          hash: profile.hash,
-          lane: { id: workflow.id, name: workflow.name, description: workflow.description },
-        },
+        surfaces: readSuggestionSurfaces(database, workspaceId),
+        securityFindings: readSuggestionFindings(database, workspaceId),
         previousResearch: sessionSummaries,
-        grounding,
-        priorSuggestions: priorSuggestionHistory.slice(0, MAX_MODEL_HISTORY),
-        suggestionCount: workflow.goalSuggestionCount,
-        candidateCount,
-      });
+      };
       const baseSystemPrompt = [
         `You are ${profile.profile.agent.role}.`,
-        ...profile.profile.agent.posture,
-        ...profile.profile.agent.style,
-        `Generate exactly ${candidateCount} candidates so the host can select the strongest ${workflow.goalSuggestionCount} next research goals for the ${workflow.name} lane.`,
+        `Suggest one security research goal for the ${workflow.name} category: ${workflow.description}`,
         ...workflow.goalSuggestionInstructions,
-        "Ground every candidate in one to four exact IDs from the supplied grounding catalog, and name at least one cited component, artifact, claim, session, or investigation directly in the goal.",
-        "Do not repeat, closely paraphrase, or merely rotate the opening verb of a prior suggestion. Treat selected prior suggestions as researcher direction to advance with a different boundary, state transition, evidence gap, or composition opportunity.",
-        "Avoid bland category surveys. Prefer named functions, protocol fields, object identities, lifecycle transitions, build-specific behavior, concrete consumers, or unresolved proof obligations supported by the payload.",
-        "Make every noveltyAxis concise and materially different from every other candidate; candidates that share the same primary mechanism or proof question are duplicates even when they name different impact ceilings.",
-        "Do not propose completed work. A useful goal should make clear what discriminating evidence would change the current research state without prescribing commands or an ordered procedure.",
-        "These suggestions are shown before the researcher chooses launch-time controls. Auto-Review is only a default, not an active setting at this stage.",
-        "Describe research objectives without mentioning or depending on Auto-Review, Manual Approval, Danger Mode, shell-safety mode, provider selection, or other launch-time controls. app-server applies relevant execution policy after launch.",
-        "Return JSON only as {\"candidates\":[{\"goal\":\"one self-contained action sentence\",\"groundingRefs\":[\"exact-id\"],\"rationale\":\"why this follows from current evidence\",\"noveltyAxis\":\"specific new mechanism or proof question\"}] }.",
+        "Stay within the recorded authorization boundary and workspace rules.",
+        "Focus on attacker-controlled entry points, trust boundaries, security-relevant sinks, and plausible unauthorized effects. Keep reachability and impact evidence-gated.",
+        "Use the supplied scope and surface map when useful. A broadly reusable security direction is welcome; do not force it into one recorded claim or a narrow reference.",
+        "Suggest a distinct goal from those already shown. Do not just rephrase one. Do not center harmless correctness bugs without a plausible security consequence.",
+        "Write one concise, self-contained sentence. Do not prescribe commands or mention launch-time controls. Return the sentence as plain text; JSON with a single goal field is also accepted.",
       ].join("\n");
-      let suggestions: string[] | undefined;
-      let validationFeedback: string | undefined;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const systemPrompt = attempt === 0
-          ? baseSystemPrompt
-          : `${baseSystemPrompt}\nThe previous response was rejected by the host validator: ${boundedText(validationFeedback ?? "invalid candidate output", 300)} Return a corrected full candidate pool.`;
-        const completion = await (dependencies.completeText ?? completeAuxiliaryText)({
-          provider: route.provider,
-          model: route.model,
-          effort: route.effort as AuxiliaryModelEffort,
-          systemPrompt,
-          prompt: payload,
-          maxTokens: 8_192,
-          cwd: input.workspaceRoot,
-          ...(dependencies.signal ? { signal: dependencies.signal } : {}),
-          ...(input.provider.authenticationPreferences
-            ? { authenticationPreferences: input.provider.authenticationPreferences }
-            : {}),
-          ...(input.provider.codexAuthFile ? { codexAuthFile: input.provider.codexAuthFile } : {}),
-        });
-        try {
-          const selection = parseAndSelectResearchGoalSuggestionCandidates({
-            output: completion.text,
-            workflow,
-            suggestionCount: workflow.goalSuggestionCount,
-            candidateCount,
-            grounding,
-            priorSuggestions,
-            previousResearchTexts: sessionSummaries.flatMap((session) => [
-              session.prompt,
-              session.summary,
-              session.disposition?.summary ?? "",
-            ]).filter(Boolean),
+      while (suggestions.length < workflow.goalSuggestionCount) {
+        let goal: string | null = null;
+        let feedback: string | null = null;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const completion = await (dependencies.completeText ?? completeAuxiliaryText)({
+            provider: route.provider,
+            model: route.model,
+            effort: route.effort as AuxiliaryModelEffort,
+            systemPrompt: feedback ? `${baseSystemPrompt}\nPrevious response issue: ${boundedText(feedback, 180)}. Write a different valid sentence.` : baseSystemPrompt,
+            prompt: JSON.stringify({ ...contextPayload, alreadyShown: suggestions }),
+            maxTokens: 600,
+            cwd: input.workspaceRoot,
+            ...(dependencies.signal ? { signal: dependencies.signal } : {}),
+            ...(input.provider.authenticationPreferences
+              ? { authenticationPreferences: input.provider.authenticationPreferences }
+              : {}),
+            ...(input.provider.codexAuthFile ? { codexAuthFile: input.provider.codexAuthFile } : {}),
           });
-          suggestions = selection.selected.map((candidate) => candidate.goal);
-          break;
-        } catch (error) {
-          validationFeedback = error instanceof Error ? error.message : String(error);
-          if (attempt > 0) throw error;
+          try {
+            const candidate = parseSingleSuggestion(completion.text);
+            if (suggestions.some((shown) => suggestionKey(shown) === suggestionKey(candidate))) {
+              throw new Error("This goal is already shown.");
+            }
+            goal = candidate;
+            break;
+          } catch (error) {
+            feedback = error instanceof Error ? error.message : String(error);
+          }
         }
+        if (!goal) throw new Error(`Could not generate the next ${workflow.name.toLowerCase()} goal after three attempts: ${feedback ?? "invalid response"}`);
+        suggestions.push(goal);
+        saveSuggestionCache(database, {
+          workspaceId,
+          scopeId: context.scopeId,
+          profileHash: profile.hash,
+          phase,
+          contextRevision,
+          suggestions,
+          recordSuggestions: [goal],
+        });
+        if (input.incremental) break;
       }
-      if (!suggestions) throw new Error("Research goal suggestions did not satisfy the host novelty contract.");
-      saveSuggestionCache(database, {
-        workspaceId,
-        scopeId: context.scopeId,
-        profileHash: profile.hash,
-        phase,
-        contextRevision,
-        suggestions,
-      });
       return { phase, suggestions };
     } finally {
       database.close();
@@ -396,9 +335,20 @@ function readSuggestionContext(database: DatabaseSync, workspaceId: string): {
   };
 }
 
-function suggestionContextRevision(context: { ruleRevision: string }, sessions: Array<{ id: string; endedAt: string | null }>): string {
+function suggestionContextRevision(database: DatabaseSync, workspaceId: string, context: { ruleRevision: string }, sessions: Array<{ id: string; endedAt: string | null }>): string {
   const latest = sessions.find((session) => session.endedAt) ?? null;
-  return `${SUGGESTION_GENERATOR_VERSION}::${latest?.endedAt ?? "initial"}::${latest?.id ?? ""}::rules:${createHash("sha256").update(context.ruleRevision).digest("hex")}`;
+  const latestSurface = suggestionTableExists(database, "app_server_surfaces")
+    ? database.prepare("SELECT MAX(updated_at) AS updated_at FROM app_server_surfaces WHERE workspace_id = ?").get(workspaceId) as { updated_at: string | null }
+    : null;
+  const latestRoot = suggestionTableExists(database, "app_server_surface_roots")
+    ? database.prepare("SELECT MAX(updated_at) AS updated_at FROM app_server_surface_roots WHERE workspace_id = ?").get(workspaceId) as { updated_at: string | null }
+    : null;
+  const latestFinding = suggestionTableExists(database, "app_server_research_claims")
+    ? database.prepare("SELECT MAX(updated_at) AS updated_at FROM app_server_research_claims WHERE workspace_id = ?").get(workspaceId) as { updated_at: string | null }
+    : null;
+  return `${SUGGESTION_GENERATOR_VERSION}::${latest?.endedAt ?? "initial"}::${latest?.id ?? ""}`
+    + `::rules:${createHash("sha256").update(context.ruleRevision).digest("hex")}`
+    + `::surfaces:${latestSurface?.updated_at ?? ""}:${latestRoot?.updated_at ?? ""}::findings:${latestFinding?.updated_at ?? ""}`;
 }
 
 function readSuggestionCache(database: DatabaseSync, workspaceId: string, scopeId: string, profileHash: string, phase: string): {
@@ -421,40 +371,6 @@ function readSuggestionCache(database: DatabaseSync, workspaceId: string, scopeI
   }
 }
 
-function readSuggestionHistory(
-  database: DatabaseSync,
-  workspaceId: string,
-  phase: string,
-): StoredResearchGoalSuggestionHistory[] {
-  const rows = database.prepare(`SELECT suggestion_text, last_generated_at, selected_at,
-      generation_count, selection_count FROM research_goal_suggestion_history
-    WHERE workspace_id = ? AND phase = ?
-    ORDER BY COALESCE(selected_at, last_generated_at) DESC, suggestion_key ASC LIMIT ?`)
-    .all(workspaceId, phase, MAX_HISTORY * 4) as Array<Record<string, unknown>>;
-  const history = new Map<string, StoredResearchGoalSuggestionHistory>();
-  for (const row of rows) {
-    const suggestion = normalizedResearchGoalSuggestion(row.suggestion_text);
-    if (!suggestion) continue;
-    const key = suggestionKey(suggestion);
-    const existing = history.get(key);
-    const selectedAt = optionalText(row.selected_at, 100);
-    if (existing) {
-      existing.generationCount += nonNegativeInteger(row.generation_count);
-      existing.selectionCount += nonNegativeInteger(row.selection_count);
-      if (!existing.selectedAt && selectedAt) existing.selectedAt = selectedAt;
-      continue;
-    }
-    history.set(key, {
-      suggestion,
-      lastGeneratedAt: optionalText(row.last_generated_at, 100) ?? "",
-      selectedAt,
-      generationCount: nonNegativeInteger(row.generation_count),
-      selectionCount: nonNegativeInteger(row.selection_count),
-    });
-  }
-  return [...history.values()].slice(0, MAX_HISTORY);
-}
-
 function saveSuggestionCache(database: DatabaseSync, input: {
   workspaceId: string;
   scopeId: string;
@@ -462,6 +378,7 @@ function saveSuggestionCache(database: DatabaseSync, input: {
   phase: string;
   contextRevision: string;
   suggestions: string[];
+  recordSuggestions: string[];
 }): void {
   const now = new Date().toISOString();
   database.exec("BEGIN IMMEDIATE;");
@@ -480,7 +397,7 @@ function saveSuggestionCache(database: DatabaseSync, input: {
     ON CONFLICT(workspace_id, scope_version_id, profile_hash, phase, suggestion_key) DO UPDATE SET
       suggestion_text = excluded.suggestion_text, last_generated_at = excluded.last_generated_at,
       generation_count = research_goal_suggestion_history.generation_count + 1`);
-    for (const suggestion of input.suggestions) {
+    for (const suggestion of input.recordSuggestions) {
       record.run(input.workspaceId, input.scopeId, input.profileHash, input.phase, suggestionKey(suggestion), suggestion, now, now);
     }
     database.exec("COMMIT;");
@@ -490,82 +407,63 @@ function saveSuggestionCache(database: DatabaseSync, input: {
   }
 }
 
-function createSuggestionGrounding(
-  binding: StoredResearchWorkspaceBinding,
-  sessions: readonly {
-    id: string;
-    title: string;
-    prompt: string;
-    summary: string;
-    status: string;
-    disposition: { summary: string } | null;
-  }[],
-  memory: AppServerMemorySummary | null,
-  workflowId: string,
-): ResearchGoalSuggestionGrounding[] {
-  const limits = workflowId === "chaining" || workflowId === "reporting"
-    ? { resources: 40, sessions: 10, memories: 12, findings: 24, leads: 6, runbooks: 8, reports: 8 }
-    : workflowId === "discovery"
-      ? { resources: 40, sessions: 10, memories: 24, findings: 12, leads: 8, runbooks: 4, reports: 4 }
-      : { resources: 40, sessions: 10, memories: 20, findings: 16, leads: 8, runbooks: 5, reports: 5 };
-  const grounding = new Map<string, ResearchGoalSuggestionGrounding>();
-  const add = (
-    kind: ResearchGoalSuggestionGrounding["kind"],
-    rawId: string,
-    title: string,
-    summary: string,
-    status?: string,
-  ) => {
-    const id = `${kind}:${rawId}`;
-    if (!rawId || grounding.has(id)) return;
-    grounding.set(id, {
-      id,
-      kind,
-      title: boundedText(title || rawId, 300),
-      summary: boundedText(summary, 1_000),
-      ...(status ? { status: boundedText(status, 100) } : {}),
-    });
-  };
-  for (const resource of binding.resources.filter((resource) => resource.direction === "in_scope").slice(0, limits.resources)) {
-    add(
-      "resource",
-      resource.id,
-      resource.name ?? resource.locator,
-      [resource.direction, resource.kind, resource.instruction ?? ""].filter(Boolean).join("; "),
-      resource.direction,
-    );
+function readSuggestionSurfaces(database: DatabaseSync, workspaceId: string): Array<Record<string, unknown>> {
+  const roots = suggestionTableExists(database, "app_server_surface_roots")
+    ? database.prepare(`SELECT resource_id AS id, resource_id AS name, '' AS description, foundation_json
+        FROM app_server_surface_roots WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT 4`).all(workspaceId) as Array<Record<string, unknown>>
+    : [];
+  const children = suggestionTableExists(database, "app_server_surfaces")
+    ? database.prepare(`SELECT id, name, description, foundation_json FROM app_server_surfaces
+        WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT 12`).all(workspaceId) as Array<Record<string, unknown>>
+    : [];
+  const rows = [...roots, ...children].slice(0, 12);
+  return rows.map((row) => {
+    let foundation: Record<string, unknown> | null = null;
+    try {
+      const parsed: unknown = JSON.parse(String(row.foundation_json ?? "null"));
+      foundation = isRecord(parsed) ? parsed : null;
+    } catch { /* Unknown foundation. */ }
+    const threatModel = isRecord(foundation?.threatModel) ? foundation.threatModel : null;
+    const coverage = isRecord(foundation?.coverage) ? foundation.coverage : null;
+    return {
+      id: String(row.id),
+      name: boundedText(String(row.name), 100),
+      description: boundedText(String(row.description ?? ""), 180),
+      ...(threatModel ? { attackerControl: boundedText(String(threatModel.attackerControl ?? ""), 180),
+        trustBoundaries: boundedText(String(threatModel.trustBoundaries ?? ""), 180),
+        plausibleImpacts: boundedText(String(threatModel.plausibleImpacts ?? ""), 180) } : {}),
+      ...(coverage ? { openQuestions: Array.isArray(coverage.openQuestions)
+        ? coverage.openQuestions.filter((value): value is string => typeof value === "string").slice(0, 2).map((value) => boundedText(value, 160)) : [] } : {}),
+    };
+  });
+}
+
+function readSuggestionFindings(database: DatabaseSync, workspaceId: string): Array<Record<string, string>> {
+  if (!suggestionTableExists(database, "app_server_research_claims")) return [];
+  const rows = database.prepare(`SELECT id, title, summary, status FROM app_server_research_claims
+    WHERE workspace_id = ? AND classification LIKE 'security.%' AND status != 'rejected'
+    ORDER BY updated_at DESC LIMIT 8`).all(workspaceId) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({ id: String(row.id), title: boundedText(String(row.title), 120),
+    summary: boundedText(String(row.summary), 240), status: String(row.status) }));
+}
+
+function suggestionTableExists(database: DatabaseSync, name: string): boolean {
+  return Boolean(database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
+}
+
+function parseSingleSuggestion(output: string): string {
+  let value = output.trim().replace(/^```(?:json|text)?\s*/iu, "").replace(/\s*```$/u, "").trim();
+  if (value.startsWith("{")) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(value) as unknown; } catch { throw new Error("Return a plain sentence or a JSON object with one goal field."); }
+    value = isRecord(parsed) && typeof parsed.goal === "string" ? parsed.goal : "";
   }
-  for (const session of sessions.slice(0, limits.sessions)) {
-    add(
-      "session",
-      session.id,
-      session.title || session.prompt,
-      session.disposition?.summary || session.summary || session.prompt,
-      session.status,
-    );
+  value = value.replace(/^(?:goal\s*:\s*|[-*]\s*|\d+[.)]\s*)/iu, "").replace(/^[']|[']$/gu, "").replace(/^["]|["]$/gu, "");
+  const normalized = normalizedResearchGoalSuggestion(value);
+  if (!normalized || normalized.length < 20 || normalized.length > 500) {
+    throw new Error("Return one security research goal between 20 and 500 characters.");
   }
-  for (const node of memory?.nodes.slice(0, limits.memories) ?? []) {
-    add("memory", node.id, node.title, node.summary, node.status);
-  }
-  for (const claim of [
-    ...(memory?.findings.slice(0, limits.findings) ?? []),
-    ...(memory?.leads.slice(0, limits.leads) ?? []),
-  ]) {
-    add(
-      "claim",
-      claim.id,
-      claim.title,
-      [claim.summary, claim.impact].filter(Boolean).join(" "),
-      `${claim.projection}:${claim.status}`,
-    );
-  }
-  for (const runbook of memory?.runbooks.slice(0, limits.runbooks) ?? []) {
-    add("runbook", runbook.id, runbook.title, runbook.purpose, runbook.execution.latest?.status ?? "not_run");
-  }
-  for (const report of memory?.reports.slice(0, limits.reports) ?? []) {
-    add("report", report.id, report.title, report.summary, `${report.status}:${report.triageStatus}`);
-  }
-  return [...grounding.values()];
+  return /[.!?]$/u.test(normalized) ? normalized : `${normalized}.`;
 }
 
 function suggestionKey(value: string): string {

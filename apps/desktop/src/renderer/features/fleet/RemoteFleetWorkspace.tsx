@@ -157,20 +157,43 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   const events = useMemo(() => runDetail ? buildTraceDisplayEventsForAgentPath(runDetail, null) : [], [runDetail]);
   const runStatus = runDetail?.run.status ?? remoteRunStatus(session?.status ?? '');
   const loadGoalSuggestions = (phase: string, refresh = false): void => {
-    if (!workspaceId || !refresh && (visibleGoalState.loading[phase] || visibleGoalState.suggestions[phase] || visibleGoalState.errors[phase])) return;
+    if (!workspaceId || !refresh && visibleGoalState.loading[phase]) return;
     const key = suggestionKey;
     const requestId = (suggestionRequestsRef.current.get(phase) ?? 0) + 1;
     suggestionRequestsRef.current.set(phase, requestId);
     setGoalState((current) => {
       const base = current.key === key ? current : { key, suggestions: {}, loading: {}, errors: {} };
-      return { ...base, loading: { ...base.loading, [phase]: true }, errors: { ...base.errors, [phase]: null } };
+      return { ...base, loading: { ...base.loading, [phase]: refresh || (base.suggestions[phase]?.length ?? 0) < 4 },
+        errors: { ...base.errors, [phase]: null } };
     });
-    void window.beale.getFleetRemoteResearchGoalSuggestions(serverId, workspaceId, phase, refresh)
-      .then((result) => {
+    void (async () => {
+      let refreshNext = refresh;
+      let previousCount = refresh ? 0 : visibleGoalState.suggestions[phase]?.length ?? 0;
+      for (let call = 0; call < 6; call += 1) {
+        const result = await window.beale.getFleetRemoteResearchGoalSuggestions(serverId, workspaceId, phase, refreshNext, true);
         if (suggestionKeyRef.current !== key || suggestionRequestsRef.current.get(phase) !== requestId) return;
         setGoalState((current) => current.key !== key ? current : {
           ...current, suggestions: { ...current.suggestions, [phase]: result.suggestions },
-          loading: { ...current.loading, [phase]: false }, errors: { ...current.errors, [phase]: null }
+          loading: { ...current.loading, [phase]: true }, errors: { ...current.errors, [phase]: null }
+        });
+        if (result.cacheStatus === 'stale' && !refreshNext) {
+          refreshNext = true;
+          previousCount = 0;
+          continue;
+        }
+        if (result.suggestions.length >= 4) return;
+        if (!refreshNext && result.suggestions.length <= previousCount) {
+          throw new Error('The remote app-server did not produce another suggestion. Retry to continue loading.');
+        }
+        previousCount = result.suggestions.length;
+        refreshNext = false;
+      }
+      throw new Error('The suggestion limit was not reached. Retry to continue loading.');
+    })()
+      .then(() => {
+        if (suggestionKeyRef.current !== key || suggestionRequestsRef.current.get(phase) !== requestId) return;
+        setGoalState((current) => current.key !== key ? current : {
+          ...current, loading: { ...current.loading, [phase]: false }, errors: { ...current.errors, [phase]: null }
         });
       })
       .catch((caught: unknown) => {
@@ -277,7 +300,8 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
           researchGoalSuggestions={visibleGoalState.suggestions} researchGoalSuggestionsLoading={visibleGoalState.loading}
           researchGoalSuggestionErrors={visibleGoalState.errors}
           onLoadResearchGoalSuggestions={(phase) => loadGoalSuggestions(phase)}
-          onRetryResearchGoalSuggestions={(phase) => loadGoalSuggestions(phase, true)}
+          onRetryResearchGoalSuggestions={(phase) => loadGoalSuggestions(phase,
+            !(visibleGoalState.errors[phase] && (visibleGoalState.suggestions[phase]?.length ?? 0) < 4))}
           onSelectResearchGoalSuggestion={(phase, suggestion) => setGoalState((current) => current.key !== suggestionKey ? current : {
             ...current, suggestions: { ...current.suggestions, [phase]: current.suggestions[phase]?.filter((candidate) => candidate !== suggestion) ?? [] }
           })}

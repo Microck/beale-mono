@@ -66,6 +66,7 @@ export interface RunResearchAgentInput {
   eventSink?: ResearchLiveEventSink;
   signal?: AbortSignal;
   finalDispositionProvider?: () => ResearchFinalDisposition | null;
+  goalEnabled?: boolean;
 }
 
 export interface ResearchRunIntent {
@@ -98,7 +99,7 @@ export interface RunResearchAgentResult {
     aiPackage: "@earendil-works/pi-ai";
   };
   response: string;
-  finalDisposition: ResearchFinalDisposition;
+  finalDisposition: ResearchFinalDisposition | null;
 }
 
 export async function runResearchAgent(
@@ -282,8 +283,9 @@ export async function runResearchAgent(
       },
     },
   ];
-  const finalDisposition = input.finalDispositionProvider?.()
-    ?? fallbackResearchFinalDisposition(agentRun.status, agentRun.output.text);
+  const finalDisposition = input.goalEnabled
+    ? input.finalDispositionProvider?.() ?? fallbackResearchFinalDisposition(agentRun.status, agentRun.output.text)
+    : null;
   emitLiveResearchEvents(input.eventSink, terminalEvents);
   events.push(...(agentRun.output.toolEvents ?? []), ...terminalEvents);
 

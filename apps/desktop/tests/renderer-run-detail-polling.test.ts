@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDetail, RunRecord } from '@shared/types';
-import { activeRunDetailPollMs, optimisticRunDetail, sessionSetupComplete, shouldReportRunDetailError } from '../src/renderer/hooks/useRunDetailPolling';
+import { activeRunDetailPollMs, optimisticRunDetail, sessionSetupComplete, shouldPollRunDetail, shouldReportRunDetailError } from '../src/renderer/hooks/useRunDetailPolling';
 
 describe('renderer run-detail polling', () => {
   it('backs off live polling as retained session history grows', () => {
@@ -18,6 +18,16 @@ describe('renderer run-detail polling', () => {
     expect(shouldReportRunDetailError(detail, 'run_loaded')).toBe(false);
     expect(shouldReportRunDetailError(detail, 'run_other')).toBe(true);
     expect(shouldReportRunDetailError(null, 'run_loaded')).toBe(true);
+  });
+
+  it('keeps polling a paused snapshot until recovery or terminal state is observed', () => {
+    const detail = optimisticRunDetail({ id: 'run_example', status: 'paused' } as RunRecord);
+    expect(shouldPollRunDetail('paused', detail, 'full')).toBe(true);
+    detail.run = { ...detail.run, status: 'active' };
+    expect(shouldPollRunDetail('paused', detail, 'full')).toBe(true);
+    detail.run = { ...detail.run, status: 'completed' };
+    expect(shouldPollRunDetail('paused', detail, 'full')).toBe(false);
+    expect(shouldPollRunDetail('completed', detail, 'full')).toBe(false);
   });
 
   it('primes a new session detail from its durable run record', () => {

@@ -1098,13 +1098,19 @@ export async function getAppServerRunDetailForClient(
     durableSubagents.session,
     context.sessionWrites
   );
+  const detail = sessionDetail(
+    session,
+    context.database,
+    Math.max(0, update.eventOffset - durableSubagents.prependedEventCount),
+    captures
+  );
   return {
-    ...sessionDetail(
-      session,
-      context.database,
-      Math.max(0, update.eventOffset - durableSubagents.prependedEventCount),
-      captures
-    ),
+    ...detail,
+    projectionCursor: {
+      afterTraceSequence: detail.traceEvents.at(-1)?.sequence ?? -1,
+      afterTranscriptCount: detail.transcriptMessages.length,
+      afterTraceEventId: update.nextAfterEventId
+    },
     historyCursor: {
       beforeEventId: update.events[0]?.id ?? null,
       hasEarlier: update.hasEarlier
@@ -1181,11 +1187,17 @@ export async function getAppServerRunDetailUpdateForClient(
     }
   ), { ...(signal ? { signal } : {}) });
   const session = sessionRecordFromUpdate(update);
-  if (!_cursor.afterTraceEventId) {
-    return runDetailUpdateFromSession(session, context.database, _cursor, update.eventOffset);
-  }
-  const detail = sessionDetail(session, context.database, update.eventOffset);
-  return runDetailUpdateFromDetail(detail, update.session.revision);
+  const result = !_cursor.afterTraceEventId
+    ? runDetailUpdateFromSession(session, context.database, _cursor, update.eventOffset)
+    : runDetailUpdateFromDetail(sessionDetail(session, context.database, update.eventOffset), update.session.revision);
+  return {
+    ...result,
+    projectionCursor: {
+      afterTraceSequence: result.traceEvents.at(-1)?.sequence ?? _cursor.afterTraceSequence,
+      afterTranscriptCount: _cursor.afterTranscriptCount + result.transcriptMessages.length,
+      afterTraceEventId: update.nextAfterEventId ?? _cursor.afterTraceEventId ?? null
+    }
+  };
 }
 
 export async function getAppServerRunTraceEventDetailsForClient(

@@ -205,11 +205,11 @@ test('remote New Research suggestions come from the workspace-owning app server'
   fleet.callRemote = async (serverId, operation, input) => {
     assert.equal(serverId, 'server-example');
     assert.equal(operation, 'suggestion.generate');
-    assert.deepEqual(input, { workspaceId: 'workspace-example', phase: 'discovery', refresh: true });
+    assert.deepEqual(input, { workspaceId: 'workspace-example', phase: 'discovery', refresh: true, incremental: true });
     return { phase: 'discovery', suggestions: ['Inspect example.test.'] };
   };
   try {
-    assert.deepEqual(await fleet.remoteGoalSuggestions('server-example', 'workspace-example', 'discovery', true),
+    assert.deepEqual(await fleet.remoteGoalSuggestions('server-example', 'workspace-example', 'discovery', true, true),
       { phase: 'discovery', suggestions: ['Inspect example.test.'] });
     await assert.rejects(fleet.remoteGoalSuggestions('server-example', '../outside', 'discovery', false), /Invalid remote research suggestion request/u);
   } finally { rmSync(root, { recursive: true, force: true }); }

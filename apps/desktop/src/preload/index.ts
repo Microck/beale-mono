@@ -317,8 +317,8 @@ const api: BealeApi = {
   expandFleetRemoteResearchPrompt(serverId: string, workspaceId: string, expansion: import('@beale/app-server-runtime/protocol').FleetRemotePromptExpansionInput): Promise<import('@beale/app-server-runtime/protocol').FleetRemotePromptExpansionResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.expandFleetRemoteResearchPrompt, serverId, workspaceId, expansion);
   },
-  getFleetRemoteResearchGoalSuggestions(serverId: string, workspaceId: string, phase: string, refresh: boolean): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteGoalSuggestions> {
-    return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteResearchGoalSuggestions, serverId, workspaceId, phase, refresh);
+  getFleetRemoteResearchGoalSuggestions(serverId: string, workspaceId: string, phase: string, refresh: boolean, incremental = false): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteGoalSuggestions> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteResearchGoalSuggestions, serverId, workspaceId, phase, refresh, incremental);
   },
   controlFleetRemoteSession(serverId: string, sessionId: string, type: 'pause' | 'resume' | 'stop' | 'steer', instruction?: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.controlFleetRemoteSession, serverId, sessionId, type, instruction);

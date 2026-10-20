@@ -169,6 +169,19 @@ describe('renderer research goal suggestion cache', () => {
     });
   });
 
+  it('publishes individually generated suggestions while preserving hidden selections', () => {
+    const cache = new ResearchGoalSuggestionCache();
+    const key = requiredKey(snapshot('workspace_one', 'scope_one'));
+    const first = { phase: 'discovery', suggestions: ['Inspect Example service authorization boundaries.'] };
+    cache.publish(key, first);
+    expect(cache.read(key)).toEqual({ status: 'ready', result: first });
+    cache.consume(key, first.suggestions[0]!);
+    const second = { ...first, suggestions: [...first.suggestions, 'Trace Example service parser trust boundaries.'] };
+    expect(cache.publish(key, second).suggestions).toEqual(['Trace Example service parser trust boundaries.']);
+    cache.allowPreviouslySelected(key);
+    expect(cache.publish(key, second).suggestions).toEqual(second.suggestions);
+  });
+
   it('tops a partially consumed list back up while retaining unused and overflow suggestions', async () => {
     const cache = new ResearchGoalSuggestionCache();
     const key = requiredKey(snapshot('workspace_one', 'scope_one'));

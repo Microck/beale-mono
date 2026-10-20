@@ -63,7 +63,7 @@ describe('renderer research profile presentation', () => {
     expect(html).toContain('research-goal-choice-scroll');
     expect(html).not.toContain('Map the corpus.');
     expect(html).not.toContain('Discovery');
-    expect(html.match(/research-goal-choice-loading/g)).toHaveLength(12);
+    expect(html.match(/research-goal-choice-loading/g)).toHaveLength(11);
   });
 
   it('uses presentation labels and the default suggestion lane in the start surface', () => {

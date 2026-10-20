@@ -88,6 +88,17 @@ export class ResearchGoalSuggestionCache {
       : { status: 'loading', result: null };
   }
 
+  public publish(key: string, result: GeneratedResearchGoalSuggestions): GeneratedResearchGoalSuggestions {
+    const visible = this.visibleResult(key, result);
+    this.entries.set(key, { status: 'ready', promise: Promise.resolve(visible), result: visible,
+      overflow: [], suggestionLimit: null });
+    return visible;
+  }
+
+  public allowPreviouslySelected(key: string): void {
+    this.hiddenSuggestions.delete(key);
+  }
+
   public load(
     key: string,
     loader: ResearchGoalSuggestionLoader,

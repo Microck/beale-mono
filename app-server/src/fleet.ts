@@ -519,12 +519,13 @@ export class FleetService {
     return { phase: result.phase, promptMarkdown: result.promptMarkdown };
   }
 
-  public async remoteGoalSuggestions(serverId: string, workspaceId: string, phase: string, refresh: boolean): Promise<FleetRemoteGoalSuggestions> {
+  public async remoteGoalSuggestions(serverId: string, workspaceId: string, phase: string, refresh: boolean, incremental = false): Promise<FleetRemoteGoalSuggestions> {
     if (!WORKSPACE_ID.test(workspaceId) || !VM_NAME.test(phase)) throw new Error('Invalid remote research suggestion request.');
     const result = decodeGeneratedResearchGoalSuggestions(await this.callRemote<unknown>(serverId, 'suggestion.generate', {
-      workspaceId, phase, refresh
+      workspaceId, phase, refresh, incremental
     }), phase);
-    return { phase: result.phase, suggestions: result.suggestions };
+    return { phase: result.phase, suggestions: result.suggestions,
+      ...(result.cacheStatus === 'stale' ? { cacheStatus: 'stale' as const } : {}) };
   }
 
   public async remoteControl(serverId: string, sessionId: string, type: string, instruction: string | null): Promise<void> {

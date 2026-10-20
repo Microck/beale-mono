@@ -1379,6 +1379,11 @@ function validFindingSecurityTracking(value: unknown): boolean {
     && Array.isArray(value.riskDecisions)
     && Array.isArray(value.cvssAssessments)
     && Array.isArray(value.affectedAssetIds)
+    && Array.isArray(value.surfaceIds)
+    && (value.progressBlocker === null || (isPlainRecord(value.progressBlocker)
+      && nonEmptyText(value.progressBlocker.reason)
+      && (value.progressBlocker.actorId === undefined || nonEmptyText(value.progressBlocker.actorId))
+      && nonEmptyText(value.progressBlocker.setAt)))
     && Array.isArray(value.affectedVersions)
     && Array.isArray(value.externalReferences);
 }

@@ -3,7 +3,7 @@ import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import type { SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { createResearchEventId, nowIso } from "./ids.js";
 import type { ResearchEvent } from "./types.js";
-import type { SurfaceStore } from "./surfaces.js";
+import type { SurfaceFoundationScout, SurfaceStore } from "./surfaces.js";
 export const SUBAGENT_COLLABORATION_TOOLS = [
   { name: "spawn_agent", description: "Spawn a bounded child session for independent work." },
   { name: "send_message", description: "Queue a message for an existing agent." },
@@ -65,6 +65,7 @@ export interface CreateSubagentManagerOptions {
   onActivity?: (activity: SubagentActivity) => void | Promise<void>;
   onToolEvent?: (event: ResearchEvent) => void | Promise<void>;
   surfaceStore?: SurfaceStore;
+  allowManualDelegation?: boolean;
   filterTools?: (
     agent: { id: string; path: string; depth: number; root: boolean },
     tools: readonly AgentTool[],
@@ -101,6 +102,7 @@ export interface SubagentActivity {
   roomKind?: string;
   role?: string;
   surfaceId?: string;
+  surfaceTrail?: readonly { id: string; name: string }[];
   authorAgentPath?: string;
   recipientAgentPath?: string;
   message?: string;
@@ -227,11 +229,14 @@ export class SubagentManager {
   private providerPreferenceCursor = 0;
   private activityVersion = 0;
   private activityQueue: Promise<void> = Promise.resolve();
+  private readonly foundationQueue: { surfaceId: string; firstAgentId: string }[] = [];
+  private readonly foundationScouts = new Map<string, SurfaceFoundationScout>();
+  private stopped = false;
 
   public constructor(private readonly options: CreateSubagentManagerOptions) {
     this.mode = options.mode ?? "simple";
     this.maxThreads = positiveInteger(options.maxThreads) ?? DEFAULT_MAX_THREADS;
-    this.maxDepth = nonNegativeInteger(options.maxDepth) ?? DEFAULT_MAX_DEPTH;
+    this.maxDepth = Math.max(options.surfaceStore ? 1 : 0, nonNegativeInteger(options.maxDepth) ?? DEFAULT_MAX_DEPTH);
     this.maxConcurrentRooms = positiveInteger(options.maxConcurrentRooms) ?? this.maxThreads;
     this.maxMembersPerRoom = positiveInteger(options.maxMembersPerRoom) ?? this.maxThreads;
     this.peerChallengeRounds = nonNegativeInteger(options.peerChallengeRounds) ?? 0;
@@ -266,6 +271,54 @@ export class SubagentManager {
       roomCursors: new Map(),
     });
     options.signal?.addEventListener("abort", () => this.interruptAll(), { once: true });
+    options.surfaceStore?.setFirstTouchHandler((surface, agentId) => this.spawnFoundationScout(surface.id, agentId));
+  }
+
+  public spawnFoundationScout(surfaceId: string, firstAgentId: string): SurfaceFoundationScout {
+    if (this.stopped) return { status: "unavailable", agentPath: null, reason: "The session is stopping." };
+    const existing = this.foundationScouts.get(surfaceId);
+    if (existing) return existing;
+    if (!this.hasThreadCapacity()) {
+      this.foundationQueue.push({ surfaceId, firstAgentId });
+      const queued: SurfaceFoundationScout = { status: "queued", agentPath: null, reason: "Waiting for an available collaborator slot." };
+      this.foundationScouts.set(surfaceId, queued);
+      return queued;
+    }
+    return this.startFoundationScout(surfaceId, firstAgentId);
+  }
+
+  private startFoundationScout(surfaceId: string, firstAgentId: string): SurfaceFoundationScout {
+    this.foundationScouts.set(surfaceId, { status: "queued", agentPath: null, reason: "Starting the foundation scout." });
+    try {
+      const result = this.spawn("root", `automatic_foundation_${randomUUID()}`, {
+        task_name: `surface_foundation_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
+        surface_id: surfaceId,
+        ...(this.delegationRoles.has("discoverer") ? { role: "discoverer" } : {}),
+        message: "Establish this surface's one-time security foundation. Bound the history of relevant security bugs and advisories. Map attacker-controlled entry paths, trust boundaries, privilege contexts, security-relevant sinks, and plausible unauthorized effects; connect them into possible paths, including uncertain reachability and cross-surface chains. Define coverage against that threat model, not against general code exploration. Record whether the full security surface is mapped, whether all known security-relevant sinks were investigated, and any open questions or unexplored connections using surface.update. Treat harmless defects as context only unless a security consequence is supported. Keep uncertainty explicit. Send concise interim observations to /root as they arise, then report the durable result and remaining gaps. Coordinate with the main agent to avoid duplicated work.",
+      }, [], false, false, true);
+      const agentPath = typeof result.task_name === "string" ? result.task_name : null;
+      if (firstAgentId !== "root") {
+        this.ensureSession("root").mailbox.push(userMessage(`First touch of surface ${surfaceId} started foundation scout ${agentPath}. Coordinate to avoid overlapping work.`));
+        this.flushMailboxWaiter("root");
+      }
+      const running: SurfaceFoundationScout = { status: "running", agentPath, reason: null };
+      this.foundationScouts.set(surfaceId, running);
+      return running;
+    } catch (error) {
+      this.foundationScouts.delete(surfaceId);
+      return { status: "unavailable", agentPath: null, reason: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  private drainFoundationQueue(): void {
+    if (this.stopped) return;
+    while (this.foundationQueue.length > 0 && this.hasThreadCapacity()) {
+      const next = this.foundationQueue.shift()!;
+      const scout = this.startFoundationScout(next.surfaceId, next.firstAgentId);
+      if (scout.status === "unavailable") {
+        this.ensureSession("root").mailbox.push(userMessage(`Foundation scout for surface ${next.surfaceId} could not start: ${scout.reason}`));
+      }
+    }
   }
 
   public captureContext(agentId: string, toolCallId: string, messages: readonly AgentMessage[]): void {
@@ -285,6 +338,9 @@ export class SubagentManager {
 
   public createTools(agentId: string): AgentTool[] {
     const session = this.ensureSession(agentId);
+    if (this.options.allowManualDelegation === false) {
+      return session.id === "root" ? [] : [this.createSendMessageTool(agentId), this.createListTool(agentId)];
+    }
     const tools = [
       ...(session.depth < this.maxDepth ? [this.createSpawnTool(agentId)] : []),
       this.createSendMessageTool(agentId),
@@ -315,7 +371,7 @@ export class SubagentManager {
         .map((candidate) => candidate.path)
         .sort();
       if (active.length > 0) {
-        followUp.push(userMessage(`Delegated agents are still active: ${active.join(", ")}. Do not record the session disposition or send the final response from an earlier claim snapshot. Continue useful independent work, wait for their results, or explicitly interrupt agents whose results are no longer needed; then re-read any canonical state they may have changed before concluding.`));
+        followUp.push(userMessage(`Delegated agents are still active: ${active.join(", ")}. Do not send the final response from an earlier claim snapshot. Continue useful independent work, wait for their results, or explicitly interrupt agents whose results are no longer needed; then re-read any canonical state they may have changed before concluding.`));
       }
     }
     return followUp;
@@ -419,6 +475,7 @@ export class SubagentManager {
 
   public async settle(): Promise<void> {
     while (true) {
+      this.drainFoundationQueue();
       const pending = [...this.sessions.values()].flatMap((session) => session.promise ? [session.promise] : []);
       if (pending.length === 0) break;
       await Promise.allSettled(pending);
@@ -427,6 +484,9 @@ export class SubagentManager {
   }
 
   public interruptAll(): void {
+    this.stopped = true;
+    this.foundationQueue.length = 0;
+    this.foundationScouts.clear();
     this.contextSnapshots.clear();
     for (const session of this.sessions.values()) {
       if (session.id !== "root" && (session.status === "running" || session.status === "pending")) {
@@ -699,6 +759,7 @@ export class SubagentManager {
     contextOverride?: readonly AgentMessage[],
     _roomCreation = false,
     deferLaunch = false,
+    automaticFoundation = false,
   ): Record<string, unknown> {
     const parentMessages = contextOverride ? [...contextOverride] : this.takeContextSnapshot(parentId, toolCallId);
     const parent = this.ensureSession(parentId);
@@ -733,7 +794,10 @@ export class SubagentManager {
       throw new Error("Full-history children inherit the parent provider, model, and reasoning effort. Omit routing overrides or use partial/no inheritance.");
     }
     let inheritedMessages = inheritMessages(parentMessages, toolCallId, forkTurns);
-    const preference = this.selectProviderPreference(providerOverride, modelOverride, parent, delegationRole?.id);
+    const preference = automaticFoundation && delegationRole?.id
+      && !this.providerPreferences.some((candidate) => !candidate.roles || candidate.roles.includes(delegationRole.id))
+      ? undefined
+      : this.selectProviderPreference(providerOverride, modelOverride, parent, delegationRole?.id);
     const requestedRoomName = optionalString(input.room_name);
     const roomName = requestedRoomName ? normalizeRoomName(requestedRoomName) : null;
     const roomMetadataProvided = optionalString(input.room_title) || optionalString(input.room_kind);
@@ -1147,6 +1211,11 @@ export class SubagentManager {
     }).finally(() => {
       this.releaseContextsForAgent(session.id);
       if (session.promise === promise) delete session.promise;
+      if (session.taskName.startsWith("surface_foundation_") && session.surfaceId
+        && this.foundationScouts.get(session.surfaceId)?.agentPath === session.path) {
+        this.foundationScouts.delete(session.surfaceId);
+      }
+      this.drainFoundationQueue();
       this.notifyActivity();
     });
     session.promise = promise;
@@ -1170,7 +1239,7 @@ export class SubagentManager {
     const assignment = surface ? [
       `Assigned surface: ${this.options.surfaceStore?.path(surface.id)} (${surface.id}).`,
       "You may move to another surface with surface.focus; record the move when it happens.",
-      ...(!surface.foundation ? ["This surface needs its one-time foundation: bug history, coverage map, and basic threat model. Record uncertainty and gaps rather than inventing completeness."] : []),
+      ...(!surface.foundation ? ["This surface needs its one-time security foundation: relevant security bug history, attacker paths and trust boundaries, security-relevant sinks, plausible unauthorized effects, and threat-model-based coverage. Record uncertainty and gaps rather than inventing completeness."] : []),
     ] : [];
     if (!role) return [...assignment, prompt].join("\n\n");
     return [
@@ -1313,6 +1382,9 @@ export class SubagentManager {
     session: SubagentSession,
     activity: Pick<SubagentActivity, "type" | "message" | "authorAgentPath">,
   ): Promise<void> {
+    const surfaceId = session.surfaceId
+      ? this.options.surfaceStore?.current(session.id)?.id ?? session.surfaceId
+      : null;
     return this.emitActivity({
       ...activity,
       activityId: `activity_${randomUUID().replaceAll("-", "")}`,
@@ -1324,7 +1396,8 @@ export class SubagentManager {
       provider: session.provider,
       model: session.model,
       reasoningEffort: session.reasoning ?? null,
-      ...(session.surfaceId ? { surfaceId: this.options.surfaceStore?.current(session.id)?.id ?? session.surfaceId } : {}),
+      ...(surfaceId ? { surfaceId } : {}),
+      ...(surfaceId && this.options.surfaceStore ? { surfaceTrail: this.options.surfaceStore.hierarchy(surfaceId) } : {}),
       ...(session.roomName ? {
         roomName: session.roomName,
         roomTitle: session.roomTitle ?? titleFromRoomName(session.roomName),

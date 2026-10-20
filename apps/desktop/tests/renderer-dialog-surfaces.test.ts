@@ -786,6 +786,12 @@ describe('renderer dialog surfaces', () => {
       onSelect: () => undefined
     }));
     expect(loadingHtml).toMatch(/class="session-next-steps-regenerate" disabled=""/u);
+    const partialHtml = renderToStaticMarkup(createElement(SessionNextStepsWidget, {
+      loading: true, suggestions: ['Inspect Example service authorization boundaries.'], error: null,
+      suggestionLimit: 4, onSelect: () => undefined
+    }));
+    expect(partialHtml.match(/class="session-next-step-button"/g)).toHaveLength(1);
+    expect(partialHtml.match(/class="session-next-step-skeleton"/g)).toHaveLength(3);
   });
 
   it('seeds the shared New Research composer from a session suggestion', () => {

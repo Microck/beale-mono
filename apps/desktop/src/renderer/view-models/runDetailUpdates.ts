@@ -71,6 +71,18 @@ export function runDetailUpdateCursor(detail: RunDetail): RunDetailUpdateCursor 
   };
 }
 
+export function runDetailUpdateIdentity(update: RunDetailUpdate): string {
+  const latestTrace = update.traceEvents.at(-1);
+  const eventId = update.projectionCursor
+    ? update.projectionCursor.afterTraceEventId ?? ''
+    : typeof latestTrace?.payload.appServerSessionEventId === 'string'
+      ? latestTrace.payload.appServerSessionEventId
+      : latestTrace?.id ?? '';
+  // A durable revision can span several bounded event pages. The event cursor
+  // must be part of the identity so later pages are not mistaken for repeats.
+  return `${update.version.version}:${eventId}`;
+}
+
 export function mergeRunDetailUpdate(current: RunDetail, update: RunDetailUpdate): RunDetail {
   return {
     run: update.run,

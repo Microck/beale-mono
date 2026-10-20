@@ -220,6 +220,13 @@ export function projectCommentaryTraceEvent(
         : pickRecordValues(nestedPayload, ['agentPath', 'contextUsageEligible'] as const)
       : {};
     if (Object.keys(contextScaffold).length > 0) payload.payload = contextScaffold;
+    if (isSubagentActivityEvent(event)) {
+      const surfaceTrail = projectedSurfaceTrail(event.payload.surfaceTrail ?? nestedPayload?.surfaceTrail);
+      if (surfaceTrail.length > 0) {
+        if (event.payload.type === 'subagent.activity') payload.surfaceTrail = surfaceTrail;
+        else if (recordValue(payload.payload)) (payload.payload as Record<string, unknown>).surfaceTrail = surfaceTrail;
+      }
+    }
   }
 
   if (boundSubagentMessage) boundSubagentActivityMessages(payload);
@@ -236,6 +243,7 @@ function includedInAgentCommentaryProjection(event: TraceEventRecord, agentPath:
     || eventAgentPath === '/root'
     || eventAgentPath === agentPath
     || isSubagentActivityEvent(event)
+    || isSurfaceFocusObservation(event)
     || isCollaboratorUsageTelemetryEvent(event, eventAgentPath);
 }
 
@@ -283,12 +291,15 @@ function projectedSourceCursor(
   sourceCursor?: RunDetailUpdateCursor
 ): RunDetailUpdateCursor {
   const latestTrace = detail.traceEvents.at(-1);
-  const afterTraceEventId = typeof latestTrace?.payload.appServerSessionEventId === 'string'
-    ? latestTrace.payload.appServerSessionEventId
-    : latestTrace?.id ?? sourceCursor?.afterTraceEventId ?? null;
+  const afterTraceEventId = detail.projectionCursor
+    ? detail.projectionCursor.afterTraceEventId ?? null
+    : typeof latestTrace?.payload.appServerSessionEventId === 'string'
+      ? latestTrace.payload.appServerSessionEventId
+      : latestTrace?.id ?? sourceCursor?.afterTraceEventId ?? null;
   return {
-    afterTraceSequence: latestTrace?.sequence ?? sourceCursor?.afterTraceSequence ?? -1,
-    afterTranscriptCount: (sourceCursor?.afterTranscriptCount ?? 0) + detail.transcriptMessages.length,
+    afterTraceSequence: detail.projectionCursor?.afterTraceSequence ?? latestTrace?.sequence ?? sourceCursor?.afterTraceSequence ?? -1,
+    afterTranscriptCount: detail.projectionCursor?.afterTranscriptCount
+      ?? (sourceCursor?.afterTranscriptCount ?? 0) + detail.transcriptMessages.length,
     afterTraceEventId
   };
 }
@@ -313,8 +324,28 @@ function projectToolPayloadScaffold(
       projectedResult.agents = Array.from({ length: Math.min(1_000, result.agents.length) }, () => null);
       scaffold.result = projectedResult;
     }
+    if (toolName === 'surface.focus' && toolPayload.status === 'complete') {
+      const surfaceTrail = projectedSurfaceTrail(result.surfaceTrail);
+      if (surfaceTrail.length > 0) scaffold.result = { surfaceTrail };
+    }
   }
   return scaffold;
+}
+
+function isSurfaceFocusObservation(event: TraceEventRecord): boolean {
+  return event.payload.appServerKind === 'tool.observed'
+    && (event.payload.toolName === 'surface.focus'
+      || recordValue(event.payload.payload)?.toolName === 'surface.focus');
+}
+
+function projectedSurfaceTrail(value: unknown): Array<{ id: string; name: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 64).flatMap((item) => {
+    const record = recordValue(item);
+    const id = stringValue(record?.id);
+    const name = stringValue(record?.name);
+    return id && name ? [{ id: boundedScaffoldText(id), name: boundedScaffoldText(name) }] : [];
+  });
 }
 
 function toolLabelInputKeys(toolName: string): readonly string[] {

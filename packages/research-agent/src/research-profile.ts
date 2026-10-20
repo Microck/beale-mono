@@ -530,8 +530,8 @@ export const DEFAULT_SECURITY_RESEARCH_PROFILE: ResearchProfile = {
       goalSuggestionCount: 4,
       default: true,
       goalSuggestionInstructions: [
-        "Pair a bounded subsystem, component, or attack surface with a plausible bug class or vulnerability family without assuming a flaw exists.",
-        "Keep goals broad and do not make a named hypothesis, verifier, reproduction, impact determination, or source-to-sink path the goal.",
+        "Pair an attacker-controlled entry path or trust boundary with a plausible security weakness or primitive without assuming a flaw exists.",
+        "Keep goals broad enough to map the security surface and its sinks; do not make a named hypothesis, verifier, reproduction, or impact determination the goal.",
       ],
       promptInstructions: [
         "Center the prompt on open-ended vulnerability research in a bounded subsystem or attack surface.",

@@ -52,7 +52,7 @@ export interface AppServerMemorySummaryOptions {
   researchProfile?: ResearchProfileSnapshot | null;
   /** Reserved for an explicit historical catalog audit; normal summaries never include foreign catalogs. */
   includeForeignCatalogs?: boolean;
-  /** Authorized asset identifiers used to expose uncovered campaign territory. */
+  /** Authorized asset identifiers represented as tracked campaign nodes. */
   assetIds?: readonly string[];
 }
 

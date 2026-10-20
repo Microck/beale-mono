@@ -182,7 +182,7 @@ export class ResearchFocusGuard {
         block: true,
         reason: [
           `Durable progress checkpoint required after ${this.activityCallsSinceDurableProgress} evidence-producing activity calls without a canonical research update.`,
-          "Convert the useful result into an existing or new memory, claim, runbook, or report before more execution or session disposition. Search first when needed and update the canonical record instead of duplicating it. Investigation questions, experiments, observations, and next actions summarize history but do not satisfy this execution-progress checkpoint.",
+          "Convert the useful result into an existing or new memory, claim, runbook, or report before more execution or concluding this research. Search first when needed and update the canonical record instead of duplicating it. Investigation questions, experiments, observations, and next actions summarize history but do not satisfy this execution-progress checkpoint.",
         ].join(" "),
       };
     }

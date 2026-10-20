@@ -18,6 +18,13 @@ test('app-server goal suggestions generate, persist, cache, and record selection
   mkdirSync(artifactDirectoryPath, { recursive: true });
   initializeSuggestionFixture(databasePath, workspaceRoot);
   const completions = [];
+  const goals = [
+    'Investigate attacker-controlled request boundaries across the Example service for reusable cross-tenant authorization failures.',
+    'Bind Example service authorization subjects across reconnect transitions to assess unauthorized reuse of a newer session capability.',
+    'Compare Example service cache identities around URL canonicalization for cross-tenant privileged response exposure.',
+    'Trace Example service upload staging and privileged commit for attacker-controlled object replacement.',
+    'Examine Example service webhook signature and dispatch interpretation for unauthorized command effects.'
+  ];
   try {
     const input = {
       workspaceId: 'workspace-test',
@@ -38,38 +45,36 @@ test('app-server goal suggestions generate, persist, cache, and record selection
     const dependencies = {
       completeText: async (options) => {
         completions.push(options);
-        return {
-          text: JSON.stringify({
-            candidates: [
-              candidate('After Auto-Review, map duplicate Content-Length normalization in the Example service request parser to determine which framing reaches the downstream body consumer.', 'request framing differential'),
-              candidate('Bind Example service authorization subjects across reconnect and token refresh transitions to determine whether a stale principal can retain a newer session capability.', 'principal continuity across reconnect'),
-              candidate('Compare Example service cache keys before and after URL canonicalization to identify two request identities that resolve to one privileged response object.', 'cache identity canonicalization'),
-              candidate('Trace Example service upload staging through rename and cancellation to establish whether a validated temporary object can be replaced before privileged commit.', 'staged object replacement'),
-              candidate('Correlate Example service retry identifiers with idempotency records to determine whether one failed mutation can be replayed under another caller context.', 'cross-caller idempotency replay'),
-              candidate('Inspect Example service error serialization for reflected internal object identifiers that can be reused to address another tenant’s asynchronous operation.', 'error-channel object disclosure'),
-              candidate('Follow Example service compression negotiation into decompression allocation accounting to distinguish wire-size limits from expanded-body enforcement.', 'compressed-size accounting'),
-              candidate('Compare Example service webhook signature inputs with the normalized payload consumed by dispatch to isolate an authenticated-content interpretation split.', 'signature consumption differential')
-            ]
-          })
-        };
+        return { text: completions.length === 1 ? JSON.stringify({ goal: goals[0] }) : goals[completions.length - 1] };
       }
     };
 
-    const generated = await generateStoredResearchGoalSuggestions(input, dependencies);
+    let generated;
+    for (let index = 0; index < 4; index += 1) {
+      generated = await generateStoredResearchGoalSuggestions({ ...input, incremental: true }, dependencies);
+      assert.equal(generated.suggestions.length, index + 1);
+    }
     assert.equal(generated.phase, 'discovery');
     assert.equal(generated.suggestions.length, 4);
-    assert.equal(completions.length, 1);
+    assert.equal(completions.length, 4);
     assert.equal(completions[0].provider, 'openai-codex');
     assert.equal(completions[0].model, 'gpt-test');
     assert.equal(completions[0].codexAuthFile, join(root, 'codex-auth.json'));
-    assert.match(completions[0].systemPrompt, /Auto-Review is only a default, not an active setting/);
-    assert.match(completions[0].systemPrompt, /Do not repeat, closely paraphrase/);
+    assert.match(completions[0].systemPrompt, /attacker-controlled entry points, trust boundaries, security-relevant sinks/);
+    assert.match(completions[0].systemPrompt, /A broadly reusable security direction is welcome/);
     assert.ok(generated.suggestions.every((suggestion) => !/Auto-Review/i.test(suggestion)));
     const prompt = JSON.parse(completions[0].prompt);
-    assert.equal(prompt.workspace.id, 'workspace-test');
-    assert.equal(prompt.candidateCount, 8);
-    assert.ok(prompt.grounding.some((item) => item.id === 'resource:asset-test'));
-    assert.ok(prompt.priorSuggestions.some((entry) => entry.suggestion.includes('legacy worker queue')));
+    assert.equal(prompt.workspace.name, 'Test Workspace');
+    assert.ok(prompt.workspace.resources.some((item) => item.id === 'asset-test'));
+    assert.ok(prompt.workspace.excludedResources.some((item) => item.includes('excluded.example.test')));
+    assert.equal(prompt.surfaces[0].name, 'Request parser');
+    assert.deepEqual(prompt.alreadyShown, []);
+    assert.equal(prompt.previousResearch.length, 0);
+    assert.equal(completions[0].maxTokens, 600);
+    assert.equal(completions[1].prompt.includes(goals[0]), true);
+    assert.equal('candidateCount' in prompt, false);
+    assert.equal('priorSuggestions' in prompt, false);
+    assert.equal('agentInstructions' in prompt.workspace, false);
 
     const legacyCache = new DatabaseSync(databasePath);
     legacyCache.prepare('UPDATE research_goal_suggestion_cache SET suggestions_json = ?')
@@ -77,13 +82,13 @@ test('app-server goal suggestions generate, persist, cache, and record selection
     legacyCache.close();
     const cached = await generateStoredResearchGoalSuggestions(input, dependencies);
     assert.deepEqual(cached, generated);
-    assert.equal(completions.length, 1);
+    assert.equal(completions.length, 4);
 
     const database = new DatabaseSync(databasePath);
     const cache = database.prepare('SELECT profile_hash, scope_version_id FROM research_goal_suggestion_cache').get();
     const storedRevision = database.prepare('SELECT context_revision FROM research_goal_suggestion_cache').get();
     database.close();
-    assert.match(storedRevision.context_revision, /^goal-suggestions-v2::/);
+    assert.match(storedRevision.context_revision, /^goal-suggestions-v3::/);
     selectStoredResearchGoalSuggestion({
       workspaceId: 'workspace-test',
       databasePath,
@@ -103,6 +108,11 @@ test('app-server goal suggestions generate, persist, cache, and record selection
     assert.equal(remaining.length, 3);
     assert.ok(!remaining.includes(generated.suggestions[0]));
 
+    const toppedUp = await generateStoredResearchGoalSuggestions({ ...input, incremental: true }, dependencies);
+    assert.equal(toppedUp.suggestions.length, 4);
+    assert.equal(completions.length, 5);
+    assert.equal(toppedUp.suggestions.includes(goals[4]), true);
+
     let refreshPrompt;
     await assert.rejects(
       generateStoredResearchGoalSuggestions(
@@ -116,24 +126,49 @@ test('app-server goal suggestions generate, persist, cache, and record selection
       ),
       /stop after prompt inspection/
     );
-    const selectedPrior = refreshPrompt.priorSuggestions.find(
-      (entry) => entry.suggestion === generated.suggestions[0]
-    );
-    assert.equal(selectedPrior.selectionCount, 1);
-    assert.ok(selectedPrior.selectedAt);
+    assert.deepEqual(refreshPrompt.alreadyShown, []);
+    const changedSurface = new DatabaseSync(databasePath);
+    changedSurface.prepare('UPDATE app_server_surfaces SET updated_at = ? WHERE id = ?')
+      .run('2026-08-26T16:20:00.000Z', 'surface-parser');
+    changedSurface.close();
+    const staleAfterMapping = await generateStoredResearchGoalSuggestions({ ...input, incremental: true }, dependencies);
+    assert.equal(staleAfterMapping.cacheStatus, 'stale');
+    assert.equal(completions.length, 5);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-function candidate(goal, noveltyAxis) {
-  return {
-    goal,
-    groundingRefs: ['resource:asset-test'],
-    rationale: 'The recorded Example service boundary makes this a concrete unresolved trust transition.',
-    noveltyAxis
-  };
-}
+test('single-goal generation retries malformed output and keeps earlier goals if a later slot fails', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'app-server-goal-suggestions-retry-'));
+  const workspaceRoot = join(root, 'workspace');
+  const artifactDirectoryPath = join(root, 'artifacts');
+  const databasePath = join(root, 'memory.sqlite');
+  mkdirSync(workspaceRoot, { recursive: true });
+  mkdirSync(artifactDirectoryPath, { recursive: true });
+  initializeSuggestionFixture(databasePath, workspaceRoot);
+  const input = { workspaceId: 'workspace-test', workspaceRoot, databasePath, artifactDirectoryPath,
+    researchProfileId: 'security-research', memoryEnabled: false, phase: 'discovery', incremental: true,
+    provider: { id: 'openai-codex', smallModel: 'gpt-test' } };
+  let calls = 0;
+  try {
+    const first = await generateStoredResearchGoalSuggestions(input, { completeText: async () => {
+      calls += 1;
+      return { text: calls === 1 ? '{"goal":' : 'Investigate Example service trust boundaries for reusable cross-tenant authorization failures.' };
+    } });
+    assert.equal(calls, 2);
+    assert.equal(first.suggestions.length, 1);
+    await assert.rejects(generateStoredResearchGoalSuggestions(input, { completeText: async () => ({ text: '{"goal":' }) }),
+      /after three attempts/);
+    const resumed = await generateStoredResearchGoalSuggestions(input, { completeText: async () => ({
+      text: 'Map Example service webhook signatures against dispatch inputs for unauthorized command effects.'
+    }) });
+    assert.deepEqual(resumed.suggestions.slice(0, 1), first.suggestions);
+    assert.equal(resumed.suggestions.length, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function initializeSuggestionFixture(databasePath, workspaceRoot) {
   const database = new DatabaseSync(databasePath);
@@ -209,6 +244,14 @@ function initializeSuggestionFixture(databasePath, workspaceRoot) {
       selection_count INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (workspace_id, scope_version_id, profile_hash, phase, suggestion_key)
     );
+    CREATE TABLE app_server_surfaces (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      foundation_json TEXT,
+      updated_at TEXT NOT NULL
+    );
   `);
   const now = '2026-08-25T16:20:00.000Z';
   database.prepare('INSERT INTO workspaces VALUES (?, ?, ?, ?)')
@@ -219,10 +262,16 @@ function initializeSuggestionFixture(databasePath, workspaceRoot) {
     .run('scope-old', 'workspace-test', 0, 'retired', 'Test Workspace', 'Test Owner', 'Old scope', '', now, null, now, 'test');
   database.prepare('INSERT INTO scope_assets VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run('asset-test', 'scope-test', 'in_scope', 'service', 'https://example.test', '{}', 'public', now);
+  database.prepare('INSERT INTO scope_assets VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('asset-excluded', 'scope-test', 'out_of_scope', 'service', 'https://excluded.example.test', '{}', 'public', now);
   database.prepare('INSERT INTO workspace_rules VALUES (?, ?, ?, ?, ?)')
     .run('rule-test', 'workspace-test', 'Stay within the recorded scope.', now, 'test');
   database.prepare('INSERT INTO workspace_research_subjects VALUES (?, ?, ?, ?, ?, ?)')
     .run('workspace-test', 'subject-test', 'Test Subject', 'explicit', now, now);
+  database.prepare('INSERT INTO app_server_surfaces VALUES (?, ?, ?, ?, ?, ?)')
+    .run('surface-parser', 'workspace-test', 'Request parser', 'Lower-trust request boundary.',
+      JSON.stringify({ threatModel: { attackerControl: 'Request bytes.', trustBoundaries: 'Parser to dispatcher.',
+        plausibleImpacts: 'Unauthorized state change.' }, coverage: { openQuestions: ['Can the fallback parser reach dispatch?'] } }), now);
   database.prepare(`INSERT INTO research_goal_suggestion_history VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(
       'workspace-test',

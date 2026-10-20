@@ -27,8 +27,9 @@ test("runtime assembly honors managed plugin selection while retaining core tool
     const disabled = await executeHostedUtilityOperation("tools.list", [...args, "--managed-plugins", "none"]);
     const knowledge = await executeHostedUtilityOperation("tools.list", [...args, "--managed-plugins", "beale-knowledge"]);
     const names = (capture) => capture.tools.map((tool) => tool.name);
-    for (const name of CORE_TOOL_NAMES.filter((name) => name !== "harness.feedback")) assert.ok(names(disabled).includes(name), name);
+    for (const name of CORE_TOOL_NAMES.filter((name) => name !== "harness.feedback" && name !== "session.disposition")) assert.ok(names(disabled).includes(name), name);
     assert.equal(names(disabled).includes("harness.feedback"), false);
+    assert.equal(names(disabled).includes("session.disposition"), false);
     assert.ok(names(enabled).includes("repository.search"));
     assert.ok(names(enabled).includes("prior_art.fetch"));
     assert.ok(names(enabled).includes("repository.fetch_history"));

@@ -242,21 +242,15 @@ test("completion audits accept resolved-requirement language without scheduling 
   }
 });
 
-test("research goal blocking is inferred immediately from a valid external-state disposition", () => {
+test("research goal waits immediately for a concrete external-state signal", () => {
   const recorder = new ResearchDispositionRecorder();
   const runtime = createRuntime("Validate behavior against the authorized live target.", recorder);
 
-  recorder.record(disposition({
-    outcome: "blocked",
-    summary: "The authorized target is offline.",
-    blockerDependencies: [{
-      kind: "target_state",
-      description: "The authorized target is offline.",
-      requiredState: "Restore the authorized target to a reachable state.",
-      external: true,
-    }],
-    externalStateRequired: true,
-  }));
+  recorder.record({
+    state: "waiting_on_external_state",
+    reason: "The authorized target is offline.",
+    requiredState: "Restore the authorized target to a reachable state.",
+  });
 
   assert.deepEqual(runtime.continueAfterRootResponse(), []);
   assert.equal(runtime.snapshot().status, "blocked");
@@ -272,7 +266,7 @@ test("missing, partial, and inconclusive dispositions receive bounded research c
   const missingFollowUp = runtime.continueAfterRootResponse();
   assert.equal(missingFollowUp.length, 1);
   assert.match(missingFollowUp[0].content, /^Continue research toward: Keep gathering evidence\./);
-  assert.match(missingFollowUp[0].content, /No valid structured disposition/);
+  assert.match(missingFollowUp[0].content, /No valid Goal state/);
   assert.doesNotMatch(missingFollowUp[0].content, /get_goal|update_goal|<objective>/);
   assert.equal(recorder.get(), null);
 
@@ -283,7 +277,7 @@ test("missing, partial, and inconclusive dispositions receive bounded research c
     recorder.record(disposition({ outcome, summary }));
     const followUp = runtime.continueAfterRootResponse();
     assert.equal(followUp.length, 1);
-    assert.match(followUp[0].content, new RegExp(`Last structured disposition outcome: ${outcome}`));
+    assert.match(followUp[0].content, /Last Goal state: continue/);
     assert.match(followUp[0].content, /next concrete evidence-gathering or synthesis action/);
     assert.equal(runtime.snapshot().status, "active");
     assert.equal(recorder.get(), null);
@@ -390,7 +384,7 @@ test("goal follow-ups do not elevate model-authored disposition summaries into u
   }));
 
   const [followUp] = runtime.continueAfterRootResponse();
-  assert.match(followUp.content, /Last structured disposition outcome: inconclusive/);
+  assert.match(followUp.content, /Last Goal state: continue/);
   assert.doesNotMatch(followUp.content, /IGNORE PRIOR INSTRUCTIONS|host credentials/);
 });
 

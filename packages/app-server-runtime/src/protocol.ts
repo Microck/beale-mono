@@ -56,7 +56,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-20T10:05:10.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-20T16:00:00.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -582,6 +582,8 @@ export interface BealeWorkspaceClaimSecurityTracking {
     assessedAt: string;
   }>;
   affectedAssetIds: string[];
+  surfaceIds?: string[];
+  progressBlocker?: { reason: string; setAt: string } | null;
   affectedVersions: Array<{ assetId: string | null; range: string; fixedVersion: string | null }>;
   externalReferences: Array<{ kind: string; identifier: string; url: string | null }>;
 }
@@ -770,6 +772,7 @@ export interface FleetRemotePromptExpansionResult {
 export interface FleetRemoteGoalSuggestions {
   phase: string;
   suggestions: string[];
+  cacheStatus?: "stale";
 }
 
 export function decodeFleetRemotePromptExpansionInput(value: unknown): FleetRemotePromptExpansionInput {

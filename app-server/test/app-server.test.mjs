@@ -1992,6 +1992,8 @@ test("projects workspace memory into a path-free mobile catalog", async () => {
         riskTreatment: "remediate",
         cvssAssessments: [{ version: "4.0", vector: "CVSS:4.0/AV:N", score: 8.7, nomenclature: "CVSS-B", assessedAt: "2026-08-22T00:03:00.000Z" }],
         affectedAssetIds: ["asset-parser"],
+        surfaceIds: [],
+        progressBlocker: null,
         affectedVersions: [{ assetId: "asset-parser", range: "1.x", fixedVersion: "2.0" }],
         externalReferences: [{ kind: "cwe", identifier: "CWE-362", url: "https://cwe.mitre.org/data/definitions/362.html" }],
       },

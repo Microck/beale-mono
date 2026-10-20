@@ -82,6 +82,9 @@ test("default prompt uses plain guidance lines and bullets only for feature and 
   ));
   assert.match(prompt, /Scope and authority:\nThe host-supplied workspace context/);
   assert.match(prompt, /Tool routing:\nProfile-recognized material kinds/);
+  assert.match(prompt, /Define child surfaces around distinct attacker-controlled entry paths, trust boundaries, privilege contexts, or security-relevant sinks and effects/);
+  assert.match(prompt, /connect attacker control through reachable transformations and boundaries to a plausible unauthorized effect/);
+  assert.match(prompt, /do not promote them as security findings without evidence of a security consequence/);
   assert.match(prompt, /Use one canonical, evidence-gated research claim ledger[^\n]*\nThe active profile declares/);
 });
 
@@ -125,22 +128,20 @@ test("the default prompt keeps boundary guidance focused on scope and host safeg
   assert.match(boundary, /Never expose host credentials/);
 });
 
-test("goal guidance separates session work, Goal mode, and disposition", () => {
+test("goal guidance adds status signaling only when Goal mode is enabled", () => {
   const options = {
     hasTools: true,
-    hasSessionDispositionTool: true,
     researchProfile: DEFAULT_SECURITY_RESEARCH_PROFILE,
     promptTemplate: "{{boundary}}\n{{session}}\n{{prompt_extensions}}",
   };
   const regular = createResearchSystemPrompt(options);
-  const persistent = createResearchSystemPrompt({ ...options, goalEnabled: true });
+  const persistent = createResearchSystemPrompt({ ...options, goalEnabled: true, hasSessionDispositionTool: true });
 
   assert.match(regular, /Session progress:\nTreat existing records/);
   assert.match(regular, /At evidence checkpoints/);
-  assert.match(regular, /Session disposition:\nBefore the root final response/);
-  assert.doesNotMatch(regular, /Persistent Goal mode:|objective_achieved/);
+  assert.doesNotMatch(regular, /Goal status:|session\.disposition|Persistent Goal mode:/);
   assert.match(persistent, /Persistent Goal mode:\nContinue researching/);
-  assert.ok(persistent.indexOf("Session disposition:") < persistent.indexOf("Persistent Goal mode:"));
+  assert.match(persistent, /Goal status:\nBefore the root final response in Goal mode/);
   assert.doesNotMatch(persistent, /\n{3,}/);
 });
 

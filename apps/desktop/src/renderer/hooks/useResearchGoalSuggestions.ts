@@ -68,9 +68,8 @@ export function useResearchGoalSuggestions(
     if (activeRequestsRef.current.get(request.phase)?.token === request.token) {
       activeRequestsRef.current.delete(request.phase);
     }
-    cache.invalidate(request.key);
     void window.beale.cancelResearchPromptGeneration(request.requestId).catch(() => undefined);
-  }, [cache]);
+  }, []);
 
   const loadSuggestions = useCallback((
     phase: ResearchGoalPhase,
@@ -92,15 +91,12 @@ export function useResearchGoalSuggestions(
     }
 
     const cached = cache.read(key);
-    if (!force && cached.status === 'ready') {
-      updatePhaseState(setRequestStates, phase, { key, loading: false, error: null });
-      return;
-    }
+    const target = topUpTo ?? snapshot?.researchProfile.profile.workflows.find((workflow) => workflow.id === phase)?.goalSuggestionCount ?? 4;
+    const alreadyComplete = !force && cached.status === 'ready' && cached.result.suggestions.length >= target;
 
     const activeRequest = activeRequestsRef.current.get(phase);
     if (!force && activeRequest?.key === key) return;
     if (activeRequest) cancelRequest(activeRequest);
-    if (cached.status === 'loading') cache.invalidate(key);
 
     const request: ActiveSuggestionRequest = {
       key,
@@ -109,34 +105,44 @@ export function useResearchGoalSuggestions(
       token: Symbol(key)
     };
     activeRequestsRef.current.set(phase, request);
-    updatePhaseState(setRequestStates, phase, { key, loading: true, error: null });
+    updatePhaseState(setRequestStates, phase, { key, loading: !alreadyComplete, error: null });
 
-    void cache
-      .load(
-        key,
-        () => window.beale.generateResearchGoalSuggestions({
-          phase,
-          requestId: request.requestId,
-          refresh: force
-        }),
-        { force, topUpTo }
-      )
-      .then((result) => {
+    void (async () => {
+      let refresh = force && topUpTo === undefined;
+      let previousCount = refresh ? 0 : cached.status === 'ready' ? cached.result.suggestions.length : 0;
+      for (let call = 0; call < target + 2; call += 1) {
+        const result = await window.beale.generateResearchGoalSuggestions({
+          phase, requestId: request.requestId, refresh, incremental: true
+        });
+        if (activeRequestsRef.current.get(phase)?.token !== request.token) return;
+        if (refresh) cache.allowPreviouslySelected(key);
+        const visible = cache.publish(key, result);
+        updatePhaseState(setRequestStates, phase, { key, loading: true, error: null });
+        if (result.cacheStatus === 'stale' && !refresh) {
+          refresh = true;
+          previousCount = 0;
+          continue;
+        }
+        if (visible.suggestions.length >= target) return;
+        if (!refresh && result.suggestions.length <= previousCount) {
+          throw new Error('The app-server did not produce another suggestion. Retry to continue loading.');
+        }
+        previousCount = result.suggestions.length;
+        refresh = false;
+      }
+      throw new Error('The suggestion limit was not reached. Retry to continue loading.');
+    })()
+      .then(() => {
         if (activeRequestsRef.current.get(phase)?.token !== request.token) return;
         updatePhaseState(setRequestStates, phase, { key, loading: false, error: null });
-        if (!force && result.cacheStatus === 'stale') {
-          activeRequestsRef.current.delete(phase);
-          loadSuggestionsRef.current(phase, true);
-        }
       })
       .catch((caught: unknown) => {
         if (activeRequestsRef.current.get(phase)?.token !== request.token) return;
         const message = userFacingErrorMessage(caught);
-        const retained = cache.read(key).status === 'ready';
         updatePhaseState(setRequestStates, phase, {
           key,
           loading: false,
-          error: /canceled/i.test(message) || retained ? null : message
+          error: /canceled/i.test(message) ? null : message
         });
       })
       .finally(() => {
@@ -144,7 +150,7 @@ export function useResearchGoalSuggestions(
           activeRequestsRef.current.delete(phase);
         }
       });
-  }, [cache, cancelRequest, enabled, suggestionContextKey]);
+  }, [cache, cancelRequest, enabled, snapshot?.researchProfile.profile.workflows, suggestionContextKey]);
   loadSuggestionsRef.current = loadSuggestions;
 
   useEffect(() => {
@@ -165,7 +171,13 @@ export function useResearchGoalSuggestions(
     for (const request of activeRequestsRef.current.values()) cancelRequest(request);
   }, [cancelRequest]);
 
-  const retry = useCallback((phase: ResearchGoalPhase) => loadSuggestions(phase, true), [loadSuggestions]);
+  const retry = useCallback((phase: ResearchGoalPhase) => {
+    const key = phaseCacheKey(suggestionContextKey, phase);
+    const cached = cache.read(key);
+    const target = snapshot?.researchProfile.profile.workflows.find((workflow) => workflow.id === phase)?.goalSuggestionCount ?? 4;
+    loadSuggestions(phase, true, requestStates[phase]?.error && cached.status === 'ready'
+      && cached.result.suggestions.length < target ? target : undefined);
+  }, [cache, loadSuggestions, requestStates, snapshot?.researchProfile.profile.workflows, suggestionContextKey]);
   const consume = useCallback((phase: ResearchGoalPhase, suggestion: string): void => {
     if (!enabled) return;
     const key = phaseCacheKey(suggestionContextKey, phase);
@@ -200,7 +212,7 @@ export function useResearchGoalSuggestions(
     if (enabled && cached.status === 'ready') suggestions[phase] = cached.result.suggestions;
     const requestState = requestStates[phase] ?? { key: null, loading: false, error: null };
     const stateMatchesKey = requestState.key === key;
-    loading[phase] = enabled && Boolean(key) && cached.status !== 'ready' && stateMatchesKey && requestState.loading;
+    loading[phase] = enabled && Boolean(key) && stateMatchesKey && requestState.loading;
     errors[phase] = enabled && stateMatchesKey ? requestState.error : null;
   }
 

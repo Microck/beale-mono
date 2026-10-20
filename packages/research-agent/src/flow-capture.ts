@@ -90,7 +90,7 @@ export function createResearchAgentFlowCapture(
 ): ResearchAgentFlowCapture {
   const capturedAt = options.capturedAt ?? nowIso();
   const nextPromptSuggestions = result.agentRun.output.nextPromptSuggestions
-    ?? result.finalDisposition.nextPromptSuggestions;
+    ?? result.finalDisposition?.nextPromptSuggestions;
   return {
     schemaVersion: 5,
     capturedAt,

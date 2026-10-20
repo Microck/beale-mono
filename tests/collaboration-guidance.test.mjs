@@ -47,8 +47,8 @@ test("collaboration config preserves validated Advanced compatible roles", () =>
 
   assert.deepEqual(config.providers[0].roles, ["discoverer", "prover"]);
   assert.deepEqual(config.providers[1].roles, ["reviewer"]);
-  assert.match(createCollaborationSystemGuidance(config, "discovery"), /continuous discovery coverage with multiple bounded Discoverer scouts/);
-  assert.match(createCollaborationSystemGuidance(config, "discovery"), /launch a fresh non-duplicative Discoverer assignment/);
+  assert.match(createCollaborationSystemGuidance(config, "discovery"), /Use bounded Discoverer scouts when independent attack-surface work would help/);
+  assert.match(createCollaborationSystemGuidance(config, "discovery"), /first-touch foundation scout is launched by the host/);
   assert.deepEqual(decodeResearchCollaborationConfig({
     ...BASE_CONFIG,
     providers: [{ ...BASE_CONFIG.providers[0], role: "reviewer" }],
@@ -96,7 +96,7 @@ test("discovery-specific collaboration guidance does not leak into other workflo
   assert.doesNotMatch(guidance, /Discovery may benefit/);
 });
 
-test("advanced discovery maintains multiple non-duplicative scouts and replenishes completed coverage", () => {
+test("advanced guidance leaves optional discovery delegation to the agent", () => {
   const advanced = { ...BASE_CONFIG, subagentMode: "advanced" };
   const discovery = createCollaborationSystemGuidance(advanced, "discovery");
   const exploration = createCollaborationSystemGuidance(advanced, "exploration");
@@ -105,10 +105,10 @@ test("advanced discovery maintains multiple non-duplicative scouts and replenish
   const unspecified = createCollaborationSystemGuidance(advanced);
 
   for (const guidance of [discovery, exploration, longshot, customDiscovery, unspecified]) {
-    assert.match(guidance, /continuous discovery coverage with multiple bounded Discoverer scouts/);
-    assert.match(guidance, /every active Discoverer a distinct assignment/);
-    assert.match(guidance, /launch a fresh non-duplicative Discoverer assignment/);
-    assert.doesNotMatch(guidance, /at most one Discoverer|not a vacancy to refill/);
+    assert.match(guidance, /Use bounded Discoverer scouts when independent attack-surface work would help/);
+    assert.match(guidance, /Give each a distinct assignment/);
+    assert.match(guidance, /first-touch foundation scout is launched by the host/);
+    assert.doesNotMatch(guidance, /launch a fresh non-duplicative Discoverer assignment/);
     assert.doesNotMatch(guidance, /continue in the lead plus bounded Prover or Reviewer assignments/);
   }
 });
@@ -146,5 +146,6 @@ test("solo and always collaboration guidance retain their distinct postures", ()
 
   assert.match(always, /throughout every materially separable research stage/);
   assert.doesNotMatch(always, /makes collaboration available, not required/);
-  assert.match(solo, /Do not initiate collaboration unless the user explicitly requests it/);
+  assert.match(solo, /Do not manually initiate collaboration unless the user explicitly requests it/);
+  assert.match(solo, /host may still launch a first-touch foundation scout/);
 });

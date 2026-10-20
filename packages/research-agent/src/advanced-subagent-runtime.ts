@@ -11,7 +11,7 @@ export const ADVANCED_SUBAGENT_ROLES = [
   {
     id: "discoverer",
     label: "Discoverer",
-    instruction: "Act as a bounded discovery scout. Explore the assigned surface without duplicating known coverage, collect tool-backed observations, and return useful leads, coverage gaps, and negative results for durable campaign state without claiming independent reproduction, review, or reporting.",
+    instruction: "Act as a bounded discovery scout. Map attacker-controlled entry paths, trust boundaries, security-relevant sinks, and plausible unauthorized effects on the assigned surface without duplicating known coverage. Return tool-backed security leads, open reachability or chain questions, coverage gaps, and meaningful negative results for durable campaign state. Do not treat ordinary correctness defects as security findings without a supported security consequence or claim independent reproduction, review, or reporting.",
   },
   {
     id: "prover",
@@ -69,6 +69,7 @@ export const advancedSubagentRuntimeFactory: SubagentRuntimeFactory = {
       ...(options.onActivity ? { onActivity: options.onActivity } : {}),
       ...(options.onToolEvent ? { onToolEvent: options.onToolEvent } : {}),
       ...(options.surfaceStore ? { surfaceStore: options.surfaceStore } : {}),
+      ...(options.allowManualDelegation !== undefined ? { allowManualDelegation: options.allowManualDelegation } : {}),
     };
     return new SubagentManager(managerOptions);
   },

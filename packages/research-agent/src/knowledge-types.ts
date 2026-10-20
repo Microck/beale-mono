@@ -199,6 +199,9 @@ export interface FindingSecurityTracking {
   riskDecisions: FindingRiskDecision[];
   cvssAssessments: FindingCvssAssessment[];
   affectedAssetIds: string[];
+  surfaceIds: string[];
+  /** A research obstacle, not a refutation or a change in evidence maturity. */
+  progressBlocker: { reason: string; actorId: string; setAt: string } | null;
   affectedVersions: FindingAffectedVersion[];
   externalReferences: FindingExternalReference[];
 }
@@ -291,7 +294,6 @@ export interface CampaignGraphEdgeSummary {
 }
 
 export type CampaignGapKind =
-  | "unexplored_asset"
   | "unsupported_memory"
   | "unobserved_hypothesis"
   | "missing_reproduction"
@@ -351,7 +353,7 @@ export interface CampaignGraphSummary {
 }
 
 /**
- * Bounded campaign state supplied at session startup. The complete campaign
+ * Bounded campaign state supplied during session recovery. The complete campaign
  * graph remains durable host/UI state and is available through focused tools;
  * it is intentionally not copied into every model context.
  */

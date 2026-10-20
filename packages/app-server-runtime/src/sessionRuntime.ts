@@ -75,6 +75,7 @@ import {
   DEFAULT_SECURITY_RESEARCH_PROFILE,
   DEFAULT_SHELL_REVIEW_MODELS,
   createResearchWorkspaceContext,
+  createModelWorkspaceContext,
   createMcpResearchTools,
   MemoryGraphStore,
   resolveResearchMemoryBackend,
@@ -2276,14 +2277,18 @@ export async function main(
         : {};
 
       hostOptions.markReady?.();
+      const restoringSession = Boolean(args.resumeCapturePath || args.resumeFallbackPrompt || args.resumeFallbackPromptPath);
       const result = await runResearchAgent({
         prompt: effectivePrompt,
         workspaceRoot: args.workspaceRoot,
         workspaceContext: runtimeConfig.workspaceContext,
+        modelWorkspaceContext: createModelWorkspaceContext(runtimeConfig.workspaceContext, { minimal: !restoringSession }),
         agentInstructions,
-        campaignContext: createCampaignModelContext(runtimeConfig.campaignContext),
-        surfaceContext: runtimeConfig.surfaceStore.modelContext(),
-        continuityContext: runtimeConfig.continuityContext,
+        ...(restoringSession ? {
+          campaignContext: createCampaignModelContext(runtimeConfig.campaignContext),
+          surfaceContext: runtimeConfig.surfaceStore.modelContext(),
+          continuityContext: runtimeConfig.continuityContext,
+        } : {}),
         ...inspectionState,
         ...(runtimeConfig.tools.length > 0 ? { tools: runtimeConfig.tools } : {}),
         ...(runtimeConfig.skills.length > 0 ? { skills: runtimeConfig.skills } : {}),
@@ -2303,6 +2308,7 @@ export async function main(
           userPreferences: args.userPreferences,
         },
         executor: agentExecutor,
+        goalEnabled: args.goal,
         finalDispositionProvider: () => dispositionRecorder.get(),
         ...(liveEventSink ? { eventSink: liveEventSink } : {}),
         ...(controlStream ? { signal: controlStream.signal } : {}),
@@ -2462,7 +2468,7 @@ function createRealAgentExecutor(
     ...(toolRegistry ? { toolRegistry } : {}),
     ...(surfaceStore ? { surfaceStore } : {}),
   };
-  const runAlternateSubagent = collaboration && collaboration.mode !== "solo"
+  const runAlternateSubagent = (collaboration && collaboration.mode !== "solo") || surfaceStore
     ? createProviderNeutralSubagentRunner({
         workspaceRoot: args.workspaceRoot,
         resolvedResearchProfile,
@@ -3795,6 +3801,7 @@ function readFleetBrowserTargets(): Record<string, string> {
 
 async function createRuntimeConfig(args: {
   prompt?: string | undefined;
+  goal?: boolean;
   sessionId?: string | undefined;
   inspectRoots: string[];
   inspectPaths: string[];
@@ -3875,9 +3882,11 @@ async function createRuntimeConfig(args: {
   const governance = createCliGovernance(runtimeTools);
   const cleanupCallbacks: (() => Promise<void>)[] = [];
   const dispositionRecorder = new ResearchDispositionRecorder();
-  const dispositionTool = createSessionDispositionTool(dispositionRecorder);
-  executableTools.push(dispositionTool);
-  toolDescriptors.push(dispositionTool.descriptor);
+  if (args.goal) {
+    const dispositionTool = createSessionDispositionTool(dispositionRecorder);
+    executableTools.push(dispositionTool);
+    toolDescriptors.push(dispositionTool.descriptor);
+  }
   if (args.devHarnessFeedback) {
     const feedbackTool = createHarnessFeedbackTool();
     executableTools.push(feedbackTool);
@@ -3958,6 +3967,7 @@ async function createRuntimeConfig(args: {
   const findingTools = memoryActive
     ? createFindingTools(findingStore, {
         classifications: resolvedResearchProfile.profile.claims.classifications.map((classification) => classification.id),
+        surfaceStore,
         ...(args.workspaceReferences ? {
           referenceWorkspaces: args.workspaceReferences.map(({ workspaceId, workspaceName }) => ({ workspaceId, workspaceName })),
         } : {}),

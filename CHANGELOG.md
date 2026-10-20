@@ -6,6 +6,8 @@
 
 #### Added
 
+- Session summaries now show a read-only radial surface-focus map for active agents, with unassigned dots when no focus is recorded. Occupied child surfaces split each ring, agent depth controls dot shade, and dots animate between focused layers.
+- Finding details now show an evidence-maturity-preserving progress blocker and associated surface IDs. The updated Fleet claim projection requires rebuilt Beale and app-server clients.
 - Fleet App Server details show a scannable pairing QR code for the local or a saved app server. Closing the preview clears the image from the view.
 - The sidebar app-server selector shows green, red, or orange connection status dots and has an Add an App Server action that opens the Fleet form. A client-neutral Fleet status read checks remote peers without exposing their credentials. Control contract timestamp updated; rebuild Desktop and app-server together.
 - Local App Server settings now include a Test Connection action with health and compatibility feedback.
@@ -49,6 +51,7 @@
 
 #### Changed
 
+- New Research displays category suggestions as each arrives and retains earlier suggestions if a later one fails. Retry resumes a partial list. The updated Desktop and app-server control contract requires both clients to rebuild.
 - Workspace Research Kit, Targets, and Rules forms now use the same text sizes as the other workspace settings forms.
 - Workspace Resources tiles now use the workspace settings text size, regular-weight names, and smaller status tags.
 - OpenAI Providers now selects one Daybreak mode, Blue or Red. Session requests use the selected mode for the OpenAI API access marker, including requests brokered through a Fleet primary. Existing optional-model choices resolve to Red when Red was enabled or Blue was disabled.
@@ -184,6 +187,7 @@
 
 #### Fixed
 
+- Desktop session commentary continues polling through app-server recovery and drains multiple bounded event pages at one session revision, so live updates resume after a provider transport interruption.
 - Reset to Default in Agent Prompt now rejects an outdated app-server default containing `{{goal}}` and reloads the current template after clearing an override. The updated control contract requires matching rebuilt Desktop and app-server binaries.
 - New Research retries failed or stalled target reads, including when opened from Schedule a Job, before reporting Targets unavailable.
 - New Research loads Local-only targets without waiting for VM inventory and offers a retry when target loading fails or stalls.
@@ -1330,6 +1334,8 @@
 
 #### Added
 
+- The first focus of a surface in a workspace starts a foundation discoverer once. Surface coverage now uses explicit map, sink, question, connection, child-surface, and unblocked-finding criteria; observed or reproduced findings can carry a reversible progress blocker.
+
 - Added an authenticated Fleet pairing QR operation that encodes the app-server’s stored endpoint and token as a PNG. The updated control contract requires rebuilt Desktop and app-server binaries.
 - Connected app servers can fetch read-only workspace runbook and report documents through the versioned control protocol. The remote runbook projection excludes host workspace paths; rebuild Desktop and app-server clients together for the updated contract.
 - Connected app-server catalogs now expose provider availability, and client-neutral operations route research suggestions, prompt expansion, and session launches to the selected host. Repeat schedules persist in canonical session metadata for host-owned reruns.
@@ -1389,6 +1395,11 @@
 
 #### Changed
 
+- Only Goal mode exposes `session.disposition`; its model input is now achieved, continue, or waiting on a concrete external change. Ordinary sessions store their final response without a model-authored disposition, while existing disposition records remain readable.
+- Research goal suggestions now use one short model response per goal, compact security and surface context, and per-goal retries. Generated goals persist incrementally; version 3 caches replace the earlier bulk candidate pool and its strict grounding and similarity filters.
+- Surface mapping guidance and the automatic foundation scout now prioritize attacker paths, trust boundaries, security-relevant sinks, and plausible unauthorized effects; harmless defects do not count as security findings or coverage by themselves.
+- Surface focus results and subagent activity now include a bounded hierarchy trail for live session visualization.
+- Fresh research sessions receive only essential workspace identity and authorization context; campaign, surface, and continuity snapshots remain available during session recovery. Asset coverage is no longer inferred from a single memory record.
 - Goals is now a prompt-only built-in feature. The app-server persists its enablement and prompt edits with the other Optional Features.
 - The app-server registry now stores feature prompt edits and snapshots them into session plugin catalogs. Description-only edits retain default prompt instructions.
 - Native OpenAI research requests now include Daybreak Blue access automatically, including resumed sessions and Fleet brokered completions; older launch flags remain accepted.

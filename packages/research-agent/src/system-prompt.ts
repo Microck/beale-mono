@@ -164,7 +164,7 @@ function buildResearchPromptSections(
       "Use repository.search for literal source discovery in configured repositories. Checkouts live at host-supplied repository or materialized-source paths outside workspaceRoot; select an exact root or unique label in multi-repository workspaces. Do not create a checkout inside the research workspace.",
       "Use workspace.search for workspace files and explicitly advertised same-Subject references. Select the reference workspaceId in both workspace.search and history.search; filter by category, extension, time, and raw or temporary inclusion, then follow nextOffset. Treat partial results as incomplete; keep raw shell searches narrow and bounded.",
       "In schema-v2 workspaces, canonical research records are files; use typed tools for structured reads and mutations. Schema-v1 file projections require an explicit request.",
-      "Surface map: each tracked resource is its root surface. Use surface.list, surface.query, and surface.get to recall the relevant tree; create child surfaces only as useful areas are discovered. Declare focus with surface.focus when entering or moving to another surface. The first touch ever of a surface calls for a bug-history, coverage, and threat-model foundation; record unknowns honestly, then refine it as research develops. Surface tracking helps spot gaps and opportunities; it does not prescribe enumeration or a traversal workflow.",
+      "Security surface map: each tracked resource is its root surface. Use surface.list, surface.query, and surface.get when the task needs the map. Define child surfaces around distinct attacker-controlled entry paths, trust boundaries, privilege contexts, or security-relevant sinks and effects; a code area or ordinary correctness bug alone is not a security surface. For each surface, connect attacker control through reachable transformations and boundaries to a plausible unauthorized effect on an asset. Keep uncertain reachability and possible cross-surface chains explicit. Declare focus with surface.focus when entering or moving to another surface. First touch launches a foundation discoverer automatically; coordinate with it rather than duplicating its work. Surface coverage is established only when the threat-model-defined map and security-relevant sinks are investigated, questions and cross-surface connections are resolved, and no unblocked associated findings remain. Record harmless defects only when they inform a security path or close a hypothesis; do not promote them as security findings without evidence of a security consequence. A progress blocker is not a refutation and can be cleared when new evidence or a chain makes progress possible.",
       ...(profile?.id === "security-research" ? [
         "",
         "Resource first touch:",
@@ -213,8 +213,8 @@ function buildResearchPromptSections(
     `${SECTION_MARKER}goal`,
     ...(options.goalEnabled ? [
       "Persistent Goal mode:",
-      "Continue researching the supplied objective until evidence supports a final disposition. The host handles goal persistence and terminal state.",
-      "Treat the current user request and later user steering as binding completion requirements, even when the persistent goal is broader. Record objective_achieved only when evidence from this session satisfies all of them; record objective_partially_achieved when any requested outcome remains absent, even if an intermediate finding is valuable.",
+      "Continue researching the supplied objective until evidence supports completion or a concrete external dependency blocks progress. The host handles goal persistence and terminal state.",
+      "Treat the current user request and later user steering as binding completion requirements, even when the persistent goal is broader. Choose achieved only when evidence from this session satisfies all of them; choose continue when any requested outcome remains absent and more in-session work is possible.",
     ] : []),
     `${SECTION_MARKER}session`,
     "Session progress:",
@@ -227,8 +227,8 @@ function buildResearchPromptSections(
     ] : []),
     ...(options.hasSessionDispositionTool ? [
       "",
-      "Session disposition:",
-      "Before the root final response, call session.disposition exactly once. Record the evidence-grounded outcome, every unresolved dependency, and whether progress requires external state rather than more work in this session.",
+      "Goal status:",
+      "Before the root final response in Goal mode, call session.disposition once. Choose achieved only when the objective and current request are satisfied; choose continue when more in-session work remains; choose waiting_on_external_state only with a concrete required change that this session cannot make. Explain the result in the final response.",
     ] : []),
     ...(options.hasHarnessFeedbackTool ? [
       "",

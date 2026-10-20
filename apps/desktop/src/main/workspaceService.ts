@@ -1056,8 +1056,8 @@ export class WorkspaceService {
     return invokeAppServerOperation({ operation: 'fleet.remote_prompt_expand', input: { serverId, workspaceId, expansion } });
   }
 
-  public getFleetRemoteResearchGoalSuggestions(serverId: string, workspaceId: string, phase: string, refresh: boolean): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteGoalSuggestions> {
-    return invokeAppServerOperation({ operation: 'fleet.remote_goal_suggestions', input: { serverId, workspaceId, phase, refresh } });
+  public getFleetRemoteResearchGoalSuggestions(serverId: string, workspaceId: string, phase: string, refresh: boolean, incremental = false): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteGoalSuggestions> {
+    return invokeAppServerOperation({ operation: 'fleet.remote_goal_suggestions', input: { serverId, workspaceId, phase, refresh, incremental } });
   }
 
   public controlFleetRemoteSession(serverId: string, sessionId: string, type: 'pause' | 'resume' | 'stop' | 'steer', instruction?: string): Promise<void> {

@@ -49,6 +49,8 @@ import { RunbookView } from './RunbookView';
 import { ReportView } from './ReportView';
 import { BrowserSideView } from './BrowserSideView';
 import { FleetBrowserSideView } from './FleetBrowserSideView';
+import { SurfaceTracking } from './SurfaceTracking';
+import { surfaceTrackingView } from '../../view-models/surfaceTracking';
 import { renderInlineCodeText } from '../traces/traceMarkup';
 
 const EMPTY_SUBAGENT_OVERVIEW = { count: 0, activeCount: 0, completedCount: 0 };
@@ -441,6 +443,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const reportLabel = 'Reports';
   const viewSpaceLabel = researchViewSpaceLabel(viewSpace);
   const summaryEvents: readonly TraceEventRecord[] = events.length > 0 ? events : detail?.traceEvents ?? [];
+  const surfaceTracking = useMemo(
+    () => surfaceTrackingView(detail?.traceEvents ?? [], runStatus),
+    [detail?.traceEvents, runStatus]
+  );
   const sessionMemoryNodes = useMemo(
     () => sessionMemoryCatalogNodes(nodes, runId),
     [nodes, runId]
@@ -897,6 +903,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           <section className="session-summary-section session-summary-metadata" aria-label="Session metadata">
             {detail ? <SessionUsageSummary detail={detail} /> : null}
           </section>
+          <SurfaceTracking charts={surfaceTracking.charts} unassignedAgents={surfaceTracking.unassignedAgents} />
           {hasSessionMetadata && (hasSessionResources || hasSessionMemories) ? <hr className="session-summary-divider" /> : null}
           <section className="session-summary-items session-summary-resources" aria-label="Session resources">
             {featureAvailability.collaboration && subagentOverview.count > 0 ? (
@@ -2510,9 +2517,9 @@ export function CampaignClaimCatalogSection({
             <span className="memory-catalog-item-context">
               <span
                 className={`campaign-claim-context-label campaign-claim-kind campaign-claim-rating-class is-${claim.projection}`}
-                title={`${rating.title}; Maturity: ${traceLabel(claim.maturity)}`}
+                title={`${rating.title}; Maturity: ${traceLabel(claim.maturity)}${claim.securityTracking?.progressBlocker ? '; Progress blocked' : ''}`}
               >
-                {rating.label}, {traceLabel(claim.maturity)}
+                {rating.label}, {traceLabel(claim.maturity)}{claim.securityTracking?.progressBlocker ? ', Blocked' : ''}
               </span>
               <MemoryCatalogAuthors authors={claim.authors} providerModelCatalog={providerModelCatalog} />
             </span>
@@ -2856,6 +2863,9 @@ export function CampaignClaimDetailView({
               {traceLabel(securityTracking.riskTreatment)}
             </ClaimDetailAttribute>
           ) : null}
+          {securityTracking?.progressBlocker ? (
+            <ClaimDetailAttribute title="Progress">Blocked</ClaimDetailAttribute>
+          ) : null}
           {latestCvss ? (
             <ClaimDetailAttribute title="CVSS">
               {latestCvss.score.toFixed(1)} · {latestCvss.nomenclature}
@@ -2876,6 +2886,10 @@ export function CampaignClaimDetailView({
         </dl>
         {claim.componentClaimIds.length > 0 ? <ChipGroup label="Components" values={claim.componentClaimIds} /> : null}
         {securityTracking && securityTracking.affectedAssetIds.length > 0 ? <ChipGroup label="Affected assets" values={securityTracking.affectedAssetIds} /> : null}
+        {securityTracking && securityTracking.surfaceIds.length > 0 ? <ChipGroup label="Surfaces" values={securityTracking.surfaceIds} /> : null}
+        {securityTracking?.progressBlocker ? (
+          <p className="memory-catalog-body"><strong>Progress blocker:</strong> {securityTracking.progressBlocker.reason}</p>
+        ) : null}
         {latestRiskDecision ? (
           <p className="memory-catalog-body">
             <strong>Risk decision:</strong> {latestRiskDecision.rationale}

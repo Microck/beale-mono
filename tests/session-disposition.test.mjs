@@ -7,7 +7,7 @@ import {
   fallbackResearchFinalDisposition,
 } from "../packages/research-agent/dist/index.js";
 
-test("session disposition records one validated structured terminal state", async () => {
+test("Goal status records a minimal external dependency and derives durable disposition fields", async () => {
   const recorder = new ResearchDispositionRecorder();
   const tool = createSessionDispositionTool(recorder);
   const action = {
@@ -15,25 +15,27 @@ test("session disposition records one validated structured terminal state", asyn
     actionClass: "respond",
     toolName: "session.disposition",
     input: {
-      outcome: "blocked",
-      summary: "Live validation requires an authorized second account.",
-      blockerDependencies: [{
-        kind: "credentials",
-        description: "No second test account is available.",
-        requiredState: "Provide an authorized credential reference.",
-        external: true,
-      }],
-      externalStateRequired: true,
+      state: "waiting_on_external_state",
+      reason: "Live validation requires another authorized account.",
+      requiredState: "Provide an authorized second test account.",
     },
   };
 
   assert.equal(tool.descriptor.metadata.requiredBeforeFinalResponse, true);
+  assert.deepEqual(tool.parameters.required, ["state"]);
+  assert.deepEqual(tool.parameters.properties.state.enum, ["achieved", "continue", "waiting_on_external_state"]);
+  assert.equal(tool.parameters.properties.blockerDependencies, undefined);
+  assert.equal(tool.parameters.properties.externalStateRequired, undefined);
   assert.equal(tool.parameters.properties.nextPromptSuggestions, undefined);
   assert.equal(tool.descriptor.sideEffects, "none");
   const result = await tool.execute(action);
   assert.equal(result.status, "complete");
   assert.deepEqual(recorder.get(), {
-    ...action.input,
+    outcome: "blocked",
+    summary: action.input.reason,
+    blockerDependencies: [{ kind: "other", description: action.input.reason,
+      requiredState: action.input.requiredState, external: true }],
+    externalStateRequired: true,
     recordedAt: recorder.get().recordedAt,
   });
 
@@ -50,10 +52,8 @@ test("session disposition can be reset between nonterminal goal turns", async ()
     actionClass: "respond",
     toolName: "session.disposition",
     input: {
-      outcome: "objective_partially_achieved",
-      summary: "The source is verified but the sink is not.",
-      blockerDependencies: [],
-      externalStateRequired: false,
+      state: "continue",
+      reason: "The source is verified but the sink is not.",
     },
   });
   assert.equal(first.status, "complete");
@@ -64,10 +64,8 @@ test("session disposition can be reset between nonterminal goal turns", async ()
     actionClass: "respond",
     toolName: "session.disposition",
     input: {
-      outcome: "objective_achieved",
-      summary: "The complete source-to-sink path is verified.",
-      blockerDependencies: [],
-      externalStateRequired: false,
+      state: "achieved",
+      reason: "The complete source-to-sink path is verified.",
     },
   });
   assert.equal(second.status, "complete");
@@ -87,10 +85,8 @@ test("session disposition cannot bypass a required investigation assignment", as
     actionClass: "respond",
     toolName: "session.disposition",
     input: {
-      outcome: "objective_achieved",
-      summary: "The proof is complete.",
-      blockerDependencies: [],
-      externalStateRequired: false,
+      state: "achieved",
+      reason: "The proof is complete.",
     },
   };
 
@@ -106,6 +102,14 @@ test("session disposition cannot bypass a required investigation assignment", as
 test("session disposition rejects inconsistent external blockers and provides terminal fallbacks", async () => {
   const recorder = new ResearchDispositionRecorder();
   const tool = createSessionDispositionTool(recorder);
+  const missingState = await tool.execute({
+    id: "missing_external_state",
+    actionClass: "respond",
+    toolName: "session.disposition",
+    input: { state: "waiting_on_external_state" },
+  });
+  assert.equal(missingState.status, "error");
+  assert.match(missingState.error.message, /requires requiredState/);
   const result = await tool.execute({
     id: "invalid_disposition",
     actionClass: "respond",

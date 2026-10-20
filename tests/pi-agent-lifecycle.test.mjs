@@ -1444,10 +1444,8 @@ test("Pi Agent restores persisted goal turns across a resumed process", async ()
       },
       models: createScriptedModels([
         assistant(toolCall("session_disposition", {
-          outcome: "objective_achieved",
-          summary: "The final verifier completed the persistent objective.",
-          blockerDependencies: [],
-          externalStateRequired: false,
+          state: "achieved",
+          reason: "The final verifier completed the persistent objective.",
         }, "resume_goal_disposition"), "toolUse"),
         assistant("## Result\nThe persistent objective is verified."),
       ], contexts),
@@ -1504,10 +1502,8 @@ test("Pi Agent reactivates a terminal goal for an explicit resumed invocation", 
       },
       models: createScriptedModels([
         assistant(toolCall("session_disposition", {
-          outcome: "objective_achieved",
-          summary: "The changed target state was checked and the objective is complete again.",
-          blockerDependencies: [],
-          externalStateRequired: false,
+          state: "achieved",
+          reason: "The changed target state was checked and the objective is complete again.",
         }, "reactivated_goal_disposition"), "toolUse"),
         assistant("## Result\nThe changed target state was rechecked."),
       ]),

@@ -684,6 +684,8 @@ export interface AppServerFindingSecurityTracking {
     environmentFingerprint: string | null;
   }>;
   affectedAssetIds: string[];
+  surfaceIds: string[];
+  progressBlocker: { reason: string; actorId?: string; setAt: string } | null;
   affectedVersions: Array<{ assetId: string | null; range: string; fixedVersion: string | null }>;
   externalReferences: Array<{ kind: string; identifier: string; url: string | null }>;
 }
@@ -766,7 +768,6 @@ export interface UndoHistoryDuplicateInput {
 
 export type AppServerCampaignNodeKind = 'memory' | 'lead' | 'finding' | 'runbook' | 'report' | 'asset';
 export type AppServerCampaignGapKind =
-  | 'unexplored_asset'
   | 'unsupported_memory'
   | 'unobserved_hypothesis'
   | 'missing_reproduction'
@@ -1728,6 +1729,8 @@ export interface ResearchGoalSuggestionInput {
   sourceRunId?: string | null;
   /** Bypass a durable workspace suggestion cache while preserving it if refresh fails. */
   refresh?: boolean;
+  /** Generate at most one additional suggestion and return the accumulated list. */
+  incremental?: boolean;
 }
 
 export interface ResearchGoalSuggestionSelectionInput {
@@ -2351,7 +2354,7 @@ export interface BealeApi {
   getFleetRemoteSession(serverId: string, workspaceId: string, sessionId: string, beforeEventId?: string): Promise<unknown>;
   startFleetRemoteSession(serverId: string, workspaceId: string, research: import('@beale/app-server-runtime/protocol').FleetRemoteResearchInput): Promise<{ sessionId: string }>;
   expandFleetRemoteResearchPrompt(serverId: string, workspaceId: string, expansion: import('@beale/app-server-runtime/protocol').FleetRemotePromptExpansionInput): Promise<import('@beale/app-server-runtime/protocol').FleetRemotePromptExpansionResult>;
-  getFleetRemoteResearchGoalSuggestions(serverId: string, workspaceId: string, phase: string, refresh: boolean): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteGoalSuggestions>;
+  getFleetRemoteResearchGoalSuggestions(serverId: string, workspaceId: string, phase: string, refresh: boolean, incremental?: boolean): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteGoalSuggestions>;
   controlFleetRemoteSession(serverId: string, sessionId: string, type: 'pause' | 'resume' | 'stop' | 'steer', instruction?: string): Promise<void>;
   configureFleet(input: Record<string, unknown>): Promise<import('@beale/app-server-runtime/protocol').FleetState>;
   testFleetVmConnection(input: import('@beale/app-server-runtime/protocol').FleetSshTestInput): Promise<import('@beale/app-server-runtime/protocol').FleetSshTestResult>;

@@ -156,7 +156,8 @@ export function createZCodeAgentExecutor(options: CreateZCodeAgentExecutorOption
         }));
 
       const collaboration = options.collaboration;
-      const collaborationManager = options.subagents === false || collaboration?.mode === "solo"
+      const manualDelegation = options.subagents !== false && collaboration?.mode !== "solo";
+      const collaborationManager = options.agentIdentity || (!manualDelegation && !options.surfaceStore)
         ? null
         : createSubagentRuntime({
             rootProvider: "zai",
@@ -165,6 +166,7 @@ export function createZCodeAgentExecutor(options: CreateZCodeAgentExecutorOption
             ...(collaboration ? { collaboration } : {}),
             signal: abortController.signal,
             ...(options.surfaceStore ? { surfaceStore: options.surfaceStore } : {}),
+            allowManualDelegation: manualDelegation,
             run: (request) => {
               if (!options.runAlternateSubagent) throw new Error("No provider-neutral channel collaborator is configured.");
               return options.runAlternateSubagent(request, input);

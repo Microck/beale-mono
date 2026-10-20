@@ -280,6 +280,17 @@ describe('run detail commentary projection', () => {
       afterTranscriptCount: 41,
       afterTraceEventId: 'hidden-child-event'
     });
+
+    update.projectionCursor = {
+      afterTraceSequence: 21,
+      afterTranscriptCount: 41,
+      afterTraceEventId: 'canonical-page-end'
+    };
+    expect(projectRunDetailForRenderer(update, { mode: 'commentary', agentPath: null }, sourceCursor)
+      .projectionCursor?.afterTraceEventId).toBe('canonical-page-end');
+    update.projectionCursor.afterTraceEventId = null;
+    expect(projectRunDetailForRenderer(update, { mode: 'commentary', agentPath: null }, sourceCursor)
+      .projectionCursor?.afterTraceEventId).toBeNull();
   });
 
   it('retains nested subagent lifecycle state for the summary and catalog', () => {
@@ -318,6 +329,39 @@ describe('run detail commentary projection', () => {
       }
     });
     expect(subagentSummaries([projected])[0]?.status).toBe('completed');
+  });
+
+  it('keeps bounded surface locations from child focus and spawn events in the root summary', () => {
+    const surfaceTrail = [
+      { id: 'asset-example', name: 'Example service' },
+      { id: 'surface-parser', name: 'Request parser' }
+    ];
+    const focus = traceEvent('surface-focus', {
+      source: 'executor', type: 'research_event', sequence: 3,
+      payload: { appServerKind: 'tool.observed', toolName: 'surface.focus', agentPath: '/root/discoverer',
+        payload: { toolName: 'surface.focus', status: 'complete', result: {
+          surfaceTrail, foundation: { privateBody: 'hidden' }
+        } } }
+    });
+    const spawn = traceEvent('surface-spawn', {
+      source: 'system', type: 'model_message', sequence: 2,
+      payload: { type: 'subagent.activity', action: 'spawned', agentPath: '/root/discoverer',
+        surfaceTrail, privateDiagnostic: 'hidden' }
+    });
+    const unrelated = traceEvent('child-file-read', {
+      source: 'executor', type: 'research_event', sequence: 4,
+      payload: { appServerKind: 'tool.observed', toolName: 'file.read', agentPath: '/root/discoverer',
+        payload: { toolName: 'file.read', status: 'complete', result: { text: 'hidden file body' } } }
+    });
+    const projected = projectRunDetailForRenderer(runDetail({ traceEvents: [spawn, focus, unrelated] }),
+      { mode: 'commentary', agentPath: null });
+    expect(projected.traceEvents.map((event) => event.id)).toEqual(['surface-spawn', 'surface-focus']);
+    expect(projected.traceEvents[0]?.payload.surfaceTrail).toEqual(surfaceTrail);
+    expect(projected.traceEvents[1]?.payload.payload).toMatchObject({
+      toolName: 'surface.focus', status: 'complete', result: { surfaceTrail }
+    });
+    expect(JSON.stringify(projected.traceEvents)).not.toContain('privateBody');
+    expect(JSON.stringify(projected.traceEvents)).not.toContain('privateDiagnostic');
   });
 
   it('defers tool input/output until the paired records are requested', () => {

@@ -7,9 +7,29 @@ import test from "node:test";
 import {
   createDeterministicAgentExecutor,
   createResearchAgentFlowCapture,
+  createModelWorkspaceContext,
   discoverResearchAgentInstructions,
   runResearchAgent,
 } from "../packages/research-agent/dist/index.js";
+
+test("minimal live workspace context retains authorization and identity without inventory summaries", () => {
+  const context = {
+    workspaceRoot: "/synthetic/beale-example",
+    authorization: { recorded: true },
+    memoryContext: { workspaceId: "workspace-example", workspaceName: "Example workspace",
+      subjectId: "subject-example", subjectName: "Example subject" },
+    knownRepositories: [{ rootPath: "/synthetic/example-source" }],
+    materializedSourcePaths: ["/synthetic/example-source"],
+    projectNotes: ["Synthetic research note"],
+  };
+  const minimal = createModelWorkspaceContext(context, { minimal: true });
+  assert.equal(minimal.authorization.recorded, true);
+  assert.equal(minimal.memory.workspace.id, "workspace-example");
+  assert.equal("knownRepositories" in minimal, false);
+  assert.equal("materializedSourcePaths" in minimal, false);
+  assert.equal("projectNotes" in minimal, false);
+  assert.equal(createModelWorkspaceContext(context).projectNotes.length, 1);
+});
 
 test("AGENTS discovery layers global and project guidance in precedence order", () => {
   const fixture = instructionFixture();

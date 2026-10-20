@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   ResearchDispositionRecorder,
+  createDeterministicAgentExecutor,
   createPiAgentExecutor,
   createResearchAgentFlowCapture,
   createResearchToolRegistry,
@@ -32,6 +33,15 @@ const FAUX_MODEL = {
   maxTokens: 4096,
 };
 
+test("ordinary sessions finish without a model-authored Goal disposition", async () => {
+  const result = await runResearchAgent({
+    prompt: "Inspect the synthetic authorization boundary.",
+    executor: createDeterministicAgentExecutor(),
+  });
+  assert.equal(result.finalDisposition, null);
+  assert.equal(createResearchAgentFlowCapture(result).agent.finalDisposition, null);
+});
+
 test("goal mode continues one Pi session and keeps session disposition after research budget exhaustion", async () => {
   const objective = "Verify the authorization boundary.";
   const researchPrompt = "Review every relevant entry point and verify the complete authorization-boundary exploit chain with reproducible evidence.";
@@ -43,27 +53,21 @@ test("goal mode continues one Pi session and keeps session disposition after res
   const messages = [
     assistant(toolCall("fixture_inspect", { path: "auth.c" }, "inspect_1"), "toolUse"),
     assistant(toolCall("session_disposition", {
-      outcome: "objective_partially_achieved",
-      summary: "The entry point is verified; the final sink still needs proof.",
-      blockerDependencies: [],
-      externalStateRequired: false,
+      state: "continue",
+      reason: "The entry point is verified; the final sink still needs proof.",
     }, "disposition_1"), "toolUse"),
     assistant("The entry point is verified, and I will continue to the sink."),
     assistant([
       toolCall("session_disposition", {
-        outcome: "objective_achieved",
-        summary: "The complete source-to-sink exploit chain is reproduced and verified.",
-        blockerDependencies: [],
-        externalStateRequired: false,
+        state: "achieved",
+        reason: "The complete source-to-sink exploit chain is reproduced and verified.",
       }, "disposition_2"),
     ], "toolUse"),
     assistant("The complete authorization-boundary exploit chain is verified."),
     assistant([
       toolCall("session_disposition", {
-        outcome: "objective_achieved",
-        summary: "The completion audit confirms the detailed request and persistent objective are both satisfied.",
-        blockerDependencies: [],
-        externalStateRequired: false,
+        state: "achieved",
+        reason: "The completion audit confirms the detailed request and persistent objective are both satisfied.",
       }, "disposition_3"),
     ], "toolUse"),
     assistant("The audited authorization-boundary exploit chain is verified."),
@@ -71,6 +75,7 @@ test("goal mode continues one Pi session and keeps session disposition after res
 
   const result = await runResearchAgent({
     prompt: researchPrompt,
+    goalEnabled: true,
     tools: [inspectTool.descriptor, dispositionTool.descriptor],
     governance: {
       allowedActionClasses: ["inspect"],

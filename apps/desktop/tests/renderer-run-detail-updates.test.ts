@@ -5,6 +5,7 @@ import {
   mergeRunHistoryPage,
   runDetailMetricDetail,
   runDetailUpdateCursor,
+  runDetailUpdateIdentity,
   runDetailUpdateMetricDetail,
   selectRunId,
   shortMetricId,
@@ -42,6 +43,16 @@ describe('renderer run detail update view model', () => {
     expect(runDetailUpdateMetricDetail(update)).toMatchObject({ run: 'run_test', traceEvents: 1, transcripts: 1, versionDatabaseMs: 4.5 });
     expect(snapshotMetricDetail(snapshot(['run_one']))).toMatchObject({ active: true, runs: 1 });
     expect(shortMetricId('run_1234567890abcdef')).toBe('run_12...cdef');
+  });
+
+  it('treats later event pages at the same session revision as new updates', () => {
+    const first = runDetailUpdate({ traceEvents: [traceEvent({ id: 'trace_first', sequence: 1 })] });
+    const second = runDetailUpdate({ traceEvents: [traceEvent({ id: 'trace_second', sequence: 2 })] });
+    second.version = first.version;
+    first.projectionCursor = { afterTraceSequence: 1, afterTranscriptCount: 0, afterTraceEventId: 'event_first' };
+    second.projectionCursor = { afterTraceSequence: 2, afterTranscriptCount: 0, afterTraceEventId: 'event_second' };
+    expect(runDetailUpdateIdentity(first)).not.toBe(runDetailUpdateIdentity(second));
+    expect(runDetailUpdateIdentity({ ...second, traceEvents: [] })).toBe(runDetailUpdateIdentity(second));
   });
 
   it('merges incremental trace and transcript rows by id and stable order', () => {
