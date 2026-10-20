@@ -263,8 +263,8 @@ const api: BealeApi = {
   getAgentPlugins(): Promise<AgentPluginRegistryState> {
     return ipcRenderer.invoke(IPC_CHANNELS.getAgentPlugins);
   },
-  getFleetState(): Promise<FleetState> {
-    return ipcRenderer.invoke(IPC_CHANNELS.getFleetState);
+  getFleetState(workspaceId?: string): Promise<FleetState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFleetState, workspaceId);
   },
   getFleetAppServerStatuses(): Promise<import('@beale/app-server-runtime/protocol').FleetAppServerStatus[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.getFleetAppServerStatuses);

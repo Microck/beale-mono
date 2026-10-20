@@ -2333,7 +2333,7 @@ export interface BealeApi {
   resetPromptTemplate(profileId: ResearchProfileId): Promise<void>;
   previewPromptTemplate(profileId: ResearchProfileId, template: string, agentPath?: string): Promise<string>;
   getAgentPlugins(): Promise<AgentPluginRegistryState>;
-  getFleetState(): Promise<import('@beale/app-server-runtime/protocol').FleetState>;
+  getFleetState(workspaceId?: string): Promise<import('@beale/app-server-runtime/protocol').FleetState>;
   getFleetAppServerStatuses(): Promise<import('@beale/app-server-runtime/protocol').FleetAppServerStatus[]>;
   getBrowserHomePage(): Promise<string>;
   restartLocalAppServer(): Promise<void>;

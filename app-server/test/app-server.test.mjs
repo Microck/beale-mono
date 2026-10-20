@@ -1462,6 +1462,20 @@ test("workspace details use the owning app-server state and configured targets",
   assert.equal(JSON.stringify(details).includes(directory), false);
 });
 
+test('Fleet state operations use workspace-scoped discovery when requested', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-fleet-state-example-'));
+  temporaryDirectories.push(directory);
+  const host = new AppServerHostService({ registry: hostRegistryFixture(directory) });
+  const calls = [];
+  const scoped = { workspaceTargets: { 'workspace-test': ['local'] } };
+  const global = { workspaceTargets: {} };
+  host.fleet.stateForWorkspace = async (workspaceId) => { calls.push(workspaceId); return scoped; };
+  host.fleet.state = async () => global;
+  assert.equal(await host.executeOperation({ operation: 'fleet.state', input: { workspaceId: 'workspace-test' } }), scoped);
+  assert.equal(await host.executeOperation({ operation: 'fleet.state' }), global);
+  assert.deepEqual(calls, ['workspace-test']);
+});
+
 test("resolves workspace identity and host policy from the shared Beale registry", () => {
   const directory = mkdtempSync(join(tmpdir(), "beale-app-server-registry-"));
   temporaryDirectories.push(directory);
@@ -1941,7 +1955,7 @@ test('app-server prepares and releases every VM in one selected-target session',
     },
   });
   const vmTargets = ['vm:run:tart:example-one', 'vm:run:tart:example-two'];
-  service.fleet.state = async () => ({ enabled: true,
+  service.fleet.stateForWorkspace = async () => ({ enabled: true,
     workspaceTargets: { 'workspace-test': ['local', ...vmTargets] }, browsers: [], machines: [] });
   const preparedIds = [];
   const releasedIds = [];

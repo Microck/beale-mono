@@ -384,6 +384,7 @@ export function ResearchSettingsForm({
   const selectedMachineIdsRef = useRef(selectedMachineIds);
   const [fleetState, setFleetState] = useState<FleetState | null>(null);
   const [fleetError, setFleetError] = useState<string | null>(null);
+  const [fleetLoadAttempt, setFleetLoadAttempt] = useState(0);
   const [startingRun, setStartingRun] = useState(false);
   const [editorStage, setEditorStage] = useState<PromptEditorStage>(initialInput || initialGoal?.promptMarkdown ? 'prompt' : 'goal');
   const [generateEnabled, setGenerateEnabled] = useState(false);
@@ -577,6 +578,8 @@ export function ResearchSettingsForm({
   useEffect(() => {
     if (!fleetWorkspaceId || remoteTargetChoices) return;
     let active = true;
+    setFleetState(null);
+    setFleetError(null);
     const updateFleet = (state: FleetState): void => {
       if (!active) return;
       setFleetState(state);
@@ -592,11 +595,14 @@ export function ResearchSettingsForm({
         return next;
       });
     };
-    void window.beale.getFleetState().then(updateFleet).catch((caught: unknown) => {
+    const timeout = window.setTimeout(() => {
+      if (active) setFleetError('Target loading is taking too long. Retry to check this workspace again.');
+    }, 20_000);
+    void window.beale.getFleetState(fleetWorkspaceId).then(updateFleet).catch((caught: unknown) => {
       if (active) setFleetError(userFacingErrorMessage(caught));
-    });
-    return () => { active = false; };
-  }, [fleetWorkspaceId, formIdentity, initialInput?.machineId, Boolean(remoteTargetChoices)]);
+    }).finally(() => window.clearTimeout(timeout));
+    return () => { active = false; window.clearTimeout(timeout); };
+  }, [fleetWorkspaceId, formIdentity, initialInput?.machineId, Boolean(remoteTargetChoices), fleetLoadAttempt]);
 
   const remoteTargetKey = remoteTargetChoices?.map((target) => `${target.id}:${target.ready}`).join('|');
   useEffect(() => {
@@ -1052,7 +1058,7 @@ export function ResearchSettingsForm({
                   <span>{appServerName}</span>
                 </span>
                 <ArrowRight className="new-research-target-arrow" size={13} aria-hidden="true" />
-                {fleetWorkspaceId ? <MachinePicker targets={remoteTargetChoices ?? (fleetState ? allowedFleetTargets(fleetState, fleetWorkspaceId) : null)} values={selectedMachineIds} disabled={generatingPrompt} error={fleetError} onChange={selectMachine} /> : <span>No target</span>}
+                {fleetWorkspaceId ? <MachinePicker targets={remoteTargetChoices ?? (fleetState ? allowedFleetTargets(fleetState, fleetWorkspaceId) : null)} values={selectedMachineIds} disabled={generatingPrompt} error={fleetError} onChange={selectMachine} onRetry={() => setFleetLoadAttempt((attempt) => attempt + 1)} /> : <span>No target</span>}
               </div>
               <div className="new-research-options-tray-right">
                 <NewResearchSettingsMenu
@@ -1161,7 +1167,7 @@ export function ResearchSettingsForm({
                   <span>Add Context</span>
                 </label>
               ) : null}
-              {fleetWorkspaceId ? <MachinePicker targets={remoteTargetChoices ?? (fleetState ? allowedFleetTargets(fleetState, fleetWorkspaceId) : null)} values={selectedMachineIds} disabled={generatingPrompt} error={fleetError} onChange={selectMachine} /> : null}
+              {fleetWorkspaceId ? <MachinePicker targets={remoteTargetChoices ?? (fleetState ? allowedFleetTargets(fleetState, fleetWorkspaceId) : null)} values={selectedMachineIds} disabled={generatingPrompt} error={fleetError} onChange={selectMachine} onRetry={() => setFleetLoadAttempt((attempt) => attempt + 1)} /> : null}
             </div>
             {vmRepeatConflict ? <div role="alert">Repeating sessions are available on Local only. Choose No repeat to use this VM.</div> : null}
           </section>
@@ -1799,18 +1805,20 @@ export function toggleResearchTargetSelection(selected: readonly string[], targe
     : selected.length < 16 ? [...selected, targetId] : [...selected];
 }
 
-function MachinePicker({ targets, values, disabled, error, onChange }: {
+function MachinePicker({ targets, values, disabled, error, onChange, onRetry }: {
   targets: FleetTargetChoice[] | null;
   values: readonly string[];
   disabled: boolean;
   error: string | null;
   onChange: (machineId: string) => void;
+  onRetry: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const selected = values.map((id) => targets?.find((target) => target.id === id)).filter((target) => target !== undefined);
   const ready = selected.length > 0 && selected.length === values.length && selected.every((target) => target.ready);
-  const label = !targets ? 'Loading…' : newResearchTargetSummary(selected.map((target) => target.name));
+  const retry = !targets && Boolean(error);
+  const label = !targets ? error ? 'Targets unavailable' : 'Loading…' : newResearchTargetSummary(selected.map((target) => target.name));
 
   useEffect(() => {
     if (!open) return undefined;
@@ -1835,11 +1843,13 @@ function MachinePicker({ targets, values, disabled, error, onChange }: {
   };
 
   return <div className={`new-research-machine-picker${open ? ' is-open' : ''}`} ref={pickerRef}>
-    <button type="button" className="new-research-machine-trigger" title={error ?? 'Choose workspace targets for this research session.'}
-      aria-label={`Research targets: ${label}${ready ? ', ready' : ', not ready'}`} aria-haspopup="dialog" aria-expanded={open}
-      disabled={disabled || !targets || targets.length === 0} onClick={() => setOpen((current) => !current)}>
+    <button type="button" className="new-research-machine-trigger" title={error ? `${error} Click to retry.` : 'Choose workspace targets for this research session.'}
+      aria-label={retry ? 'Retry loading research targets' : `Research targets: ${label}${ready ? ', ready' : ', not ready'}`}
+      aria-haspopup={retry ? undefined : 'dialog'} aria-expanded={retry ? undefined : open}
+      disabled={disabled || (!targets && !retry) || targets?.length === 0}
+      onClick={() => retry ? onRetry() : setOpen((current) => !current)}>
       <span className={`new-research-machine-status${ready ? ' is-ready' : ' is-unready'}`} aria-hidden="true" />
-      <strong>{label}</strong><ChevronDown size={13} aria-hidden="true" />
+      <strong>{label}</strong>{retry ? <RefreshCw size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
     </button>
     {open ? <div className="new-research-machine-menu" role="dialog" aria-label="Research targets">
       {targets?.map((target) => <label className={`new-research-machine-option${values.includes(target.id) ? ' is-selected' : ''}`}

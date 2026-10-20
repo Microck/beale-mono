@@ -172,6 +172,7 @@
 
 #### Fixed
 
+- New Research loads Local-only targets without waiting for VM inventory and offers a retry when target loading fails or stalls.
 - Archive settings now load closed Quick Chats through a registered Desktop IPC handler.
 - The Desktop update prompt now keeps a dismissal for the current app-server contract and makes only one restart attempt per Desktop build. If the same build returns, it asks for an updated installation instead of repeating the restart prompt.
 - Workspace Campaign loading now settles after the background summary completes, with renderer refresh if its update notification is missed; older open responses cannot restore the loading state.
@@ -1349,6 +1350,7 @@
 
 #### Fixed
 
+- Workspace-scoped Fleet reads and Local target selection no longer wait for VM discovery when the workspace has no VM targets.
 - OpenAI subscription limits now resolve the installed Codex Desktop executable on Windows when it is absent from the app-server PATH.
 - xAI subscription limits now show 0% used when its billing response omits the zero-valued usage field but reports a current weekly or monthly period. The billing probe sends the Grok CLI OAuth routing header.
 - Unanswered Auto-Review shell overrides now expire after five minutes, deny the command, and release the waiting agent so collaboration can continue.

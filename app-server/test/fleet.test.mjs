@@ -6,6 +6,30 @@ import test from 'node:test';
 import { APP_SERVER_PROTOCOL_VERSION, APP_SERVER_SESSION_LAUNCH_VERSION, BEALE_APP_SERVER_CAPABILITIES, BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION } from '@beale/app-server-runtime/protocol';
 import { FleetService, assertCompatibleRemoteAppServerDescriptor, probeFleetAppServerStatus } from '../dist/fleet.js';
 
+test('workspace-scoped Fleet state skips VM discovery for Local-only targets', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'beale-fleet-targets-example-'));
+  const path = join(root, 'fleet.json');
+  const commands = [];
+  const fleet = new FleetService(path, 'darwin', {
+    async run(command, args) { commands.push([command, ...args]); return '[]'; },
+    launch() {},
+  });
+  try {
+    const local = await fleet.stateForWorkspace('workspace-example');
+    assert.deepEqual(local.workspaceTargets, {});
+    assert.deepEqual(local.machines, []);
+    assert.deepEqual(commands, []);
+    await fleet.configure({ action: 'select-machine', workspaceId: 'workspace-example', machineId: 'local' });
+    assert.deepEqual(commands, []);
+
+    const config = JSON.parse(readFileSync(path, 'utf8'));
+    config.workspaceTargets['workspace-example'] = ['vm:run:tart:example-vm'];
+    writeFileSync(path, JSON.stringify(config));
+    await fleet.stateForWorkspace('workspace-example');
+    assert.deepEqual(commands, [['tart', 'list', '--source', 'local', '--format', 'json']]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('Fleet saves a validated browser home page and restores the default for older configurations', async () => {
   const root = mkdtempSync(join(tmpdir(), 'beale-browser-settings-'));
   const path = join(root, 'fleet.json');

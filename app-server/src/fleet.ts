@@ -117,6 +117,15 @@ export class FleetService {
     }
   }
 
+  public async stateForWorkspace(workspaceId: string): Promise<FleetState> {
+    validWorkspaceId(workspaceId);
+    const config = this.read();
+    const targets = config.workspaceTargets[workspaceId] ?? ['local', 'browser:in-agent'];
+    return config.enabled && targets.some((target) => target.startsWith('vm:'))
+      ? this.state()
+      : this.project(config, [], false, null);
+  }
+
   public async configure(input: Record<string, unknown>): Promise<FleetState> {
     return this.exclusive(() => this.configureUnlocked(input));
   }
@@ -153,7 +162,7 @@ export class FleetService {
     } else if (action === 'select-machine') {
       const workspaceId = validWorkspaceId(input.workspaceId);
       const machineId = requiredText(input.machineId, 'Target ID');
-      const state = await this.state();
+      const state = await this.stateForWorkspace(workspaceId);
       const selectable = (machineId === 'local' || state.enabled)
         && (config.workspaceTargets[workspaceId] ?? ['local', 'browser:in-agent']).includes(machineId)
         && (machineId === 'local'
@@ -243,7 +252,9 @@ export class FleetService {
       throw new Error('Unsupported Fleet configuration action.');
     }
     this.write(config);
-    return this.state();
+    return action === 'select-machine'
+      ? this.stateForWorkspace(validWorkspaceId(input.workspaceId))
+      : this.state();
   }
 
   public machineId(): string { return this.read().machineId; }

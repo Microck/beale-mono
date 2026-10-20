@@ -986,8 +986,9 @@ export class WorkspaceService {
     return state;
   }
 
-  public getFleetState(): Promise<FleetState> {
-    return invokeAppServerOperation<FleetState>({ operation: 'fleet.state' });
+  public getFleetState(workspaceId?: string): Promise<FleetState> {
+    return invokeAppServerOperation<FleetState>({ operation: 'fleet.state',
+      ...(workspaceId ? { input: { workspaceId } } : {}) });
   }
 
   public getBrowserHomePage(): Promise<string> {

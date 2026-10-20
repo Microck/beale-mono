@@ -310,7 +310,8 @@ export class AppServerHostService {
   }): Promise<unknown> {
     if (request.operation.startsWith('fleet.')) {
       const input = isRecord(request.input) ? request.input : {};
-      if (request.operation === 'fleet.state') return this.fleet.state();
+      if (request.operation === 'fleet.state') return input.workspaceId === undefined
+        ? this.fleet.state() : this.fleet.stateForWorkspace(nonEmpty(input.workspaceId) ?? '');
       if (request.operation === 'fleet.browser_home_page') return this.fleet.browserHomePage();
       if (request.operation === 'fleet.remote_machines') return this.fleet.remoteMachines();
       if (request.operation === 'fleet.app_server_statuses') return this.fleet.appServerStatuses();
@@ -683,7 +684,7 @@ export class AppServerHostService {
     const targetId = request.launch.machineId ?? 'local';
     const selectedTargetIds = request.launch.targetIds ?? [targetId];
     if (request.launch.mode !== 'quick-chat' && !request.launch.continuation) {
-      const state = await this.fleet.state();
+      const state = await this.fleet.stateForWorkspace(workspace.workspaceId);
       const allowed = state.workspaceTargets[workspace.workspaceId] ?? ['local', 'browser:in-agent'];
       for (const selectedId of selectedTargetIds) {
         if (!allowed.includes(selectedId) && !(selectedId === 'local' && allowed.includes('browser:in-agent'))) {

@@ -768,7 +768,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.resetPromptTemplate, (_event, profileId: ResearchProfileId) => workspaceService.resetPromptTemplate(profileId));
   ipcMain.handle(IPC_CHANNELS.previewPromptTemplate, (_event, profileId: ResearchProfileId, template: string, agentPath?: string) => workspaceService.previewPromptTemplate(profileId, template, agentPath));
   ipcMain.handle(IPC_CHANNELS.getAgentPlugins, () => workspaceService.getAgentPlugins());
-  ipcMain.handle(IPC_CHANNELS.getFleetState, () => workspaceService.getFleetState());
+  ipcMain.handle(IPC_CHANNELS.getFleetState, (_event, workspaceId?: string) => workspaceService.getFleetState(workspaceId));
   ipcMain.handle(IPC_CHANNELS.getFleetAppServerStatuses, async () => {
     const local = await inspectLocalAppServerStatus();
     if (local.state !== 'online') return [local];
