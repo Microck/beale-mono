@@ -374,7 +374,7 @@ test("Daybreak Blue request access applies only to native OpenAI provider models
     { api: "openai-responses", provider: "openai", contextWindow: 400_000 },
   ]) {
     assert.deepEqual(
-      applyOpenAiDaybreakBlue(payload, model, true),
+      applyOpenAiDaybreakBlue(payload, model),
       { ...payload, access_programs: { cyber: "daybreak_blue" } },
     );
   }
@@ -383,7 +383,7 @@ test("Daybreak Blue request access applies only to native OpenAI provider models
     { api: "openai-responses", provider: "xai", contextWindow: 400_000 },
     { api: "anthropic-messages", provider: "anthropic", contextWindow: 400_000 },
   ]) {
-    assert.equal(applyOpenAiDaybreakBlue(payload, model, true), payload);
+    assert.equal(applyOpenAiDaybreakBlue(payload, model), payload);
   }
 });
 
@@ -395,7 +395,6 @@ test("Pi Agent never attaches Daybreak Blue to an OpenRouter stream", async () =
     executor: createPiAgentExecutor({
       provider: model.provider,
       model: model.id,
-      daybreakBlue: true,
       models: {
         getModel() {
           return model;
@@ -427,7 +426,6 @@ test("Pi Agent applies OpenAI Fast mode to Lead-model request payloads", async (
       provider: model.provider,
       model: model.id,
       fastMode: true,
-      daybreakBlue: true,
       models: {
         getModel() {
           return model;
@@ -454,7 +452,7 @@ test("Pi Agent applies OpenAI Fast mode to Lead-model request payloads", async (
   );
 });
 
-test("Pi Agent applies a selected Daybreak Blue access program to the chosen OpenAI model", async () => {
+test("Pi Agent applies Daybreak Blue to OpenAI even when saved settings disable it", async () => {
   const model = {
     ...FAUX_MODEL,
     id: "gpt-6-sol",
@@ -475,7 +473,7 @@ test("Pi Agent applies a selected Daybreak Blue access program to the chosen Ope
         provider: model.provider,
         model: model.id,
         reasoningEffort: "high",
-        daybreakBlue: true,
+        daybreakBlue: false,
       }),
       models: {
         getModel() {

@@ -362,7 +362,7 @@ function QuickChatCard({
           promptMarkdown: instruction,
           provider: { id: modelSelection.provider, model: modelSelection.model,
             reasoningEffort: modelSelection.reasoningEffort, fastMode: modelSelection.fastMode === true,
-            ...(modelSelection.provider === 'openai-codex' ? { daybreakBlue: modelSelection.daybreakBlue === true } : {}) }
+            ...(modelSelection.provider === 'openai-codex' ? { daybreakBlue: true } : {}) }
         });
         if (closedRef.current) {
           void window.beale.controlFleetRemoteSession(remote.serverId, result.sessionId, 'stop').catch(() => undefined);

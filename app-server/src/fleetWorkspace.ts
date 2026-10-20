@@ -21,7 +21,7 @@ export interface FleetTransferBaseline {
   remoteMachineId?: string;
   remoteCompleted?: boolean;
   completedResult?: { imported: number; conflicts: number; candidateRecords: number };
-  brokerPolicy?: { providerIds: string[]; fastMode: boolean; daybreakBlue: boolean };
+  brokerPolicy?: { providerIds: string[]; fastMode: boolean };
   files: Record<string, string>;
 }
 

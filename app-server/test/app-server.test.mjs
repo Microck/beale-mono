@@ -1993,7 +1993,7 @@ test("app-server preserves launch options through restart metadata and runtime a
     model: "gpt-5.6-sol",
     reasoningEffort: "high",
     fastMode: true,
-    daybreakBlue: true,
+    daybreakBlue: false,
   };
   request.launch.devHarnessFeedback = true;
 

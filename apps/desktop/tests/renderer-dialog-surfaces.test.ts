@@ -32,18 +32,16 @@ describe('renderer dialog surfaces', () => {
       modelOptions: [{ value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' }],
       effortOptions: [{ value: 'high', label: 'High' }],
       fastModeValue: true,
-      daybreakBlueValue: true,
       title: 'Lead provider, model, effort, and processing mode',
       ariaLabel: 'Lead model settings',
       onSelectProvider: () => undefined,
       onSelectModel: () => undefined,
       onSelectEffort: () => undefined,
       onSelectFastMode: () => undefined,
-      onSelectDaybreakBlue: () => undefined
     }));
 
     expect(html).toContain('class="model-selection-picker-fast-mode">Fast</span>');
-    expect(html).toContain('class="model-selection-picker-fast-mode">Daybreak Blue</span>');
+    expect(html).not.toContain('Daybreak Blue');
   });
 
   it('sizes expanded device capture from the available height instead of half the workspace', () => {
@@ -464,6 +462,10 @@ describe('renderer dialog surfaces', () => {
     expect(html).toContain('>Goal Mode</span>');
     expect(html).toContain('>Add Context</span>');
     expect(html).toContain('>Repeat</span>');
+    expect(html.match(/role="menuitemcheckbox" aria-checked="false"/g)).toHaveLength(2);
+    expect(html.match(/class="menu-row-checkbox"/g)).toHaveLength(2);
+    expect(html).not.toContain('role="menu" aria-label="Goal Mode"');
+    expect(html).not.toContain('role="menu" aria-label="Add Context"');
     expect(html).toContain('role="menu" aria-label="Repeat"');
     expect(html).toContain('aria-label="Repeat unit"');
   });

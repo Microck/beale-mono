@@ -93,6 +93,7 @@ export interface CreatePiAgentExecutorOptions {
   maxTokens?: number;
   reasoning?: SimpleStreamOptions["reasoning"];
   fastMode?: boolean;
+  /** Legacy launch setting; native OpenAI requests always include Daybreak Blue. */
   daybreakBlue?: boolean;
   sessionId?: string;
   initialMessages?: readonly AgentMessage[];
@@ -218,9 +219,8 @@ export function applyOpenAiFastMode(
 export function applyOpenAiDaybreakBlue(
   payload: unknown,
   model: NativeOpenAiCompactionModel,
-  enabled: boolean,
 ): unknown {
-  if (!enabled || !isNativeOpenAiResponsesModel(model) || !isRecord(payload)) return payload;
+  if (!isNativeOpenAiResponsesModel(model) || !isRecord(payload)) return payload;
   return {
     ...payload,
     access_programs: {
@@ -639,12 +639,11 @@ export function createPiAgentExecutor(
         ];
         const visibleTools = () => tools.filter((tool) => !pluginSession || pluginSession.visible(agentToolRegistry?.find(tool.name)?.descriptor.name ?? tool.name));
         const providerSessionId = providerSessionIdForAgent(rootProviderSessionId, request.id, request.root === true);
-        const activeModelSelection = (): { model: NonNullable<ReturnType<Models["getModel"]>>; reasoningEffort?: ModelThinkingLevel; daybreakBlue?: boolean } => {
+        const activeModelSelection = (): { model: NonNullable<ReturnType<Models["getModel"]>>; reasoningEffort?: ModelThinkingLevel } => {
           const selection = request.root ? options.getModelSelection?.() : undefined;
           if (!selection) return {
             model: sessionModel,
             ...(request.reasoning ? { reasoningEffort: request.reasoning } : options.reasoning ? { reasoningEffort: options.reasoning } : {}),
-            daybreakBlue: request.root === true && options.daybreakBlue === true,
           };
           const rawSelectedModel = getPiModel(models, selection.provider, selection.model);
           const selectedModel = rawSelectedModel ? applyOpenAiContextSize(rawSelectedModel, openAiContextSize) : rawSelectedModel;
@@ -652,7 +651,7 @@ export function createPiAgentExecutor(
           if (!getSupportedThinkingLevels(selectedModel).includes(selection.reasoningEffort)) {
             throw new Error(`${selectedModel.name} does not support ${selection.reasoningEffort} reasoning.`);
           }
-          return { model: selectedModel, reasoningEffort: selection.reasoningEffort, daybreakBlue: selection.daybreakBlue === true || (selection.daybreakBlue === undefined && options.daybreakBlue === true) };
+          return { model: selectedModel, reasoningEffort: selection.reasoningEffort };
         };
         getModelAuthor = () => {
           const active = activeModelSelection().model;
@@ -684,7 +683,6 @@ export function createPiAgentExecutor(
                 { ...streamOptions, ...(apiKey ? { apiKey } : {}) },
                 providerSessionId,
                 options.fastMode === true,
-                active.daybreakBlue === true,
               ),
             );
           }
@@ -701,7 +699,6 @@ export function createPiAgentExecutor(
               },
               providerSessionId,
               options.fastMode === true,
-              active.daybreakBlue === true,
             ),
           );
         };
@@ -3075,14 +3072,14 @@ function withProviderSession(
   options: SimpleStreamOptions | undefined,
   sessionId: string,
   fastMode: boolean,
-  daybreakBlue: boolean,
 ): SimpleStreamOptions {
+  const nativeOpenAi = isNativeOpenAiResponsesModel(model);
   const brokerFlags = process.env.APP_SERVER_MODEL_BROKER_URL
-    ? { brokerNativeCompaction: isNativeOpenAiResponsesModel(model), brokerFastMode: fastMode,
-        brokerDaybreakBlue: daybreakBlue, brokerContextWindow: model.contextWindow }
+    ? { brokerNativeCompaction: nativeOpenAi, brokerFastMode: fastMode,
+        brokerContextWindow: model.contextWindow }
     : {};
   const sessionOptions = withNativeOpenAiCompaction(model, { ...options, ...brokerFlags, sessionId }) ?? { ...options, ...brokerFlags, sessionId };
-  if ((!fastMode && !daybreakBlue) || !isNativeOpenAiResponsesModel(model)) return sessionOptions;
+  if (!nativeOpenAi) return sessionOptions;
   const previousOnPayload = sessionOptions.onPayload;
   return {
     ...sessionOptions,
@@ -3091,7 +3088,7 @@ function withProviderSession(
         ? await previousOnPayload(payload, payloadModel)
         : payload;
       const result = fastMode ? applyOpenAiFastMode(transformed ?? payload, model, true) : transformed ?? payload;
-      return applyOpenAiDaybreakBlue(result, model, daybreakBlue);
+      return applyOpenAiDaybreakBlue(result, model);
     },
   };
 }

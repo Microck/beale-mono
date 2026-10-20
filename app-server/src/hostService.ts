@@ -407,8 +407,7 @@ export class AppServerHostService {
         }
         const providerIds = providerModels.map((selection) => selection.providerId);
         return this.fleetRemote.prepare(workspace, runId, machineId, ownerMachineId,
-          providerIds.length ? { providerIds: [...new Set(providerIds)], fastMode: input.fastMode === true,
-            daybreakBlue: input.daybreakBlue === true } : undefined);
+          providerIds.length ? { providerIds: [...new Set(providerIds)], fastMode: input.fastMode === true } : undefined);
       }
       if (request.operation === 'fleet.connect') return this.fleetRemote.connect(nonEmpty(input.machineId) ?? '', nonEmpty(input.runId) ?? '', nonEmpty(input.ownerMachineId) ?? this.fleet.machineId());
       if (request.operation === 'fleet.complete') {
@@ -723,7 +722,7 @@ export class AppServerHostService {
     const reasoningEffort = request.launch.provider?.reasoningEffort?.trim()
       || providerDefaults?.reasoningEffort;
     const fastMode = request.launch.provider?.fastMode === true;
-    const daybreakBlue = request.launch.provider?.daybreakBlue === true;
+    const daybreakBlue = providerId === 'openai-codex';
     if (fastMode && providerId !== 'openai-codex') {
       throw new Error('Fast mode is available only when OpenAI is the Lead provider.');
     }
@@ -2125,7 +2124,7 @@ function dueAutomation(
   const workflowId = nonEmpty(session.workflowId);
   const collaboration = isRecord(budget.collaboration) ? budget.collaboration : null;
   const fastMode = budget.fastMode === true && providerId === 'openai-codex';
-  const daybreakBlue = budget.daybreakBlue === true && providerId === 'openai-codex';
+  const daybreakBlue = providerId === 'openai-codex';
   const shellSafetyMode = nonEmpty(metadata.shellSafetyMode)
     ?? nonEmpty(storedRun.shellSafetyMode)
     ?? 'auto_review';

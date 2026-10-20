@@ -1021,6 +1021,7 @@ export interface AppServerSessionLaunchProvider {
   model?: string;
   reasoningEffort?: string;
   fastMode?: boolean;
+  /** Accepted for older clients; native OpenAI requests always include Daybreak Blue. */
   daybreakBlue?: boolean;
 }
 

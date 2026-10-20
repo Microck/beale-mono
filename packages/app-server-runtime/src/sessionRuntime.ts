@@ -1620,7 +1620,6 @@ function usage(): string {
     "  --openrouter-policy-risk-acknowledged  Confirm host-recorded OpenRouter and routed-provider policy-risk acceptance",
     "  --model <model>        Override configured/default model for real mode",
     "  --fast-mode            Use OpenAI Fast mode for Lead-model requests",
-    "  --daybreak-blue        Request Daybreak Blue access with the selected OpenAI Lead model",
     "  --title-model <model>  Generate a session title with this model from the selected provider",
     "  --title-effort <level> Reasoning effort for session title generation (default: medium)",
     "  --title-model-default <model>  Host fallback used only when the profile has no applicable title model",

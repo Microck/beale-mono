@@ -56,7 +56,6 @@ import type {
   WorkspaceSnapshot
 } from '@shared/types';
 import { AppModals } from './app/AppModals';
-import { AppBackgroundPulses } from './app/AppBackgroundPulses';
 import { AppNavigationRail, resolveAppNavigationDestination } from './app/AppNavigationRail';
 import { TopBar } from './app/TopBar';
 import { SidebarServerSelector } from './app/SidebarServerSelector';
@@ -109,7 +108,6 @@ import {
   appShellClassName,
   selectedRunStatus,
   shouldShowHeaderResearchControls,
-  workspaceHasLiveResearchRun,
   windowControlPlatformForState
 } from './view-models/appShell';
 import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboarding';
@@ -1870,7 +1868,6 @@ export function App(): JSX.Element {
   });
   const shellClassName = `${appShellClassName({
     sessionHeat,
-    sessionActive: workspaceHasLiveResearchRun(snapshot),
     platform: windowControlPlatform,
     windowChromeState,
     sidebarCollapsed
@@ -2078,7 +2075,6 @@ export function App(): JSX.Element {
       data-theme={appearanceTheme}
       style={shellStyle}
     >
-      <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
         workspaceOpen={selectedFleetServerId === 'local' && Boolean(snapshot)}

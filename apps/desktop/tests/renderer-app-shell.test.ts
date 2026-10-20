@@ -16,7 +16,6 @@ import {
   appShellClassName,
   selectedRunStatus,
   shouldShowHeaderResearchControls,
-  workspaceHasLiveResearchRun,
   windowControlPlatformForState
 } from '../src/renderer/view-models/appShell';
 
@@ -569,34 +568,24 @@ describe('renderer app shell view model', () => {
     expect(activeRunDetailForSelection(detail, 'run_other')).toBeNull();
   });
 
-  it('builds shell classes from heat, chrome, and pane state without animation state', () => {
+  it('builds shell classes from heat, chrome, and pane state', () => {
     expect(
       appShellClassName({
         sessionHeat: 'high',
-        sessionActive: true,
         platform: 'linux',
         windowChromeState: { isMaximized: true, isFullScreen: false },
         sidebarCollapsed: true
       })
-    ).toBe('app-shell session-heat-high platform-linux session-active window-edge-flush sidebar-collapsed');
+    ).toBe('app-shell session-heat-high platform-linux window-edge-flush sidebar-collapsed');
 
     expect(
       appShellClassName({
         sessionHeat: 'none',
-        sessionActive: false,
         platform: 'darwin',
         windowChromeState: { isMaximized: false, isFullScreen: true },
         sidebarCollapsed: false
       })
     ).toBe('app-shell session-heat-none platform-darwin window-edge-flush window-full-screen');
-  });
-
-  it('keeps the window pulse active whenever the workspace has queued or active research', () => {
-    expect(workspaceHasLiveResearchRun(workspaceSnapshot('run_active', 'active'))).toBe(true);
-    expect(workspaceHasLiveResearchRun(workspaceSnapshot('run_queued', 'queued'))).toBe(true);
-    expect(workspaceHasLiveResearchRun(workspaceSnapshot('run_paused', 'paused'))).toBe(false);
-    expect(workspaceHasLiveResearchRun(workspaceSnapshot('run_completed', 'completed'))).toBe(false);
-    expect(workspaceHasLiveResearchRun(null)).toBe(false);
   });
 
   it('resolves window control platform fallbacks', () => {

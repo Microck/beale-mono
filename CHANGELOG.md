@@ -26,6 +26,7 @@
 
 #### Removed
 
+- Removed the rounded-square background pulse from active research sessions.
 - Removed the bottom panel, its workspace Terminal, and the header toggle. Desktop no longer bundles the terminal emulator or native PTY dependency.
 - Removed Campaign Highlights and its priority-claim presentation, plus Workspace Utilities, Dream, and Dejunk controls. Campaign opens on Claims; existing workspace Settings contains Remove Workspace. Historical stored data remains intact.
 - Removed automatic workspace Git initialization, managed commit hooks, research-session Git checkpoints, and Git checkpoint repair controls. Existing Git history is retained; canonical publication metadata for new workspaces lives under `.beale/publication/`. Control contract v44 requires rebuilt clients and hosts.
@@ -44,6 +45,8 @@
 
 #### Changed
 
+- On/Off options in New Research settings and the Fast mode model option now toggle from checkboxes in their rows instead of opening another menu.
+- The Daybreak Blue access toggle is removed from model pickers. OpenAI requests include it automatically; the separate Daybreak Blue model alias remains an optional model.
 - Research sessions now treat existing findings as prior art during new discovery, revisit them when directly requested, and check likely claim matches before creating a lead so evidence can be added to the canonical claim. Distinct claims in the same classification remain allowed after review.
 - Quick Chat on a connected app server now uses the local dock and composer, including model selection, resizing, collapse, and close controls. The selected app server continues to own the chat session.
 - New Research now supports selecting multiple workspace targets for one session. The target picker keeps selections visible as the first target with a count; connected app servers accept the same selection.
@@ -1359,6 +1362,7 @@
 
 #### Changed
 
+- Native OpenAI research requests now include Daybreak Blue access automatically, including resumed sessions and Fleet brokered completions; older launch flags remain accepted.
 - Bundled managed-plugin registry entries now retain explicit installation state and absorb earlier filesystem imports of the same bundled directory. Session launch installs plugins required by its research kit.
 - Built-in harness feature packages now live under `app-server/resources/harness-features`. Introspection uses feature discovery and loading while retaining its saved registry ID and enabled state; Quick Chat refuses to start when Introspection is disabled.
 - Canonical session event reads now accept a backward cursor, allowing Desktop to load older transcript pages without transferring the full session at once. Desktop and app-server must be rebuilt together.

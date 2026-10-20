@@ -3398,12 +3398,12 @@ export class WorkspaceService {
       throw new Error('No Lead provider is configured. Choose one in Provider settings before starting research.');
     }
     const leadDefaults = providerSettings.modelDefaults[leadProvider];
-    const { daybreakBlue: requestedDaybreakBlue, ...providerNeutralInput } = normalizedInput;
+    const { daybreakBlue: _previousDaybreakBlue, ...providerNeutralInput } = normalizedInput;
     normalizedInput = {
       ...providerNeutralInput,
       provider: leadProvider,
       fastMode: leadProvider === 'openai-codex' && normalizedInput.fastMode === true,
-      ...(leadProvider === 'openai-codex' ? { daybreakBlue: requestedDaybreakBlue === true } : {}),
+      ...(leadProvider === 'openai-codex' ? { daybreakBlue: true } : {}),
       ...(!explicitProvider && leadDefaults?.largeModel ? { model: leadDefaults.largeModel } : {}),
       ...(!explicitProvider && leadDefaults?.reasoningEffort ? { reasoningEffort: leadDefaults.reasoningEffort } : {})
     };
@@ -3450,7 +3450,7 @@ export class WorkspaceService {
       reasoningEffort: input.modelSelection.reasoningEffort,
       fastMode: input.modelSelection.fastMode === true,
       ...(input.modelSelection.provider === 'openai-codex'
-        ? { daybreakBlue: input.modelSelection.daybreakBlue === true }
+        ? { daybreakBlue: true }
         : {}),
       sandboxProfile: 'workspace-write',
       budget: {
@@ -4159,7 +4159,7 @@ export class WorkspaceService {
           reasoningEffort: run.reasoningEffort,
           fastMode: run.budget.fastMode === true,
           ...(run.budget.modelProvider === 'openai-codex'
-            ? { daybreakBlue: run.budget.daybreakBlue === true }
+            ? { daybreakBlue: true }
             : {}),
           ...(run.budget.collaboration ? { collaboration: normalizeResearchCollaboration(run.budget.collaboration) } : {}),
           sandboxProfile: run.sandboxProfile,
@@ -7710,7 +7710,7 @@ function automationSettingsFromSession(
     model: session.model,
     reasoningEffort: session.reasoningEffort,
     fastMode: budget.fastMode === true,
-    ...(provider === 'openai-codex' ? { daybreakBlue: budget.daybreakBlue === true } : {}),
+    ...(provider === 'openai-codex' ? { daybreakBlue: true } : {}),
     ...(budget.collaboration ? { collaboration: normalizeResearchCollaboration(budget.collaboration) } : {}),
     sandboxProfile: stringFromRecord(storedRun ?? {}, 'sandboxProfile') || 'host',
     targetAssetId: stringFromRecord(storedRun ?? {}, 'targetAssetId') || null,
@@ -7738,7 +7738,7 @@ function automationSettingsFromRun(run: RunRecord, schedule: ActiveRepeatSchedul
     model: run.model,
     reasoningEffort: run.reasoningEffort,
     fastMode: run.budget.fastMode === true,
-    ...(provider === 'openai-codex' ? { daybreakBlue: run.budget.daybreakBlue === true } : {}),
+    ...(provider === 'openai-codex' ? { daybreakBlue: true } : {}),
     ...(run.budget.collaboration ? { collaboration: normalizeResearchCollaboration(run.budget.collaboration) } : {}),
     sandboxProfile: run.sandboxProfile,
     targetAssetId: run.targetAssetId,

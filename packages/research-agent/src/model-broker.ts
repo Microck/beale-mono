@@ -15,7 +15,7 @@ export interface ModelBrokerRequest {
   model: { provider: string; id: string };
   context: Context;
   options: Omit<ModelsSimpleStreamOptions, "signal" | "apiKey">;
-  brokerFlags?: { nativeCompaction: boolean; fastMode: boolean; daybreakBlue: boolean; contextWindow: number };
+  brokerFlags?: { nativeCompaction: boolean; fastMode: boolean; contextWindow: number; daybreakBlue?: boolean };
 }
 
 export interface ModelBrokerEndpoint { url: string; token: string }
@@ -61,7 +61,7 @@ async function requestBrokerCompletion(endpoint: ModelBrokerEndpoint, model: Mod
   options?: ModelsSimpleStreamOptions): Promise<AssistantMessage> {
   const id = randomUUID();
   const flags = options as (ModelsSimpleStreamOptions & {
-    brokerNativeCompaction?: boolean; brokerFastMode?: boolean; brokerDaybreakBlue?: boolean; brokerContextWindow?: number;
+    brokerNativeCompaction?: boolean; brokerFastMode?: boolean; brokerContextWindow?: number;
   }) | undefined;
   const signal = options?.signal;
   const safeOptions: ModelBrokerRequest["options"] = {
@@ -78,9 +78,9 @@ async function requestBrokerCompletion(endpoint: ModelBrokerEndpoint, model: Mod
     ...(typeof options?.maxRetryDelayMs === "number" ? { maxRetryDelayMs: options.maxRetryDelayMs } : {}),
     ...(options?.metadata ? { metadata: options.metadata } : {}),
   };
-  const brokerFlags = flags?.brokerNativeCompaction || flags?.brokerFastMode || flags?.brokerDaybreakBlue
+  const brokerFlags = flags?.brokerNativeCompaction || flags?.brokerFastMode
     ? { nativeCompaction: flags.brokerNativeCompaction === true, fastMode: flags.brokerFastMode === true,
-        daybreakBlue: flags.brokerDaybreakBlue === true, contextWindow: flags.brokerContextWindow ?? model.contextWindow }
+        contextWindow: flags.brokerContextWindow ?? model.contextWindow }
     : undefined;
   const request: ModelBrokerRequest = { id, model: { provider: model.provider, id: model.id }, context,
     options: safeOptions, ...(brokerFlags ? { brokerFlags } : {}) };
@@ -131,14 +131,17 @@ export async function completeBrokerModelRequest(request: ModelBrokerRequest,
     onPayload: _untrustedPayload, onResponse: _untrustedResponse, signal: _untrustedSignal,
     ...safeOptions } = request.options as ModelsSimpleStreamOptions;
   const flags = request.brokerFlags;
-  const onPayload = flags && (flags.nativeCompaction || flags.fastMode || flags.daybreakBlue)
+  const nativeOpenAi = (model.provider === "openai" || model.provider === "openai-codex")
+    && (model.api === "openai-responses" || model.api === "openai-codex-responses");
+  const contextWindow = flags?.contextWindow;
+  const onPayload = flags?.nativeCompaction || flags?.fastMode || nativeOpenAi
     ? async (payload: unknown) => {
         const { applyNativeOpenAiCompaction, applyOpenAiFastMode, applyOpenAiDaybreakBlue } = await import("./agent-executor.js");
-        const brokerModel = { ...model, contextWindow: Number.isSafeInteger(flags.contextWindow)
-          && flags.contextWindow > 0 && flags.contextWindow <= 1_000_000 ? flags.contextWindow : model.contextWindow };
-        let transformed = flags.nativeCompaction ? applyNativeOpenAiCompaction(payload, brokerModel) : payload;
-        transformed = applyOpenAiFastMode(transformed, brokerModel, flags.fastMode);
-        return applyOpenAiDaybreakBlue(transformed, brokerModel, flags.daybreakBlue);
+        const brokerModel = { ...model, contextWindow: typeof contextWindow === "number" && Number.isSafeInteger(contextWindow)
+          && contextWindow > 0 && contextWindow <= 1_000_000 ? contextWindow : model.contextWindow };
+        let transformed = flags?.nativeCompaction ? applyNativeOpenAiCompaction(payload, brokerModel) : payload;
+        transformed = applyOpenAiFastMode(transformed, brokerModel, flags?.fastMode === true);
+        return applyOpenAiDaybreakBlue(transformed, brokerModel);
       }
     : undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {

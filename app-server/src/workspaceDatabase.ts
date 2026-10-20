@@ -4335,7 +4335,7 @@ export class WorkspaceDatabase {
       ...providerNeutralBudget,
       modelProvider: selection.provider,
       ...(selection.provider === 'openai-codex'
-        ? { daybreakBlue: selection.daybreakBlue === true }
+        ? { daybreakBlue: true }
         : {})
     };
     const reasoningEffort = selection.reasoningEffort === 'off' ? '' : selection.reasoningEffort;

@@ -661,7 +661,7 @@ describe('renderer provider settings', () => {
     expect(disabledHtml).toContain('Enable additional provider models when they are available to your account.');
     expect(disabledHtml).toContain('class="provider-optional-model-copy"');
     expect(disabledHtml).toContain('<strong>Daybreak Blue</strong>');
-    expect(disabledHtml).toContain('Select a base model and Daybreak Blue in the model picker');
+    expect(disabledHtml).toContain('Daybreak Blue access is requested automatically for OpenAI models');
     expect(disabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Blue<\/strong>[\s\S]*?<\/span><input type="checkbox"[^>]*checked=""\/><\/label>/u);
     expect(disabledHtml).toContain('<strong>Daybreak Red</strong>');
     expect(disabledHtml).toContain('primarily available to approved commercial users');
