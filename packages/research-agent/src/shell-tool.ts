@@ -28,6 +28,7 @@ const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024;
 const MAX_CONCURRENCY = 64;
 const LEASE_RETRY_MS = 50;
 const NEW_LEASE_GRACE_MS = 5_000;
+const LEASE_SETTLE_GRACE_MS = 15_000;
 const WSL_SYSTEM_DISTRIBUTIONS = new Set(["docker-desktop", "docker-desktop-data"]);
 export type ShellRuntime = "host" | "wsl";
 
@@ -641,7 +642,8 @@ async function acquireLease(
       try {
         const handle = await open(path, "wx", 0o600);
         await handle.writeFile(
-          JSON.stringify({ pid: process.pid, utility, actionId, createdAt: nowIso() }),
+          JSON.stringify({ pid: process.pid, utility, actionId, createdAt: nowIso(),
+            expiresAt: new Date(deadline + LEASE_SETTLE_GRACE_MS).toISOString() }),
           "utf8",
         );
         await handle.close();
@@ -670,6 +672,17 @@ async function reclaimStaleLease(path: string): Promise<void> {
     if (Date.now() - leaseStat.mtimeMs < NEW_LEASE_GRACE_MS) return;
     const raw = await readFile(path, "utf8");
     const value = JSON.parse(raw) as unknown;
+    const createdAt = isRecord(value) && typeof value.createdAt === "string"
+      ? Date.parse(value.createdAt) : Number.NaN;
+    const explicitExpiry = isRecord(value) && typeof value.expiresAt === "string"
+      ? Date.parse(value.expiresAt) : Number.NaN;
+    const expiry = Number.isFinite(explicitExpiry)
+      ? explicitExpiry
+      : createdAt + MAX_TIMEOUT_MS + LEASE_SETTLE_GRACE_MS;
+    if (Number.isFinite(expiry) && Date.now() > expiry) {
+      await unlink(path).catch(() => undefined);
+      return;
+    }
     const pid = isRecord(value) && typeof value.pid === "number" ? value.pid : null;
     if (pid && processIsAlive(pid)) return;
     await unlink(path).catch(() => undefined);
@@ -753,6 +766,7 @@ async function runUtility(input: {
           {
             windowsHide: true,
             stdio: "ignore",
+            timeout: 3_000,
           },
         );
         if (result.status === 0 || child.exitCode !== null || child.signalCode !== null) {
@@ -775,7 +789,15 @@ async function runUtility(input: {
       if (stopping) return;
       stopping = true;
       killProcessTree("SIGTERM");
-      forceStop = setTimeout(() => killProcessTree("SIGKILL"), 1_000);
+      forceStop = setTimeout(() => {
+        killProcessTree("SIGKILL");
+        // Descendants can retain the inherited output pipes after the direct
+        // child exits. In that case Node never emits close for the child.
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.stdin.destroy();
+        finish(child.exitCode, child.signalCode);
+      }, 1_000);
       forceStop.unref();
     };
     const timeout = setTimeout(() => stop("timeout"), input.timeoutMs);
@@ -801,7 +823,7 @@ async function runUtility(input: {
         authorization: input.authorization,
       }));
     });
-    child.on("close", (exitCode, signal) => {
+    const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
@@ -843,7 +865,8 @@ async function runUtility(input: {
           ? `${input.displayUtility} was aborted.`
           : `${input.displayUtility} exited with status ${exitCode ?? signal ?? "unknown"}.`;
       resolvePromise(errorResult(input.action, input.startedAt, reason, resultOutput));
-    });
+    };
+    child.on("close", finish);
 
     if (input.stdin !== undefined) child.stdin.end(input.stdin);
     else child.stdin.end();

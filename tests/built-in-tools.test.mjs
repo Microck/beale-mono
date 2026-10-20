@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { access, mkdtemp, mkdir, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -596,6 +597,44 @@ test("shell tool serializes the same utility across tool instances", async () =>
   }
 });
 
+test("shell tool reclaims an expired lease from a stopped worker in the same process", async () => {
+  const root = await mkdtemp(join(tmpdir(), "app-server-shell-stale-lease-"));
+  const leaseDirectory = join(root, "leases");
+  const optionsPath = join(root, "shell-options.json");
+  await mkdir(leaseDirectory);
+  await writeFile(optionsPath, JSON.stringify({
+    schemaVersion: 1,
+    defaultConcurrency: 1,
+    utilities: { node: 1 },
+    leaseDirectory,
+  }));
+  const utilityKey = createHash("sha256").update("node").digest("hex").slice(0, 24);
+  const leasePath = join(leaseDirectory, `${utilityKey}.0.lease`);
+  const expired = new Date(Date.now() - 31 * 60_000);
+  await writeFile(leasePath, JSON.stringify({
+    pid: process.pid,
+    utility: "node",
+    actionId: "shell_stopped_worker_example",
+    createdAt: expired.toISOString(),
+  }));
+  await utimes(leasePath, expired, expired);
+  try {
+    const registry = createResearchToolRegistry([
+      createShellTool({ workspaceRoot: root, shellOptionsPath: optionsPath, authorize: allowShell }),
+    ]);
+    const result = await registry.execute({
+      id: "shell_reclaimed_expired_lease",
+      actionClass: "inspect",
+      toolName: "shell.run",
+      input: { utility: "node", args: ["-e", "process.stdout.write('reclaimed')"], timeoutMs: 1_500 },
+    });
+    assert.equal(result.result.status, "complete");
+    assert.equal(result.result.output.stdout, "reclaimed");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("shell tool terminates descendant processes when a command times out", async () => {
   const root = await mkdtemp(join(tmpdir(), "app-server-shell-timeout-"));
   try {
@@ -623,6 +662,42 @@ test("shell tool terminates descendant processes when a command times out", asyn
     assert.ok(Number.isInteger(descendantPid));
     await assertProcessExited(descendantPid);
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("shell tool returns after timeout when an orphaned descendant retains output pipes", { timeout: 15_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "app-server-shell-orphaned-pipes-"));
+  let descendantPid;
+  try {
+    const registry = createResearchToolRegistry([
+      createShellTool({ workspaceRoot: root, authorize: allowShell }),
+    ]);
+    const parentScript = [
+      "const { spawn } = require('node:child_process');",
+      "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'],",
+      "{ detached: true, cwd: require('node:os').tmpdir(), stdio: ['ignore', 'inherit', 'inherit'] });",
+      "process.stdout.write(`${child.pid}\\n`);",
+      "child.unref();",
+    ].join("");
+    const startedAt = Date.now();
+    const timedOut = await registry.execute({
+      id: "shell_orphaned_output_pipes",
+      actionClass: "experiment",
+      toolName: "shell.run",
+      input: { utility: "node", args: ["-e", parentScript], timeoutMs: 1_000 },
+    });
+
+    assert.equal(timedOut.result.status, "error");
+    assert.equal(timedOut.result.output.timedOut, true);
+    assert.ok(Date.now() - startedAt < 11_000, "inherited output pipes must not hang the tool call");
+    descendantPid = Number.parseInt(timedOut.result.output.stdout.trim(), 10);
+    assert.ok(Number.isInteger(descendantPid));
+  } finally {
+    if (descendantPid) {
+      try { process.kill(descendantPid); } catch (error) { if (error?.code !== "ESRCH") throw error; }
+      await assertProcessExited(descendantPid);
+    }
     await rm(root, { recursive: true, force: true });
   }
 });
