@@ -56,7 +56,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-19T22:43:11.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-20T01:10:19.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -630,7 +630,7 @@ export const APP_SERVER_PROTOCOL_OPERATIONS = [
   "fleet.state", "fleet.browser_home_page", "fleet.configure", "fleet.test_ssh", "fleet.test_app_server", "fleet.clone", "fleet.clone_for_session", "fleet.start", "fleet.stop",
   "fleet.prepare", "fleet.connect", "fleet.complete", "fleet.stage", "fleet.export", "fleet.reserve", "fleet.release",
   "fleet.broker", "fleet.relay_broker",
-  "fleet.remote_machines", "fleet.remote_catalog", "fleet.remote_workspace_details", "fleet.remote_workspace_document", "fleet.remote_quick_chats", "fleet.remote_quick_chat_start", "fleet.remote_quick_chat_continue", "fleet.remote_session", "fleet.remote_launch", "fleet.remote_prompt_expand", "fleet.remote_goal_suggestions", "fleet.remote_control", "fleet.remote_browser_attach", "fleet.relay_stage", "fleet.relay_export",
+  "fleet.remote_machines", "fleet.app_server_statuses", "fleet.remote_catalog", "fleet.remote_workspace_details", "fleet.remote_workspace_document", "fleet.remote_quick_chats", "fleet.remote_quick_chat_start", "fleet.remote_quick_chat_continue", "fleet.remote_session", "fleet.remote_launch", "fleet.remote_prompt_expand", "fleet.remote_goal_suggestions", "fleet.remote_control", "fleet.remote_browser_attach", "fleet.relay_stage", "fleet.relay_export",
   "fleet.restart_app_server", "fleet.restart_guest_app_server",
   "resource.prior_art.list", "resource.prior_art.get",
   "protocol.describe", "session.create", "session.begin_attempt", "session.append_event", "session.append_event_receipt",
@@ -676,6 +676,26 @@ export interface FleetAppServer {
   id: string;
   name: string;
   url: string;
+}
+
+export interface FleetAppServerStatus {
+  id: string;
+  state: 'online' | 'offline' | 'issue';
+  message: string;
+}
+
+export function decodeFleetAppServerStatuses(value: unknown): FleetAppServerStatus[] {
+  if (!Array.isArray(value) || !value.every((entry) => isRecord(entry)
+    && nonEmptyString(entry.id)
+    && (entry.state === 'online' || entry.state === 'offline' || entry.state === 'issue')
+    && nonEmptyString(entry.message))) {
+    throw new Error('Invalid Fleet app-server statuses.');
+  }
+  return value.map((entry: Record<string, unknown>) => ({
+    id: entry.id as string,
+    state: entry.state as FleetAppServerStatus['state'],
+    message: entry.message as string
+  }));
 }
 
 export interface FleetBrowser {

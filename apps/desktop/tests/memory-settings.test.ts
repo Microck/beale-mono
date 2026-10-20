@@ -100,7 +100,7 @@ describe('memory settings', () => {
     const descriptionRowStyles =
       styles.match(/\.profile-basic-details-form \.profile-basic-details-description-row\s*\{([^}]*)\}/)?.[1] ?? '';
     const profilePageStyles = styles.match(/\.profile-settings-page\s*\{([^}]*)\}/)?.[1] ?? '';
-    const profileFormStyles = styles.match(/\.general-settings-page \.settings-form,\s*\.profile-settings-page \.settings-form\s*\{([^}]*)\}/)?.[1] ?? '';
+    const profileFormStyles = styles.match(/\.general-settings-page \.settings-form,\s*\.profile-settings-page \.settings-form,[^{]*\{([^}]*)\}/)?.[1] ?? '';
     expect(viewTabRowStyles).toContain('padding-inline: 0');
     expect(tabRowStyles).toContain('min-height: 40px');
     expect(pillTabButtonStyles).toContain('height: 40px');

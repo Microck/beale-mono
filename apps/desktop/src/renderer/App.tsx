@@ -2,7 +2,7 @@ import { startTransition, useCallback, useDeferredValue, useEffect, useLayoutEff
 import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import 'katex/dist/katex.min.css';
-import type { FleetAppServer, FleetRemoteCatalog, FleetState } from '@beale/app-server-runtime/protocol';
+import type { FleetAppServer, FleetAppServerStatus, FleetRemoteCatalog, FleetState } from '@beale/app-server-runtime/protocol';
 import './styles.css';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
@@ -164,13 +164,31 @@ export function App(): JSX.Element {
     loadWorkspaceRegistry
   } = useWorkspaceRuntime(handleError);
   const [fleetServers, setFleetServers] = useState<FleetAppServer[]>([]);
+  const [fleetServerStatuses, setFleetServerStatuses] = useState<Record<string, FleetAppServerStatus>>({});
+  const fleetStatusRequestId = useRef(0);
   const [selectedFleetServerId, setSelectedFleetServerId] = useState('local');
+  const refreshFleetServerStatuses = useCallback((): void => {
+    const requestId = ++fleetStatusRequestId.current;
+    void window.beale.getFleetAppServerStatuses().then((statuses) => {
+      if (fleetStatusRequestId.current !== requestId) return;
+      setFleetServerStatuses(Object.fromEntries(statuses.map((status) => [status.id, status])));
+    }).catch(() => {
+      if (fleetStatusRequestId.current !== requestId) return;
+      setFleetServerStatuses({ local: { id: 'local', state: 'offline', message: 'Could not check the local app server.' } });
+    });
+  }, []);
   const [remoteQuickChats, setRemoteQuickChats] = useState<RemoteQuickChatDescriptor[]>([]);
   const [remoteCatalog, setRemoteCatalog] = useState<FleetRemoteCatalog | null>(null);
   const [remoteCatalogError, setRemoteCatalogError] = useState<string | null>(null);
   const [remoteWorkspaceId, setRemoteWorkspaceId] = useState<string | null>(null);
   const [remoteSessionId, setRemoteSessionId] = useState<string | null>(null);
   const [remoteResearchOpen, setRemoteResearchOpen] = useState(false);
+  useEffect(() => {
+    if (startupPhase !== 'ready') return;
+    refreshFleetServerStatuses();
+    const interval = window.setInterval(refreshFleetServerStatuses, 20_000);
+    return () => { window.clearInterval(interval); fleetStatusRequestId.current += 1; };
+  }, [refreshFleetServerStatuses, startupPhase]);
   useEffect(() => {
     if (startupPhase !== 'ready') return;
     let active = true;
@@ -335,11 +353,16 @@ export function App(): JSX.Element {
   const [fleetConfiguration, setFleetConfiguration] = useState<FleetState | null>(null);
   const [fleetConfigurationError, setFleetConfigurationError] = useState<string | null>(null);
   const [fleetSelection, setFleetSelection] = useState<FleetSelection>({ section: 'app-servers', itemId: null });
+  const applyFleetConfiguration = useCallback((next: FleetState): void => {
+    setFleetConfiguration(next);
+    setFleetServers(next.enabled && next.role === 'primary' ? next.appServers : []);
+    refreshFleetServerStatuses();
+  }, [refreshFleetServerStatuses]);
   const refreshFleetConfiguration = useCallback(async (): Promise<void> => {
     const next = await window.beale.getFleetState();
-    setFleetConfiguration(next);
+    applyFleetConfiguration(next);
     setFleetConfigurationError(null);
-  }, []);
+  }, [applyFleetConfiguration]);
   useEffect(() => {
     if (!fleetOpen) return;
     void refreshFleetConfiguration().catch((caught: unknown) => setFleetConfigurationError(errorMessage(caught)));
@@ -2059,6 +2082,9 @@ export function App(): JSX.Element {
     setRemoteWorkspaceId(null);
     setRemoteSessionId(null);
     setRemoteResearchOpen(false);
+  }} statuses={fleetServerStatuses} onRefreshStatuses={refreshFleetServerStatuses} onAdd={() => {
+    setFleetSelection({ section: 'app-servers', itemId: 'new' });
+    openFleet();
   }} />;
   return (
     <div
@@ -2132,6 +2158,7 @@ export function App(): JSX.Element {
       ) : null}
       <AppNavigationRail
         active={navigationDestination}
+        selectedServerId={selectedFleetServerId}
         providerAuthRevision={`${openAiStatus?.subscriptionConfigured ?? ''}:${researchProviderStatuses.map((provider) => `${provider.id}:${provider.subscriptionConfigured}`).join(',')}`}
         onOpenHome={openHome}
         onOpenAutomations={openAutomations}
@@ -2323,7 +2350,7 @@ export function App(): JSX.Element {
                 loadError={fleetConfigurationError}
                 selection={fleetSelection}
                 onSelect={setFleetSelection}
-                onStateChange={setFleetConfiguration}
+                onStateChange={applyFleetConfiguration}
                 onRefresh={refreshFleetConfiguration}
               />
             </section>

@@ -297,8 +297,8 @@ export class AppServerHostService {
     };
   }
 
-  public providerUsageLimits(providerId: BealeProviderLimitId, refresh = false): Promise<BealeProviderUsageLimits> {
-    return this.providerUsage.read(providerId, refresh);
+  public providerUsageLimits(providerId: BealeProviderLimitId, refresh = false, serverId: string | null = null): Promise<BealeProviderUsageLimits> {
+    return serverId ? this.fleet.remoteProviderUsageLimits(serverId, providerId, refresh) : this.providerUsage.read(providerId, refresh);
   }
 
   public async executeOperation(request: {
@@ -313,6 +313,7 @@ export class AppServerHostService {
       if (request.operation === 'fleet.state') return this.fleet.state();
       if (request.operation === 'fleet.browser_home_page') return this.fleet.browserHomePage();
       if (request.operation === 'fleet.remote_machines') return this.fleet.remoteMachines();
+      if (request.operation === 'fleet.app_server_statuses') return this.fleet.appServerStatuses();
       if (request.operation === 'fleet.remote_catalog') return this.fleet.remoteCatalog(nonEmpty(input.serverId) ?? '');
       if (request.operation === 'fleet.remote_workspace_details') return this.fleet.remoteWorkspaceDetails(nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '');
       if (request.operation === 'fleet.remote_workspace_document') {

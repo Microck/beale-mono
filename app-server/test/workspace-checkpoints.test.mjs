@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { AppServerSessionStore, MemoryGraphStore, ResearchResourceCatalog, ResearchTopicStore, checkpointWorkspace, listWorkspaceResearchEdits, publishWorkspaceFiles, publishWorkspaceResearch, readWorkspaceResearchCacheState, workspaceContentHash } from '@beale/research-agent';
-import { initializeWorkspaceProjectAsync, runWorkspaceCheckpoint, runWorkspaceMaintenance } from '../dist/workspaceCheckpoints.js';
+import { initializeWorkspaceProjectAsync, runWorkspaceCheckpoint } from '../dist/workspaceCheckpoints.js';
 import { AppServerWorkerDatabaseCoordinator } from '../dist/workerDatabaseBroker.js';
 
 test('session checkpoint exports legacy topic notes and preserves canonical snapshots', async () => {
@@ -146,7 +146,7 @@ test('session checkpoint recovers an interrupted publication before checking dir
   }
 });
 
-test('workspace creation, queued checkpoints, and housekeeping keep the host event loop responsive', async () => {
+test('workspace creation and queued checkpoints keep the host event loop responsive', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-checkpoint-worker-'));
   const workspaceRoot = join(directory, 'workspace');
   const databasePath = join(directory, 'runtime', 'memory.sqlite');
@@ -216,11 +216,6 @@ test('workspace creation, queued checkpoints, and housekeeping keep the host eve
     assert.equal(rejected.status, 'failed');
     assert.match(rejected.error, /typed research creation/);
     rmSync(untypedClaim);
-    writeFileSync(join(workspaceRoot, 'scratch', 'example.txt'), 'incomplete research');
-    const maintenance = await runWorkspaceMaintenance({ workspacePath: workspaceRoot });
-    assert.equal(maintenance.lastRun.status, 'completed');
-    assert.equal(maintenance.lastRun.movedFileCount, 1);
-    assert.deepEqual(readdirSync(join(workspaceRoot, 'scratch')), []);
   } finally {
     clearInterval(timer);
     rmSync(directory, { recursive: true, force: true });

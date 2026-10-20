@@ -254,6 +254,7 @@ describe('renderer app shell view model', () => {
       ...viewProps, selection: { section: 'app-servers', itemId: 'local' }
     }));
     expect(localServer).toContain('aria-label="Local App Server"');
+    expect(localServer).toContain('Test Connection');
     expect(localServer).toContain('Restart App Server');
     const browsers = renderToStaticMarkup(createElement(FleetSettingsView, {
       ...viewProps, selection: { section: 'browsers', itemId: null }

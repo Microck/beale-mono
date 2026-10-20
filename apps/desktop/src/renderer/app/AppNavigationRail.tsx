@@ -143,6 +143,7 @@ export function resolveAppNavigationDestination({
 
 export const AppNavigationRail = memo(function AppNavigationRail({
   active,
+  selectedServerId = 'local',
   providerAuthRevision = '',
   onOpenHome,
   onOpenAutomations,
@@ -151,6 +152,7 @@ export const AppNavigationRail = memo(function AppNavigationRail({
   onOpenFleet
 }: {
   active: AppNavigationDestination;
+  selectedServerId?: string;
   providerAuthRevision?: string;
   onOpenHome: () => void;
   onOpenAutomations: () => void;
@@ -158,37 +160,25 @@ export const AppNavigationRail = memo(function AppNavigationRail({
   onOpenSettings: () => void;
   onOpenFleet: () => void;
 }): JSX.Element {
-  const [limits, setLimits] = useState<Partial<Record<ResearchModelProviderId, BealeProviderUsageLimits>>>({});
+  const [limits, setLimits] = useState<{
+    serverId: string;
+    byProvider: Partial<Record<ResearchModelProviderId, BealeProviderUsageLimits>>;
+  }>({ serverId: '', byProvider: {} });
   const limitsRequestId = useRef(0);
 
   useEffect(() => {
     const refreshLimits = (): void => {
       const requestId = ++limitsRequestId.current;
       void (async () => {
-        const [openAi, others] = await Promise.allSettled([
-          window.beale.getOpenAiStatus(),
-          window.beale.getResearchProviderStatuses()
-        ]);
-        const providerIds: ResearchModelProviderId[] = [];
-        if (openAi.status === 'fulfilled' && openAi.value.subscriptionConfigured) providerIds.push('openai-codex');
-        if (others.status === 'fulfilled') {
-          for (const providerId of ['xai', 'anthropic', 'zai', 'openrouter'] as const) {
-            if (others.value.some((provider) => provider.id === providerId && provider.subscriptionConfigured)) providerIds.push(providerId);
-          }
-        }
-        const results = await Promise.allSettled(providerIds.map((providerId) => window.beale.getProviderUsageLimits(providerId, true)));
+        const results = await Promise.allSettled(limitProviderOrder.map((providerId) =>
+          window.beale.getProviderUsageLimits(providerId, true, selectedServerId)));
         if (limitsRequestId.current !== requestId) return;
         setLimits((current) => {
-          const next = { ...current };
-          if (openAi.status === 'fulfilled' && !openAi.value.subscriptionConfigured) delete next['openai-codex'];
-          if (others.status === 'fulfilled') {
-            for (const providerId of ['xai', 'anthropic', 'zai', 'openrouter'] as const) {
-              if (!providerIds.includes(providerId)) delete next[providerId];
-            }
-          }
+          const next = current.serverId === selectedServerId ? { ...current.byProvider } : {};
           results.forEach((result, index) => {
             if (result.status !== 'fulfilled') return;
-            const providerId = providerIds[index];
+            const providerId = limitProviderOrder[index];
+            if (result.value.providerId !== providerId) return;
             if (result.value.status === 'available') {
               if (result.value.windows.length) next[providerId] = result.value;
               else delete next[providerId];
@@ -196,14 +186,16 @@ export const AppNavigationRail = memo(function AppNavigationRail({
               delete next[providerId];
             }
           });
-          return next;
+          return { serverId: selectedServerId, byProvider: next };
         });
       })().catch(() => undefined);
     };
     refreshLimits();
     const timer = window.setInterval(refreshLimits, LIMIT_REFRESH_INTERVAL_MS);
     return () => { window.clearInterval(timer); limitsRequestId.current += 1; };
-  }, [providerAuthRevision]);
+  }, [providerAuthRevision, selectedServerId]);
+
+  const visibleLimits = limits.serverId === selectedServerId ? limits.byProvider : {};
 
   return (
     <nav className="app-navigation-rail" aria-label="Main navigation">
@@ -227,8 +219,8 @@ export const AppNavigationRail = memo(function AppNavigationRail({
         </div>
       </div>
       <div className="app-navigation-rail-bottom">
-        {limitProviderOrder.map((providerId) => limits[providerId]?.windows.length
-          ? <ProviderLimitIndicator key={providerId} limit={limits[providerId]} /> : null)}
+        {limitProviderOrder.map((providerId) => visibleLimits[providerId]?.windows.length
+          ? <ProviderLimitIndicator key={providerId} limit={visibleLimits[providerId]} /> : null)}
       </div>
     </nav>
   );

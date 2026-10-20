@@ -27,7 +27,8 @@ test("runtime assembly honors managed plugin selection while retaining core tool
     const disabled = await executeHostedUtilityOperation("tools.list", [...args, "--managed-plugins", "none"]);
     const knowledge = await executeHostedUtilityOperation("tools.list", [...args, "--managed-plugins", "beale-knowledge"]);
     const names = (capture) => capture.tools.map((tool) => tool.name);
-    for (const name of CORE_TOOL_NAMES) assert.ok(names(disabled).includes(name), name);
+    for (const name of CORE_TOOL_NAMES.filter((name) => name !== "harness.feedback")) assert.ok(names(disabled).includes(name), name);
+    assert.equal(names(disabled).includes("harness.feedback"), false);
     assert.ok(names(enabled).includes("repository.search"));
     assert.ok(names(enabled).includes("prior_art.fetch"));
     assert.ok(names(enabled).includes("repository.fetch_history"));
@@ -226,7 +227,7 @@ test("MCP-only discovery supplies exact bundled plugin counts without workspace 
     const catalog = mergeResearchPluginCatalog(runtime.pluginCatalog, [], capture.tools.map(({ name }) => stub(name)));
     const formatted = formatResearchPluginCatalog(catalog);
     assert.match(formatted, /\(plugin; 19 tools, 1 skill\): Realistic Apple security-research environments/);
-    assert.match(formatHarnessFeatureCatalog(catalog), /\(feature; 12 tools\): Default Beale tools/);
+    assert.match(formatHarnessFeatureCatalog(catalog), /\(feature; 10 tools\): Default Beale tools/);
     assert.doesNotMatch(formatted, /beale-introspection/);
   } finally {
     await rm(directory, { recursive: true, force: true });

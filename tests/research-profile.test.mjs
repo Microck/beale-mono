@@ -29,6 +29,8 @@ test("prompt templates render profile sections and require the authorization bou
   assert.ok(custom.includes("Profile: Security"));
   assert.ok(custom.includes(profile.agent.role));
   assert.match(defaultResearchSystemPromptTemplate(), /\{\{tools\}\}\n\n\{\{features\}\}\n\n\{\{plugins\}\}\n\n\{\{collaboration\}\}/);
+  assert.match(defaultResearchSystemPromptTemplate(), /\{\{prompt_extensions\}\}/);
+  assert.doesNotMatch(defaultResearchSystemPromptTemplate(), /\{\{goal\}\}/);
   assert.doesNotMatch(defaultResearchSystemPromptTemplate(), /\{\{reports\}\}/);
   const withPlugins = createResearchSystemPrompt({ ...options, pluginCatalog: [{
     id: "example-plugin", name: "Example Plugin", mcpServers: [],
@@ -92,7 +94,7 @@ test("the default prompt keeps boundary guidance focused on scope and host safeg
   const identity = createResearchSystemPrompt({ ...options, promptTemplate: "{{identity}}\n{{boundary}}" });
   const boundary = createResearchSystemPrompt({ ...options, promptTemplate: "{{boundary}}" });
   const style = createResearchSystemPrompt({ ...options, promptTemplate: "{{boundary}}\n{{style}}" });
-  const goal = createResearchSystemPrompt({ ...options, promptTemplate: "{{boundary}}\n{{goal}}" });
+  const session = createResearchSystemPrompt({ ...options, promptTemplate: "{{boundary}}\n{{session}}" });
   const memory = createResearchSystemPrompt({ ...options, hasMemoryTools: true, pluginCatalog: pluginCatalog("beale-knowledge"), promptTemplate: "{{boundary}}\n{{memory}}" });
   const tools = createResearchSystemPrompt({ ...options, promptTemplate: "{{boundary}}\n{{tools}}" });
   const toolsSection = tools.slice(boundary.length + 1);
@@ -109,7 +111,7 @@ test("the default prompt keeps boundary guidance focused on scope and host safeg
   assert.ok(boundary.indexOf("Profile-specific limits:") < boundary.indexOf("Host safeguards:"));
   assert.doesNotMatch(boundary, /Do not claim evidence|Treat existing records|Preserve materially useful|Profile vocabulary|Profile-recognized material kinds/);
   assert.match(style, /Do not claim evidence you did not inspect/);
-  assert.match(goal, /Treat existing records and prior transcript as historical state/);
+  assert.match(session, /Treat existing records and prior transcript as historical state/);
   assert.match(memory, /Preserve materially useful new facts/);
   assert.match(tools, /Profile-recognized material kinds/);
   assert.match(boundary, /Host-verified same-Subject reference workspaces are read-only/);
@@ -118,7 +120,7 @@ test("the default prompt keeps boundary guidance focused on scope and host safeg
   assert.match(toolsSection, /Execution dependencies:\n/);
   assert.match(toolsSection, /Shell fallback:\n/);
   assert.doesNotMatch(toolsSection, /cross-workspace mutation|At evidence checkpoints|After repairing an execution dependency/);
-  assert.match(goal, /At evidence checkpoints, rank at most three candidates/);
+  assert.match(session, /At evidence checkpoints, rank at most three candidates/);
   assert.match(memory, /After repairing an execution dependency/);
   assert.match(boundary, /Never expose host credentials/);
 });
@@ -128,7 +130,7 @@ test("goal guidance separates session work, Goal mode, and disposition", () => {
     hasTools: true,
     hasSessionDispositionTool: true,
     researchProfile: DEFAULT_SECURITY_RESEARCH_PROFILE,
-    promptTemplate: "{{boundary}}\n{{goal}}",
+    promptTemplate: "{{boundary}}\n{{session}}\n{{prompt_extensions}}",
   };
   const regular = createResearchSystemPrompt(options);
   const persistent = createResearchSystemPrompt({ ...options, goalEnabled: true });
@@ -138,7 +140,7 @@ test("goal guidance separates session work, Goal mode, and disposition", () => {
   assert.match(regular, /Session disposition:\nBefore the root final response/);
   assert.doesNotMatch(regular, /Persistent Goal mode:|objective_achieved/);
   assert.match(persistent, /Persistent Goal mode:\nContinue researching/);
-  assert.ok(persistent.indexOf("Persistent Goal mode:") < persistent.indexOf("Session disposition:"));
+  assert.ok(persistent.indexOf("Session disposition:") < persistent.indexOf("Persistent Goal mode:"));
   assert.doesNotMatch(persistent, /\n{3,}/);
 });
 
@@ -146,22 +148,34 @@ test("Goals feature text and catalog references require Goal Mode", () => {
   const catalog = [{ id: "beale-goals-builtin", name: "Goals", description: "Synthetic Goals guidance.",
     promptExtension: "Synthetic Goal Mode instructions.", mcpServers: [], skills: [] }];
   const options = { hasTools: true, pluginCatalog: catalog,
-    promptTemplate: "{{boundary}}\n{{features}}\n{{goal}}\n{{prompt_extensions}}" };
+    promptTemplate: "{{boundary}}\n{{features}}\n{{session}}\nExtensions begin\n{{prompt_extensions}}\nExtensions end" };
   const regular = createResearchSystemPrompt(options);
   assert.doesNotMatch(regular, /beale-goals-builtin|Synthetic Goals guidance|Synthetic Goal Mode instructions|Persistent Goal mode|objective_achieved/u);
   assert.match(regular, /Session progress:/u);
 
   const persistent = createResearchSystemPrompt({ ...options, goalEnabled: true });
   assert.match(persistent, /beale-goals-builtin \(feature; 0 tools\): Synthetic Goals guidance\./u);
-  assert.match(persistent, /Synthetic Goal Mode instructions\./u);
+  assert.match(persistent, /Extensions begin\nGoals \(beale-goals-builtin\):\nSynthetic Goal Mode instructions\.\nExtensions end/u);
   assert.doesNotMatch(persistent, /Persistent Goal mode:/u);
   assert.equal(persistent.match(/Synthetic Goal Mode instructions\./gu)?.length, 1);
 
   const defaultGoal = createResearchSystemPrompt({ hasTools: true, goalEnabled: true,
-    pluginCatalog: pluginCatalog("beale-goals-builtin") });
-  assert.match(defaultGoal, /Persistent Goal mode:\nContinue researching the supplied objective/u);
+    pluginCatalog: [{ id: "beale-goals-builtin", name: "Goals", mcpServers: [], skills: [] }] });
+  assert.match(defaultGoal, /Goals \(beale-goals-builtin\):\nPersistent Goal mode:\nContinue researching the supplied objective/u);
   const disabledFeature = createResearchSystemPrompt({ ...options, goalEnabled: true, pluginCatalog: [] });
   assert.doesNotMatch(disabledFeature, /Synthetic Goal Mode instructions|Persistent Goal mode|objective_achieved/u);
+
+  const legacyTemplate = createResearchSystemPrompt({ ...options, goalEnabled: true,
+    promptTemplate: "{{boundary}}\n{{goal}}" });
+  assert.match(legacyTemplate, /Goals \(beale-goals-builtin\):\nSynthetic Goal Mode instructions\./u);
+  assert.equal(legacyTemplate.match(/Synthetic Goal Mode instructions\./gu)?.length, 1);
+  assert.match(legacyTemplate, /Session progress:/u);
+  const legacyWithExtensions = createResearchSystemPrompt({ ...options, goalEnabled: true,
+    promptTemplate: "{{boundary}}\n{{goal}}\n{{prompt_extensions}}" });
+  assert.equal(legacyWithExtensions.match(/Synthetic Goal Mode instructions\./gu)?.length, 1);
+  const withoutCatalog = createResearchSystemPrompt({ hasTools: true, goalEnabled: true,
+    promptTemplate: "{{boundary}}\n{{prompt_extensions}}" });
+  assert.match(withoutCatalog, /Goals \(beale-goals-builtin\):\nPersistent Goal mode:/u);
 });
 
 test("discovery guidance treats existing findings as prior art while allowing requested follow-up", () => {
@@ -169,7 +183,7 @@ test("discovery guidance treats existing findings as prior art while allowing re
     hasTools: true,
     researchProfile: DEFAULT_SECURITY_RESEARCH_PROFILE,
     pluginCatalog: pluginCatalog("beale-claims"),
-    promptTemplate: "{{boundary}}\n{{goal}}\n{{claims}}",
+    promptTemplate: "{{boundary}}\n{{session}}\n{{claims}}",
   });
   assert.match(prompt, /When the user asks to find a vulnerability, a severity, or a bug class, pursue a distinct new candidate/);
   assert.match(prompt, /Work on an existing claim when the user directly asks for that claim or asks to continue, reproduce, verify, or report existing work/);

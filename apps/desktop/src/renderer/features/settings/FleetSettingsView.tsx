@@ -58,12 +58,10 @@ export function FleetSettingsView({ state, loadError, selection, onSelect, onSta
     onSaved={(id) => onSelect({ section: 'app-servers', itemId: id })}
     onChange={change}
   /></div>;
-  if (selection.section === 'app-servers' && selection.itemId === 'local') return <div className="settings-page fleet-settings-page"><section className="settings-form fleet-detail-view" aria-label="Local App Server">
-    <header className="settings-form-heading"><h2>Local App Server</h2><p>This machine’s Beale app-server process.</p></header>
-    {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
-    {restartingId ? <p role="status" className="fleet-machine-empty">Restarting app-server…</p> : null}
-    <div className="settings-form-actions"><button type="button" disabled={busy} onClick={() => void restart('local', () => window.beale.restartLocalAppServer())}><RotateCw size={14} aria-hidden="true" />Restart App Server</button></div>
-  </section></div>;
+  if (selection.section === 'app-servers' && selection.itemId === 'local') return <div className="settings-page fleet-settings-page"><LocalAppServerDetails
+    busy={busy} error={error} restarting={restartingId === 'local'}
+    onRestart={() => restart('local', () => window.beale.restartLocalAppServer())}
+  /></div>;
 
   if (selection.section === 'browsers') return <BrowserSettingsView
     key={state.browserHomePage} homePage={state.browserHomePage} browserCount={state.browsers.length}
@@ -98,6 +96,35 @@ export function FleetSettingsView({ state, loadError, selection, onSelect, onSta
     {restartingId ? <p role="status" className="fleet-machine-empty">Restarting app-server…</p> : null}
     <div className="settings-form-actions fleet-machine-refresh"><span /><button type="button" disabled={busy} onClick={() => onSelect({ section: 'app-servers', itemId: 'new' })}><Plus size={14} aria-hidden="true" />Add App Server</button></div>
   </section></div>;
+}
+
+function LocalAppServerDetails({ busy, error, restarting, onRestart }: {
+  busy: boolean;
+  error: string | null;
+  restarting: boolean;
+  onRestart: () => Promise<void>;
+}): JSX.Element {
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const locked = busy || testing;
+  const test = async (): Promise<void> => {
+    if (locked) return;
+    setTesting(true);
+    setTestResult(null);
+    try { setTestResult(await window.beale.testLocalAppServerConnection()); }
+    catch (caught) { setTestResult({ success: false, message: message(caught) }); }
+    finally { setTesting(false); }
+  };
+  return <section className="settings-form fleet-detail-view" aria-label="Local App Server" aria-busy={locked}>
+    <header className="settings-form-heading"><h2>Local App Server</h2><p>This machine’s Beale app-server process.</p></header>
+    <div className="fleet-vm-dialog-actions">
+      <button type="button" className="secondary-button" disabled={locked} onClick={() => void test()}>{testing ? 'Testing…' : 'Test Connection'}</button>
+      {testResult ? <p className={testResult.success ? 'fleet-vm-test-success' : 'settings-form-error'} role="status">{testResult.message}</p> : null}
+    </div>
+    {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
+    {restarting ? <p role="status" className="fleet-machine-empty">Restarting app-server…</p> : null}
+    <div className="settings-form-actions"><button type="button" disabled={locked} onClick={() => { setTestResult(null); void onRestart(); }}><RotateCw size={14} aria-hidden="true" />Restart App Server</button></div>
+  </section>;
 }
 
 function BrowserSettingsView({ homePage, browserCount, busy, error, onChange }: {

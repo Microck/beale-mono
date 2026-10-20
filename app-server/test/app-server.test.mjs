@@ -605,18 +605,22 @@ test("publishes a path-free model catalog for connected providers with host defa
   assert.doesNotMatch(JSON.stringify(payload), /credential|token|auth|workspacePath|databasePath/u);
 });
 
-test("serves sanitized provider limits to the authenticated Desktop client", async () => {
+test("serves sanitized provider limits to authenticated clients and relays a saved app server", async () => {
   const directory = mkdtempSync(join(tmpdir(), "beale-app-server-limits-"));
   temporaryDirectories.push(directory);
   const host = new AppServerHostService({ registry: hostRegistryFixture(directory) });
-  host.providerUsageLimits = async (providerId, refresh) => ({
-    providerId,
-    checkedAt: "2033-01-01T00:00:00.000Z",
-    status: "available",
-    detail: null,
-    windows: [{ id: "session", label: "Session Limit", usedPercent: refresh ? 20 : 10,
-      resetsAt: "2033-01-01T04:00:00.000Z", durationMinutes: 240 }],
-  });
+  const requests = [];
+  host.providerUsageLimits = async (providerId, refresh, serverId) => {
+    requests.push({ providerId, refresh, serverId });
+    return {
+      providerId,
+      checkedAt: "2033-01-01T00:00:00.000Z",
+      status: "available",
+      detail: null,
+      windows: [{ id: "session", label: "Session Limit", usedPercent: refresh ? 20 : 10,
+        resetsAt: "2033-01-01T04:00:00.000Z", durationMinutes: 240 }],
+    };
+  };
   const server = await startAppServer({ hostService: host });
   servers.push(server);
   const path = "/v1/providers/limits?provider=openai-codex&refresh=1";
@@ -629,10 +633,22 @@ test("serves sanitized provider limits to the authenticated Desktop client", asy
   assert.equal(payload.windows[0].label, "Session Limit");
   assert.equal(payload.windows[0].usedPercent, 20);
   assert.doesNotMatch(JSON.stringify(payload), /credential|token|authFile|accessToken/u);
+  const remote = await fetch(`${server.url}${path}&serverId=server-example`, {
+    headers: { authorization: `Bearer ${server.operatorToken}` },
+  });
+  assert.equal(remote.status, 200);
+  assert.deepEqual(requests, [
+    { providerId: 'openai-codex', refresh: true, serverId: null },
+    { providerId: 'openai-codex', refresh: true, serverId: 'server-example' },
+  ]);
   const invalid = await fetch(`${server.url}/v1/providers/limits?provider=invalid`, {
     headers: { authorization: `Bearer ${server.operatorToken}` },
   });
   assert.equal(invalid.status, 400);
+  const invalidServer = await fetch(`${server.url}/v1/providers/limits?provider=openai-codex&serverId=`, {
+    headers: { authorization: `Bearer ${server.operatorToken}` },
+  });
+  assert.equal(invalidServer.status, 400);
 });
 
 test("executes canonical operations inside the app-server host", async () => {
@@ -2500,7 +2516,7 @@ test("discovers overdue automations from canonical session metadata and rebuilds
       browserRelay: true,
       promptMarkdown: "Recheck the parser boundary.",
       goal: { objective: "Keep the parser audit moving." },
-      provider: { id: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high", fastMode: true },
+      provider: { id: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high", fastMode: true, daybreakBlue: true },
       shellSafetyMode: "auto_review",
       workflowId: "discovery",
       researchProfileId: "security-research",

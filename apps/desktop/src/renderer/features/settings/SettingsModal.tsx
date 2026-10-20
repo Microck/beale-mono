@@ -687,7 +687,7 @@ export function AppearanceSettingsView({
 }
 
 const PROMPT_VARIABLES = [
-  'identity', 'style', 'boundary', 'tools', 'features', 'plugins', 'collaboration', 'goal', 'session', 'prompt_extensions',
+  'identity', 'style', 'boundary', 'tools', 'features', 'plugins', 'collaboration', 'session', 'prompt_extensions',
   'profile.id', 'profile.name'
 ] as const;
 
@@ -1091,35 +1091,53 @@ export function OptionalFeaturesSettingsView({
         </div>
         <div id="optional-feature-panel" role="tabpanel" aria-labelledby={`optional-feature-tab-${selectedFeature.id}`}
           className="optional-feature-panel">
-          <label className="settings-form-control-row optional-feature-enabled-row">
-            <span className="settings-form-control-copy"><strong>Enabled</strong>
-              <small>{unavailable ? 'Unavailable in this installation.' : `Make ${selectedFeature.name} tools available to sessions.`}</small></span>
-            <input type="checkbox" aria-label={`Enable ${selectedFeature.name}`} checked={selectedPlugin?.enabled ?? false}
-              disabled={loading || busy || unavailable}
-              onChange={(event) => selectedPlugin && onSetEnabled(selectedPlugin.id, event.currentTarget.checked)} />
-          </label>
-          {saved ? <>
-            <label className="optional-feature-field"><strong>Description in {'{{features}}'}</strong>
-              <small>Shown beside this feature in the agent's internal feature catalog.</small>
-              <textarea aria-label={`${selectedFeature.name} feature description`} maxLength={240} rows={3}
-                value={draft.description} disabled={editBusy} onChange={(event) => updateDraft({ description: event.currentTarget.value })} />
-            </label>
-            <label className="optional-feature-field"><strong>Prompt extension</strong>
-              <small>{selectedFeature.id === 'beale-goals'
-                ? <>Included through {'{{goal}}'} only when Goal Mode is enabled in New Research.</>
-                : <>Included through {'{{prompt_extensions}}'} while this feature is enabled.</>}</small>
-              <textarea aria-label={`${selectedFeature.name} prompt extension`} maxLength={24000} rows={12}
-                value={draft.promptExtension} disabled={editBusy} onChange={(event) => updateDraft({ promptExtension: event.currentTarget.value })} />
-            </label>
-            <div className="optional-feature-actions">
+          <section className="settings-form">
+            <header className="settings-form-heading">
+              <h2 id="optional-feature-heading">{selectedFeature.name}</h2>
+              <p>{selectedFeature.description}</p>
+            </header>
+            <div className="settings-form-squircle" aria-labelledby="optional-feature-heading">
+              <div className="settings-form-control-list">
+                <label className="settings-form-control-row">
+                  <span className="settings-form-control-copy">
+                    <strong>Enabled</strong>
+                    <small>{unavailable ? 'Unavailable in this installation.' : `Make ${selectedFeature.name} tools available to sessions.`}</small>
+                  </span>
+                  <input type="checkbox" aria-label={`Enable ${selectedFeature.name}`} checked={selectedPlugin?.enabled ?? false}
+                    disabled={loading || busy || unavailable}
+                    onChange={(event) => selectedPlugin && onSetEnabled(selectedPlugin.id, event.currentTarget.checked)} />
+                </label>
+                {saved ? <>
+                  <label className="settings-form-control-row optional-feature-textarea-row">
+                    <span className="settings-form-control-copy">
+                      <strong>Description in {'{{features}}'}</strong>
+                      <small>Shown beside this feature in the agent's internal feature catalog.</small>
+                    </span>
+                    <textarea aria-label={`${selectedFeature.name} feature description`} maxLength={240} rows={3}
+                      value={draft.description} disabled={editBusy} onChange={(event) => updateDraft({ description: event.currentTarget.value })} />
+                  </label>
+                  <label className="settings-form-control-row optional-feature-textarea-row">
+                    <span className="settings-form-control-copy">
+                      <strong>Prompt extension</strong>
+                      <small>{selectedFeature.id === 'beale-goals'
+                        ? <>Included through {'{{prompt_extensions}}'} only when Goal Mode is enabled in New Research.</>
+                        : <>Included through {'{{prompt_extensions}}'} while this feature is enabled.</>}</small>
+                    </span>
+                    <textarea aria-label={`${selectedFeature.name} prompt extension`} maxLength={24000} rows={12}
+                      value={draft.promptExtension} disabled={editBusy} onChange={(event) => updateDraft({ promptExtension: event.currentTarget.value })} />
+                  </label>
+                </> : !editError ? <CenteredLoadingState label="Loading feature prompt settings…" /> : null}
+              </div>
+            </div>
+            {saved ? <div className="settings-form-actions optional-feature-actions">
               <span>{changed ? 'Unsaved changes' : saved.overridden ? 'Custom prompt saved' : 'Using defaults'}</span>
               <button type="button" onClick={() => updateDraft({ description: saved.description, promptExtension: saved.promptExtension })}
                 disabled={editBusy || !changed}>Discard</button>
               <button type="button" onClick={() => void reset()} disabled={editBusy || !saved.overridden}>Reset to Default</button>
               <button type="button" onClick={() => void save()} disabled={editBusy || !changed}>Save</button>
-            </div>
-          </> : !editError ? <CenteredLoadingState label="Loading feature prompt settings…" /> : null}
-          {error || editError ? <p className="settings-form-error" role="alert">{error ?? editError}</p> : null}
+            </div> : null}
+            {error || editError ? <p className="settings-form-error" role="alert">{error ?? editError}</p> : null}
+          </section>
         </div>
       </section>
     </div>
@@ -3154,7 +3172,7 @@ export function settingsSectionLabel(section: SettingsSection): string {
     case 'ticketing':
       return 'Ticketing';
     case 'profile':
-      return 'Security Profile';
+      return 'Profile';
     case 'prompt':
       return 'Prompt';
     case 'archive':

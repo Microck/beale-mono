@@ -748,7 +748,7 @@ test("memory prompt gives root agents and subagents direct persistence ownership
 test("enabled feature extensions render through one variable and legacy templates remain readable", () => {
   const template = defaultResearchSystemPromptTemplate();
   assert.match(template, /\{\{prompt_extensions\}\}/);
-  assert.doesNotMatch(template, /\{\{(?:memory|claims|runbooks)\}\}/);
+  assert.doesNotMatch(template, /\{\{(?:goal|memory|claims|runbooks)\}\}/);
   const catalog = [
     { id: "beale-claims", name: "Claims", description: "Synthetic claim description.",
       promptExtension: "Use the synthetic claim protocol.", mcpServers: [], skills: [] },

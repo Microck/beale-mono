@@ -25,7 +25,7 @@ export interface CreateResearchSystemPromptOptions {
 const PROMPT_SECTIONS = ["identity", "style", "boundary", "tools", "features", "plugins", "collaboration", "goal", "session", "prompt_extensions", "memory", "claims", "runbooks"] as const;
 type PromptSection = typeof PROMPT_SECTIONS[number];
 const SECTION_MARKER = "\u0000beale-prompt-section:";
-const LEGACY_FEATURE_SECTIONS = ["memory", "claims", "runbooks"] as const;
+const LEGACY_FEATURE_SECTIONS = ["goal", "memory", "claims", "runbooks"] as const;
 const DEFAULT_PROMPT_TEMPLATE = PROMPT_SECTIONS.filter((section) => !LEGACY_FEATURE_SECTIONS.includes(section as typeof LEGACY_FEATURE_SECTIONS[number]))
   .map((section) => `{{${section}}}`).join("\n\n");
 const FEATURE_SECTION_IDS = {
@@ -307,19 +307,21 @@ export function createResearchSystemPrompt(
   const profile = options.researchProfile;
   const featureCatalog = pluginCatalog?.filter((feature) => isHarnessFeatureId(feature.id)) ?? [];
   const defaultExtensions = defaultFeaturePromptSettingsForSections(sections);
-  const goalFeature = featureCatalog.find((feature) => feature.id === GOALS_HARNESS_FEATURE_ID);
-  const goalText = options.goalEnabled && (goalFeature || options.pluginCatalog === undefined)
-    ? (goalFeature?.promptExtension ?? defaultExtensions[GOALS_HARNESS_FEATURE_ID] ?? "").trim() : "";
-  const extensions = featureCatalog.filter((feature) => feature.id !== GOALS_HARNESS_FEATURE_ID).map((feature) => ({
+  const extensions = featureCatalog.map((feature) => ({
     id: feature.id,
     name: feature.name,
     content: feature.promptExtension ?? defaultExtensions[feature.id] ?? "",
   })).filter((extension) => extension.content.trim());
+  if (options.goalEnabled && options.pluginCatalog === undefined) {
+    extensions.push({ id: GOALS_HARNESS_FEATURE_ID, name: "Goals",
+      content: defaultExtensions[GOALS_HARNESS_FEATURE_ID] ?? "" });
+  }
   const extensionText = (items: typeof extensions): string => items.map((extension) =>
     `${extension.name} (${extension.id}):\n${extension.content.trim()}`).join("\n\n");
   const variables: Record<string, string> = {
     ...Object.fromEntries(PROMPT_SECTIONS.map((name) => [name, sections[name].join("\n")])),
-    goal: goalText,
+    // Saved templates may still reference {{goal}}; Goal guidance is composed as an extension.
+    goal: "",
     prompt_extensions: extensionText(extensions),
     memory: extensions.find((extension) => extension.id === "beale-knowledge")?.content ?? "",
     claims: extensions.find((extension) => extension.id === "beale-claims")?.content ?? "",
@@ -339,12 +341,12 @@ export function createResearchSystemPrompt(
   const hasExtensionVariable = /\{\{\s*prompt_extensions\s*\}\}/u.test(template);
   const missingExtensions = hasExtensionVariable ? "" : extensionText(extensions.filter((extension) => {
     const legacySection = FEATURE_SECTION_IDS[extension.id as keyof typeof FEATURE_SECTION_IDS];
-    return !legacySection || !new RegExp(`\\{\\{\\s*${legacySection}\\s*\\}\\}`, "u").test(template);
+    return !legacySection || legacySection === "goal"
+      || !new RegExp(`\\{\\{\\s*${legacySection}\\s*\\}\\}`, "u").test(template);
   }));
-  const missingGoal = goalText && !/\{\{\s*goal\s*\}\}/u.test(template) ? goalText : "";
   const missingSession = template !== DEFAULT_PROMPT_TEMPLATE && /\{\{\s*goal\s*\}\}/u.test(template)
     && !/\{\{\s*session\s*\}\}/u.test(template) ? variables.session : "";
-  const systemPrompt = [renderedPrompt, ...missingCatalogs, missingExtensions, missingGoal, missingSession].filter(Boolean).join("\n\n");
+  const systemPrompt = [renderedPrompt, ...missingCatalogs, missingExtensions, missingSession].filter(Boolean).join("\n\n");
   return appendResearchAgentInstructions(systemPrompt, options.agentInstructions);
 }
 

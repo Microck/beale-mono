@@ -2334,8 +2334,10 @@ export interface BealeApi {
   previewPromptTemplate(profileId: ResearchProfileId, template: string, agentPath?: string): Promise<string>;
   getAgentPlugins(): Promise<AgentPluginRegistryState>;
   getFleetState(): Promise<import('@beale/app-server-runtime/protocol').FleetState>;
+  getFleetAppServerStatuses(): Promise<import('@beale/app-server-runtime/protocol').FleetAppServerStatus[]>;
   getBrowserHomePage(): Promise<string>;
   restartLocalAppServer(): Promise<void>;
+  testLocalAppServerConnection(): Promise<{ success: boolean; message: string }>;
   restartFleetAppServer(serverId: string): Promise<void>;
   restartFleetGuestAppServer(machineId: string): Promise<void>;
   getFleetRemoteMachines(): Promise<import('@beale/app-server-runtime/protocol').FleetMachine[]>;
@@ -2401,7 +2403,7 @@ export interface BealeApi {
   unlockProviderApiKeys(providerIds: ResearchModelProviderId[]): Promise<void>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
   getResearchProviderStatuses(): Promise<ResearchProviderStatus[]>;
-  getProviderUsageLimits(providerId: ResearchModelProviderId, refresh?: boolean): Promise<BealeProviderUsageLimits>;
+  getProviderUsageLimits(providerId: ResearchModelProviderId, refresh?: boolean, serverId?: string): Promise<BealeProviderUsageLimits>;
   getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]>;
   startResearchProviderOAuth(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult>;
   getProfilingState(): Promise<ProfilingState>;

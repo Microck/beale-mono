@@ -266,11 +266,17 @@ const api: BealeApi = {
   getFleetState(): Promise<FleetState> {
     return ipcRenderer.invoke(IPC_CHANNELS.getFleetState);
   },
+  getFleetAppServerStatuses(): Promise<import('@beale/app-server-runtime/protocol').FleetAppServerStatus[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFleetAppServerStatuses);
+  },
   getBrowserHomePage(): Promise<string> {
     return ipcRenderer.invoke(IPC_CHANNELS.getBrowserHomePage);
   },
   restartLocalAppServer(): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.restartLocalAppServer);
+  },
+  testLocalAppServerConnection(): Promise<{ success: boolean; message: string }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.testLocalAppServerConnection);
   },
   restartFleetAppServer(serverId: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.restartFleetAppServer, serverId);
@@ -473,8 +479,8 @@ const api: BealeApi = {
   getResearchProviderStatuses(): Promise<ResearchProviderStatus[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.getResearchProviderStatuses);
   },
-  getProviderUsageLimits(providerId: ResearchModelProviderId, refresh = false) {
-    return ipcRenderer.invoke(IPC_CHANNELS.getProviderUsageLimits, providerId, refresh);
+  getProviderUsageLimits(providerId: ResearchModelProviderId, refresh = false, serverId = 'local') {
+    return ipcRenderer.invoke(IPC_CHANNELS.getProviderUsageLimits, providerId, refresh, serverId);
   },
   getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.getResearchProviderModelCatalog);

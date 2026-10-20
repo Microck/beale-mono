@@ -6,6 +6,8 @@
 
 #### Added
 
+- The sidebar app-server selector shows green, red, or orange connection status dots and has an Add an App Server action that opens the Fleet form. A client-neutral Fleet status read checks remote peers without exposing their credentials. Control contract timestamp updated; rebuild Desktop and app-server together.
+- Local App Server settings now include a Test Connection action with health and compatibility feedback.
 - Remote workspace claims, memories, runbooks, and reports now open in the shared expanded right sidebar. The remote detail views are read-only.
 - New Research on a connected app server now uses the standard composer with that server's provider models, workspace targets, research suggestions, Goal Mode, Add Context, and Repeat. The selected app server owns suggestions, prompt expansion, the resulting session, and its repeat schedule. Rebuild Desktop and app-server binaries together; clients that pin the control timestamp must also update.
 - Quick Chat on a connected app server now opens a remote dock, starts chats in an app-server-owned internal workspace, and lets users reopen recent chats.
@@ -46,7 +48,10 @@
 
 #### Changed
 
-- Goals is now an Optional Feature with editable catalog and prompt text. Its `{{goal}}` content and feature reference appear only when Goal Mode is enabled in New Research; general session guidance uses `{{session}}`.
+- Goal Mode guidance now joins the other enabled feature guidance in `{{prompt_extensions}}`. The default prompt template no longer includes `{{goal}}`; older saved templates remain readable.
+- Feature settings now use the same grouped form layout as other Agent Settings views.
+- The usage tracker follows the selected app server. The authenticated provider-limits endpoint can relay a saved Fleet app server for any client; remote credentials remain on the host. Control contract timestamp updated; rebuild Desktop and app-server together.
+- Goals is now an Optional Feature with editable catalog and prompt text. Its content and feature reference appear only when Goal Mode is enabled in New Research; general session guidance uses `{{session}}`.
 - Optional Features now has a tabbed editor for each feature's enablement, catalog description, and prompt extension. New sessions compose enabled extensions through `{{prompt_extensions}}`; saved templates using older feature variables remain readable.
 - On/Off options in New Research settings and the Fast mode model option now toggle from checkboxes in their rows instead of opening another menu.
 - The Daybreak Blue access toggle is removed from model pickers. OpenAI requests include it automatically; the separate Daybreak Blue model alias remains an optional model.
@@ -167,6 +172,7 @@
 
 #### Fixed
 
+- Archive settings now load closed Quick Chats through a registered Desktop IPC handler.
 - The Desktop update prompt now keeps a dismissal for the current app-server contract and makes only one restart attempt per Desktop build. If the same build returns, it asks for an updated installation instead of repeating the restart prompt.
 - Workspace Campaign loading now settles after the background summary completes, with renderer refresh if its update notification is missed; older open responses cannot restore the loading state.
 - Selecting In-Agent Browser for a local research session now opens Beale's embedded host browser instead of the streamed Fleet browser view. External host browsers use the session browser relay.

@@ -24,6 +24,7 @@ import {
   decodeWorkspaceProjectRequest,
   decodeClaimBoardTransitionRequest,
   decodeFleetSshTestInput,
+  decodeFleetAppServerStatuses,
   decodeFleetRemoteResearchInput,
   decodeFleetRemotePromptExpansionInput,
   decodeBealeAppServerSessionControlRequest,
@@ -74,6 +75,14 @@ test('Fleet SSH test accepts draft settings and rejects malformed input', () => 
   const input = { machineId: 'tart:example-worker', sshHost: '', sshUser: 'example', sshIdentityFile: '~/example-key' };
   assert.deepEqual(decodeFleetSshTestInput(input), input);
   assert.throws(() => decodeFleetSshTestInput({ ...input, sshKnownHostsFile: 4 }), /Invalid Fleet SSH/);
+});
+
+test('Fleet app-server statuses are typed and contain no connection credentials', () => {
+  const statuses = [{ id: 'server-example', state: 'issue', message: 'Incompatible control contract.' }];
+  assert.deepEqual(decodeFleetAppServerStatuses(statuses), statuses);
+  assert.deepEqual(decodeFleetAppServerStatuses([{ ...statuses[0], operatorToken: 'synthetic-token' }]), statuses);
+  assert.throws(() => decodeFleetAppServerStatuses([{ ...statuses[0], state: 'unknown' }]), /Invalid Fleet app-server statuses/);
+  assert.throws(() => decodeFleetAppServerStatuses([{ ...statuses[0], operatorToken: 'synthetic-token', message: null }]), /Invalid Fleet app-server statuses/);
 });
 
 test("protocol envelopes are versioned, correlated, and strictly decoded", () => {

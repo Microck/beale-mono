@@ -12,6 +12,7 @@ import {
   decodeBealeProviderUsageLimits,
   type BealeProviderLimitId,
   type BealeProviderUsageLimits,
+  type FleetAppServerStatus,
   BEALE_APP_SERVER_SESSIONS_PATH,
   BEALE_APP_SERVER_SHUTDOWN_PATH,
   BEALE_APP_SERVER_SUPERVISOR_LOCAL_PORT,
@@ -381,10 +382,11 @@ export async function fetchAppServerCanonicalResult<T>(
 
 export async function fetchBealeProviderUsageLimits(
   providerId: BealeProviderLimitId,
-  refresh = false
+  refresh = false,
+  serverId = 'local'
 ): Promise<BealeProviderUsageLimits> {
   const record = await ensureBealeAppServerRunning();
-  const params = new URLSearchParams({ provider: providerId, ...(refresh ? { refresh: '1' } : {}) });
+  const params = new URLSearchParams({ provider: providerId, ...(refresh ? { refresh: '1' } : {}), ...(serverId === 'local' ? {} : { serverId }) });
   const response = await fetch(`${appServerControlUrl(record)}${BEALE_APP_SERVER_PROVIDER_LIMITS_PATH}?${params}`, {
     headers: { authorization: `Bearer ${record.operatorToken}` },
     signal: AbortSignal.timeout(15_000)
@@ -805,6 +807,31 @@ export function setBealeDesktopRestartRequiredHandler(
 
 export async function probeAppServerCompatibility(record: BealeAppServerDiscovery, timeoutMs: number): Promise<boolean> {
   return (await inspectAppServerCompatibility(record, timeoutMs)).status === 'compatible';
+}
+
+export async function testLocalAppServerConnection(): Promise<{ success: boolean; message: string }> {
+  const status = await inspectLocalAppServerStatus();
+  return { success: status.state === 'online', message: status.message };
+}
+
+export async function inspectLocalAppServerStatus(): Promise<FleetAppServerStatus> {
+  const record = readLiveBealeAppServerDiscovery();
+  if (!record) return { id: 'local', state: 'offline', message: 'No running local app server was found.' };
+  const compatibility = await inspectAppServerCompatibility(record, DEFAULT_HEALTH_TIMEOUT_MS);
+  if (compatibility.status === 'compatible') {
+    return { id: 'local', state: 'online', message: 'Connected to the local app server.' };
+  }
+  if (compatibility.status === 'desktop_older') {
+    return { id: 'local', state: 'issue', message: 'The local app server is newer than Beale. Restart Beale to load the update.' };
+  }
+  if (compatibility.status === 'server_older') {
+    return { id: 'local', state: 'issue', message: 'The local app server uses an older or incomplete control contract.' };
+  }
+  try {
+    await fetch(`${appServerControlUrl(record)}/health`, { signal: AbortSignal.timeout(DEFAULT_HEALTH_TIMEOUT_MS) });
+    return { id: 'local', state: 'issue', message: 'The local app server responded, but its health check failed.' };
+  } catch { /* No response means the server is offline. */ }
+  return { id: 'local', state: 'offline', message: 'The local app server did not answer its health check.' };
 }
 
 export async function inspectAppServerCompatibility(

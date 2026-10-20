@@ -82,9 +82,11 @@ import {
   ensureBealeAppServerRunning,
   fetchAppServerCanonicalResultWithRecovery,
   invokeAppServerOperation,
+  inspectLocalAppServerStatus,
   restartBealeAppServer,
   restartBealeAppServerViaSupervisor,
-  setBealeDesktopRestartRequiredHandler
+  setBealeDesktopRestartRequiredHandler,
+  testLocalAppServerConnection
 } from './bealeAppServerClient';
 import {
   detectAppServerMagicDnsName,
@@ -684,6 +686,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getWorkspaceRegistry, () =>
     timedMainIpcAsync('getWorkspaceRegistry', {}, () => workspaceService.getWorkspaceRegistryStateForClient())
   );
+  ipcMain.handle(IPC_CHANNELS.listArchivedQuickChats, () => workspaceService.listArchivedQuickChats());
   ipcMain.handle(IPC_CHANNELS.archiveResearchSession, (_event, sessionId: string) =>
     workspaceService.archiveResearchSession(sessionId)
   );
@@ -766,8 +769,15 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.previewPromptTemplate, (_event, profileId: ResearchProfileId, template: string, agentPath?: string) => workspaceService.previewPromptTemplate(profileId, template, agentPath));
   ipcMain.handle(IPC_CHANNELS.getAgentPlugins, () => workspaceService.getAgentPlugins());
   ipcMain.handle(IPC_CHANNELS.getFleetState, () => workspaceService.getFleetState());
+  ipcMain.handle(IPC_CHANNELS.getFleetAppServerStatuses, async () => {
+    const local = await inspectLocalAppServerStatus();
+    if (local.state !== 'online') return [local];
+    try { return [local, ...await workspaceService.getFleetAppServerStatuses()]; }
+    catch { return [local]; }
+  });
   ipcMain.handle(IPC_CHANNELS.getBrowserHomePage, () => workspaceService.getBrowserHomePage());
   ipcMain.handle(IPC_CHANNELS.restartLocalAppServer, async () => { await restartBealeAppServerViaSupervisor(); });
+  ipcMain.handle(IPC_CHANNELS.testLocalAppServerConnection, () => testLocalAppServerConnection());
   ipcMain.handle(IPC_CHANNELS.restartFleetAppServer, (_event, serverId: string) => workspaceService.restartFleetAppServer(serverId));
   ipcMain.handle(IPC_CHANNELS.restartFleetGuestAppServer, (_event, machineId: string) => workspaceService.restartFleetGuestAppServer(machineId));
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteMachines, () => workspaceService.getFleetRemoteMachines());
@@ -877,8 +887,8 @@ function registerIpc(): void {
     workspaceService.unlockProviderApiKeys(providerIds));
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.getResearchProviderStatuses, () => workspaceService.getResearchProviderStatuses());
-  ipcMain.handle(IPC_CHANNELS.getProviderUsageLimits, (_event, providerId: ResearchModelProviderId, refresh?: boolean) =>
-    workspaceService.getProviderUsageLimits(providerId, refresh));
+  ipcMain.handle(IPC_CHANNELS.getProviderUsageLimits, (_event, providerId: ResearchModelProviderId, refresh?: boolean, serverId?: string) =>
+    workspaceService.getProviderUsageLimits(providerId, refresh, serverId));
   ipcMain.handle(IPC_CHANNELS.getResearchProviderModelCatalog, () => workspaceService.getResearchProviderModelCatalog());
   ipcMain.handle(IPC_CHANNELS.startResearchProviderOAuth, async (_event, providerId: ResearchProviderId) => {
     const result = await workspaceService.startResearchProviderOAuth(providerId);

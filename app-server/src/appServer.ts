@@ -556,12 +556,17 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     }
     if (request.method === 'GET' && url.pathname === BEALE_APP_SERVER_PROVIDER_LIMITS_PATH) {
       const providerId = url.searchParams.get('provider');
+      const serverId = url.searchParams.get('serverId');
       if (providerId !== 'openai-codex' && providerId !== 'xai' && providerId !== 'anthropic'
         && providerId !== 'zai' && providerId !== 'openrouter') {
         sendJson(response, 400, { error: 'Unknown provider.' });
         return;
       }
-      sendJson(response, 200, await hostService.providerUsageLimits(providerId, url.searchParams.get('refresh') === '1'));
+      if (serverId !== null && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(serverId)) {
+        sendJson(response, 400, { error: 'Invalid app server ID.' });
+        return;
+      }
+      sendJson(response, 200, await hostService.providerUsageLimits(providerId, url.searchParams.get('refresh') === '1', serverId));
       return;
     }
     if (request.method === 'GET' && url.pathname === BEALE_APP_SERVER_SERVER_PATH) {
