@@ -161,7 +161,6 @@ export const IPC_CHANNELS = {
   steerRun: 'beale:steer-run',
   openNotification: 'beale:open-notification',
   dismissNotification: 'beale:dismiss-notification',
-  setWindowBackgroundEffect: 'beale:set-window-background-effect',
   minimizeWindow: 'beale:minimize-window',
   toggleMaximizeWindow: 'beale:toggle-maximize-window',
   closeWindow: 'beale:close-window',

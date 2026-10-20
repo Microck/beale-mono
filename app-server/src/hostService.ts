@@ -1958,6 +1958,7 @@ async function writePrivateJson(path: string, value: unknown): Promise<void> {
 function defaultBuiltinPlugins(): Array<{ id: string; path: string; installedAt: string; enabledByDefault?: boolean }> {
   return [
     ...MANAGED_TOOL_PLUGIN_IDS.map((id) => builtinPlugin(`${id}-builtin`, id, false, 'feature')),
+    builtinPlugin('beale-goals-builtin', 'beale-goals', false, 'feature'),
     builtinPlugin('beale-introspection-builtin', 'beale-introspection', false, 'feature'),
     ...bundledManagedPlugins()
   ].flatMap((plugin) => existsSync(plugin.path) ? [plugin] : []);

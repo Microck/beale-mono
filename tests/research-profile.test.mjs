@@ -142,6 +142,28 @@ test("goal guidance separates session work, Goal mode, and disposition", () => {
   assert.doesNotMatch(persistent, /\n{3,}/);
 });
 
+test("Goals feature text and catalog references require Goal Mode", () => {
+  const catalog = [{ id: "beale-goals-builtin", name: "Goals", description: "Synthetic Goals guidance.",
+    promptExtension: "Synthetic Goal Mode instructions.", mcpServers: [], skills: [] }];
+  const options = { hasTools: true, pluginCatalog: catalog,
+    promptTemplate: "{{boundary}}\n{{features}}\n{{goal}}\n{{prompt_extensions}}" };
+  const regular = createResearchSystemPrompt(options);
+  assert.doesNotMatch(regular, /beale-goals-builtin|Synthetic Goals guidance|Synthetic Goal Mode instructions|Persistent Goal mode|objective_achieved/u);
+  assert.match(regular, /Session progress:/u);
+
+  const persistent = createResearchSystemPrompt({ ...options, goalEnabled: true });
+  assert.match(persistent, /beale-goals-builtin \(feature; 0 tools\): Synthetic Goals guidance\./u);
+  assert.match(persistent, /Synthetic Goal Mode instructions\./u);
+  assert.doesNotMatch(persistent, /Persistent Goal mode:/u);
+  assert.equal(persistent.match(/Synthetic Goal Mode instructions\./gu)?.length, 1);
+
+  const defaultGoal = createResearchSystemPrompt({ hasTools: true, goalEnabled: true,
+    pluginCatalog: pluginCatalog("beale-goals-builtin") });
+  assert.match(defaultGoal, /Persistent Goal mode:\nContinue researching the supplied objective/u);
+  const disabledFeature = createResearchSystemPrompt({ ...options, goalEnabled: true, pluginCatalog: [] });
+  assert.doesNotMatch(disabledFeature, /Synthetic Goal Mode instructions|Persistent Goal mode|objective_achieved/u);
+});
+
 test("discovery guidance treats existing findings as prior art while allowing requested follow-up", () => {
   const prompt = createResearchSystemPrompt({
     hasTools: true,

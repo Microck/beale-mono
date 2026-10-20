@@ -49,9 +49,10 @@ export const MANAGED_TOOL_PLUGINS = [
 export type ManagedToolPluginId = typeof MANAGED_TOOL_PLUGINS[number]["id"];
 export const MANAGED_TOOL_PLUGIN_IDS: readonly ManagedToolPluginId[] = MANAGED_TOOL_PLUGINS.map((plugin) => plugin.id);
 export const INTROSPECTION_HARNESS_FEATURE_ID = "beale-introspection-builtin";
+export const GOALS_HARNESS_FEATURE_ID = "beale-goals-builtin";
 
 export function isHarnessFeatureId(value: unknown): boolean {
-  return isManagedToolPluginId(value) || value === INTROSPECTION_HARNESS_FEATURE_ID;
+  return isManagedToolPluginId(value) || value === INTROSPECTION_HARNESS_FEATURE_ID || value === GOALS_HARNESS_FEATURE_ID;
 }
 
 export interface PluginSkillResourceCounts {

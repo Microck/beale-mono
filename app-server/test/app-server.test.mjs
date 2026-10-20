@@ -2229,6 +2229,9 @@ test("app-server owns built-in plugins and pins canonical session profile identi
   assert.equal(pluginCall.options.input.builtinPlugins.some((plugin) => plugin.id === "beale-browser-use-builtin"), false);
   assert.equal(pluginCall.options.input.builtinPlugins.some((plugin) => plugin.id === "beale-terminator-builtin"), false);
   assert.ok(pluginCall.options.input.builtinPlugins.some((plugin) =>
+    plugin.id === "beale-goals-builtin" && plugin.path.endsWith(join("harness-features", "beale-goals"))
+  ));
+  assert.ok(pluginCall.options.input.builtinPlugins.some((plugin) =>
     plugin.id === "meta-skills-builtin" && plugin.enabledByDefault === false
       && plugin.path.endsWith(join("managed-plugins", "meta-skills"))
   ));

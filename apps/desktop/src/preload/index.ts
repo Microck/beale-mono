@@ -90,7 +90,6 @@ import type {
   StartRunInput,
   SteeringAction,
   WindowChromeState,
-  WindowBackgroundEffect,
   WorkspacePickerMode,
   WorkspaceSnapshot,
   ZoomState
@@ -619,9 +618,6 @@ const api: BealeApi = {
   },
   dismissNotification(notificationId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.dismissNotification, notificationId);
-  },
-  setWindowBackgroundEffect(effect: WindowBackgroundEffect): Promise<void> {
-    return ipcRenderer.invoke(IPC_CHANNELS.setWindowBackgroundEffect, effect);
   },
   minimizeWindow() {
     return ipcRenderer.invoke(IPC_CHANNELS.minimizeWindow);

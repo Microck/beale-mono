@@ -14,6 +14,7 @@ describe('prompt template settings', () => {
       const registry = new WorkspaceRegistry(directory);
       const defaults = registry.getFeaturePromptSettings();
       expect(defaults['beale-claims']?.promptExtension).toContain('Use one canonical, evidence-gated research claim ledger');
+      expect(defaults['beale-goals-builtin']?.promptExtension).toContain('Persistent Goal mode:');
       expect(defaults['beale-source']?.promptExtension).toBe('');
       registry.setFeaturePromptSettings('beale-claims', 'Synthetic claim catalog guidance.', 'Use the synthetic claim workflow.');
       const catalog = [{ id: 'beale-claims', name: 'Claims', description: 'Original description.', skills: [], mcpServers: [] }];
@@ -30,6 +31,12 @@ describe('prompt template settings', () => {
       registry.setFeaturePromptSettings('beale-knowledge', 'Synthetic knowledge catalog.', defaults['beale-knowledge'].promptExtension);
       expect(host.featurePromptOverrides()['beale-knowledge']).toEqual({ description: 'Synthetic knowledge catalog.' });
       registry.resetFeaturePromptSettings('beale-knowledge');
+      registry.setFeaturePromptSettings('beale-goals-builtin', 'Synthetic Goals guidance.', 'Synthetic Goal Mode instructions.');
+      const goalsPreview = registry.previewPromptTemplate('security-research', '{{boundary}}\n{{features}}\n{{goal}}', undefined,
+        [{ id: 'beale-goals-builtin', name: 'Goals', description: 'Original Goals description.', skills: [], mcpServers: [] }]);
+      expect(goalsPreview).not.toContain('Synthetic Goals guidance.');
+      expect(goalsPreview).not.toContain('Synthetic Goal Mode instructions.');
+      registry.resetFeaturePromptSettings('beale-goals-builtin');
       expect(() => registry.setFeaturePromptSettings('unknown-feature', 'Example', '')).toThrow(/Unknown harness feature/);
       registry.close();
       const reopened = new WorkspaceRegistry(directory);

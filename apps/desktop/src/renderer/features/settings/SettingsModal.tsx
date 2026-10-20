@@ -55,12 +55,7 @@ import { normalizeShellSafetyMode } from '../../../shared/shellSafety';
 import { permissionModeOptions } from '../../view-models/permissionSettings';
 import { preferredProviderReasoningEffort, resolvedProviderModelDefaults } from '../../view-models/providerModelDefaults';
 import {
-  APPEARANCE_BACKGROUNDS,
-  APPEARANCE_TRANSPARENCY_PERCENTAGES,
   APPEARANCE_THEMES,
-  normalizeAppearanceTransparencyPercentage,
-  type AppearanceBackground,
-  type AppearanceTransparencyPercentage,
   type AppearanceTheme
 } from '../../view-models/appearance';
 import {
@@ -151,8 +146,6 @@ export function SettingsSidebar({
 
 export function SettingsView({
   section,
-  appearanceBackground,
-  appearanceTransparencyPercentage,
   appearanceTheme,
   researchProfile,
   tracesEnabled,
@@ -186,8 +179,6 @@ export function SettingsView({
   archiveLoading = false,
   busy,
   onChangeAppearanceTheme,
-  onChangeAppearanceBackground,
-  onChangeAppearanceTransparencyPercentage,
   onChangeTracesEnabled,
   onChangeProfilingEnabled,
   onChangeSuggestionPreference,
@@ -221,8 +212,6 @@ export function SettingsView({
   onResumeQuickChat = async () => undefined
 }: {
   section: SettingsSection;
-  appearanceBackground: AppearanceBackground;
-  appearanceTransparencyPercentage: AppearanceTransparencyPercentage;
   appearanceTheme: AppearanceTheme;
   researchProfile: ResearchProfileSnapshot | null;
   researchProfiles: ResolvedResearchProfile[];
@@ -256,8 +245,6 @@ export function SettingsView({
   archiveLoading?: boolean;
   busy: boolean;
   onChangeAppearanceTheme: (theme: AppearanceTheme) => void;
-  onChangeAppearanceBackground: (background: AppearanceBackground) => void;
-  onChangeAppearanceTransparencyPercentage: (percentage: AppearanceTransparencyPercentage) => void;
   onChangeTracesEnabled: (enabled: boolean) => void;
   onChangeProfilingEnabled: (enabled: boolean) => void;
   onChangeSuggestionPreference: (key: SuggestionPreferenceKey, enabled: boolean) => void;
@@ -337,12 +324,8 @@ export function SettingsView({
           />
         ) : activeSection === 'appearance' ? (
           <AppearanceSettingsView
-            background={appearanceBackground}
-            transparencyPercentage={appearanceTransparencyPercentage}
             theme={appearanceTheme}
             sessionHeatPreferences={sessionHeatPreferences}
-            onChangeBackground={onChangeAppearanceBackground}
-            onChangeTransparencyPercentage={onChangeAppearanceTransparencyPercentage}
             onChangeTheme={onChangeAppearanceTheme}
             onSetSessionHeatPalettePreference={onSetSessionHeatPalettePreference}
           />
@@ -635,25 +618,6 @@ const APPEARANCE_THEME_DETAILS: Record<AppearanceTheme, { name: string; descript
   }
 };
 
-const APPEARANCE_BACKGROUND_DETAILS: Record<AppearanceBackground, { name: string; description: string }> = {
-  solid: {
-    name: 'Solid',
-    description: 'Use the current opaque Beale window surface.'
-  },
-  'semi-transparent': {
-    name: 'Semi-Transparent',
-    description: 'Let some of the desktop show through the window.'
-  },
-  gradient: {
-    name: 'Gradient',
-    description: 'Blend complementary surfaces from the active theme.'
-  },
-  blur: {
-    name: 'Blur',
-    description: 'Use a translucent, softly blurred window surface.'
-  }
-};
-
 const SESSION_HEAT_LEVEL_DESCRIPTIONS: Record<SessionHeatColorLevel, string> = {
   low: 'A subtle signal for sessions with light activity.',
   medium: 'A moderate signal for sessions with sustained activity.',
@@ -662,21 +626,13 @@ const SESSION_HEAT_LEVEL_DESCRIPTIONS: Record<SessionHeatColorLevel, string> = {
 };
 
 export function AppearanceSettingsView({
-  background,
-  transparencyPercentage,
   theme,
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
-  onChangeBackground,
-  onChangeTransparencyPercentage,
   onChangeTheme,
   onSetSessionHeatPalettePreference = () => undefined
 }: {
-  background: AppearanceBackground;
-  transparencyPercentage: AppearanceTransparencyPercentage;
   theme: AppearanceTheme;
   sessionHeatPreferences?: SessionHeatPreferences;
-  onChangeBackground: (background: AppearanceBackground) => void;
-  onChangeTransparencyPercentage: (percentage: AppearanceTransparencyPercentage) => void;
   onChangeTheme: (theme: AppearanceTheme) => void;
   onSetSessionHeatPalettePreference?: (profileId: string, theme: SessionHeatTheme, level: SessionHeatColorLevel, color: string | null) => void;
 }): JSX.Element {
@@ -726,69 +682,12 @@ export function AppearanceSettingsView({
         sessionHeatPreferences={sessionHeatPreferences}
         onSetColor={onSetSessionHeatPalettePreference}
       />
-      <section className="settings-form appearance-settings-form">
-        <header className="settings-form-heading">
-          <h2 id="appearance-background-heading">Background</h2>
-          <p>Choose how the Beale window surface is rendered.</p>
-        </header>
-        <fieldset className="settings-form-squircle appearance-background-settings" aria-labelledby="appearance-background-heading">
-          <div className="settings-form-control-list appearance-background-list">
-            {APPEARANCE_BACKGROUNDS.map((candidate) => {
-              const details = APPEARANCE_BACKGROUND_DETAILS[candidate];
-              return (
-                <div
-                  className="settings-form-control-row appearance-background-row"
-                  data-appearance-background={candidate}
-                  key={candidate}
-                >
-                  <label
-                    className="settings-form-control-copy appearance-background-copy"
-                    htmlFor={`appearance-background-${candidate}`}
-                  >
-                    <strong>{details.name}</strong>
-                    <small>{details.description}</small>
-                  </label>
-                  <span className="appearance-theme-control">
-                    {candidate === 'semi-transparent' ? (
-                      <select
-                        className="appearance-transparency-select"
-                        aria-label="Background transparency"
-                        value={transparencyPercentage}
-                        onChange={(event) => {
-                          onChangeTransparencyPercentage(normalizeAppearanceTransparencyPercentage(event.target.value));
-                          onChangeBackground(candidate);
-                        }}
-                      >
-                        {APPEARANCE_TRANSPARENCY_PERCENTAGES.map((percentage) => (
-                          <option value={percentage} key={percentage}>{percentage}%</option>
-                        ))}
-                      </select>
-                    ) : null}
-                    <span className="appearance-background-preview" aria-hidden="true">
-                      <span />
-                      <span />
-                    </span>
-                    <input
-                      type="radio"
-                      id={`appearance-background-${candidate}`}
-                      name="appearance-background"
-                      aria-label={`${details.name} background`}
-                      checked={background === candidate}
-                      onChange={() => onChangeBackground(candidate)}
-                    />
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </fieldset>
-      </section>
     </div>
   );
 }
 
 const PROMPT_VARIABLES = [
-  'identity', 'style', 'boundary', 'tools', 'features', 'plugins', 'collaboration', 'goal', 'prompt_extensions',
+  'identity', 'style', 'boundary', 'tools', 'features', 'plugins', 'collaboration', 'goal', 'session', 'prompt_extensions',
   'profile.id', 'profile.name'
 ] as const;
 
@@ -1135,7 +1034,8 @@ export function OptionalFeaturesSettingsView({
   }, []);
 
   const selectedFeature = OPTIONAL_AGENT_FEATURES.find((feature) => feature.id === selectedId) ?? OPTIONAL_AGENT_FEATURES[0];
-  const selectedPromptId = selectedFeature.id === 'beale-introspection' ? 'beale-introspection-builtin' : selectedFeature.id;
+  const selectedPromptId = selectedFeature.id === 'beale-introspection' || selectedFeature.id === 'beale-goals'
+    ? `${selectedFeature.id}-builtin` : selectedFeature.id;
   const selectedPlugin = pluginState?.plugins.find((candidate) => candidate.id === `${selectedFeature.id}-builtin`);
   const unavailable = !selectedPlugin || selectedPlugin.status !== 'ready';
   const saved = settings?.[selectedPromptId];
@@ -1205,7 +1105,9 @@ export function OptionalFeaturesSettingsView({
                 value={draft.description} disabled={editBusy} onChange={(event) => updateDraft({ description: event.currentTarget.value })} />
             </label>
             <label className="optional-feature-field"><strong>Prompt extension</strong>
-              <small>Included through {'{{prompt_extensions}}'} while this feature is enabled.</small>
+              <small>{selectedFeature.id === 'beale-goals'
+                ? <>Included through {'{{goal}}'} only when Goal Mode is enabled in New Research.</>
+                : <>Included through {'{{prompt_extensions}}'} while this feature is enabled.</>}</small>
               <textarea aria-label={`${selectedFeature.name} prompt extension`} maxLength={24000} rows={12}
                 value={draft.promptExtension} disabled={editBusy} onChange={(event) => updateDraft({ promptExtension: event.currentTarget.value })} />
             </label>

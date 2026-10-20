@@ -307,6 +307,24 @@ test("bundled plugin defaults and disablement persist in launch arguments", asyn
   }
 });
 
+test("Goals is a prompt-only built-in feature with a saved enable switch", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "beale-goals-feature-example-"));
+  const id = "beale-goals-builtin";
+  const builtinPlugins = [{ id, path: resolve("app-server/resources/harness-features/beale-goals"),
+    installedAt: "2026-01-01T00:00:00.000Z", enabledByDefault: true }];
+  try {
+    const registry = new AgentPluginRegistry(directory, { builtinPlugins });
+    assert.equal(registry.getState().plugins.find((plugin) => plugin.id === id)?.status, "ready");
+    assert.equal(registry.getAppServerRuntime().pluginCatalog.find((plugin) => plugin.id === id)?.name, "beale-goals");
+    assert.equal(registry.getAppServerRuntime().managedPluginIds, undefined);
+    registry.setEnabled(id, false);
+    const reloaded = new AgentPluginRegistry(directory, { builtinPlugins });
+    assert.equal(reloaded.getAppServerRuntime().pluginCatalog.some((plugin) => plugin.id === id), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("Introspection migration retains the saved enabled state and updates its builtin path", async () => {
   const directory = await mkdtemp(join(tmpdir(), "beale-introspection-migration-example-"));
   const id = "beale-introspection-builtin";

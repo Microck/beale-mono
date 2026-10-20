@@ -107,7 +107,6 @@ const fleetBrowserViewer = new FleetBrowserViewer((update) => {
 const runDetailRequestControllers = new Map<string, AbortController>();
 const researchGoalSuggestionControllers = new Map<string, AbortController>();
 const smokeTestMode = process.argv.includes('--smoke-test');
-const WINDOW_BACKGROUND_EFFECTS = new Set(['solid', 'semi-transparent', 'gradient', 'blur']);
 
 // Keep the established storage location stable while correcting the displayed app identity.
 app.setPath('userData', join(app.getPath('appData'), 'beale'));
@@ -273,16 +272,6 @@ function recordRendererExit(reason: string, exitCode: number): void {
     })}\n`, { mode: 0o600 });
   } catch {
     process.stderr.write(`Beale renderer exited (${reason}, ${exitCode}).\n`);
-  }
-}
-
-function setWindowBackgroundEffect(window: BrowserWindow, value: unknown): void {
-  const effect = typeof value === 'string' && WINDOW_BACKGROUND_EFFECTS.has(value) ? value : 'solid';
-  const blurEnabled = effect === 'blur';
-  if (process.platform === 'darwin') {
-    window.setVibrancy(blurEnabled ? 'under-window' : null);
-  } else if (process.platform === 'win32') {
-    window.setBackgroundMaterial(blurEnabled ? 'acrylic' : 'none');
   }
 }
 
@@ -1128,10 +1117,6 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.openNotification, (_event, notificationId: string) => workspaceService.openNotification(notificationId));
   ipcMain.handle(IPC_CHANNELS.dismissNotification, (_event, notificationId: string) => workspaceService.dismissNotification(notificationId));
-  ipcMain.handle(IPC_CHANNELS.setWindowBackgroundEffect, (event, effect: unknown) => {
-    const window = windowForEvent(event);
-    if (window) setWindowBackgroundEffect(window, effect);
-  });
   ipcMain.handle(IPC_CHANNELS.minimizeWindow, (event) => {
     windowForEvent(event)?.minimize();
   });

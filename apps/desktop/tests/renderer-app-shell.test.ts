@@ -306,8 +306,8 @@ describe('renderer app shell view model', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const sidebarStyles = styles.match(/(?:^|\n)\.sidebar\s*\{([^}]*)\}/u)?.[1] ?? '';
     const workbenchStyles = styles.match(/(?:^|\n)\.workbench\s*\{([^}]*)\}/u)?.[1] ?? '';
-    const sessionWorkbenchStyles = styles.match(/\.app-shell\[data-background\] \.workbench:has\(\.main-session-grid\)\s*\{([^}]*)\}/u)?.[1] ?? '';
-    const collapsedWorkbenchStyles = styles.match(/\.app-shell\.sidebar-collapsed \.workbench,\s*\.app-shell\.sidebar-collapsed\[data-background\] \.workbench:has\(\.main-session-grid\)\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const sessionWorkbenchStyles = styles.match(/\.workbench:has\(\.main-session-grid\)\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const collapsedWorkbenchStyles = styles.match(/\.app-shell\.sidebar-collapsed \.workbench,\s*\.app-shell\.sidebar-collapsed \.workbench:has\(\.main-session-grid\)\s*\{([^}]*)\}/u)?.[1] ?? '';
     expect(sidebarStyles).toContain('border-radius: var(--content-surface-radius) 0 0 var(--content-surface-radius)');
     expect(workbenchStyles).toContain('border-left: 1px solid var(--panel-border)');
     expect(workbenchStyles).toContain('border-radius: 0 var(--content-surface-radius) var(--content-surface-radius) 0');

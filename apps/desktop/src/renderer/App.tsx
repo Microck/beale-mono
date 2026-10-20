@@ -93,11 +93,7 @@ import { useResearchGoalSuggestions } from './hooks/useResearchGoalSuggestions';
 import { useSidebarPerformanceProbe } from './hooks/useSidebarPerformanceProbe';
 import { usePermissionSettings } from './hooks/usePermissionSettings';
 import { permissionAllowsSteeringAction } from './view-models/permissionSettings';
-import {
-  useAppearanceBackground,
-  useAppearanceTheme,
-  useAppearanceTransparencyPercentage
-} from './hooks/useAppearanceTheme';
+import { useAppearanceTheme } from './hooks/useAppearanceTheme';
 import { useSessionHeatPreferences } from './hooks/useSessionHeatPreferences';
 import { useSuggestionPreferences } from './hooks/useSuggestionPreferences';
 import { filterEnabledProviderModelCatalogs } from '../shared/optionalProviderModels';
@@ -329,8 +325,6 @@ export function App(): JSX.Element {
   const [appServerRemoteAccessSettings, setAppServerRemoteAccessSettings] = useState<AppServerRemoteAccessSettings | null>(null);
   const [appServerRemoteAccessBusy, setAppServerRemoteAccessBusy] = useState(false);
   const [appearanceTheme, setAppearanceTheme] = useAppearanceTheme();
-  const [appearanceBackground, setAppearanceBackground] = useAppearanceBackground();
-  const [appearanceTransparencyPercentage, setAppearanceTransparencyPercentage] = useAppearanceTransparencyPercentage();
   const [permissionSettings, setDangerModeEnabled, setDefaultShellSafetyMode] = usePermissionSettings();
   const [sessionHeatPreferences, setSessionHeatPreference, setSessionHeatPalettePreference] = useSessionHeatPreferences();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
@@ -1852,7 +1846,6 @@ export function App(): JSX.Element {
   const sessionHeatProfile = sessionHeatDisplay.profile ?? snapshot?.researchProfile.profile ?? null;
   const shellStyle = {
     '--sidebar-width': `${sidebarWidth}px`,
-    '--appearance-background-opacity': `${100 - appearanceTransparencyPercentage}%`,
     ...sessionHeatPaletteStyle(sessionHeatPaletteForProfile(sessionHeatProfile, sessionHeatPreferences, appearanceTheme))
   } as CSSProperties;
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
@@ -2071,7 +2064,6 @@ export function App(): JSX.Element {
     <div
       ref={appShellRef}
       className={shellClassName}
-      data-background={appearanceBackground}
       data-theme={appearanceTheme}
       style={shellStyle}
     >
@@ -2258,8 +2250,6 @@ export function App(): JSX.Element {
         {settingsOpen ? (
           <SettingsView
             section={settingsSection}
-            appearanceBackground={appearanceBackground}
-            appearanceTransparencyPercentage={appearanceTransparencyPercentage}
             appearanceTheme={appearanceTheme}
             researchProfiles={researchProfiles}
             researchProfilesLoading={researchProfilesLoading}
@@ -2293,8 +2283,6 @@ export function App(): JSX.Element {
             archiveLoading={archiveLoading}
             busy={busy}
             onChangeAppearanceTheme={setAppearanceTheme}
-            onChangeAppearanceBackground={setAppearanceBackground}
-            onChangeAppearanceTransparencyPercentage={setAppearanceTransparencyPercentage}
             onChangeTracesEnabled={changeTracesEnabled}
             onChangeProfilingEnabled={(enabled) => void setProfilingEnabled(enabled)}
             onChangeSuggestionPreference={setSuggestionPreference}

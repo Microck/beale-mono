@@ -119,7 +119,7 @@ export class WorkspaceRegistry {
       hasTools: true,
       hasSessionDispositionTool: !agentPath,
       hasCollaborationTools: true,
-      goalEnabled: !agentPath,
+      goalEnabled: false,
       ...(agentPath ? { agentPath } : {}),
       researchProfile: bundledResearchProfile(profileId),
       promptTemplate: template,

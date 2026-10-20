@@ -26,6 +26,7 @@
 
 #### Removed
 
+- Removed Appearance background choices and transparency controls. Beale now uses the Gradient window surface for every theme, including when an older background preference is stored.
 - Removed the rounded-square background pulse from active research sessions.
 - Removed the bottom panel, its workspace Terminal, and the header toggle. Desktop no longer bundles the terminal emulator or native PTY dependency.
 - Removed Campaign Highlights and its priority-claim presentation, plus Workspace Utilities, Dream, and Dejunk controls. Campaign opens on Claims; existing workspace Settings contains Remove Workspace. Historical stored data remains intact.
@@ -45,6 +46,7 @@
 
 #### Changed
 
+- Goals is now an Optional Feature with editable catalog and prompt text. Its `{{goal}}` content and feature reference appear only when Goal Mode is enabled in New Research; general session guidance uses `{{session}}`.
 - Optional Features now has a tabbed editor for each feature's enablement, catalog description, and prompt extension. New sessions compose enabled extensions through `{{prompt_extensions}}`; saved templates using older feature variables remain readable.
 - On/Off options in New Research settings and the Fast mode model option now toggle from checkboxes in their rows instead of opening another menu.
 - The Daybreak Blue access toggle is removed from model pickers. OpenAI requests include it automatically; the separate Daybreak Blue model alias remains an optional model.
@@ -1363,6 +1365,7 @@
 
 #### Changed
 
+- Goals is now a prompt-only built-in feature. The app-server persists its enablement and prompt edits with the other Optional Features.
 - The app-server registry now stores feature prompt edits and snapshots them into session plugin catalogs. Description-only edits retain default prompt instructions.
 - Native OpenAI research requests now include Daybreak Blue access automatically, including resumed sessions and Fleet brokered completions; older launch flags remain accepted.
 - Bundled managed-plugin registry entries now retain explicit installation state and absorb earlier filesystem imports of the same bundled directory. Session launch installs plugins required by its research kit.

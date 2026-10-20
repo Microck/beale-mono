@@ -2277,7 +2277,6 @@ export interface IosDeviceCaptureFrame {
   jpegData: Uint8Array;
 }
 
-export type WindowBackgroundEffect = 'solid' | 'semi-transparent' | 'gradient' | 'blur';
 
 export interface FeaturePromptSettings {
   description: string;
@@ -2450,7 +2449,6 @@ export interface BealeApi {
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
   openNotification(notificationId: string): Promise<WorkspaceSnapshot>;
   dismissNotification(notificationId: string): Promise<WorkspaceSnapshot>;
-  setWindowBackgroundEffect(effect: WindowBackgroundEffect): Promise<void>;
   minimizeWindow(): Promise<void>;
   toggleMaximizeWindow(): Promise<void>;
   closeWindow(): Promise<void>;

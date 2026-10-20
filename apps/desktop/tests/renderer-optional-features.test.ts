@@ -28,7 +28,7 @@ const state: AgentPluginRegistryState = {
 
 describe('optional agent features', () => {
   it('classifies the internal app-server tool groups', () => {
-    expect(OPTIONAL_AGENT_FEATURES.map((feature) => feature.id)).toEqual([...MANAGED_TOOL_PLUGIN_IDS, 'beale-introspection']);
+    expect(OPTIONAL_AGENT_FEATURES.map((feature) => feature.id)).toEqual([...MANAGED_TOOL_PLUGIN_IDS, 'beale-goals', 'beale-introspection']);
   });
 
   it('places feature tabs and their enabled control in Agent Settings, leaving traditional plugins in Plugins', () => {
@@ -51,6 +51,7 @@ describe('optional agent features', () => {
     expect(sidebar).toContain('aria-current="page"');
     expect(settings).toContain('role="tablist" aria-label="Optional feature views"');
     expect(settings).toContain('role="tab" id="optional-feature-tab-beale-introspection"');
+    expect(settings).toContain('role="tab" id="optional-feature-tab-beale-goals"');
     expect(settings).toContain('role="tabpanel" aria-labelledby="optional-feature-tab-beale-source"');
     expect(settings).toContain('type="checkbox" aria-label="Enable Source" checked=""');
     expect(plugins).not.toContain('<strong>beale-source</strong>');

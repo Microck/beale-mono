@@ -4,7 +4,7 @@ import {
   type MemoryTypeDescriptionsInput,
 } from "./memory-taxonomy.js";
 import type { ResearchProfile } from "./research-profile.js";
-import { formatHarnessFeatureCatalog, formatResearchPluginCatalog, isHarnessFeatureId, MANAGED_TOOL_PLUGINS, INTROSPECTION_HARNESS_FEATURE_ID, type ResearchPluginCatalogEntry } from "./managed-tool-plugins.js";
+import { formatHarnessFeatureCatalog, formatResearchPluginCatalog, isHarnessFeatureId, MANAGED_TOOL_PLUGINS, INTROSPECTION_HARNESS_FEATURE_ID, GOALS_HARNESS_FEATURE_ID, type ResearchPluginCatalogEntry } from "./managed-tool-plugins.js";
 
 export interface CreateResearchSystemPromptOptions {
   hasTools: boolean;
@@ -22,7 +22,7 @@ export interface CreateResearchSystemPromptOptions {
   pluginCatalog?: readonly ResearchPluginCatalogEntry[];
 }
 
-const PROMPT_SECTIONS = ["identity", "style", "boundary", "tools", "features", "plugins", "collaboration", "goal", "prompt_extensions", "memory", "claims", "runbooks"] as const;
+const PROMPT_SECTIONS = ["identity", "style", "boundary", "tools", "features", "plugins", "collaboration", "goal", "session", "prompt_extensions", "memory", "claims", "runbooks"] as const;
 type PromptSection = typeof PROMPT_SECTIONS[number];
 const SECTION_MARKER = "\u0000beale-prompt-section:";
 const LEGACY_FEATURE_SECTIONS = ["memory", "claims", "runbooks"] as const;
@@ -32,6 +32,7 @@ const FEATURE_SECTION_IDS = {
   "beale-knowledge": "memory",
   "beale-claims": "claims",
   "beale-runbooks": "runbooks",
+  [GOALS_HARNESS_FEATURE_ID]: "goal",
 } as const;
 const MAX_FEATURE_DESCRIPTION_CHARACTERS = 240;
 const MAX_FEATURE_EXTENSION_CHARACTERS = 24_000;
@@ -49,7 +50,7 @@ export type FeaturePromptOverrides = Record<string, FeaturePromptOverride>;
 export function decodeFeaturePromptOverrides(value: unknown): FeaturePromptOverrides {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid feature prompt settings.");
   const entries = Object.entries(value);
-  if (entries.length > MANAGED_TOOL_PLUGINS.length + 1) throw new Error("Too many feature prompt settings.");
+  if (entries.length > MANAGED_TOOL_PLUGINS.length + 2) throw new Error("Too many feature prompt settings.");
   return Object.fromEntries(entries.map(([id, raw]) => {
     if (!isHarnessFeatureId(id) || !raw || typeof raw !== "object" || Array.isArray(raw)) {
       throw new Error(`Invalid feature prompt setting: ${id}.`);
@@ -74,8 +75,11 @@ export function defaultFeaturePromptSettings(profile: ResearchProfile, memoryTyp
     { id: INTROSPECTION_HARNESS_FEATURE_ID, name: "Introspection",
       description: "Default Beale tools for managing workspaces, resources, research sessions, and maintenance.",
       toolCount: 0, skills: [], mcpServers: [] },
+    { id: GOALS_HARNESS_FEATURE_ID, name: "Goals",
+      description: "Persistent Goal Mode guidance for research sessions.",
+      toolCount: 0, skills: [], mcpServers: [] },
   ] satisfies ResearchPluginCatalogEntry[];
-  const sections = buildResearchPromptSections({ hasTools: true, researchProfile: profile,
+  const sections = buildResearchPromptSections({ hasTools: true, goalEnabled: true, researchProfile: profile,
     ...(memoryTypeDescriptions ? { memoryTypeDescriptions } : {}), pluginCatalog: catalog });
   return Object.fromEntries(catalog.map((feature) => {
     const section = FEATURE_SECTION_IDS[feature.id as keyof typeof FEATURE_SECTION_IDS];
@@ -207,6 +211,12 @@ function buildResearchPromptSections(
       ...(options.collaborationGuidance ? ["", options.collaborationGuidance] : []),
     ] : []),
     `${SECTION_MARKER}goal`,
+    ...(options.goalEnabled ? [
+      "Persistent Goal mode:",
+      "Continue researching the supplied objective until evidence supports a final disposition. The host handles goal persistence and terminal state.",
+      "Treat the current user request and later user steering as binding completion requirements, even when the persistent goal is broader. Record objective_achieved only when evidence from this session satisfies all of them; record objective_partially_achieved when any requested outcome remains absent, even if an intermediate finding is valuable.",
+    ] : []),
+    `${SECTION_MARKER}session`,
     "Session progress:",
     "Treat existing records and prior transcript as historical state. Attribute only work completed in this session to this session; an unchanged artifact cannot satisfy a request for new work.",
     ...(!profile || profile.id === "security-research" ? [
@@ -214,12 +224,6 @@ function buildResearchPromptSections(
     ] : []),
     ...(profile?.id === "security-research" && options.hasTools ? [
       "At evidence checkpoints, rank at most three candidates by expected evidence gain. For each, state the next positive proof obligation and genuinely contrary evidence; an incomplete proof or bounded miss is not refutation.",
-    ] : []),
-    ...(options.goalEnabled ? [
-      "",
-      "Persistent Goal mode:",
-      "Continue researching the supplied objective until evidence supports a final disposition. The host handles goal persistence and terminal state.",
-      "Treat the current user request and later user steering as binding completion requirements, even when the persistent goal is broader. Record objective_achieved only when evidence from this session satisfies all of them; record objective_partially_achieved when any requested outcome remains absent, even if an intermediate finding is valuable.",
     ] : []),
     ...(options.hasSessionDispositionTool ? [
       "",
@@ -298,11 +302,15 @@ function buildResearchPromptSections(
 export function createResearchSystemPrompt(
   options: CreateResearchSystemPromptOptions,
 ): string {
-  const sections = buildResearchPromptSections(options);
+  const pluginCatalog = options.pluginCatalog?.filter((feature) => options.goalEnabled || feature.id !== GOALS_HARNESS_FEATURE_ID);
+  const sections = buildResearchPromptSections({ ...options, ...(pluginCatalog ? { pluginCatalog } : {}) });
   const profile = options.researchProfile;
-  const featureCatalog = options.pluginCatalog?.filter((feature) => isHarnessFeatureId(feature.id)) ?? [];
+  const featureCatalog = pluginCatalog?.filter((feature) => isHarnessFeatureId(feature.id)) ?? [];
   const defaultExtensions = defaultFeaturePromptSettingsForSections(sections);
-  const extensions = featureCatalog.map((feature) => ({
+  const goalFeature = featureCatalog.find((feature) => feature.id === GOALS_HARNESS_FEATURE_ID);
+  const goalText = options.goalEnabled && (goalFeature || options.pluginCatalog === undefined)
+    ? (goalFeature?.promptExtension ?? defaultExtensions[GOALS_HARNESS_FEATURE_ID] ?? "").trim() : "";
+  const extensions = featureCatalog.filter((feature) => feature.id !== GOALS_HARNESS_FEATURE_ID).map((feature) => ({
     id: feature.id,
     name: feature.name,
     content: feature.promptExtension ?? defaultExtensions[feature.id] ?? "",
@@ -311,6 +319,7 @@ export function createResearchSystemPrompt(
     `${extension.name} (${extension.id}):\n${extension.content.trim()}`).join("\n\n");
   const variables: Record<string, string> = {
     ...Object.fromEntries(PROMPT_SECTIONS.map((name) => [name, sections[name].join("\n")])),
+    goal: goalText,
     prompt_extensions: extensionText(extensions),
     memory: extensions.find((extension) => extension.id === "beale-knowledge")?.content ?? "",
     claims: extensions.find((extension) => extension.id === "beale-claims")?.content ?? "",
@@ -332,7 +341,10 @@ export function createResearchSystemPrompt(
     const legacySection = FEATURE_SECTION_IDS[extension.id as keyof typeof FEATURE_SECTION_IDS];
     return !legacySection || !new RegExp(`\\{\\{\\s*${legacySection}\\s*\\}\\}`, "u").test(template);
   }));
-  const systemPrompt = [renderedPrompt, ...missingCatalogs, missingExtensions].filter(Boolean).join("\n\n");
+  const missingGoal = goalText && !/\{\{\s*goal\s*\}\}/u.test(template) ? goalText : "";
+  const missingSession = template !== DEFAULT_PROMPT_TEMPLATE && /\{\{\s*goal\s*\}\}/u.test(template)
+    && !/\{\{\s*session\s*\}\}/u.test(template) ? variables.session : "";
+  const systemPrompt = [renderedPrompt, ...missingCatalogs, missingExtensions, missingGoal, missingSession].filter(Boolean).join("\n\n");
   return appendResearchAgentInstructions(systemPrompt, options.agentInstructions);
 }
 
