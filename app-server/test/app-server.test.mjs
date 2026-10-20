@@ -13,6 +13,7 @@ import {
   AppServerHostService,
   acquireDiscoveryLock,
   createAppServerPairingPayload,
+  createAppServerPairingQrCode,
   discoveryLockPath,
   appServerWorkerEnvironment,
   appServerSessionArgs,
@@ -248,6 +249,74 @@ test("creates a versioned app-server pairing payload without altering credential
     () => createAppServerPairingPayload("https://beale.example.ts.net/path", "operator_token-123"),
     /HTTP or HTTPS origin/,
   );
+});
+
+test("creates a PNG QR code for a synthetic app-server pairing endpoint", async () => {
+  const result = await createAppServerPairingQrCode(
+    "https://server.example.test:47174", "synthetic-operator-token"
+  );
+  assert.match(result.dataUrl, /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/u);
+  assert.ok(Buffer.from(result.dataUrl.slice("data:image/png;base64,".length), "base64").length > 500);
+  await assert.rejects(
+    createAppServerPairingQrCode("https://server.example.test/path", "synthetic-operator-token"),
+    /HTTP or HTTPS origin/u
+  );
+});
+
+test("Fleet pairing QR operation uses a saved app-server credential", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "beale-fleet-pairing-example-"));
+  temporaryDirectories.push(directory);
+  writeFileSync(join(directory, "fleet.json"), JSON.stringify({
+    version: 3,
+    role: "primary",
+    enabled: true,
+    appServers: {
+      "server-example": {
+        name: "Example Server",
+        url: "https://server.example.ts.net:47174",
+        operatorToken: "synthetic-operator-token"
+      }
+    }
+  }));
+  const host = new AppServerHostService({ registry: hostRegistryFixture(directory) });
+  const result = await host.executeOperation({
+    operation: "fleet.pairing_qr_code", input: { serverId: "server-example" }
+  });
+  assert.match(result.dataUrl, /^data:image\/png;base64,/u);
+  await assert.rejects(
+    host.executeOperation({ operation: "fleet.pairing_qr_code", input: { serverId: "missing" } }),
+    /Unknown Fleet app server/u
+  );
+});
+
+test("Fleet pairing QR operation uses only the current local app-server discovery", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "beale-local-pairing-example-"));
+  temporaryDirectories.push(directory);
+  const discoveryPath = join(directory, "app-server.json");
+  const priorStateFile = process.env.BEALE_APP_SERVER_STATE_FILE;
+  process.env.BEALE_APP_SERVER_STATE_FILE = discoveryPath;
+  const record = {
+    version: 1, contractTimestamp: BEALE_APP_SERVER_CONTRACT_TIMESTAMP,
+    pid: process.pid, host: "127.0.0.1", port: 47173,
+    localUrl: "http://127.0.0.1:47173", url: "https://server.example.ts.net:47174",
+    operatorToken: "synthetic-operator-token", startedAt: "2030-01-01T00:00:00.000Z"
+  };
+  const host = new AppServerHostService({ registry: hostRegistryFixture(directory) });
+  try {
+    writeFileSync(discoveryPath, JSON.stringify(record));
+    const result = await host.executeOperation({
+      operation: "fleet.pairing_qr_code", input: { serverId: "local" }
+    });
+    assert.match(result.dataUrl, /^data:image\/png;base64,/u);
+    writeFileSync(discoveryPath, JSON.stringify({ ...record, pid: process.pid + 1 }));
+    await assert.rejects(
+      host.executeOperation({ operation: "fleet.pairing_qr_code", input: { serverId: "local" } }),
+      /local app server is unavailable/u
+    );
+  } finally {
+    if (priorStateFile === undefined) delete process.env.BEALE_APP_SERVER_STATE_FILE;
+    else process.env.BEALE_APP_SERVER_STATE_FILE = priorStateFile;
+  }
 });
 
 beforeEach(() => {

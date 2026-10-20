@@ -2178,6 +2178,7 @@ export function App(): JSX.Element {
         <FleetSidebar
           collapsed={sidebarCollapsed}
           state={fleetConfiguration}
+          statuses={fleetServerStatuses}
           selection={fleetSelection}
           error={fleetConfigurationError}
           onSelect={setFleetSelection}
@@ -2293,8 +2294,6 @@ export function App(): JSX.Element {
             researchProviderModelCatalog={researchProviderModelCatalog}
             providerSettings={providerSettings}
             providerStatusesLoaded={researchProviderStatusesLoaded}
-            appServerRemoteAccessSettings={appServerRemoteAccessSettings}
-            appServerRemoteAccessBusy={appServerRemoteAccessBusy}
             ticketingSettings={ticketingSettings}
             ticketingTargets={ticketingTargets}
             ticketingLoading={ticketingLoading}
@@ -2329,8 +2328,6 @@ export function App(): JSX.Element {
             onSetProviderCyberPolicyRiskAcknowledged={setProviderCyberPolicyRiskAcknowledged}
             onSetProviderPreferredAuthenticationMethod={setProviderPreferredAuthenticationMethod}
             onSetAgentPluginEnabled={setAgentPluginEnabled}
-            onDetectAppServerRemoteAccess={detectAppServerRemoteAccess}
-            onSetAppServerRemoteAccess={changeAppServerRemoteAccess}
             onSetTicketingProvider={changeTicketingProvider}
             onSetTicketingHumanInTheLoop={changeTicketingHumanInTheLoop}
             onConfigureTicketingCredential={configureTicketingCredential}
@@ -2348,10 +2345,14 @@ export function App(): JSX.Element {
               <FleetSettingsView
                 state={fleetConfiguration}
                 loadError={fleetConfigurationError}
+                remoteAccessSettings={appServerRemoteAccessSettings}
+                remoteAccessBusy={appServerRemoteAccessBusy}
                 selection={fleetSelection}
                 onSelect={setFleetSelection}
                 onStateChange={applyFleetConfiguration}
                 onRefresh={refreshFleetConfiguration}
+                onDetectRemoteAccess={detectAppServerRemoteAccess}
+                onSaveRemoteAccess={changeAppServerRemoteAccess}
               />
             </section>
           </div>

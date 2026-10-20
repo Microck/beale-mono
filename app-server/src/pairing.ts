@@ -1,3 +1,5 @@
+import QRCode from 'qrcode';
+
 const PAIRING_SCHEME = 'beale:';
 const PAIRING_HOST = 'connect';
 const PAIRING_VERSION = '1';
@@ -23,4 +25,12 @@ export function createAppServerPairingPayload(serverUrl: string, operatorToken: 
   payload.searchParams.set('url', endpoint.origin);
   payload.searchParams.set('token', token);
   return payload.toString();
+}
+
+export async function createAppServerPairingQrCode(serverUrl: string, operatorToken: string): Promise<{ dataUrl: string }> {
+  const dataUrl = await QRCode.toDataURL(createAppServerPairingPayload(serverUrl, operatorToken), {
+    errorCorrectionLevel: 'M', margin: 2, width: 280,
+    color: { dark: '#0d0d0dff', light: '#ffffffff' }
+  });
+  return { dataUrl };
 }

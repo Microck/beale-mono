@@ -775,6 +775,10 @@ function registerIpc(): void {
     try { return [local, ...await workspaceService.getFleetAppServerStatuses()]; }
     catch { return [local]; }
   });
+  ipcMain.handle(IPC_CHANNELS.getFleetPairingQrCode, (_event, serverId: string) => {
+    if (typeof serverId !== 'string' || !serverId.trim()) throw new Error('Select an app server to show its QR code.');
+    return workspaceService.getFleetPairingQrCode(serverId);
+  });
   ipcMain.handle(IPC_CHANNELS.getBrowserHomePage, () => workspaceService.getBrowserHomePage());
   ipcMain.handle(IPC_CHANNELS.restartLocalAppServer, async () => { await restartBealeAppServerViaSupervisor(); });
   ipcMain.handle(IPC_CHANNELS.testLocalAppServerConnection, () => testLocalAppServerConnection());

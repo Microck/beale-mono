@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react';
 import { Globe2, Monitor, ServerCog } from 'lucide-react';
-import type { FleetState } from '@beale/app-server-runtime/protocol';
+import type { FleetAppServerStatus, FleetState } from '@beale/app-server-runtime/protocol';
 import { CollectionSidebar } from '../../app/CollectionSidebar';
 
 export type FleetSection = 'app-servers' | 'browsers' | 'machines';
@@ -16,9 +16,10 @@ const sections = [
   { id: 'machines', label: 'Virtual Machines', icon: Monitor }
 ] as const;
 
-export function FleetSidebar({ collapsed, state, selection, error, onSelect, onSetBrowserEnabled, onResizePointerDown }: {
+export function FleetSidebar({ collapsed, state, statuses, selection, error, onSelect, onSetBrowserEnabled, onResizePointerDown }: {
   collapsed: boolean;
   state: FleetState | null;
+  statuses: Record<string, FleetAppServerStatus>;
   selection: FleetSelection;
   error: string | null;
   onSelect: (selection: FleetSelection) => void;
@@ -40,6 +41,7 @@ export function FleetSidebar({ collapsed, state, selection, error, onSelect, onS
     }
   };
   const select = (section: FleetSection, itemId: string | null = null): void => onSelect({ section, itemId });
+  const statusFor = (id: string): FleetAppServerStatus => statuses[id] ?? { id, state: 'offline', message: 'Status unavailable.' };
   return (
     <CollectionSidebar
       title="Fleet"
@@ -59,8 +61,8 @@ export function FleetSidebar({ collapsed, state, selection, error, onSelect, onS
             </div>
             <div className="workspace-session-list fleet-sidebar-items">
               {id === 'app-servers' ? <>
-                <FleetSidebarItem label="Local App Server" active={selection.section === id && selection.itemId === 'local'} onClick={() => select(id, 'local')} />
-                {state?.appServers.map((server) => <FleetSidebarItem key={server.id} label={server.name} active={selection.section === id && selection.itemId === server.id} onClick={() => select(id, server.id)} />)}
+                <FleetSidebarItem label="Local" status={statusFor('local')} active={selection.section === id && selection.itemId === 'local'} onClick={() => select(id, 'local')} />
+                {state?.appServers.map((server) => <FleetSidebarItem key={server.id} label={server.name} status={statusFor(server.id)} active={selection.section === id && selection.itemId === server.id} onClick={() => select(id, server.id)} />)}
               </> : null}
               {id === 'browsers' ? state?.browsers.map((browser) => (
                 <div className="workspace-session-row fleet-browser-row" key={browser.id}>
@@ -86,10 +88,11 @@ export function FleetSidebar({ collapsed, state, selection, error, onSelect, onS
   );
 }
 
-function FleetSidebarItem({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }): JSX.Element {
+function FleetSidebarItem({ label, status, active, onClick }: { label: string; status?: FleetAppServerStatus; active: boolean; onClick: () => void }): JSX.Element {
   return <div className="workspace-session-row">
-    <button type="button" className={`workspace-session-item fleet-sidebar-item${active ? ' active' : ''}`} title={label} onClick={onClick}>
+    <button type="button" className={`workspace-session-item fleet-sidebar-item${status ? ' fleet-sidebar-server-item' : ''}${active ? ' active' : ''}`} title={status ? `${label}: ${status.message}` : label} aria-label={status ? `${label}, ${status.message}` : label} onClick={onClick}>
       <span className="workspace-session-title">{label}</span>
+      {status ? <span className={`sidebar-server-status-dot ${status.state}`} aria-hidden="true" /> : null}
     </button>
   </div>;
 }

@@ -6,6 +6,7 @@
 
 #### Added
 
+- Fleet App Server details show a scannable pairing QR code for the local or a saved app server. Closing the preview clears the image from the view.
 - The sidebar app-server selector shows green, red, or orange connection status dots and has an Add an App Server action that opens the Fleet form. A client-neutral Fleet status read checks remote peers without exposing their credentials. Control contract timestamp updated; rebuild Desktop and app-server together.
 - Local App Server settings now include a Test Connection action with health and compatibility feedback.
 - Remote workspace claims, memories, runbooks, and reports now open in the shared expanded right sidebar. The remote detail views are read-only.
@@ -48,6 +49,13 @@
 
 #### Changed
 
+- Features now places its tabs above the selected feature title. Provider forms use the shared settings text size.
+- Fleet’s Local app-server view now uses the same grouped field and action layout as saved app servers, with a read-only Tailscale HTTPS URL. Its sidebar and detail label is Local.
+- iPhone Remote Access controls now appear under Fleet’s Local App Server details. Agent Settings no longer has a Remote view.
+- Per-VM settings now use the shared Fleet form layout for controls, SSH fields, and actions.
+- The Fleet Browsers form now uses the shared settings field and action layout.
+- The Fleet sidebar shows connection status dots at the right edge of Local and saved app-server rows.
+- The Add App Server form now uses the shared settings field layout, with labels above full-width inputs and matching control styles.
 - Goal Mode guidance now joins the other enabled feature guidance in `{{prompt_extensions}}`. The default prompt template no longer includes `{{goal}}`; older saved templates remain readable.
 - Feature settings now use the same grouped form layout as other Agent Settings views.
 - The usage tracker follows the selected app server. The authenticated provider-limits endpoint can relay a saved Fleet app server for any client; remote credentials remain on the host. Control contract timestamp updated; rebuild Desktop and app-server together.
@@ -173,6 +181,7 @@
 
 #### Fixed
 
+- Reset to Default in Agent Prompt now rejects an outdated app-server default containing `{{goal}}` and reloads the current template after clearing an override. The updated control contract requires matching rebuilt Desktop and app-server binaries.
 - New Research retries failed or stalled target reads, including when opened from Schedule a Job, before reporting Targets unavailable.
 - New Research loads Local-only targets without waiting for VM inventory and offers a retry when target loading fails or stalls.
 - Archive settings now load closed Quick Chats through a registered Desktop IPC handler.
@@ -1318,6 +1327,7 @@
 
 #### Added
 
+- Added an authenticated Fleet pairing QR operation that encodes the app-server’s stored endpoint and token as a PNG. The updated control contract requires rebuilt Desktop and app-server binaries.
 - Connected app servers can fetch read-only workspace runbook and report documents through the versioned control protocol. The remote runbook projection excludes host workspace paths; rebuild Desktop and app-server clients together for the updated contract.
 - Connected app-server catalogs now expose provider availability, and client-neutral operations route research suggestions, prompt expansion, and session launches to the selected host. Repeat schedules persist in canonical session metadata for host-owned reruns.
 - Added single-session execution across selected local, VM, and browser targets. The versioned launch contract carries target IDs, routes shell and browser tools to those targets, and releases all VM and browser resources when the session ends. Control contract v49 requires rebuilt clients and hosts.

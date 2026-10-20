@@ -59,7 +59,6 @@ describe('renderer app shell view model', () => {
       ['settings-appearance', 'lucide-palette'],
       ['settings-profiles', 'lucide-user-round-cog'],
       ['settings-providers', 'lucide-server-cog'],
-      ['settings-remote', 'lucide-wifi'],
       ['settings-ticketing', 'lucide-ticket'],
       ['automations', 'lucide-calendar-clock'],
       ['reporting', 'lucide-file-text'],
@@ -213,6 +212,10 @@ describe('renderer app shell view model', () => {
     }));
     const fleet = renderToStaticMarkup(createElement(FleetSidebar, {
       collapsed: false, state: fleetState, selection: { section: 'app-servers', itemId: null }, error: null,
+      statuses: {
+        local: { id: 'local', state: 'online', message: 'Connected.' },
+        'server-example': { id: 'server-example', state: 'issue', message: 'Connection needs attention.' }
+      },
       onSelect: onNavigate, onSetBrowserEnabled: async () => undefined, onResizePointerDown: onNavigate
     }));
     expect(settings).not.toContain('>Fleet</span>');
@@ -222,6 +225,11 @@ describe('renderer app shell view model', () => {
     expect(fleet.indexOf('aria-label="Browsers"')).toBeLessThan(fleet.indexOf('aria-label="Virtual Machines"'));
     expect(fleet.match(/<svg /gu)).toHaveLength(3);
     expect(fleet).not.toContain('fleet-sidebar-item-marker');
+    expect(fleet).toContain('sidebar-server-status-dot online');
+    expect(fleet).toContain('aria-label="Local, Connected."');
+    expect(fleet).toContain('sidebar-server-status-dot issue');
+    expect(fleet).toMatch(/Example Server<\/span><span class="sidebar-server-status-dot issue"/u);
+    expect(fleet).toContain('aria-label="Example Server, Connection needs attention."');
     for (const label of ['Example Server', 'Example Browser', 'Example VM']) expect(fleet).toContain(label);
     expect(fleet).toContain('aria-label="Enable Example Browser"');
     expect(fleet).toContain('type="checkbox"');
@@ -230,7 +238,10 @@ describe('renderer app shell view model', () => {
 
     const viewProps = {
       state: fleetState, loadError: null, onSelect: onNavigate,
-      onStateChange: onNavigate, onRefresh: async () => undefined
+      onStateChange: onNavigate, onRefresh: async () => undefined,
+      remoteAccessSettings: null, remoteAccessBusy: false,
+      onDetectRemoteAccess: async () => undefined,
+      onSaveRemoteAccess: async () => undefined
     };
     const overview = renderToStaticMarkup(createElement(FleetSettingsView, {
       ...viewProps, selection: { section: 'app-servers', itemId: null }
@@ -238,6 +249,7 @@ describe('renderer app shell view model', () => {
     expect(overview).not.toContain('Enable Fleet');
     expect(overview).not.toContain('Fleet role');
     expect(overview).not.toContain('This Beale instance');
+    expect(overview).toContain('<strong>Local</strong>');
     const machine = renderToStaticMarkup(createElement(FleetSettingsView, {
       ...viewProps, selection: { section: 'machines', itemId: 'vm-example' }
     }));
@@ -249,12 +261,18 @@ describe('renderer app shell view model', () => {
       ...viewProps, selection: { section: 'app-servers', itemId: 'server-example' }
     }));
     expect(server).toContain('aria-label="Configure Example Server"');
+    expect(server).toContain('Show QR Code');
+    expect(server).toMatch(/Test Connection<\/button><button[^>]*>.*?Show QR Code<\/button>/u);
     expect(server).not.toContain('role="dialog"');
     const localServer = renderToStaticMarkup(createElement(FleetSettingsView, {
       ...viewProps, selection: { section: 'app-servers', itemId: 'local' }
     }));
-    expect(localServer).toContain('aria-label="Local App Server"');
+    expect(localServer).toContain('aria-label="Local"');
+    expect(localServer).toContain('<h2>Local</h2>');
+    expect(localServer).toContain('settings-form-squircle fleet-detail-form fleet-text-form');
     expect(localServer).toContain('Test Connection');
+    expect(localServer).toContain('Show QR Code');
+    expect(localServer).toMatch(/Test Connection<\/button><button[^>]*>.*?Show QR Code<\/button>/u);
     expect(localServer).toContain('Restart App Server');
     const browsers = renderToStaticMarkup(createElement(FleetSettingsView, {
       ...viewProps, selection: { section: 'browsers', itemId: null }

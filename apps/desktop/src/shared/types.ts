@@ -2335,6 +2335,7 @@ export interface BealeApi {
   getAgentPlugins(): Promise<AgentPluginRegistryState>;
   getFleetState(workspaceId?: string): Promise<import('@beale/app-server-runtime/protocol').FleetState>;
   getFleetAppServerStatuses(): Promise<import('@beale/app-server-runtime/protocol').FleetAppServerStatus[]>;
+  getFleetPairingQrCode(serverId: string): Promise<import('@beale/app-server-runtime/protocol').FleetPairingQrCode>;
   getBrowserHomePage(): Promise<string>;
   restartLocalAppServer(): Promise<void>;
   testLocalAppServerConnection(): Promise<{ success: boolean; message: string }>;

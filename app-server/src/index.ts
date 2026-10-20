@@ -68,4 +68,4 @@ export type {
   AppServerProtocolStorage,
   InvokeAppServerProtocolOptions
 } from './appServerProtocolClient.js';
-export { createAppServerPairingPayload } from './pairing.js';
+export { createAppServerPairingPayload, createAppServerPairingQrCode } from './pairing.js';

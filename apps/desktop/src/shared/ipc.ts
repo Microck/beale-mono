@@ -49,6 +49,7 @@ export const IPC_CHANNELS = {
   getAgentPlugins: 'beale:get-agent-plugins',
   getFleetState: 'beale:get-fleet-state',
   getFleetAppServerStatuses: 'beale:get-fleet-app-server-statuses',
+  getFleetPairingQrCode: 'beale:get-fleet-pairing-qr-code',
   getBrowserHomePage: 'beale:get-browser-home-page',
   restartLocalAppServer: 'beale:restart-local-app-server',
   testLocalAppServerConnection: 'beale:test-local-app-server-connection',

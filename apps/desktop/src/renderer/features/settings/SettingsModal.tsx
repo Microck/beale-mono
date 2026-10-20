@@ -2,13 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { Archive, ArchiveRestore, FileText, KeyRound, MessageSquare, Palette, Plus, RefreshCw, ServerCog, Settings, SlidersHorizontal, Ticket, UserRoundCog, Wifi, X } from 'lucide-react';
+import { Archive, ArchiveRestore, FileText, KeyRound, MessageSquare, Palette, Plus, RefreshCw, ServerCog, Settings, SlidersHorizontal, Ticket, UserRoundCog, X } from 'lucide-react';
 import { OPTIONAL_AGENT_FEATURES } from '../../../shared/optionalAgentFeatures';
 import type {
   AgentPluginRegistryState,
   FeaturePromptSettings,
-  AppServerRemoteAccessSettings,
-  AppServerRemoteAccessUpdate,
   OpenAiAccountStatus,
   BealeProviderUsageLimits,
   OpenAiAuthReadiness,
@@ -75,9 +73,9 @@ import {
   type SessionHeatTheme
 } from '../../view-models/sessionHeat';
 
-export type SettingsSection = 'general' | 'appearance' | 'remote' | 'providers' | 'ticketing' | 'profile' | 'prompt' | 'optional-features' | 'archive';
+export type SettingsSection = 'general' | 'appearance' | 'providers' | 'ticketing' | 'profile' | 'prompt' | 'optional-features' | 'archive';
 
-const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'appearance', 'remote', 'providers', 'ticketing', 'profile', 'prompt', 'optional-features', 'archive'];
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'appearance', 'providers', 'ticketing', 'profile', 'prompt', 'optional-features', 'archive'];
 
 export function SettingsSidebar({
   collapsed,
@@ -116,8 +114,6 @@ export function SettingsSidebar({
                     <Archive size={15} aria-hidden="true" />
                   ) : item === 'appearance' ? (
                     <Palette size={15} aria-hidden="true" />
-                  ) : item === 'remote' ? (
-                    <Wifi size={15} aria-hidden="true" />
                   ) : item === 'providers' ? (
                     <ServerCog size={15} aria-hidden="true" />
                   ) : item === 'ticketing' ? (
@@ -162,8 +158,6 @@ export function SettingsView({
   researchProviderModelCatalog,
   providerSettings,
   providerStatusesLoaded,
-  appServerRemoteAccessSettings = null,
-  appServerRemoteAccessBusy = false,
   ticketingSettings = null,
   ticketingTargets = [],
   ticketingLoading = false,
@@ -198,8 +192,6 @@ export function SettingsView({
   onSetProviderCyberPolicyRiskAcknowledged = async () => undefined,
   onSetProviderPreferredAuthenticationMethod = async () => undefined,
   onSetAgentPluginEnabled,
-  onDetectAppServerRemoteAccess = async () => undefined,
-  onSetAppServerRemoteAccess = async () => undefined,
   onSetTicketingProvider = async () => undefined,
   onSetTicketingHumanInTheLoop = async () => undefined,
   onConfigureTicketingCredential = async () => undefined,
@@ -228,8 +220,6 @@ export function SettingsView({
   researchProviderModelCatalog: ResearchProviderModelCatalog[];
   providerSettings: ProviderSettings | null;
   providerStatusesLoaded: boolean;
-  appServerRemoteAccessSettings?: AppServerRemoteAccessSettings | null;
-  appServerRemoteAccessBusy?: boolean;
   ticketingSettings?: TicketingSettings | null;
   ticketingTargets?: TicketingTarget[];
   ticketingLoading?: boolean;
@@ -277,8 +267,6 @@ export function SettingsView({
     method: ProviderAuthenticationMethod
   ) => Promise<void>;
   onSetAgentPluginEnabled: (pluginId: string, enabled: boolean) => void;
-  onDetectAppServerRemoteAccess?: () => Promise<void>;
-  onSetAppServerRemoteAccess?: (update: AppServerRemoteAccessUpdate) => Promise<void>;
   onSetTicketingProvider?: (providerId: TicketingMode) => Promise<void>;
   onSetTicketingHumanInTheLoop?: (enabled: boolean) => Promise<void>;
   onConfigureTicketingCredential?: (providerId: TicketingProviderId, apiKey: string) => Promise<void>;
@@ -328,13 +316,6 @@ export function SettingsView({
             sessionHeatPreferences={sessionHeatPreferences}
             onChangeTheme={onChangeAppearanceTheme}
             onSetSessionHeatPalettePreference={onSetSessionHeatPalettePreference}
-          />
-        ) : activeSection === 'remote' ? (
-          <RemoteAccessSettingsView
-            settings={appServerRemoteAccessSettings}
-            busy={appServerRemoteAccessBusy}
-            onDetect={onDetectAppServerRemoteAccess}
-            onSave={onSetAppServerRemoteAccess}
           />
         ) : activeSection === 'providers' ? (
           <ProvidersSettingsView
@@ -746,10 +727,16 @@ export function PromptSettingsView(): JSX.Element {
   const reset = async (): Promise<void> => {
     setBusy(true);
     try {
+      const current = await window.beale.getPromptTemplateSettings(profileId);
+      if (/\{\{\s*goal\s*\}\}/u.test(current.defaultTemplate)) {
+        throw new Error('The app-server has an outdated Agent Prompt default. Update and restart the app-server before resetting.');
+      }
       await window.beale.resetPromptTemplate(profileId);
-      setSaved(defaultTemplate);
-      setDraft(defaultTemplate);
-      setOverridden(false);
+      const settings = await window.beale.getPromptTemplateSettings(profileId);
+      setSaved(settings.template);
+      setDraft(settings.template);
+      setDefaultTemplate(settings.defaultTemplate);
+      setOverridden(settings.overridden);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -1075,11 +1062,7 @@ export function OptionalFeaturesSettingsView({
 
   return (
     <div className="settings-page general-settings-page optional-features-settings-page">
-      <section className="settings-form" aria-busy={loading || busy}>
-        <header className="settings-form-heading">
-          <h2>Optional Features</h2>
-          <p>Choose built-in capabilities and edit the text they add to new sessions and continuations.</p>
-        </header>
+      <header className="research-side-view-header provider-settings-tab-header optional-features-tab-header">
         <div className="optional-features-tab-row research-side-view-tabs research-side-view-tabs-scrollable pill-view-tabs" role="tablist" aria-label="Optional feature views">
           {OPTIONAL_AGENT_FEATURES.map((feature) => <div
             className={`research-side-view-tab provider-settings-tab ${selectedFeature.id === feature.id ? 'active' : ''}`.trim()}
@@ -1089,57 +1072,57 @@ export function OptionalFeaturesSettingsView({
               aria-controls="optional-feature-panel" onClick={() => setSelectedId(feature.id)}>{feature.name}</button>
           </div>)}
         </div>
-        <div id="optional-feature-panel" role="tabpanel" aria-labelledby={`optional-feature-tab-${selectedFeature.id}`}
-          className="optional-feature-panel">
-          <section className="settings-form">
-            <header className="settings-form-heading">
-              <h2 id="optional-feature-heading">{selectedFeature.name}</h2>
-              <p>{selectedFeature.description}</p>
-            </header>
-            <div className="settings-form-squircle" aria-labelledby="optional-feature-heading">
-              <div className="settings-form-control-list">
-                <label className="settings-form-control-row">
+      </header>
+      <div id="optional-feature-panel" role="tabpanel" aria-labelledby={`optional-feature-tab-${selectedFeature.id}`}
+        className="optional-feature-panel">
+        <section className="settings-form" aria-busy={loading || busy}>
+          <header className="settings-form-heading">
+            <h2 id="optional-feature-heading">{selectedFeature.name}</h2>
+            <p>{selectedFeature.description}</p>
+          </header>
+          <div className="settings-form-squircle" aria-labelledby="optional-feature-heading">
+            <div className="settings-form-control-list">
+              <label className="settings-form-control-row">
+                <span className="settings-form-control-copy">
+                  <strong>Enabled</strong>
+                  <small>{unavailable ? 'Unavailable in this installation.' : `Make ${selectedFeature.name} tools available to sessions.`}</small>
+                </span>
+                <input type="checkbox" aria-label={`Enable ${selectedFeature.name}`} checked={selectedPlugin?.enabled ?? false}
+                  disabled={loading || busy || unavailable}
+                  onChange={(event) => selectedPlugin && onSetEnabled(selectedPlugin.id, event.currentTarget.checked)} />
+              </label>
+              {saved ? <>
+                <label className="settings-form-control-row optional-feature-textarea-row">
                   <span className="settings-form-control-copy">
-                    <strong>Enabled</strong>
-                    <small>{unavailable ? 'Unavailable in this installation.' : `Make ${selectedFeature.name} tools available to sessions.`}</small>
+                    <strong>Description in {'{{features}}'}</strong>
+                    <small>Shown beside this feature in the agent's internal feature catalog.</small>
                   </span>
-                  <input type="checkbox" aria-label={`Enable ${selectedFeature.name}`} checked={selectedPlugin?.enabled ?? false}
-                    disabled={loading || busy || unavailable}
-                    onChange={(event) => selectedPlugin && onSetEnabled(selectedPlugin.id, event.currentTarget.checked)} />
+                  <textarea aria-label={`${selectedFeature.name} feature description`} maxLength={240} rows={3}
+                    value={draft.description} disabled={editBusy} onChange={(event) => updateDraft({ description: event.currentTarget.value })} />
                 </label>
-                {saved ? <>
-                  <label className="settings-form-control-row optional-feature-textarea-row">
-                    <span className="settings-form-control-copy">
-                      <strong>Description in {'{{features}}'}</strong>
-                      <small>Shown beside this feature in the agent's internal feature catalog.</small>
-                    </span>
-                    <textarea aria-label={`${selectedFeature.name} feature description`} maxLength={240} rows={3}
-                      value={draft.description} disabled={editBusy} onChange={(event) => updateDraft({ description: event.currentTarget.value })} />
-                  </label>
-                  <label className="settings-form-control-row optional-feature-textarea-row">
-                    <span className="settings-form-control-copy">
-                      <strong>Prompt extension</strong>
-                      <small>{selectedFeature.id === 'beale-goals'
-                        ? <>Included through {'{{prompt_extensions}}'} only when Goal Mode is enabled in New Research.</>
-                        : <>Included through {'{{prompt_extensions}}'} while this feature is enabled.</>}</small>
-                    </span>
-                    <textarea aria-label={`${selectedFeature.name} prompt extension`} maxLength={24000} rows={12}
-                      value={draft.promptExtension} disabled={editBusy} onChange={(event) => updateDraft({ promptExtension: event.currentTarget.value })} />
-                  </label>
-                </> : !editError ? <CenteredLoadingState label="Loading feature prompt settings…" /> : null}
-              </div>
+                <label className="settings-form-control-row optional-feature-textarea-row">
+                  <span className="settings-form-control-copy">
+                    <strong>Prompt extension</strong>
+                    <small>{selectedFeature.id === 'beale-goals'
+                      ? <>Included through {'{{prompt_extensions}}'} only when Goal Mode is enabled in New Research.</>
+                      : <>Included through {'{{prompt_extensions}}'} while this feature is enabled.</>}</small>
+                  </span>
+                  <textarea aria-label={`${selectedFeature.name} prompt extension`} maxLength={24000} rows={12}
+                    value={draft.promptExtension} disabled={editBusy} onChange={(event) => updateDraft({ promptExtension: event.currentTarget.value })} />
+                </label>
+              </> : !editError ? <CenteredLoadingState label="Loading feature prompt settings…" /> : null}
             </div>
-            {saved ? <div className="settings-form-actions optional-feature-actions">
-              <span>{changed ? 'Unsaved changes' : saved.overridden ? 'Custom prompt saved' : 'Using defaults'}</span>
-              <button type="button" onClick={() => updateDraft({ description: saved.description, promptExtension: saved.promptExtension })}
-                disabled={editBusy || !changed}>Discard</button>
-              <button type="button" onClick={() => void reset()} disabled={editBusy || !saved.overridden}>Reset to Default</button>
-              <button type="button" onClick={() => void save()} disabled={editBusy || !changed}>Save</button>
-            </div> : null}
-            {error || editError ? <p className="settings-form-error" role="alert">{error ?? editError}</p> : null}
-          </section>
-        </div>
-      </section>
+          </div>
+          {saved ? <div className="settings-form-actions optional-feature-actions">
+            <span>{changed ? 'Unsaved changes' : saved.overridden ? 'Custom prompt saved' : 'Using defaults'}</span>
+            <button type="button" onClick={() => updateDraft({ description: saved.description, promptExtension: saved.promptExtension })}
+              disabled={editBusy || !changed}>Discard</button>
+            <button type="button" onClick={() => void reset()} disabled={editBusy || !saved.overridden}>Reset to Default</button>
+            <button type="button" onClick={() => void save()} disabled={editBusy || !changed}>Save</button>
+          </div> : null}
+          {error || editError ? <p className="settings-form-error" role="alert">{error ?? editError}</p> : null}
+        </section>
+      </div>
     </div>
   );
 }
@@ -1727,93 +1710,6 @@ function archivedQuickChatTitle(quickChat: ResearchSessionSummary): string {
   return title && title !== 'Untitled research run'
     ? title
     : quickChat.promptMarkdown.trim() || 'Quick Chat';
-}
-
-export function RemoteAccessSettingsView({
-  settings,
-  busy,
-  onDetect,
-  onSave
-}: {
-  settings: AppServerRemoteAccessSettings | null;
-  busy: boolean;
-  onDetect: () => Promise<void>;
-  onSave: (update: AppServerRemoteAccessUpdate) => Promise<void>;
-}): JSX.Element {
-  const [enabled, setEnabled] = useState(settings?.enabled ?? false);
-  const [magicDnsName, setMagicDnsName] = useState(settings?.magicDnsName ?? '');
-
-  useEffect(() => {
-    setEnabled(settings?.enabled ?? false);
-    setMagicDnsName(settings?.magicDnsName ?? '');
-  }, [settings]);
-
-  return (
-    <div className="settings-page remote-access-settings-page">
-      <section className="settings-form remote-access-settings-form">
-        <header className="settings-form-heading">
-          <h2 id="remote-access-heading">iPhone Remote Access</h2>
-          <p>Publish the loopback app-server to this tailnet through HTTPS and MagicDNS.</p>
-        </header>
-        <fieldset className="settings-form-squircle" aria-labelledby="remote-access-heading" disabled={busy}>
-          <div className="settings-form-control-list">
-            <label className="settings-form-control-row">
-              <span className="settings-form-control-copy">
-                <strong>Tailscale Serve</strong>
-                <small>Keep the app-server on 127.0.0.1 and let Tailscale terminate HTTPS for iPhone clients.</small>
-              </span>
-              <input
-                type="checkbox"
-                aria-label="Tailscale Serve"
-                checked={enabled}
-                onChange={(event) => setEnabled(event.currentTarget.checked)}
-              />
-            </label>
-            <label className="settings-form-control-row">
-              <span className="settings-form-control-copy">
-                <strong>MagicDNS Name</strong>
-                <small>The full device name reported by Tailscale, ending in .ts.net.</small>
-              </span>
-              <input
-                type="text"
-                aria-label="MagicDNS Name"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                placeholder="mac-name.tailnet.ts.net"
-                value={magicDnsName}
-                onChange={(event) => setMagicDnsName(event.currentTarget.value)}
-              />
-            </label>
-            <div className="settings-form-control-row">
-              <span className="settings-form-control-copy">
-                <strong>HTTPS Endpoint</strong>
-                <small>{settings?.publicUrl ?? 'Detect or enter a MagicDNS name to create the endpoint.'}</small>
-              </span>
-              <button type="button" className="secondary-button" disabled={busy} onClick={() => void onDetect()}>
-                <RefreshCw size={14} aria-hidden="true" />
-                Detect
-              </button>
-            </div>
-          </div>
-        </fieldset>
-        {settings?.detail ? <div className="error-box">{settings.detail}</div> : null}
-        <div className="settings-form-actions">
-          <span className="settings-form-control-copy">
-            <small>Applying this setting restarts the app-server. The dedicated HTTPS port avoids replacing other Tailscale Serve routes.</small>
-          </span>
-          <button
-            type="button"
-            className="primary-button"
-            disabled={busy || (enabled && !magicDnsName.trim())}
-            onClick={() => void onSave({ enabled, magicDnsName })}
-          >
-            {busy ? 'Applying…' : 'Apply'}
-          </button>
-        </div>
-      </section>
-    </div>
-  );
 }
 
 type ProviderSettingsId = ResearchModelProviderId;
@@ -3165,8 +3061,6 @@ export function settingsSectionLabel(section: SettingsSection): string {
       return 'Appearance';
     case 'optional-features':
       return 'Features';
-    case 'remote':
-      return 'Remote';
     case 'providers':
       return 'Providers';
     case 'ticketing':
@@ -3188,8 +3082,6 @@ export function settingsSectionHeaderIcon(section: SettingsSection): AppHeaderVi
       return 'settings-appearance';
     case 'optional-features':
       return 'settings-optional-features';
-    case 'remote':
-      return 'settings-remote';
     case 'providers':
       return 'settings-providers';
     case 'ticketing':

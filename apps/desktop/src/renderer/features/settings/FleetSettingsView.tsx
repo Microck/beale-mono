@@ -1,16 +1,22 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, JSX } from 'react';
-import { Plus, RefreshCw, RotateCw, Settings2 } from 'lucide-react';
+import { Plus, QrCode, RefreshCw, RotateCw, Settings2 } from 'lucide-react';
 import type { FleetAppServer, FleetMachine, FleetSshTestResult, FleetState } from '@beale/app-server-runtime/protocol';
+import type { AppServerRemoteAccessSettings, AppServerRemoteAccessUpdate } from '@shared/types';
+import { Modal } from '../../app/Modal';
 import type { FleetSelection } from '../fleet/FleetSidebar';
 
-export function FleetSettingsView({ state, loadError, selection, onSelect, onStateChange, onRefresh }: {
+export function FleetSettingsView({ state, loadError, remoteAccessSettings, remoteAccessBusy, selection, onSelect, onStateChange, onRefresh, onDetectRemoteAccess, onSaveRemoteAccess }: {
   state: FleetState | null;
   loadError: string | null;
+  remoteAccessSettings: AppServerRemoteAccessSettings | null;
+  remoteAccessBusy: boolean;
   selection: FleetSelection;
   onSelect: (selection: FleetSelection) => void;
   onStateChange: (state: FleetState) => void;
   onRefresh: () => Promise<void>;
+  onDetectRemoteAccess: () => Promise<void>;
+  onSaveRemoteAccess: (update: AppServerRemoteAccessUpdate) => Promise<void>;
 }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,8 +65,9 @@ export function FleetSettingsView({ state, loadError, selection, onSelect, onSta
     onChange={change}
   /></div>;
   if (selection.section === 'app-servers' && selection.itemId === 'local') return <div className="settings-page fleet-settings-page"><LocalAppServerDetails
-    busy={busy} error={error} restarting={restartingId === 'local'}
+    busy={busy} error={error} restarting={restartingId === 'local'} remoteAccessSettings={remoteAccessSettings} remoteAccessBusy={remoteAccessBusy}
     onRestart={() => restart('local', () => window.beale.restartLocalAppServer())}
+    onDetectRemoteAccess={onDetectRemoteAccess} onSaveRemoteAccess={onSaveRemoteAccess}
   /></div>;
 
   if (selection.section === 'browsers') return <BrowserSettingsView
@@ -80,7 +87,7 @@ export function FleetSettingsView({ state, loadError, selection, onSelect, onSta
     <header className="settings-form-heading"><h2>App Servers</h2><p>Connect to other Beale app servers on this Tailscale network. Configure each server on its own machine.</p></header>
     <div className="settings-form-squircle" aria-label="App servers"><div className="settings-form-control-list fleet-machine-list">
       <div className="settings-form-control-row fleet-machine-row">
-        <span className="settings-form-control-copy"><strong>Local App Server</strong><small>This machine’s Beale app-server process.</small></span>
+        <span className="settings-form-control-copy"><strong>Local</strong><small>This machine’s Beale app-server process.</small></span>
         <button type="button" className="fleet-machine-configure-button" aria-label="Restart local app server" title="Restart local app server" disabled={busy} onClick={() => void restart('local', () => window.beale.restartLocalAppServer())}><RotateCw size={18} aria-hidden="true" /></button>
       </div>
       {state.appServers.length === 0 ? <p className="fleet-machine-empty">No remote app servers are saved.</p> : null}
@@ -98,15 +105,25 @@ export function FleetSettingsView({ state, loadError, selection, onSelect, onSta
   </section></div>;
 }
 
-function LocalAppServerDetails({ busy, error, restarting, onRestart }: {
+function LocalAppServerDetails({ busy, error, restarting, remoteAccessSettings, remoteAccessBusy, onRestart, onDetectRemoteAccess, onSaveRemoteAccess }: {
   busy: boolean;
   error: string | null;
   restarting: boolean;
+  remoteAccessSettings: AppServerRemoteAccessSettings | null;
+  remoteAccessBusy: boolean;
   onRestart: () => Promise<void>;
+  onDetectRemoteAccess: () => Promise<void>;
+  onSaveRemoteAccess: (update: AppServerRemoteAccessUpdate) => Promise<void>;
 }): JSX.Element {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const locked = busy || testing;
+  const [enabled, setEnabled] = useState(remoteAccessSettings?.enabled ?? false);
+  const [magicDnsName, setMagicDnsName] = useState(remoteAccessSettings?.magicDnsName ?? '');
+  const locked = busy || testing || remoteAccessBusy;
+  useEffect(() => {
+    setEnabled(remoteAccessSettings?.enabled ?? false);
+    setMagicDnsName(remoteAccessSettings?.magicDnsName ?? '');
+  }, [remoteAccessSettings]);
   const test = async (): Promise<void> => {
     if (locked) return;
     setTesting(true);
@@ -115,16 +132,100 @@ function LocalAppServerDetails({ busy, error, restarting, onRestart }: {
     catch (caught) { setTestResult({ success: false, message: message(caught) }); }
     finally { setTesting(false); }
   };
-  return <section className="settings-form fleet-detail-view" aria-label="Local App Server" aria-busy={locked}>
-    <header className="settings-form-heading"><h2>Local App Server</h2><p>This machine’s Beale app-server process.</p></header>
-    <div className="fleet-vm-dialog-actions">
-      <button type="button" className="secondary-button" disabled={locked} onClick={() => void test()}>{testing ? 'Testing…' : 'Test Connection'}</button>
-      {testResult ? <p className={testResult.success ? 'fleet-vm-test-success' : 'settings-form-error'} role="status">{testResult.message}</p> : null}
-    </div>
-    {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
-    {restarting ? <p role="status" className="fleet-machine-empty">Restarting app-server…</p> : null}
-    <div className="settings-form-actions"><button type="button" disabled={locked} onClick={() => { setTestResult(null); void onRestart(); }}><RotateCw size={14} aria-hidden="true" />Restart App Server</button></div>
+  return <section className="settings-form fleet-detail-view" aria-label="Local" aria-busy={locked}>
+    <header className="settings-form-heading"><h2>Local</h2><p>This machine’s Beale app-server process.</p></header>
+    <form className="settings-form-squircle fleet-detail-form fleet-text-form" onSubmit={(event) => {
+      event.preventDefault();
+      void onSaveRemoteAccess({ enabled, magicDnsName });
+    }}>
+      <div className="settings-form-control-list">
+        <label className="settings-form-control-row">
+          <span className="settings-form-control-copy"><strong>Tailscale Serve</strong><small>Keep the app-server on 127.0.0.1 and let Tailscale terminate HTTPS for iPhone clients.</small></span>
+          <input type="checkbox" aria-label="Tailscale Serve" checked={enabled} disabled={locked} onChange={(event) => setEnabled(event.currentTarget.checked)} />
+        </label>
+        <label className="settings-form-control-row fleet-text-field">
+          <span className="settings-form-control-copy"><strong>MagicDNS Name</strong><small>The full device name reported by Tailscale, ending in .ts.net.</small></span>
+          <input type="text" aria-label="MagicDNS Name" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="mac-name.tailnet.ts.net" value={magicDnsName} disabled={locked} required={enabled} onChange={(event) => setMagicDnsName(event.currentTarget.value)} />
+        </label>
+        <label className="settings-form-control-row fleet-text-field">
+          <span className="settings-form-control-copy"><strong>Tailscale HTTPS URL</strong><small>Derived from the configured MagicDNS name.</small></span>
+          <input type="url" value={remoteAccessSettings?.publicUrl ?? ''} placeholder="Detect or apply a MagicDNS name" readOnly />
+        </label>
+      </div>
+      <div className="fleet-app-server-test-actions">
+        <div className="fleet-app-server-test-buttons">
+          <button type="button" className="secondary-button" disabled={locked} onClick={() => void test()}>{testing ? 'Testing…' : 'Test Connection'}</button>
+          <FleetPairingQrCodeAction serverId="local" serverName="Local" disabled={locked}
+            needsRemoteAccess={!remoteAccessSettings?.publicUrl} />
+          <button type="button" className="secondary-button" disabled={locked} onClick={() => { setTestResult(null); void onRestart(); }}><RotateCw size={14} aria-hidden="true" />Restart App Server</button>
+          <button type="button" className="secondary-button" disabled={locked} onClick={() => void onDetectRemoteAccess()}><RefreshCw size={14} aria-hidden="true" />Detect</button>
+        </div>
+        {testResult ? <p className={testResult.success ? 'fleet-vm-test-success' : 'settings-form-error'} role="status">{testResult.message}</p> : null}
+      </div>
+      {remoteAccessSettings?.detail ? <div className="error-box">{remoteAccessSettings.detail}</div> : null}
+      {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
+      {restarting ? <p role="status" className="fleet-machine-empty">Restarting app-server…</p> : null}
+      <div className="settings-form-actions fleet-detail-actions">
+        <span className="settings-form-control-copy"><small>Applying this setting restarts the app-server. The dedicated HTTPS port avoids replacing other Tailscale Serve routes.</small></span>
+        <button type="submit" className="primary-button" disabled={locked || (enabled && !magicDnsName.trim())}>{remoteAccessBusy ? 'Applying…' : 'Apply'}</button>
+      </div>
+    </form>
   </section>;
+}
+
+function FleetPairingQrCodeAction({ serverId, serverName, disabled, needsRemoteAccess = false }: {
+  serverId: string;
+  serverName: string;
+  disabled: boolean;
+  needsRemoteAccess?: boolean;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
+  useEffect(() => () => { requestId.current += 1; }, []);
+  const close = (): void => {
+    requestId.current += 1;
+    setOpen(false);
+    setDataUrl(null);
+    setError(null);
+  };
+  const show = async (): Promise<void> => {
+    const currentRequestId = ++requestId.current;
+    setDataUrl(null);
+    setError(null);
+    setOpen(true);
+    try {
+      const result = await window.beale.getFleetPairingQrCode(serverId);
+      if (requestId.current === currentRequestId) setDataUrl(result.dataUrl);
+    } catch (caught) {
+      if (requestId.current === currentRequestId) setError(message(caught));
+    }
+  };
+  return <>
+    <button type="button" className="secondary-button" disabled={disabled} onClick={() => void show()}>
+      <QrCode size={14} aria-hidden="true" />Show QR Code
+    </button>
+    {open ? <FleetPairingQrCodeDialog serverName={serverName} dataUrl={dataUrl} error={error}
+      needsRemoteAccess={needsRemoteAccess} onClose={close} /> : null}
+  </>;
+}
+
+export function FleetPairingQrCodeDialog({ serverName, dataUrl, error, needsRemoteAccess, onClose }: {
+  serverName: string;
+  dataUrl: string | null;
+  error: string | null;
+  needsRemoteAccess: boolean;
+  onClose: () => void;
+}): JSX.Element {
+  return <Modal title={`Connect ${serverName} to Beale iOS`} className="fleet-pairing-qr-dialog" onClose={onClose}>
+    {error ? <p className="settings-form-error" role="alert">{error}</p> : dataUrl ? <>
+      <p>Open Beale on your iPhone, choose Scan QR Code, and point the camera at this screen.</p>
+      <img className="fleet-pairing-qr-image" src={dataUrl} alt={`Pairing QR code for ${serverName}`} width="300" height="300" />
+      {needsRemoteAccess ? <p className="fleet-pairing-qr-warning">Enable Tailscale Serve below before connecting from iOS.</p> : null}
+      <p className="fleet-pairing-qr-security">This code contains the app-server operator token. Scan it only with a trusted device.</p>
+    </> : <p role="status">Preparing QR code…</p>}
+  </Modal>;
 }
 
 function BrowserSettingsView({ homePage, browserCount, busy, error, onChange }: {
@@ -137,16 +238,18 @@ function BrowserSettingsView({ homePage, browserCount, busy, error, onChange }: 
   const [url, setUrl] = useState(homePage);
   return <div className="settings-page fleet-settings-page"><section className="settings-form" aria-busy={busy}>
     <header className="settings-form-heading"><h2>Browsers</h2><p>Set the page opened by new browser sessions. Choose available browsers using the checkboxes in the sidebar.</p></header>
-    <form className="settings-form-squircle fleet-detail-form" onSubmit={(event) => {
+    <form className="settings-form-squircle fleet-detail-form fleet-text-form" onSubmit={(event) => {
       event.preventDefault();
       void onChange(() => window.beale.configureFleet({ action: 'set-browser-home-page', url: url.trim() }));
     }}>
-      <label className="fleet-vm-dialog-field"><span>Default page</span>
-        <input type="url" value={url} required maxLength={2048} disabled={busy} placeholder="https://duckduckgo.com" onChange={(event) => setUrl(event.currentTarget.value)} />
-        <small>Used when opening a new browser page. Existing pages keep their current location.</small>
-      </label>
+      <div className="settings-form-control-list">
+        <label className="settings-form-control-row fleet-text-field">
+          <span className="settings-form-control-copy"><strong>Default page</strong><small>Used when opening a new browser page. Existing pages keep their current location.</small></span>
+          <input type="url" value={url} required maxLength={2048} disabled={busy} placeholder="https://duckduckgo.com" onChange={(event) => setUrl(event.currentTarget.value)} />
+        </label>
+      </div>
       {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
-      <div className="settings-form-actions"><button type="submit" className="primary-button" disabled={busy || url.trim() === homePage}>Save Browser Settings</button></div>
+      <div className="settings-form-actions fleet-detail-actions"><button type="submit" className="primary-button" disabled={busy || url.trim() === homePage}>Save Browser Settings</button></div>
     </form>
     {browserCount === 0 ? <p className="fleet-machine-empty">No browsers were found.</p> : null}
   </section></div>;
@@ -195,16 +298,29 @@ function FleetAppServerDetails({ server, busy, error, onBack, onSaved, onChange 
   return (
     <section className="settings-form fleet-detail-view" aria-label={server ? `Configure ${server.name}` : 'Add App Server'}>
       <header className="settings-form-heading"><h2>{server ? server.name : 'Add App Server'}</h2><p>Configure this app server on the current machine.</p></header>
-      <form className="settings-form-squircle fleet-detail-form" onSubmit={(event) => void save(event)}>
-          <div className="fleet-vm-dialog-fields">
-            <label className="fleet-vm-dialog-field"><span>Name</span><input value={name} disabled={locked} onChange={(event) => setName(event.currentTarget.value)} placeholder="Research machine" required /></label>
-            <label className="fleet-vm-dialog-field"><span>Tailscale HTTPS URL</span><input value={url} disabled={locked} onChange={(event) => { setUrl(event.currentTarget.value); setTestResult(null); }} placeholder="https://machine.tailnet.ts.net:47174" required /></label>
-            <label className="fleet-vm-dialog-field"><span>Operator token</span><input type="password" value={operatorToken} disabled={locked} onChange={(event) => { setOperatorToken(event.currentTarget.value); setTestResult(null); }} placeholder={server ? 'Saved; enter a new token to replace' : 'Token from the remote app server'} required={!server} /><small>Stored only on this machine. The remote server must already have Tailscale Serve enabled.</small></label>
+      <form className="settings-form-squircle fleet-detail-form fleet-text-form" onSubmit={(event) => void save(event)}>
+        <div className="settings-form-control-list">
+          <label className="settings-form-control-row fleet-text-field">
+            <span className="settings-form-control-copy"><strong>Name</strong></span>
+            <input value={name} disabled={locked} onChange={(event) => setName(event.currentTarget.value)} placeholder="Research machine" required />
+          </label>
+          <label className="settings-form-control-row fleet-text-field">
+            <span className="settings-form-control-copy"><strong>Tailscale HTTPS URL</strong></span>
+            <input value={url} disabled={locked} onChange={(event) => { setUrl(event.currentTarget.value); setTestResult(null); }} placeholder="https://machine.tailnet.ts.net:47174" required />
+          </label>
+          <label className="settings-form-control-row fleet-text-field">
+            <span className="settings-form-control-copy"><strong>Operator token</strong><small>Stored only on this machine. The remote server must already have Tailscale Serve enabled.</small></span>
+            <input type="password" value={operatorToken} disabled={locked} onChange={(event) => { setOperatorToken(event.currentTarget.value); setTestResult(null); }} placeholder={server ? 'Saved; enter a new token to replace' : 'Token from the remote app server'} required={!server} />
+          </label>
+        </div>
+        <div className="fleet-app-server-test-actions">
+          <div className="fleet-app-server-test-buttons">
+            <button type="button" className="secondary-button" disabled={locked || !url.trim() || (!server && !operatorToken.trim())} onClick={() => void test()}>{testing ? 'Testing…' : 'Test Connection'}</button>
+            {server ? <FleetPairingQrCodeAction serverId={server.id} serverName={server.name} disabled={locked} /> : null}
           </div>
-          <div className="fleet-vm-dialog-actions"><button type="button" className="secondary-button" disabled={locked || !url.trim() || (!server && !operatorToken.trim())} onClick={() => void test()}>{testing ? 'Testing…' : 'Test Connection'}</button>
-            {testResult ? <p className={testResult.success ? 'fleet-vm-test-success' : 'settings-form-error'} role="status">{testResult.message}</p> : null}
-          </div>
-          {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
+          {testResult ? <p className={testResult.success ? 'fleet-vm-test-success' : 'settings-form-error'} role="status">{testResult.message}</p> : null}
+        </div>
+        {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
         <div className="settings-form-actions fleet-detail-actions">
           {server ? <button type="button" className="secondary-button" disabled={locked} onClick={() => void remove()}>Remove</button> : null}
           <button type="button" className="secondary-button" disabled={locked} onClick={onBack}>Back</button>
@@ -277,43 +393,64 @@ function FleetMachineDetails({ machine, busy, error, onBack, onChange }: {
   return (
     <section className="settings-form fleet-detail-view" aria-label={`Configure ${machine.name}`}>
       <header className="settings-form-heading"><h2>{machine.name}</h2><p>{machine.backend} · {machine.state}{machine.owner ? ' · Reserved by a session' : ''}</p></header>
-      <form className="settings-form-squircle fleet-detail-form" onSubmit={(event) => void save(event)}>
-          <div className="fleet-vm-dialog-fields">
+      <form className="settings-form-squircle fleet-detail-form fleet-text-form" onSubmit={(event) => void save(event)}>
+        <div className="settings-form-control-list">
+          <label className="settings-form-control-row">
+            <span className="settings-form-control-copy"><strong>Can Run</strong><small>Allow a workspace session to run commands on this VM.</small></span>
+            <input type="checkbox" checked={canRun} disabled={locked || Boolean(machine.owner)} onChange={(event) => setCanRun(event.currentTarget.checked)} />
+          </label>
+          <label className="settings-form-control-row">
+            <span className="settings-form-control-copy"><strong>Can Clone</strong><small>Allow a workspace session to clone this stopped VM.</small></span>
+            <input type="checkbox" checked={canClone} disabled={locked || Boolean(machine.owner) || machine.state !== 'stopped'} onChange={(event) => setCanClone(event.currentTarget.checked)} />
+          </label>
+          <label className="settings-form-control-row">
+            <span className="settings-form-control-copy"><strong>Privilege</strong><small>Label this VM's manually configured privilege level.</small></span>
+            <select value={privilege} disabled={locked || Boolean(machine.owner)} onChange={(event) => setPrivilege(event.currentTarget.value as FleetMachine['privilege'])}><option value="standard">Standard</option><option value="elevated">Elevated</option></select>
+          </label>
+          <label className="settings-form-control-row">
+            <span className="settings-form-control-copy"><strong>Guest OS</strong><small>Used to format commands sent over SSH.</small></span>
+            <select value={guestPlatform} disabled={locked || Boolean(machine.owner)} onChange={(event) => setGuestPlatform(event.currentTarget.value as FleetMachine['guestPlatform'])}><option value="win32">Windows</option><option value="darwin">macOS</option><option value="linux">Linux</option></select>
+          </label>
+          <label className="settings-form-control-row fleet-text-field">
+            <span className="settings-form-control-copy"><strong>SSH host override</strong></span>
+            <input value={sshHost} disabled={locked || Boolean(machine.owner)} placeholder="Auto-detect VM IP" onChange={(event) => { setSshHost(event.currentTarget.value); setTestResult(null); }} />
+          </label>
+          <label className="settings-form-control-row fleet-text-field">
+            <span className="settings-form-control-copy"><strong>SSH user</strong><small>Beale needs this account name to connect; this does not change SSH inside the VM.</small></span>
+            <input value={sshUser} disabled={locked || Boolean(machine.owner)} placeholder="Guest account name" onChange={(event) => { setSshUser(event.currentTarget.value); setTestResult(null); }} />
+          </label>
+          <label className="settings-form-control-row fleet-text-field">
+            <span className="settings-form-control-copy"><strong>SSH identity file</strong></span>
+            <input value={sshIdentityFile} disabled={locked || Boolean(machine.owner) || clearIdentity} placeholder={machine.sshIdentityConfigured ? 'Configured; enter a new path to replace' : 'Optional host path'} onChange={(event) => { setSshIdentityFile(event.currentTarget.value); setTestResult(null); }} />
+          </label>
+          {machine.sshIdentityConfigured ? (
             <label className="settings-form-control-row">
-              <span className="settings-form-control-copy"><strong>Can Run</strong><small>Allow a workspace session to run commands on this VM.</small></span>
-              <input type="checkbox" checked={canRun} disabled={locked || Boolean(machine.owner)} onChange={(event) => setCanRun(event.currentTarget.checked)} />
+              <span className="settings-form-control-copy"><strong>Clear saved SSH identity file</strong></span>
+              <input type="checkbox" checked={clearIdentity} disabled={locked || Boolean(machine.owner)} onChange={(event) => { setClearIdentity(event.currentTarget.checked); setTestResult(null); }} />
             </label>
+          ) : null}
+          <label className="settings-form-control-row fleet-text-field">
+            <span className="settings-form-control-copy"><strong>SSH known-hosts file</strong><small>For Tart, Beale uses ~/.ssh/tart_known_hosts when it exists. A first connection to a clone records its host key there.</small></span>
+            <input value={sshKnownHostsFile} disabled={locked || Boolean(machine.owner) || clearKnownHosts} placeholder={machine.sshKnownHostsConfigured ? 'Configured; enter a new path to replace' : 'Optional host path'} onChange={(event) => { setSshKnownHostsFile(event.currentTarget.value); setTestResult(null); }} />
+          </label>
+          {machine.sshKnownHostsConfigured ? (
             <label className="settings-form-control-row">
-              <span className="settings-form-control-copy"><strong>Can Clone</strong><small>Allow a workspace session to clone this stopped VM.</small></span>
-              <input type="checkbox" checked={canClone} disabled={locked || Boolean(machine.owner) || machine.state !== 'stopped'} onChange={(event) => setCanClone(event.currentTarget.checked)} />
+              <span className="settings-form-control-copy"><strong>Clear saved known-hosts file</strong></span>
+              <input type="checkbox" checked={clearKnownHosts} disabled={locked || Boolean(machine.owner)} onChange={(event) => { setClearKnownHosts(event.currentTarget.checked); setTestResult(null); }} />
             </label>
-            <label className="settings-form-control-row">
-              <span className="settings-form-control-copy"><strong>Privilege</strong><small>Label this VM's manually configured privilege level.</small></span>
-              <select value={privilege} disabled={locked || Boolean(machine.owner)} onChange={(event) => setPrivilege(event.currentTarget.value as FleetMachine['privilege'])}><option value="standard">Standard</option><option value="elevated">Elevated</option></select>
-            </label>
-            <label className="settings-form-control-row">
-              <span className="settings-form-control-copy"><strong>Guest OS</strong><small>Used to format commands sent over SSH.</small></span>
-              <select value={guestPlatform} disabled={locked || Boolean(machine.owner)} onChange={(event) => setGuestPlatform(event.currentTarget.value as FleetMachine['guestPlatform'])}><option value="win32">Windows</option><option value="darwin">macOS</option><option value="linux">Linux</option></select>
-            </label>
-            <label className="fleet-vm-dialog-field"><span>SSH host override</span><input value={sshHost} disabled={locked || Boolean(machine.owner)} placeholder="Auto-detect VM IP" onChange={(event) => { setSshHost(event.currentTarget.value); setTestResult(null); }} /></label>
-            <label className="fleet-vm-dialog-field"><span>SSH user</span><input value={sshUser} disabled={locked || Boolean(machine.owner)} placeholder="Guest account name" onChange={(event) => { setSshUser(event.currentTarget.value); setTestResult(null); }} /><small>Beale needs this account name to connect; this does not change SSH inside the VM.</small></label>
-            <label className="fleet-vm-dialog-field"><span>SSH identity file</span><input value={sshIdentityFile} disabled={locked || Boolean(machine.owner) || clearIdentity} placeholder={machine.sshIdentityConfigured ? 'Configured; enter a new path to replace' : 'Optional host path'} onChange={(event) => { setSshIdentityFile(event.currentTarget.value); setTestResult(null); }} /></label>
-            {machine.sshIdentityConfigured ? (
-              <label className="fleet-vm-clear-identity"><input type="checkbox" checked={clearIdentity} disabled={locked || Boolean(machine.owner)} onChange={(event) => { setClearIdentity(event.currentTarget.checked); setTestResult(null); }} />Clear saved SSH identity file</label>
-            ) : null}
-            <label className="fleet-vm-dialog-field"><span>SSH known-hosts file</span><input value={sshKnownHostsFile} disabled={locked || Boolean(machine.owner) || clearKnownHosts} placeholder={machine.sshKnownHostsConfigured ? 'Configured; enter a new path to replace' : 'Optional host path'} onChange={(event) => { setSshKnownHostsFile(event.currentTarget.value); setTestResult(null); }} /><small>For Tart, Beale uses ~/.ssh/tart_known_hosts when it exists. A first connection to a clone records its host key there.</small></label>
-            {machine.sshKnownHostsConfigured ? (
-              <label className="fleet-vm-clear-identity"><input type="checkbox" checked={clearKnownHosts} disabled={locked || Boolean(machine.owner)} onChange={(event) => { setClearKnownHosts(event.currentTarget.checked); setTestResult(null); }} />Clear saved known-hosts file</label>
-            ) : null}
-          </div>
-          <div className="fleet-vm-dialog-actions">
-            <button type="button" className="secondary-button" disabled={locked} onClick={() => void testConnection()}>{testing ? 'Testing…' : 'Test SSH'}</button>
-            {testResult ? <p className={testResult.success ? 'fleet-vm-test-success' : 'settings-form-error'} role="status">{testResult.message}</p> : null}
-            {canClone ? <><label className="fleet-vm-dialog-field"><span>Clone name</span><input value={cloneName} disabled={locked} placeholder="New VM name" onChange={(event) => setCloneName(event.currentTarget.value)} /></label>
-              <button type="button" className="secondary-button" disabled={locked || machine.state !== 'stopped' || !canClone || !cloneName.trim()} onClick={() => void clone()}>Clone VM</button></> : null}
-            {machine.canRun ? <button type="button" className="secondary-button" disabled={locked || Boolean(machine.owner) || machine.state === 'unknown'} onClick={() => void onChange(() => machine.state === 'running' ? window.beale.stopFleetVm(machine.id) : window.beale.startFleetVm(machine.id))}>{machine.state === 'running' ? 'Stop VM' : 'Start VM'}</button> : null}
-          </div>
-          {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
+          ) : null}
+          {canClone ? <label className="settings-form-control-row fleet-text-field">
+            <span className="settings-form-control-copy"><strong>Clone name</strong></span>
+            <input value={cloneName} disabled={locked} placeholder="New VM name" onChange={(event) => setCloneName(event.currentTarget.value)} />
+          </label> : null}
+        </div>
+        <div className="settings-form-actions fleet-vm-action-bar">
+          <button type="button" className="secondary-button" disabled={locked} onClick={() => void testConnection()}>{testing ? 'Testing…' : 'Test SSH'}</button>
+          {canClone ? <button type="button" className="secondary-button" disabled={locked || machine.state !== 'stopped' || !cloneName.trim()} onClick={() => void clone()}>Clone VM</button> : null}
+          {machine.canRun ? <button type="button" className="secondary-button" disabled={locked || Boolean(machine.owner) || machine.state === 'unknown'} onClick={() => void onChange(() => machine.state === 'running' ? window.beale.stopFleetVm(machine.id) : window.beale.startFleetVm(machine.id))}>{machine.state === 'running' ? 'Stop VM' : 'Start VM'}</button> : null}
+        </div>
+        {testResult ? <p className={testResult.success ? 'fleet-vm-test-success' : 'settings-form-error'} role="status">{testResult.message}</p> : null}
+        {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
         <div className="settings-form-actions fleet-detail-actions">
           <button type="button" className="secondary-button" disabled={locked} onClick={onBack}>Back</button>
           <button type="submit" className="primary-button" disabled={locked || Boolean(machine.owner)}>Save VM</button>

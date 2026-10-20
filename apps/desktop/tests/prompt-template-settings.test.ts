@@ -56,6 +56,8 @@ describe('prompt template settings', () => {
       const registry = new WorkspaceRegistry(directory);
       const initial = registry.getPromptTemplateSettings('security-research');
       expect(initial.overridden).toBe(false);
+      expect(initial.defaultTemplate).toContain('{{prompt_extensions}}');
+      expect(initial.defaultTemplate).not.toContain('{{goal}}');
       const template = '{{boundary}}\nExample prompt for {{profile.name}}.\n{{identity}}';
       registry.setPromptTemplate('security-research', template);
       expect(() => registry.getPromptTemplateSettings('mathematics')).toThrow(/Unsupported active research profile/);
@@ -108,6 +110,7 @@ describe('prompt template settings', () => {
       expect(() => reopened.setPromptTemplate('security-research', '{{identity}}')).toThrow(/boundary/);
       reopened.resetPromptTemplate('security-research');
       expect(reopened.getPromptTemplateSettings('security-research')).toEqual(initial);
+      expect(reopened.getPromptTemplateSettings('security-research').template).not.toContain('{{goal}}');
       expect(host.promptTemplateOverride('security-research')).toBeNull();
       reopened.close();
     } finally {

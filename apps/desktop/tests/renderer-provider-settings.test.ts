@@ -156,6 +156,7 @@ describe('renderer provider settings', () => {
     const apiKeyFieldStyles = styles.match(/\.provider-api-key-field\s*\{([^}]*)\}/)?.[1] ?? '';
     const apiKeyDialogButtonStyles = styles.match(/\.provider-api-key-dialog button,([\s\S]*?)\{([^}]*)\}/)?.[2] ?? '';
 
+    expect(pageStyles).toContain('--settings-view-font-size: 14px');
     expect(pageStyles).toContain('width: 100%');
     expect(pageStyles).toContain('gap: 6px');
     expect(pageStyles).not.toContain('max-width: var(--session-content-max-width)');
@@ -170,7 +171,7 @@ describe('renderer provider settings', () => {
     expect(rowStyles).toContain('grid-template-columns: minmax(0, 1fr) auto');
     expect(rowStyles).toContain('gap: 16px');
     expect(rowStyles).toContain('padding: 10px 0');
-    expect(rowStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(rowStyles).toContain('font-size: var(--settings-view-font-size, 14px)');
     expect(rowStyles).toContain('font-weight: 400');
     expect(rowControlStyles).toContain('display: flex');
     expect(rowControlStyles).toContain('justify-content: flex-end');
@@ -182,7 +183,7 @@ describe('renderer provider settings', () => {
     expect(selectStyles).toContain('font-weight: 400');
     expect(providerControlStyles).toContain('display: inline-flex');
     expect(providerControlStyles).toContain('gap: 5px');
-    expect(providerControlStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(providerControlStyles).toContain('font-size: var(--settings-view-font-size, 14px)');
     expect(providerControlStyles).toContain('font-weight: 400');
     expect(providerSelectStyles).toContain('max-width: 120px');
     expect(providerSelectStyles).toContain('border: 0');
@@ -201,7 +202,7 @@ describe('renderer provider settings', () => {
     expect(acknowledgementStyles).toContain('width: fit-content');
     expect(acknowledgementStyles).toContain('display: inline-flex');
     expect(acknowledgementStyles).toContain('justify-content: flex-start');
-    expect(acknowledgementStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(acknowledgementStyles).toContain('font-size: var(--settings-view-font-size, 14px)');
     expect(acknowledgementStyles).toContain('font-weight: 400');
     expect(acknowledgementInputStyles).toContain('width: 14px');
     expect(acknowledgementInputStyles).toContain('flex: 0 0 14px');
@@ -210,7 +211,7 @@ describe('renderer provider settings', () => {
     expect(optionalLabelStyles).toContain('grid-template-columns: minmax(0, 1fr) auto');
     expect(optionalLabelStyles).toContain('padding: 10px 0');
     expect(optionalLabelStyles).toContain('background: transparent');
-    expect(optionalLabelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(optionalLabelStyles).toContain('font-size: var(--settings-view-font-size, 14px)');
     expect(optionalInputStyles).toContain('width: 14px');
     expect(optionalCopyStyles).toContain('display: grid');
     expect(optionalCopyStyles).toContain('gap: 3px');
@@ -225,12 +226,12 @@ describe('renderer provider settings', () => {
     expect(authenticationRowStyles).toContain('padding: 10px 0');
     expect(authenticationCopyStyles).toContain('display: grid');
     expect(authenticationCopyStyles).toContain('gap: 3px');
-    expect(authenticationLabelStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
-    expect(authenticationStatusStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(authenticationLabelStyles).toContain('font-size: var(--settings-view-font-size, 14px)');
+    expect(authenticationStatusStyles).toContain('font-size: var(--settings-view-font-size, 14px)');
     expect(authenticationActionStyles).toContain('border: 0');
-    expect(oauthResultStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
-    expect(apiKeyDescriptionStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
-    expect(apiKeyFieldStyles).toContain('font-size: var(--steer-control-font-size, 13px)');
+    expect(oauthResultStyles).toContain('font-size: var(--settings-view-font-size, 14px)');
+    expect(apiKeyDescriptionStyles).toContain('font-size: var(--settings-view-font-size, 14px)');
+    expect(apiKeyFieldStyles).toContain('font-size: var(--settings-view-font-size, 14px)');
     expect(apiKeyDialogButtonStyles).toContain('border: 0');
   });
 

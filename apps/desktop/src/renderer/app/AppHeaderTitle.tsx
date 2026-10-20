@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { JSX } from 'react';
-import { Archive, CalendarClock, FileText, Folder, Palette, Plug, Server, ServerCog, Settings, SlidersHorizontal, Ticket, UserRoundCog, Wifi } from 'lucide-react';
+import { Archive, CalendarClock, FileText, Folder, Palette, Plug, Server, ServerCog, Settings, SlidersHorizontal, Ticket, UserRoundCog } from 'lucide-react';
 import type { RunRecord } from '@shared/types';
 import { displaySessionTitle } from '../../shared/sessionTitle';
 import { useDevRenderProbe } from '../devInstrumentation';
@@ -17,7 +17,6 @@ export type AppHeaderViewIcon =
   | 'settings-optional-features'
   | 'settings-profiles'
   | 'settings-providers'
-  | 'settings-remote'
   | 'settings-ticketing';
 
 export interface AppHeaderRun {
@@ -107,7 +106,6 @@ export const StaticAppHeaderTitle = memo(function StaticAppHeaderTitle({
     'settings-optional-features': SlidersHorizontal,
     'settings-profiles': UserRoundCog,
     'settings-providers': ServerCog,
-    'settings-remote': Wifi,
     'settings-ticketing': Ticket
   }[icon];
 

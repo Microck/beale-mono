@@ -53,6 +53,8 @@ import { FleetModelBrokerQueue } from './fleetModelBrokerQueue.js';
 import type { ModelBrokerRequest } from '@beale/research-agent';
 import { FleetWorkspaceStore } from './fleetWorkspace.js';
 import { ProviderUsageLimitsService } from './providerUsageLimits.js';
+import { defaultDiscoveryPath, readDiscoveryRecord } from './discovery.js';
+import { createAppServerPairingQrCode } from './pairing.js';
 
 type ProtocolInvoker = <T>(
   operation: AppServerProtocolOperation,
@@ -315,6 +317,16 @@ export class AppServerHostService {
       if (request.operation === 'fleet.browser_home_page') return this.fleet.browserHomePage();
       if (request.operation === 'fleet.remote_machines') return this.fleet.remoteMachines();
       if (request.operation === 'fleet.app_server_statuses') return this.fleet.appServerStatuses();
+      if (request.operation === 'fleet.pairing_qr_code') {
+        const serverId = nonEmpty(input.serverId) ?? '';
+        if (serverId === 'local') {
+          const discovery = readDiscoveryRecord(process.env.BEALE_APP_SERVER_STATE_FILE?.trim() || defaultDiscoveryPath());
+          if (!discovery || discovery.pid !== process.pid) throw new Error('The local app server is unavailable.');
+          return createAppServerPairingQrCode(discovery.url, discovery.operatorToken);
+        }
+        const server = this.fleet.remoteAppServer(serverId);
+        return createAppServerPairingQrCode(server.url, server.operatorToken);
+      }
       if (request.operation === 'fleet.remote_catalog') return this.fleet.remoteCatalog(nonEmpty(input.serverId) ?? '');
       if (request.operation === 'fleet.remote_workspace_details') return this.fleet.remoteWorkspaceDetails(nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '');
       if (request.operation === 'fleet.remote_workspace_document') {

@@ -112,7 +112,7 @@ export function SidebarServerSelector({ servers, statuses, value, collapsed, onC
               role="menuitem"
               tabIndex={-1}
               onClick={() => { setOpen(false); triggerRef.current?.focus(); onAdd(); }}
-            >+ Add an App Server</button>
+            >Add App Server</button>
           </div>
         </div>
       ) : null}

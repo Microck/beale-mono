@@ -269,6 +269,9 @@ const api: BealeApi = {
   getFleetAppServerStatuses(): Promise<import('@beale/app-server-runtime/protocol').FleetAppServerStatus[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.getFleetAppServerStatuses);
   },
+  getFleetPairingQrCode(serverId: string): Promise<import('@beale/app-server-runtime/protocol').FleetPairingQrCode> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFleetPairingQrCode, serverId);
+  },
   getBrowserHomePage(): Promise<string> {
     return ipcRenderer.invoke(IPC_CHANNELS.getBrowserHomePage);
   },

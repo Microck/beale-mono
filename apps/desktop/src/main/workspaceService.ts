@@ -10,7 +10,7 @@ import { WORKSPACE_PRIMARY_DIRECTORY_MISSING_MESSAGE } from '../shared/ipc';
 import { fleetBrowserViewerTargetId } from '../shared/fleet';
 import { findingRevisionContext } from './findingRevisionContext';
 import { AppServerReadTransportError, fetchBealeProviderUsageLimits, invokeAppServerOperation } from './bealeAppServerClient';
-import { decodeClaimBoardTransitionRequest, decodeFleetAppServerStatuses, type BealeProviderLimitId, type BealeProviderUsageLimits, type FleetSshTestInput, type FleetSshTestResult, type FleetState, type ResourcePriorArtPage, type ResourcePriorArtDetail, type ResourcePriorArtListInput } from '@beale/app-server-runtime/protocol';
+import { decodeClaimBoardTransitionRequest, decodeFleetAppServerStatuses, decodeFleetPairingQrCode, type BealeProviderLimitId, type BealeProviderUsageLimits, type FleetSshTestInput, type FleetSshTestResult, type FleetState, type ResourcePriorArtPage, type ResourcePriorArtDetail, type ResourcePriorArtListInput } from '@beale/app-server-runtime/protocol';
 import {
   WorkspaceDatabase,
   type ProjectSourceCoveragePathRecord,
@@ -1014,6 +1014,10 @@ export class WorkspaceService {
 
   public async getFleetAppServerStatuses(): Promise<import('@beale/app-server-runtime/protocol').FleetAppServerStatus[]> {
     return decodeFleetAppServerStatuses(await invokeAppServerOperation({ operation: 'fleet.app_server_statuses' }));
+  }
+
+  public async getFleetPairingQrCode(serverId: string): Promise<import('@beale/app-server-runtime/protocol').FleetPairingQrCode> {
+    return decodeFleetPairingQrCode(await invokeAppServerOperation({ operation: 'fleet.pairing_qr_code', input: { serverId } }));
   }
 
   public getFleetRemoteCatalog(serverId: string): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteCatalog> {
