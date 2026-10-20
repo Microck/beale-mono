@@ -554,7 +554,7 @@ describe('run detail commentary projection', () => {
     const meter = contextMeterForDetail(projected);
     expect(visibleSessionTokenUsageLabel(meter)).toBe('41k');
     expect(visibleCacheHitRateLabel(meter)).toBe('75%');
-    expect(visibleContextWindowPercentageLabel(meter)).toBe('20%');
+    expect(visibleContextWindowPercentageLabel(meter)).toBe('15%');
   });
 
   it('retains collaborator usage telemetry in the root commentary projection', () => {
@@ -587,7 +587,7 @@ describe('run detail commentary projection', () => {
     expect(meter.totalSessionTokens).toBe(2_030);
     expect(meter.cacheReadTokens).toBe(1_700);
     expect(meter.cachePromptTokens).toBe(2_000);
-    expect(visibleContextWindowPercentageLabel(meter)).toBe('1%');
+    expect(visibleContextWindowPercentageLabel(meter)).toBe('0%');
   });
 
   it('retains a bounded shell command for its pre-expansion label', () => {

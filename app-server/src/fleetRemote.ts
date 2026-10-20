@@ -109,7 +109,7 @@ export class FleetRemoteController {
   }
 
   public async prepare(workspace: AppServerHostWorkspace, runId: string, machineId: string, ownerMachineId = this.fleet.machineId(),
-    brokerPolicy?: { providerIds: string[]; fastMode: boolean; daybreakBlue: boolean }): Promise<FleetRemoteEndpoint> {
+    brokerPolicy?: { providerIds: string[]; fastMode: boolean }): Promise<FleetRemoteEndpoint> {
     const baseline = this.files.baselineIfExists(runId);
     if (baseline && !baseline.completedResult && baseline.workspaceId === workspace.workspaceId
       && baseline.ownerMachineId === ownerMachineId
@@ -348,7 +348,7 @@ export class FleetRemoteController {
 
   private async prepareRemote(
     workspace: AppServerHostWorkspace, runId: string, machineId: string, serverId: string, remoteMachineId: string,
-    brokerPolicy?: { providerIds: string[]; fastMode: boolean; daybreakBlue: boolean },
+    brokerPolicy?: { providerIds: string[]; fastMode: boolean },
   ): Promise<FleetRemoteEndpoint> {
     const server = await this.fleet.connectedRemoteAppServer(serverId);
     const remoteState = await this.fleet.callRemote<{ enabled: boolean; role: string; machines: Array<{ id: string; base: boolean; sshConfigured: boolean; state: string; owner?: { machineId: string; sessionId: string } | null }> }>(serverId, 'fleet.state', {});
@@ -486,8 +486,7 @@ export class FleetRemoteController {
         const provider = request.model.provider === 'openai' ? 'openai-codex' : request.model.provider;
         const policy = this.files.baselineIfExists(runId)?.brokerPolicy;
         if (policy && (!policy.providerIds.includes(provider)
-          || request.brokerFlags?.fastMode === true && !policy.fastMode
-          || request.brokerFlags?.daybreakBlue === true && !policy.daybreakBlue)) {
+          || request.brokerFlags?.fastMode === true && !policy.fastMode)) {
           throw new Error('The model broker request exceeds this session’s provider selection.');
         }
         if (!['openai-codex', 'xai', 'zai', 'openrouter'].includes(provider)) {

@@ -28,7 +28,7 @@ import {
   decodeFleetSshTestInput
 } from '@beale/app-server-runtime/protocol';
 import { getProviderModelCatalog, readWorkspaceProject, readWorkspaceResearchCacheState, resolveStoredResearchWorkspaceBinding, workspaceResearchIndexNeedsRebuild } from '@beale/app-server-runtime/runtime-services';
-import { bundledPluginsRequiredByResearchKit, decodeResearchPluginCatalog, researchKitsRequiringBundledPlugin, validateResearchSystemPromptTemplate, verifyBrokerModelAccess } from '@beale/research-agent';
+import { applyFeaturePromptOverrides, bundledPluginsRequiredByResearchKit, decodeResearchPluginCatalog, researchKitsRequiringBundledPlugin, validateResearchSystemPromptTemplate, verifyBrokerModelAccess } from '@beale/research-agent';
 import { runWorkspaceCheckpoint, workspaceOperationKey } from './workspaceCheckpoints.js';
 import { projectWorkspaceDetails } from './workspaceDetails.js';
 import {
@@ -297,8 +297,8 @@ export class AppServerHostService {
     };
   }
 
-  public providerUsageLimits(providerId: BealeProviderLimitId, refresh = false): Promise<BealeProviderUsageLimits> {
-    return this.providerUsage.read(providerId, refresh);
+  public providerUsageLimits(providerId: BealeProviderLimitId, refresh = false, serverId: string | null = null): Promise<BealeProviderUsageLimits> {
+    return serverId ? this.fleet.remoteProviderUsageLimits(serverId, providerId, refresh) : this.providerUsage.read(providerId, refresh);
   }
 
   public async executeOperation(request: {
@@ -310,9 +310,11 @@ export class AppServerHostService {
   }): Promise<unknown> {
     if (request.operation.startsWith('fleet.')) {
       const input = isRecord(request.input) ? request.input : {};
-      if (request.operation === 'fleet.state') return this.fleet.state();
+      if (request.operation === 'fleet.state') return input.workspaceId === undefined
+        ? this.fleet.state() : this.fleet.stateForWorkspace(nonEmpty(input.workspaceId) ?? '');
       if (request.operation === 'fleet.browser_home_page') return this.fleet.browserHomePage();
       if (request.operation === 'fleet.remote_machines') return this.fleet.remoteMachines();
+      if (request.operation === 'fleet.app_server_statuses') return this.fleet.appServerStatuses();
       if (request.operation === 'fleet.remote_catalog') return this.fleet.remoteCatalog(nonEmpty(input.serverId) ?? '');
       if (request.operation === 'fleet.remote_workspace_details') return this.fleet.remoteWorkspaceDetails(nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '');
       if (request.operation === 'fleet.remote_workspace_document') {
@@ -407,8 +409,7 @@ export class AppServerHostService {
         }
         const providerIds = providerModels.map((selection) => selection.providerId);
         return this.fleetRemote.prepare(workspace, runId, machineId, ownerMachineId,
-          providerIds.length ? { providerIds: [...new Set(providerIds)], fastMode: input.fastMode === true,
-            daybreakBlue: input.daybreakBlue === true } : undefined);
+          providerIds.length ? { providerIds: [...new Set(providerIds)], fastMode: input.fastMode === true } : undefined);
       }
       if (request.operation === 'fleet.connect') return this.fleetRemote.connect(nonEmpty(input.machineId) ?? '', nonEmpty(input.runId) ?? '', nonEmpty(input.ownerMachineId) ?? this.fleet.machineId());
       if (request.operation === 'fleet.complete') {
@@ -683,7 +684,7 @@ export class AppServerHostService {
     const targetId = request.launch.machineId ?? 'local';
     const selectedTargetIds = request.launch.targetIds ?? [targetId];
     if (request.launch.mode !== 'quick-chat' && !request.launch.continuation) {
-      const state = await this.fleet.state();
+      const state = await this.fleet.stateForWorkspace(workspace.workspaceId);
       const allowed = state.workspaceTargets[workspace.workspaceId] ?? ['local', 'browser:in-agent'];
       for (const selectedId of selectedTargetIds) {
         if (!allowed.includes(selectedId) && !(selectedId === 'local' && allowed.includes('browser:in-agent'))) {
@@ -723,7 +724,7 @@ export class AppServerHostService {
     const reasoningEffort = request.launch.provider?.reasoningEffort?.trim()
       || providerDefaults?.reasoningEffort;
     const fastMode = request.launch.provider?.fastMode === true;
-    const daybreakBlue = request.launch.provider?.daybreakBlue === true;
+    const daybreakBlue = providerId === 'openai-codex';
     if (fastMode && providerId !== 'openai-codex') {
       throw new Error('Fast mode is available only when OpenAI is the Lead provider.');
     }
@@ -803,14 +804,16 @@ export class AppServerHostService {
       : await this.resolvePluginRuntime();
     const metaSkillDirectory = resolve(builtinPluginPath('meta-skills', 'managed'), 'skills');
     const sourcePluginCatalogPath = loadedPluginRuntime?.pluginCatalogPath;
-    const pluginCatalogPath = sourcePluginCatalogPath && (workspace.researchKitId !== 'meta-bug-bounty' || !introspection)
+    const featurePromptOverrides = this.registry.featurePromptOverrides();
+    const pluginCatalogPath = sourcePluginCatalogPath && (workspace.researchKitId !== 'meta-bug-bounty' || !introspection
+      || Object.keys(featurePromptOverrides).length > 0)
       ? join(runDirectory, `${fileStem}.plugin-catalog.json`)
       : sourcePluginCatalogPath;
     if (pluginCatalogPath && sourcePluginCatalogPath && pluginCatalogPath !== sourcePluginCatalogPath) {
       const catalog = decodeResearchPluginCatalog(JSON.parse(await readFile(sourcePluginCatalogPath, 'utf8')) as unknown);
-      await writePrivateJson(pluginCatalogPath, catalog.filter((plugin) =>
+      await writePrivateJson(pluginCatalogPath, applyFeaturePromptOverrides(catalog.filter((plugin) =>
         (workspace.researchKitId === 'meta-bug-bounty' || plugin.id !== 'meta-skills-builtin')
-        && (introspection || plugin.id !== 'beale-introspection-builtin')));
+        && (introspection || plugin.id !== 'beale-introspection-builtin')), featurePromptOverrides));
     }
     const pluginRuntime = loadedPluginRuntime
       ? {
@@ -1957,6 +1960,7 @@ async function writePrivateJson(path: string, value: unknown): Promise<void> {
 function defaultBuiltinPlugins(): Array<{ id: string; path: string; installedAt: string; enabledByDefault?: boolean }> {
   return [
     ...MANAGED_TOOL_PLUGIN_IDS.map((id) => builtinPlugin(`${id}-builtin`, id, false, 'feature')),
+    builtinPlugin('beale-goals-builtin', 'beale-goals', false, 'feature'),
     builtinPlugin('beale-introspection-builtin', 'beale-introspection', false, 'feature'),
     ...bundledManagedPlugins()
   ].flatMap((plugin) => existsSync(plugin.path) ? [plugin] : []);
@@ -2125,7 +2129,7 @@ function dueAutomation(
   const workflowId = nonEmpty(session.workflowId);
   const collaboration = isRecord(budget.collaboration) ? budget.collaboration : null;
   const fastMode = budget.fastMode === true && providerId === 'openai-codex';
-  const daybreakBlue = budget.daybreakBlue === true && providerId === 'openai-codex';
+  const daybreakBlue = providerId === 'openai-codex';
   const shellSafetyMode = nonEmpty(metadata.shellSafetyMode)
     ?? nonEmpty(storedRun.shellSafetyMode)
     ?? 'auto_review';

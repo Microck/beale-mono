@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { homedir, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { APP_SERVER_SESSION_LAUNCH_VERSION, BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION, BEALE_APP_SERVER_OPERATIONS_PATH, BEALE_APP_SERVER_PROVIDERS_PATH, BEALE_APP_SERVER_QUICK_CHATS_PATH, BEALE_APP_SERVER_SERVER_PATH, BEALE_APP_SERVER_WORKSPACES_PATH, BEALE_APP_SERVER_SESSIONS_PATH, BEALE_APP_SERVER_SUPERVISOR_HTTPS_PORT, BEALE_APP_SERVER_SUPERVISOR_RESTART_PATH, DEFAULT_BROWSER_HOME_PAGE, bealeAppServerWorkspaceDetailsPath, decodeBealeAppServerProviderCatalog, decodeBealeAppServerQuickChatList, decodeBealeAppServerQuickChatStartInput, decodeBealeAppServerQuickChatStartResult, decodeBealeAppServerWorkspaceDetails, decodeBealeAppServerWorkspaceDocument, decodeGeneratedResearchGoalSuggestions, type AppServerProtocolOperation, type BealeAppServerQuickChatList, type BealeAppServerQuickChatStartResult, type BealeAppServerWorkspaceDetails, type BealeAppServerWorkspaceDocument, type FleetBackend, type FleetMachine, type FleetRemoteCatalog, type FleetRemoteGoalSuggestions, type FleetRemotePromptExpansionInput, type FleetRemotePromptExpansionResult, type FleetRemoteResearchInput, type FleetSshTestInput, type FleetSshTestResult, type FleetState } from '@beale/app-server-runtime/protocol';
+import { APP_SERVER_SESSION_LAUNCH_VERSION, BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION, BEALE_APP_SERVER_OPERATIONS_PATH, BEALE_APP_SERVER_PROVIDERS_PATH, BEALE_APP_SERVER_PROVIDER_LIMITS_PATH, BEALE_APP_SERVER_QUICK_CHATS_PATH, BEALE_APP_SERVER_SERVER_PATH, BEALE_APP_SERVER_WORKSPACES_PATH, BEALE_APP_SERVER_SESSIONS_PATH, BEALE_APP_SERVER_SUPERVISOR_HTTPS_PORT, BEALE_APP_SERVER_SUPERVISOR_RESTART_PATH, DEFAULT_BROWSER_HOME_PAGE, bealeAppServerWorkspaceDetailsPath, decodeBealeAppServerDescriptor, decodeBealeAppServerProviderCatalog, decodeBealeProviderUsageLimits, decodeBealeAppServerQuickChatList, decodeBealeAppServerQuickChatStartInput, decodeBealeAppServerQuickChatStartResult, decodeBealeAppServerWorkspaceDetails, decodeBealeAppServerWorkspaceDocument, decodeGeneratedResearchGoalSuggestions, type AppServerProtocolOperation, type BealeAppServerQuickChatList, type BealeAppServerQuickChatStartResult, type BealeAppServerWorkspaceDetails, type BealeAppServerWorkspaceDocument, type BealeProviderLimitId, type BealeProviderUsageLimits, type FleetAppServerStatus, type FleetBackend, type FleetMachine, type FleetRemoteCatalog, type FleetRemoteGoalSuggestions, type FleetRemotePromptExpansionInput, type FleetRemotePromptExpansionResult, type FleetRemoteResearchInput, type FleetSshTestInput, type FleetSshTestResult, type FleetState } from '@beale/app-server-runtime/protocol';
 import { sshConnectionArgs } from './fleetSsh.js';
 import { detectFleetBrowsers } from './fleetBrowsers.js';
 import { normalizeTailnetOrigin, verifySameTailnet } from './tailnetRemote.js';
@@ -117,6 +117,15 @@ export class FleetService {
     }
   }
 
+  public async stateForWorkspace(workspaceId: string): Promise<FleetState> {
+    validWorkspaceId(workspaceId);
+    const config = this.read();
+    const targets = config.workspaceTargets[workspaceId] ?? ['local', 'browser:in-agent'];
+    return config.enabled && targets.some((target) => target.startsWith('vm:'))
+      ? this.state()
+      : this.project(config, [], false, null);
+  }
+
   public async configure(input: Record<string, unknown>): Promise<FleetState> {
     return this.exclusive(() => this.configureUnlocked(input));
   }
@@ -153,7 +162,7 @@ export class FleetService {
     } else if (action === 'select-machine') {
       const workspaceId = validWorkspaceId(input.workspaceId);
       const machineId = requiredText(input.machineId, 'Target ID');
-      const state = await this.state();
+      const state = await this.stateForWorkspace(workspaceId);
       const selectable = (machineId === 'local' || state.enabled)
         && (config.workspaceTargets[workspaceId] ?? ['local', 'browser:in-agent']).includes(machineId)
         && (machineId === 'local'
@@ -243,7 +252,9 @@ export class FleetService {
       throw new Error('Unsupported Fleet configuration action.');
     }
     this.write(config);
-    return this.state();
+    return action === 'select-machine'
+      ? this.stateForWorkspace(validWorkspaceId(input.workspaceId))
+      : this.state();
   }
 
   public machineId(): string { return this.read().machineId; }
@@ -328,6 +339,14 @@ export class FleetService {
       .sort((left, right) => left.name.localeCompare(right.name));
   }
 
+  public async appServerStatuses(): Promise<FleetAppServerStatus[]> {
+    const config = this.read();
+    if (!config.enabled || config.role !== 'primary') return [];
+    return Promise.all(Object.entries(config.appServers).map(([id, server]) => probeFleetAppServerStatus(
+      id, server.url, server.operatorToken, (url) => verifySameTailnet(url, this.runner)
+    )));
+  }
+
   public async remoteCatalog(serverId: string): Promise<FleetRemoteCatalog> {
     const server = await this.connectedRemoteAppServer(serverId);
     const fleetState = await this.callRemote<FleetState>(serverId, 'fleet.state', {});
@@ -363,6 +382,14 @@ export class FleetService {
       workspaceTargets: fleetState.workspaceTargets,
       requiredWorkspaceIds: fleetState.requiredWorkspaceIds, optionalWorkspaceIds: fleetState.optionalWorkspaceIds,
       hasBaseVm: fleetState.machines.some((machine) => machine.base) };
+  }
+
+  public async remoteProviderUsageLimits(serverId: string, providerId: BealeProviderLimitId, refresh: boolean): Promise<BealeProviderUsageLimits> {
+    const server = await this.connectedRemoteAppServer(serverId);
+    const query = new URLSearchParams({ provider: providerId, ...(refresh ? { refresh: '1' } : {}) });
+    const limits = decodeBealeProviderUsageLimits(await this.remoteGet(server, `${BEALE_APP_SERVER_PROVIDER_LIMITS_PATH}?${query}`));
+    if (limits.providerId !== providerId) throw new Error('Remote app server returned limits for a different provider.');
+    return limits;
   }
 
   public async remoteWorkspaceDetails(serverId: string, workspaceId: string): Promise<BealeAppServerWorkspaceDetails> {
@@ -965,6 +992,31 @@ export class FleetService {
     chmodSync(temporary, 0o600);
     renameSync(temporary, this.path);
   }
+}
+
+export async function probeFleetAppServerStatus(
+  id: string,
+  url: string,
+  operatorToken: string,
+  verifyPeer: (url: string) => Promise<void>,
+  fetcher: typeof fetch = fetch
+): Promise<FleetAppServerStatus> {
+  const offline = (message: string): FleetAppServerStatus => ({ id, state: 'offline', message });
+  const issue = (message: string): FleetAppServerStatus => ({ id, state: 'issue', message });
+  try { await verifyPeer(url); }
+  catch { return offline('Unavailable on this Tailscale network.'); }
+  let response: Response;
+  try {
+    response = await fetcher(url + BEALE_APP_SERVER_SERVER_PATH, {
+      headers: { authorization: `Bearer ${operatorToken}` },
+      redirect: 'error', signal: AbortSignal.timeout(5_000)
+    });
+  } catch { return offline('Could not reach the app server.'); }
+  if (response.status === 401 || response.status === 403) return issue('App-server authentication failed.');
+  if (!response.ok) return issue(`App server responded with HTTP ${response.status}.`);
+  try { decodeBealeAppServerDescriptor(await response.json()); }
+  catch { return issue('Incompatible or invalid app-server contract.'); }
+  return { id, state: 'online', message: 'Connected to a compatible app server.' };
 }
 
 export function assertCompatibleRemoteAppServerDescriptor(descriptor: unknown): void {

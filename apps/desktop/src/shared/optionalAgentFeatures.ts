@@ -7,6 +7,7 @@ export const OPTIONAL_AGENT_FEATURES = [
   { id: 'beale-reporting', name: 'Reporting', description: 'Report documents and supported result summaries.' },
   { id: 'beale-browser', name: 'Browser', description: 'Full Chrome DevTools Protocol control for compatible browsers.' },
   { id: 'beale-fleet', name: 'Fleet', description: 'Use for listing, cloning, starting, and stopping operator-configured local virtual machines.' },
+  { id: 'beale-goals', name: 'Goals', description: 'Persistent Goal Mode guidance for research sessions.' },
   { id: 'beale-introspection', name: 'Introspection', description: 'Workspace and session tools used by Quick Chat and research sessions.' }
 ] as const;
 

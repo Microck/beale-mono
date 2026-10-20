@@ -42,6 +42,18 @@ describe('architecture conformance', () => {
     expect(new Set(channels).size).toBe(channels.length);
   });
 
+  it('registers a main-process handler for every preload invocation', () => {
+    const preload = readFileSync(join(ROOT, 'src/preload/index.ts'), 'utf8');
+    const main = readFileSync(join(ROOT, 'src/main/index.ts'), 'utf8');
+    const invokedChannels = [...preload.matchAll(/ipcRenderer\.invoke\(IPC_CHANNELS\.(\w+)/g)]
+      .map((match) => match[1]);
+    const registeredChannels = new Set([...main.matchAll(/ipcMain\.handle\(IPC_CHANNELS\.(\w+)/g)]
+      .map((match) => match[1]));
+
+    expect(invokedChannels.length).toBeGreaterThan(0);
+    expect([...new Set(invokedChannels.filter((channel) => !registeredChannels.has(channel)))]).toEqual([]);
+  });
+
   it('keeps renderer and preload behind typed host APIs without secrets or database access', () => {
     const files = [...filesUnder('src/renderer'), ...filesUnder('src/preload')].filter(isSourceFile);
     const forbidden = [
@@ -198,14 +210,21 @@ describe('architecture conformance', () => {
     expect(files).not.toContain('src/main/legacyMemoryDreamingSchema.ts');
   });
 
-  it('bundles only the narrow research-agent compatibility surface into the Electron main process', () => {
+  it('keeps research-agent imports in the approved Electron main adapters', () => {
     const mainFiles = filesUnder('src/main').filter(isSourceFile);
     const packageImports = mainFiles.flatMap((path) =>
       [...readFileSync(join(ROOT, path), 'utf8').matchAll(/from\s+['"](@beale\/research-agent(?:\/[^'"]*)?)['"]/g)]
         .map((match) => ({ path: normalizePath(path), specifier: match[1] }))
     );
     expect(packageImports.length).toBeGreaterThan(0);
-    expect(packageImports.filter(({ specifier }) => specifier !== '@beale/research-agent/legacy-compatibility')).toEqual([]);
+    const rootImportAdapters = new Set([
+      'src/main/agentPluginRegistry.ts',
+      'src/main/appServerCliClient.ts',
+      'src/main/workspaceRegistry.ts',
+      'src/main/workspaceService.ts'
+    ]);
+    expect(packageImports.filter(({ path, specifier }) => specifier !== '@beale/research-agent/legacy-compatibility'
+      && !(specifier === '@beale/research-agent' && rootImportAdapters.has(path)))).toEqual([]);
 
     const electronViteConfig = readFileSync(join(ROOT, 'electron.vite.config.ts'), 'utf8');
     expect(electronViteConfig).toMatch(/externalizeDepsPlugin\(\{/);

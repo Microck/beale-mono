@@ -191,7 +191,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
         ...(input.goalEnabled ? { goal: { ...(input.goalObjective ? { objective: input.goalObjective } : {}) } } : {}),
         ...(input.provider ? { provider: { id: input.provider, model: input.model,
           reasoningEffort: input.reasoningEffort, fastMode: input.fastMode === true,
-          ...(input.provider === 'openai-codex' ? { daybreakBlue: input.daybreakBlue === true } : {}) } } : {}),
+          ...(input.provider === 'openai-codex' ? { daybreakBlue: true } : {}) } } : {}),
         ...(input.workflowId ? { workflowId: input.workflowId } : {}),
         ...(input.collaboration ? { collaboration: { ...input.collaboration } } : {}),
         ...(input.budget.repeatSchedule ? { repeatSchedule: input.budget.repeatSchedule } : {})

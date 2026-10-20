@@ -90,7 +90,6 @@ import type {
   StartRunInput,
   SteeringAction,
   WindowChromeState,
-  WindowBackgroundEffect,
   WorkspacePickerMode,
   WorkspaceSnapshot,
   ZoomState
@@ -243,6 +242,15 @@ const api: BealeApi = {
   getPromptTemplateSettings(profileId: ResearchProfileId): Promise<{ template: string; defaultTemplate: string; overridden: boolean }> {
     return ipcRenderer.invoke(IPC_CHANNELS.getPromptTemplateSettings, profileId);
   },
+  getFeaturePromptSettings(): Promise<Record<string, import('@shared/types').FeaturePromptSettings>> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFeaturePromptSettings);
+  },
+  setFeaturePromptSettings(featureId: string, description: string, promptExtension: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setFeaturePromptSettings, featureId, description, promptExtension);
+  },
+  resetFeaturePromptSettings(featureId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.resetFeaturePromptSettings, featureId);
+  },
   setPromptTemplate(profileId: ResearchProfileId, template: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.setPromptTemplate, profileId, template);
   },
@@ -255,14 +263,20 @@ const api: BealeApi = {
   getAgentPlugins(): Promise<AgentPluginRegistryState> {
     return ipcRenderer.invoke(IPC_CHANNELS.getAgentPlugins);
   },
-  getFleetState(): Promise<FleetState> {
-    return ipcRenderer.invoke(IPC_CHANNELS.getFleetState);
+  getFleetState(workspaceId?: string): Promise<FleetState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFleetState, workspaceId);
+  },
+  getFleetAppServerStatuses(): Promise<import('@beale/app-server-runtime/protocol').FleetAppServerStatus[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFleetAppServerStatuses);
   },
   getBrowserHomePage(): Promise<string> {
     return ipcRenderer.invoke(IPC_CHANNELS.getBrowserHomePage);
   },
   restartLocalAppServer(): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.restartLocalAppServer);
+  },
+  testLocalAppServerConnection(): Promise<{ success: boolean; message: string }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.testLocalAppServerConnection);
   },
   restartFleetAppServer(serverId: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.restartFleetAppServer, serverId);
@@ -465,8 +479,8 @@ const api: BealeApi = {
   getResearchProviderStatuses(): Promise<ResearchProviderStatus[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.getResearchProviderStatuses);
   },
-  getProviderUsageLimits(providerId: ResearchModelProviderId, refresh = false) {
-    return ipcRenderer.invoke(IPC_CHANNELS.getProviderUsageLimits, providerId, refresh);
+  getProviderUsageLimits(providerId: ResearchModelProviderId, refresh = false, serverId = 'local') {
+    return ipcRenderer.invoke(IPC_CHANNELS.getProviderUsageLimits, providerId, refresh, serverId);
   },
   getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.getResearchProviderModelCatalog);
@@ -610,9 +624,6 @@ const api: BealeApi = {
   },
   dismissNotification(notificationId: string) {
     return ipcRenderer.invoke(IPC_CHANNELS.dismissNotification, notificationId);
-  },
-  setWindowBackgroundEffect(effect: WindowBackgroundEffect): Promise<void> {
-    return ipcRenderer.invoke(IPC_CHANNELS.setWindowBackgroundEffect, effect);
   },
   minimizeWindow() {
     return ipcRenderer.invoke(IPC_CHANNELS.minimizeWindow);

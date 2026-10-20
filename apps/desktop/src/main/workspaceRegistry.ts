@@ -9,6 +9,7 @@ import { invokeAppServerRegistryState, invokeAppServerRegistryStateAsync } from 
 import type {
   DebuggingSettings,
   DeveloperSettings,
+  FeaturePromptSettings,
   MemorySettings,
   MemoryTypeDescriptions,
   ProviderAuthenticationMethod,
@@ -88,6 +89,18 @@ export class WorkspaceRegistry {
 
   public resetPromptTemplate(profileId: ResearchProfileId): void {
     this.invoke('resetPromptTemplate', [profileId]);
+  }
+
+  public getFeaturePromptSettings(): Record<string, FeaturePromptSettings> {
+    return this.invoke('getFeaturePromptSettings');
+  }
+
+  public setFeaturePromptSettings(featureId: string, description: string, promptExtension: string): void {
+    this.invoke('setFeaturePromptSettings', [featureId, description, promptExtension]);
+  }
+
+  public resetFeaturePromptSettings(featureId: string): void {
+    this.invoke('resetFeaturePromptSettings', [featureId]);
   }
 
   public previewPromptTemplate(profileId: ResearchProfileId, template: string, agentPath?: string, pluginCatalog?: readonly ResearchPluginCatalogEntry[]): Promise<string> {

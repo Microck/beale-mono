@@ -45,6 +45,7 @@ export interface AppServerModelSelection {
   provider: string;
   model: string;
   reasoningEffort: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  /** Accepted for older clients; native OpenAI requests always include Daybreak Blue. */
   daybreakBlue?: boolean;
 }
 

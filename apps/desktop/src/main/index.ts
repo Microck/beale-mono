@@ -82,9 +82,11 @@ import {
   ensureBealeAppServerRunning,
   fetchAppServerCanonicalResultWithRecovery,
   invokeAppServerOperation,
+  inspectLocalAppServerStatus,
   restartBealeAppServer,
   restartBealeAppServerViaSupervisor,
-  setBealeDesktopRestartRequiredHandler
+  setBealeDesktopRestartRequiredHandler,
+  testLocalAppServerConnection
 } from './bealeAppServerClient';
 import {
   detectAppServerMagicDnsName,
@@ -107,7 +109,6 @@ const fleetBrowserViewer = new FleetBrowserViewer((update) => {
 const runDetailRequestControllers = new Map<string, AbortController>();
 const researchGoalSuggestionControllers = new Map<string, AbortController>();
 const smokeTestMode = process.argv.includes('--smoke-test');
-const WINDOW_BACKGROUND_EFFECTS = new Set(['solid', 'semi-transparent', 'gradient', 'blur']);
 
 // Keep the established storage location stable while correcting the displayed app identity.
 app.setPath('userData', join(app.getPath('appData'), 'beale'));
@@ -273,16 +274,6 @@ function recordRendererExit(reason: string, exitCode: number): void {
     })}\n`, { mode: 0o600 });
   } catch {
     process.stderr.write(`Beale renderer exited (${reason}, ${exitCode}).\n`);
-  }
-}
-
-function setWindowBackgroundEffect(window: BrowserWindow, value: unknown): void {
-  const effect = typeof value === 'string' && WINDOW_BACKGROUND_EFFECTS.has(value) ? value : 'solid';
-  const blurEnabled = effect === 'blur';
-  if (process.platform === 'darwin') {
-    window.setVibrancy(blurEnabled ? 'under-window' : null);
-  } else if (process.platform === 'win32') {
-    window.setBackgroundMaterial(blurEnabled ? 'acrylic' : 'none');
   }
 }
 
@@ -695,6 +686,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getWorkspaceRegistry, () =>
     timedMainIpcAsync('getWorkspaceRegistry', {}, () => workspaceService.getWorkspaceRegistryStateForClient())
   );
+  ipcMain.handle(IPC_CHANNELS.listArchivedQuickChats, () => workspaceService.listArchivedQuickChats());
   ipcMain.handle(IPC_CHANNELS.archiveResearchSession, (_event, sessionId: string) =>
     workspaceService.archiveResearchSession(sessionId)
   );
@@ -768,13 +760,24 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.getResearchProfiles, () => workspaceService.getResearchProfiles());
   ipcMain.handle(IPC_CHANNELS.getPromptTemplateSettings, (_event, profileId: ResearchProfileId) => workspaceService.getPromptTemplateSettings(profileId));
+  ipcMain.handle(IPC_CHANNELS.getFeaturePromptSettings, () => workspaceService.getFeaturePromptSettings());
+  ipcMain.handle(IPC_CHANNELS.setFeaturePromptSettings, (_event, featureId: string, description: string, promptExtension: string) =>
+    workspaceService.setFeaturePromptSettings(featureId, description, promptExtension));
+  ipcMain.handle(IPC_CHANNELS.resetFeaturePromptSettings, (_event, featureId: string) => workspaceService.resetFeaturePromptSettings(featureId));
   ipcMain.handle(IPC_CHANNELS.setPromptTemplate, (_event, profileId: ResearchProfileId, template: string) => workspaceService.setPromptTemplate(profileId, template));
   ipcMain.handle(IPC_CHANNELS.resetPromptTemplate, (_event, profileId: ResearchProfileId) => workspaceService.resetPromptTemplate(profileId));
   ipcMain.handle(IPC_CHANNELS.previewPromptTemplate, (_event, profileId: ResearchProfileId, template: string, agentPath?: string) => workspaceService.previewPromptTemplate(profileId, template, agentPath));
   ipcMain.handle(IPC_CHANNELS.getAgentPlugins, () => workspaceService.getAgentPlugins());
-  ipcMain.handle(IPC_CHANNELS.getFleetState, () => workspaceService.getFleetState());
+  ipcMain.handle(IPC_CHANNELS.getFleetState, (_event, workspaceId?: string) => workspaceService.getFleetState(workspaceId));
+  ipcMain.handle(IPC_CHANNELS.getFleetAppServerStatuses, async () => {
+    const local = await inspectLocalAppServerStatus();
+    if (local.state !== 'online') return [local];
+    try { return [local, ...await workspaceService.getFleetAppServerStatuses()]; }
+    catch { return [local]; }
+  });
   ipcMain.handle(IPC_CHANNELS.getBrowserHomePage, () => workspaceService.getBrowserHomePage());
   ipcMain.handle(IPC_CHANNELS.restartLocalAppServer, async () => { await restartBealeAppServerViaSupervisor(); });
+  ipcMain.handle(IPC_CHANNELS.testLocalAppServerConnection, () => testLocalAppServerConnection());
   ipcMain.handle(IPC_CHANNELS.restartFleetAppServer, (_event, serverId: string) => workspaceService.restartFleetAppServer(serverId));
   ipcMain.handle(IPC_CHANNELS.restartFleetGuestAppServer, (_event, machineId: string) => workspaceService.restartFleetGuestAppServer(machineId));
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteMachines, () => workspaceService.getFleetRemoteMachines());
@@ -884,8 +887,8 @@ function registerIpc(): void {
     workspaceService.unlockProviderApiKeys(providerIds));
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.getResearchProviderStatuses, () => workspaceService.getResearchProviderStatuses());
-  ipcMain.handle(IPC_CHANNELS.getProviderUsageLimits, (_event, providerId: ResearchModelProviderId, refresh?: boolean) =>
-    workspaceService.getProviderUsageLimits(providerId, refresh));
+  ipcMain.handle(IPC_CHANNELS.getProviderUsageLimits, (_event, providerId: ResearchModelProviderId, refresh?: boolean, serverId?: string) =>
+    workspaceService.getProviderUsageLimits(providerId, refresh, serverId));
   ipcMain.handle(IPC_CHANNELS.getResearchProviderModelCatalog, () => workspaceService.getResearchProviderModelCatalog());
   ipcMain.handle(IPC_CHANNELS.startResearchProviderOAuth, async (_event, providerId: ResearchProviderId) => {
     const result = await workspaceService.startResearchProviderOAuth(providerId);
@@ -1124,10 +1127,6 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.openNotification, (_event, notificationId: string) => workspaceService.openNotification(notificationId));
   ipcMain.handle(IPC_CHANNELS.dismissNotification, (_event, notificationId: string) => workspaceService.dismissNotification(notificationId));
-  ipcMain.handle(IPC_CHANNELS.setWindowBackgroundEffect, (event, effect: unknown) => {
-    const window = windowForEvent(event);
-    if (window) setWindowBackgroundEffect(window, effect);
-  });
   ipcMain.handle(IPC_CHANNELS.minimizeWindow, (event) => {
     windowForEvent(event)?.minimize();
   });

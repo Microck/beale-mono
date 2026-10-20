@@ -254,7 +254,7 @@ export class AppServerRunEngine {
         ...(input.targetIds?.length ? { targetIds: [...input.targetIds] } : {}),
         modelProvider: input.provider?.trim() || null,
         fastMode: input.fastMode === true,
-        ...(input.provider === 'openai-codex' ? { daybreakBlue: input.daybreakBlue === true } : {}),
+        ...(input.provider === 'openai-codex' ? { daybreakBlue: true } : {}),
         goalEnabled,
         goalObjective,
         researchWorkflowId: workflowId,
@@ -273,7 +273,7 @@ export class AppServerRunEngine {
         model: input.model,
         reasoningEffort: input.reasoningEffort,
         fastMode: input.fastMode === true,
-        ...(input.provider === 'openai-codex' ? { daybreakBlue: input.daybreakBlue === true } : {}),
+        ...(input.provider === 'openai-codex' ? { daybreakBlue: true } : {}),
         goalEnabled,
         goalObjective,
         researchProfileSnapshotId: researchProfile.id,
@@ -478,7 +478,7 @@ export class AppServerRunEngine {
         reasoningEffort: launchRequest.launch.provider?.reasoningEffort ?? null,
         fastMode: launchRequest.launch.provider?.fastMode === true,
         ...(launchRequest.launch.provider?.id === 'openai-codex'
-          ? { daybreakBlue: launchRequest.launch.provider.daybreakBlue === true }
+          ? { daybreakBlue: true }
           : {}),
         goalEnabled: Boolean(launchRequest.launch.goal),
         shellSafetyMode: launchRequest.launch.shellSafetyMode,
@@ -608,7 +608,7 @@ export class AppServerRunEngine {
           ...collaborators,
         ],
         fastMode: request.launch.provider?.fastMode === true,
-        daybreakBlue: request.launch.provider?.daybreakBlue === true }
+        daybreakBlue: request.launch.provider?.id === 'openai-codex' }
     });
     if (active.stopped && !localHost) { this.finishPrelaunchStop(active); return; }
     const record = localHost
@@ -2872,14 +2872,14 @@ function appServerSessionLaunchRequest(
       ...(goal.enabled ? { goal: { ...(goal.objective ? { objective: goal.objective } : {}) } } : {}),
       ...(
         input.provider?.trim() || input.model.trim() || input.reasoningEffort.trim() || input.fastMode
-          || (input.provider?.trim() === 'openai-codex' && input.daybreakBlue)
+          || input.provider?.trim() === 'openai-codex'
           ? {
               provider: {
                 ...(input.provider?.trim() ? { id: input.provider.trim() } : {}),
                 ...(input.model.trim() ? { model: input.model.trim() } : {}),
                 ...(input.reasoningEffort.trim() ? { reasoningEffort: input.reasoningEffort.trim() } : {}),
                 ...(input.fastMode ? { fastMode: true } : {}),
-                ...(input.provider?.trim() === 'openai-codex' && input.daybreakBlue
+                ...(input.provider?.trim() === 'openai-codex'
                   ? { daybreakBlue: true }
                   : {})
               }
@@ -2927,7 +2927,7 @@ function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunI
     reasoningEffort: run.reasoningEffort,
     fastMode: run.budget.fastMode === true,
     ...(run.budget.modelProvider === 'openai-codex'
-      ? { daybreakBlue: run.budget.daybreakBlue === true }
+      ? { daybreakBlue: true }
       : {}),
     ...(run.budget.collaboration ? { collaboration: normalizeResearchCollaboration(run.budget.collaboration) } : {}),
     sandboxProfile: run.sandboxProfile,

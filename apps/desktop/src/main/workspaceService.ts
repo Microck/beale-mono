@@ -10,7 +10,7 @@ import { WORKSPACE_PRIMARY_DIRECTORY_MISSING_MESSAGE } from '../shared/ipc';
 import { fleetBrowserViewerTargetId } from '../shared/fleet';
 import { findingRevisionContext } from './findingRevisionContext';
 import { AppServerReadTransportError, fetchBealeProviderUsageLimits, invokeAppServerOperation } from './bealeAppServerClient';
-import { decodeClaimBoardTransitionRequest, type BealeProviderLimitId, type BealeProviderUsageLimits, type FleetSshTestInput, type FleetSshTestResult, type FleetState, type ResourcePriorArtPage, type ResourcePriorArtDetail, type ResourcePriorArtListInput } from '@beale/app-server-runtime/protocol';
+import { decodeClaimBoardTransitionRequest, decodeFleetAppServerStatuses, type BealeProviderLimitId, type BealeProviderUsageLimits, type FleetSshTestInput, type FleetSshTestResult, type FleetState, type ResourcePriorArtPage, type ResourcePriorArtDetail, type ResourcePriorArtListInput } from '@beale/app-server-runtime/protocol';
 import {
   WorkspaceDatabase,
   type ProjectSourceCoveragePathRecord,
@@ -906,6 +906,18 @@ export class WorkspaceService {
     this.getWorkspaceRegistry().resetPromptTemplate(profileId);
   }
 
+  public getFeaturePromptSettings(): Record<string, import('../shared/types').FeaturePromptSettings> {
+    return this.getWorkspaceRegistry().getFeaturePromptSettings();
+  }
+
+  public setFeaturePromptSettings(featureId: string, description: string, promptExtension: string): void {
+    this.getWorkspaceRegistry().setFeaturePromptSettings(featureId, description, promptExtension);
+  }
+
+  public resetFeaturePromptSettings(featureId: string): void {
+    this.getWorkspaceRegistry().resetFeaturePromptSettings(featureId);
+  }
+
   public async previewPromptTemplate(profileId: ResearchProfileId, template: string, agentPath?: string): Promise<string> {
     const plugins = this.getAgentPluginRegistry().getState().plugins;
     const fallbackCatalog: ResearchPluginCatalogEntry[] = plugins
@@ -974,8 +986,9 @@ export class WorkspaceService {
     return state;
   }
 
-  public getFleetState(): Promise<FleetState> {
-    return invokeAppServerOperation<FleetState>({ operation: 'fleet.state' });
+  public getFleetState(workspaceId?: string): Promise<FleetState> {
+    return invokeAppServerOperation<FleetState>({ operation: 'fleet.state',
+      ...(workspaceId ? { input: { workspaceId } } : {}) });
   }
 
   public getBrowserHomePage(): Promise<string> {
@@ -997,6 +1010,10 @@ export class WorkspaceService {
 
   public getFleetRemoteMachines(): Promise<import('@beale/app-server-runtime/protocol').FleetMachine[]> {
     return invokeAppServerOperation({ operation: 'fleet.remote_machines' });
+  }
+
+  public async getFleetAppServerStatuses(): Promise<import('@beale/app-server-runtime/protocol').FleetAppServerStatus[]> {
+    return decodeFleetAppServerStatuses(await invokeAppServerOperation({ operation: 'fleet.app_server_statuses' }));
   }
 
   public getFleetRemoteCatalog(serverId: string): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteCatalog> {
@@ -2616,8 +2633,8 @@ export class WorkspaceService {
     ));
   }
 
-  public getProviderUsageLimits(providerId: BealeProviderLimitId, refresh = false): Promise<BealeProviderUsageLimits> {
-    return fetchBealeProviderUsageLimits(providerId, refresh);
+  public getProviderUsageLimits(providerId: BealeProviderLimitId, refresh = false, serverId = 'local'): Promise<BealeProviderUsageLimits> {
+    return fetchBealeProviderUsageLimits(providerId, refresh, serverId);
   }
 
   private researchProviderStatusWithStoredCredential(status: ResearchProviderStatus): ResearchProviderStatus {
@@ -3398,12 +3415,12 @@ export class WorkspaceService {
       throw new Error('No Lead provider is configured. Choose one in Provider settings before starting research.');
     }
     const leadDefaults = providerSettings.modelDefaults[leadProvider];
-    const { daybreakBlue: requestedDaybreakBlue, ...providerNeutralInput } = normalizedInput;
+    const { daybreakBlue: _previousDaybreakBlue, ...providerNeutralInput } = normalizedInput;
     normalizedInput = {
       ...providerNeutralInput,
       provider: leadProvider,
       fastMode: leadProvider === 'openai-codex' && normalizedInput.fastMode === true,
-      ...(leadProvider === 'openai-codex' ? { daybreakBlue: requestedDaybreakBlue === true } : {}),
+      ...(leadProvider === 'openai-codex' ? { daybreakBlue: true } : {}),
       ...(!explicitProvider && leadDefaults?.largeModel ? { model: leadDefaults.largeModel } : {}),
       ...(!explicitProvider && leadDefaults?.reasoningEffort ? { reasoningEffort: leadDefaults.reasoningEffort } : {})
     };
@@ -3450,7 +3467,7 @@ export class WorkspaceService {
       reasoningEffort: input.modelSelection.reasoningEffort,
       fastMode: input.modelSelection.fastMode === true,
       ...(input.modelSelection.provider === 'openai-codex'
-        ? { daybreakBlue: input.modelSelection.daybreakBlue === true }
+        ? { daybreakBlue: true }
         : {}),
       sandboxProfile: 'workspace-write',
       budget: {
@@ -4159,7 +4176,7 @@ export class WorkspaceService {
           reasoningEffort: run.reasoningEffort,
           fastMode: run.budget.fastMode === true,
           ...(run.budget.modelProvider === 'openai-codex'
-            ? { daybreakBlue: run.budget.daybreakBlue === true }
+            ? { daybreakBlue: true }
             : {}),
           ...(run.budget.collaboration ? { collaboration: normalizeResearchCollaboration(run.budget.collaboration) } : {}),
           sandboxProfile: run.sandboxProfile,
@@ -7710,7 +7727,7 @@ function automationSettingsFromSession(
     model: session.model,
     reasoningEffort: session.reasoningEffort,
     fastMode: budget.fastMode === true,
-    ...(provider === 'openai-codex' ? { daybreakBlue: budget.daybreakBlue === true } : {}),
+    ...(provider === 'openai-codex' ? { daybreakBlue: true } : {}),
     ...(budget.collaboration ? { collaboration: normalizeResearchCollaboration(budget.collaboration) } : {}),
     sandboxProfile: stringFromRecord(storedRun ?? {}, 'sandboxProfile') || 'host',
     targetAssetId: stringFromRecord(storedRun ?? {}, 'targetAssetId') || null,
@@ -7738,7 +7755,7 @@ function automationSettingsFromRun(run: RunRecord, schedule: ActiveRepeatSchedul
     model: run.model,
     reasoningEffort: run.reasoningEffort,
     fastMode: run.budget.fastMode === true,
-    ...(provider === 'openai-codex' ? { daybreakBlue: run.budget.daybreakBlue === true } : {}),
+    ...(provider === 'openai-codex' ? { daybreakBlue: true } : {}),
     ...(run.budget.collaboration ? { collaboration: normalizeResearchCollaboration(run.budget.collaboration) } : {}),
     sandboxProfile: run.sandboxProfile,
     targetAssetId: run.targetAssetId,

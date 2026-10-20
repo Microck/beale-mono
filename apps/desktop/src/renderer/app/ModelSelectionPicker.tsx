@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight } from 'lucide-react';
 import { ProviderIcon } from './ProviderIcon';
 
 export interface ModelSelectionPickerOption {
@@ -10,7 +10,7 @@ export interface ModelSelectionPickerOption {
   disabled?: boolean;
 }
 
-type ModelSelectionSection = 'provider' | 'model' | 'effort' | 'fastMode' | 'daybreakBlue';
+type ModelSelectionSection = 'provider' | 'model' | 'effort' | 'fastMode';
 
 interface ModelSelectionSectionDefinition {
   id: ModelSelectionSection;
@@ -18,6 +18,7 @@ interface ModelSelectionSectionDefinition {
   value: string;
   options: ModelSelectionPickerOption[];
   onSelect: (value: string) => void;
+  toggle?: boolean;
 }
 
 interface PickerPosition {
@@ -46,7 +47,6 @@ export function ModelSelectionPicker({
   modelOptions,
   effortOptions,
   fastModeValue,
-  daybreakBlueValue,
   disabled = false,
   title,
   ariaLabel,
@@ -54,8 +54,7 @@ export function ModelSelectionPicker({
   onSelectProvider,
   onSelectModel,
   onSelectEffort,
-  onSelectFastMode,
-  onSelectDaybreakBlue
+  onSelectFastMode
 }: {
   className?: string;
   providerValue: string;
@@ -65,7 +64,6 @@ export function ModelSelectionPicker({
   modelOptions: ModelSelectionPickerOption[];
   effortOptions: ModelSelectionPickerOption[];
   fastModeValue?: boolean;
-  daybreakBlueValue?: boolean;
   disabled?: boolean;
   title: string;
   ariaLabel: string;
@@ -74,7 +72,6 @@ export function ModelSelectionPicker({
   onSelectModel: (value: string) => void;
   onSelectEffort: (value: string) => void;
   onSelectFastMode?: (enabled: boolean) => void;
-  onSelectDaybreakBlue?: (enabled: boolean) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<ModelSelectionSection | null>(null);
@@ -88,8 +85,7 @@ export function ModelSelectionPicker({
     provider: null,
     model: null,
     effort: null,
-    fastMode: null,
-    daybreakBlue: null
+    fastMode: null
   });
   const sections: ModelSelectionSectionDefinition[] = [
     {
@@ -118,27 +114,13 @@ export function ModelSelectionPicker({
           id: 'fastMode' as const,
           label: 'Fast mode',
           value: fastModeValue ? 'on' : 'off',
-          options: [
-            { value: 'off', label: 'Off' },
-            { value: 'on', label: 'On' }
-          ],
+          options: [],
+          toggle: true,
           onSelect: (value: string) => onSelectFastMode(value === 'on')
-        }]
-      : []),
-    ...(daybreakBlueValue !== undefined && onSelectDaybreakBlue
-      ? [{
-          id: 'daybreakBlue' as const,
-          label: 'Daybreak Blue',
-          value: daybreakBlueValue ? 'on' : 'off',
-          options: [
-            { value: 'off', label: 'Off' },
-            { value: 'on', label: 'On' }
-          ],
-          onSelect: (value: string) => onSelectDaybreakBlue(value === 'on')
         }]
       : [])
   ];
-  const activeDefinition = sections.find((section) => section.id === activeSection) ?? null;
+  const activeDefinition = sections.find((section) => section.id === activeSection && !section.toggle) ?? null;
   const modelLabel = selectedLabel(modelOptions, modelValue);
   const effortLabel = selectedLabel(effortOptions, effortValue);
 
@@ -230,18 +212,24 @@ export function ModelSelectionPicker({
             return (
               <button
                 type="button"
-                role="menuitem"
-                aria-haspopup="menu"
-                aria-expanded={active}
+                role={section.toggle ? 'menuitemcheckbox' : 'menuitem'}
+                aria-checked={section.toggle ? section.value === 'on' : undefined}
+                aria-haspopup={section.toggle ? undefined : 'menu'}
+                aria-expanded={section.toggle ? undefined : active}
                 className={`model-selection-picker-row ${active ? 'is-active' : ''}`.trim()}
                 tabIndex={active ? 0 : -1}
                 ref={(node) => {
                   rowRefs.current[section.id] = node;
                 }}
                 key={section.id}
-                onMouseEnter={() => setActiveSection(section.id)}
-                onFocus={() => setActiveSection(section.id)}
-                onClick={() => setActiveSection(section.id)}
+                onMouseEnter={() => setActiveSection(section.toggle ? null : section.id)}
+                onFocus={() => setActiveSection(section.toggle ? null : section.id)}
+                onClick={() => {
+                  if (section.toggle) {
+                    section.onSelect(section.value === 'on' ? 'off' : 'on');
+                    setActiveSection(null);
+                  } else setActiveSection(section.id);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                     event.preventDefault();
@@ -254,16 +242,17 @@ export function ModelSelectionPicker({
                     }
                     const nextSection = sections[(nextIndex + sections.length) % sections.length];
                     if (!nextSection) return;
-                    setActiveSection(nextSection.id);
+                    setActiveSection(nextSection.toggle ? null : nextSection.id);
                     focusRow(nextSection.id);
                     return;
                   }
-                  if (event.key === 'ArrowRight' || event.key === 'Enter' || event.key === ' ') {
+                  if (!section.toggle && (event.key === 'ArrowRight' || event.key === 'Enter' || event.key === ' ')) {
                     event.preventDefault();
                     setActiveSection(section.id);
                     focusActiveOption();
                     return;
                   }
+                  if (section.toggle && event.key === 'ArrowRight') event.preventDefault();
                   if (event.key === 'ArrowLeft') {
                     event.preventDefault();
                     setActiveSection(null);
@@ -272,10 +261,12 @@ export function ModelSelectionPicker({
                 }}
               >
                 <span className="model-selection-picker-row-label">{section.label}</span>
-                <span className="model-selection-picker-row-value">
-                  <span className="model-selection-picker-row-selection">{selectedLabel(section.options, section.value)}</span>
-                  <ChevronRight className="model-selection-picker-row-chevron" size={13} aria-hidden="true" />
-                </span>
+                {section.toggle
+                  ? <span className={`menu-row-checkbox${section.value === 'on' ? ' is-checked' : ''}`} aria-hidden="true">{section.value === 'on' ? <Check size={11} /> : null}</span>
+                  : <span className="model-selection-picker-row-value">
+                      <span className="model-selection-picker-row-selection">{selectedLabel(section.options, section.value)}</span>
+                      <ChevronRight className="model-selection-picker-row-chevron" size={13} aria-hidden="true" />
+                    </span>}
               </button>
             );
           })}
@@ -389,7 +380,6 @@ export function ModelSelectionPicker({
         <span className="model-selection-picker-model">{modelLabel}</span>
         <span className="model-selection-picker-effort">{effortLabel}</span>
         {fastModeValue ? <span className="model-selection-picker-fast-mode">Fast</span> : null}
-        {daybreakBlueValue ? <span className="model-selection-picker-fast-mode">Daybreak Blue</span> : null}
         <ChevronDown className="model-selection-picker-trigger-chevron" size={13} aria-hidden="true" />
       </button>
       {menu}

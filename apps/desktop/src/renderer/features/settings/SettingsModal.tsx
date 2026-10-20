@@ -6,6 +6,7 @@ import { Archive, ArchiveRestore, FileText, KeyRound, MessageSquare, Palette, Pl
 import { OPTIONAL_AGENT_FEATURES } from '../../../shared/optionalAgentFeatures';
 import type {
   AgentPluginRegistryState,
+  FeaturePromptSettings,
   AppServerRemoteAccessSettings,
   AppServerRemoteAccessUpdate,
   OpenAiAccountStatus,
@@ -54,12 +55,7 @@ import { normalizeShellSafetyMode } from '../../../shared/shellSafety';
 import { permissionModeOptions } from '../../view-models/permissionSettings';
 import { preferredProviderReasoningEffort, resolvedProviderModelDefaults } from '../../view-models/providerModelDefaults';
 import {
-  APPEARANCE_BACKGROUNDS,
-  APPEARANCE_TRANSPARENCY_PERCENTAGES,
   APPEARANCE_THEMES,
-  normalizeAppearanceTransparencyPercentage,
-  type AppearanceBackground,
-  type AppearanceTransparencyPercentage,
   type AppearanceTheme
 } from '../../view-models/appearance';
 import {
@@ -150,8 +146,6 @@ export function SettingsSidebar({
 
 export function SettingsView({
   section,
-  appearanceBackground,
-  appearanceTransparencyPercentage,
   appearanceTheme,
   researchProfile,
   tracesEnabled,
@@ -185,8 +179,6 @@ export function SettingsView({
   archiveLoading = false,
   busy,
   onChangeAppearanceTheme,
-  onChangeAppearanceBackground,
-  onChangeAppearanceTransparencyPercentage,
   onChangeTracesEnabled,
   onChangeProfilingEnabled,
   onChangeSuggestionPreference,
@@ -220,8 +212,6 @@ export function SettingsView({
   onResumeQuickChat = async () => undefined
 }: {
   section: SettingsSection;
-  appearanceBackground: AppearanceBackground;
-  appearanceTransparencyPercentage: AppearanceTransparencyPercentage;
   appearanceTheme: AppearanceTheme;
   researchProfile: ResearchProfileSnapshot | null;
   researchProfiles: ResolvedResearchProfile[];
@@ -255,8 +245,6 @@ export function SettingsView({
   archiveLoading?: boolean;
   busy: boolean;
   onChangeAppearanceTheme: (theme: AppearanceTheme) => void;
-  onChangeAppearanceBackground: (background: AppearanceBackground) => void;
-  onChangeAppearanceTransparencyPercentage: (percentage: AppearanceTransparencyPercentage) => void;
   onChangeTracesEnabled: (enabled: boolean) => void;
   onChangeProfilingEnabled: (enabled: boolean) => void;
   onChangeSuggestionPreference: (key: SuggestionPreferenceKey, enabled: boolean) => void;
@@ -336,12 +324,8 @@ export function SettingsView({
           />
         ) : activeSection === 'appearance' ? (
           <AppearanceSettingsView
-            background={appearanceBackground}
-            transparencyPercentage={appearanceTransparencyPercentage}
             theme={appearanceTheme}
             sessionHeatPreferences={sessionHeatPreferences}
-            onChangeBackground={onChangeAppearanceBackground}
-            onChangeTransparencyPercentage={onChangeAppearanceTransparencyPercentage}
             onChangeTheme={onChangeAppearanceTheme}
             onSetSessionHeatPalettePreference={onSetSessionHeatPalettePreference}
           />
@@ -634,25 +618,6 @@ const APPEARANCE_THEME_DETAILS: Record<AppearanceTheme, { name: string; descript
   }
 };
 
-const APPEARANCE_BACKGROUND_DETAILS: Record<AppearanceBackground, { name: string; description: string }> = {
-  solid: {
-    name: 'Solid',
-    description: 'Use the current opaque Beale window surface.'
-  },
-  'semi-transparent': {
-    name: 'Semi-Transparent',
-    description: 'Let some of the desktop show through the window.'
-  },
-  gradient: {
-    name: 'Gradient',
-    description: 'Blend complementary surfaces from the active theme.'
-  },
-  blur: {
-    name: 'Blur',
-    description: 'Use a translucent, softly blurred window surface.'
-  }
-};
-
 const SESSION_HEAT_LEVEL_DESCRIPTIONS: Record<SessionHeatColorLevel, string> = {
   low: 'A subtle signal for sessions with light activity.',
   medium: 'A moderate signal for sessions with sustained activity.',
@@ -661,21 +626,13 @@ const SESSION_HEAT_LEVEL_DESCRIPTIONS: Record<SessionHeatColorLevel, string> = {
 };
 
 export function AppearanceSettingsView({
-  background,
-  transparencyPercentage,
   theme,
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
-  onChangeBackground,
-  onChangeTransparencyPercentage,
   onChangeTheme,
   onSetSessionHeatPalettePreference = () => undefined
 }: {
-  background: AppearanceBackground;
-  transparencyPercentage: AppearanceTransparencyPercentage;
   theme: AppearanceTheme;
   sessionHeatPreferences?: SessionHeatPreferences;
-  onChangeBackground: (background: AppearanceBackground) => void;
-  onChangeTransparencyPercentage: (percentage: AppearanceTransparencyPercentage) => void;
   onChangeTheme: (theme: AppearanceTheme) => void;
   onSetSessionHeatPalettePreference?: (profileId: string, theme: SessionHeatTheme, level: SessionHeatColorLevel, color: string | null) => void;
 }): JSX.Element {
@@ -725,69 +682,12 @@ export function AppearanceSettingsView({
         sessionHeatPreferences={sessionHeatPreferences}
         onSetColor={onSetSessionHeatPalettePreference}
       />
-      <section className="settings-form appearance-settings-form">
-        <header className="settings-form-heading">
-          <h2 id="appearance-background-heading">Background</h2>
-          <p>Choose how the Beale window surface is rendered.</p>
-        </header>
-        <fieldset className="settings-form-squircle appearance-background-settings" aria-labelledby="appearance-background-heading">
-          <div className="settings-form-control-list appearance-background-list">
-            {APPEARANCE_BACKGROUNDS.map((candidate) => {
-              const details = APPEARANCE_BACKGROUND_DETAILS[candidate];
-              return (
-                <div
-                  className="settings-form-control-row appearance-background-row"
-                  data-appearance-background={candidate}
-                  key={candidate}
-                >
-                  <label
-                    className="settings-form-control-copy appearance-background-copy"
-                    htmlFor={`appearance-background-${candidate}`}
-                  >
-                    <strong>{details.name}</strong>
-                    <small>{details.description}</small>
-                  </label>
-                  <span className="appearance-theme-control">
-                    {candidate === 'semi-transparent' ? (
-                      <select
-                        className="appearance-transparency-select"
-                        aria-label="Background transparency"
-                        value={transparencyPercentage}
-                        onChange={(event) => {
-                          onChangeTransparencyPercentage(normalizeAppearanceTransparencyPercentage(event.target.value));
-                          onChangeBackground(candidate);
-                        }}
-                      >
-                        {APPEARANCE_TRANSPARENCY_PERCENTAGES.map((percentage) => (
-                          <option value={percentage} key={percentage}>{percentage}%</option>
-                        ))}
-                      </select>
-                    ) : null}
-                    <span className="appearance-background-preview" aria-hidden="true">
-                      <span />
-                      <span />
-                    </span>
-                    <input
-                      type="radio"
-                      id={`appearance-background-${candidate}`}
-                      name="appearance-background"
-                      aria-label={`${details.name} background`}
-                      checked={background === candidate}
-                      onChange={() => onChangeBackground(candidate)}
-                    />
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </fieldset>
-      </section>
     </div>
   );
 }
 
 const PROMPT_VARIABLES = [
-  'identity', 'style', 'boundary', 'tools', 'features', 'plugins', 'collaboration', 'goal', 'memory', 'claims', 'runbooks',
+  'identity', 'style', 'boundary', 'tools', 'features', 'plugins', 'collaboration', 'session', 'prompt_extensions',
   'profile.id', 'profile.name'
 ] as const;
 
@@ -1114,41 +1014,131 @@ export function OptionalFeaturesSettingsView({
   error: string | null;
   onSetEnabled: (pluginId: string, enabled: boolean) => void;
 }): JSX.Element {
+  const [selectedId, setSelectedId] = useState<string>(OPTIONAL_AGENT_FEATURES[0].id);
+  const [settings, setSettings] = useState<Record<string, FeaturePromptSettings> | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, { description: string; promptExtension: string }>>({});
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.beale.getFeaturePromptSettings().then((loaded) => {
+      if (cancelled) return;
+      setSettings(loaded);
+      setDrafts(Object.fromEntries(Object.entries(loaded).map(([id, value]) => [id,
+        { description: value.description, promptExtension: value.promptExtension }])));
+    }).catch((cause: unknown) => {
+      if (!cancelled) setEditError(cause instanceof Error ? cause.message : String(cause));
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const selectedFeature = OPTIONAL_AGENT_FEATURES.find((feature) => feature.id === selectedId) ?? OPTIONAL_AGENT_FEATURES[0];
+  const selectedPromptId = selectedFeature.id === 'beale-introspection' || selectedFeature.id === 'beale-goals'
+    ? `${selectedFeature.id}-builtin` : selectedFeature.id;
+  const selectedPlugin = pluginState?.plugins.find((candidate) => candidate.id === `${selectedFeature.id}-builtin`);
+  const unavailable = !selectedPlugin || selectedPlugin.status !== 'ready';
+  const saved = settings?.[selectedPromptId];
+  const draft = drafts[selectedPromptId] ?? { description: saved?.description ?? '', promptExtension: saved?.promptExtension ?? '' };
+  const changed = Boolean(saved && (draft.description !== saved.description || draft.promptExtension !== saved.promptExtension));
+  const updateDraft = (update: Partial<typeof draft>): void => setDrafts((current) => ({
+    ...current, [selectedPromptId]: { ...draft, ...update }
+  }));
+  const refreshSettings = async (): Promise<void> => {
+    const loaded = await window.beale.getFeaturePromptSettings();
+    setSettings(loaded);
+    setDrafts((current) => ({ ...current, [selectedPromptId]: {
+      description: loaded[selectedPromptId]?.description ?? '',
+      promptExtension: loaded[selectedPromptId]?.promptExtension ?? ''
+    } }));
+  };
+  const save = async (): Promise<void> => {
+    setEditBusy(true);
+    try {
+      await window.beale.setFeaturePromptSettings(selectedPromptId, draft.description, draft.promptExtension);
+      await refreshSettings();
+      setEditError(null);
+    } catch (cause) {
+      setEditError(cause instanceof Error ? cause.message : String(cause));
+    } finally { setEditBusy(false); }
+  };
+  const reset = async (): Promise<void> => {
+    setEditBusy(true);
+    try {
+      await window.beale.resetFeaturePromptSettings(selectedPromptId);
+      await refreshSettings();
+      setEditError(null);
+    } catch (cause) {
+      setEditError(cause instanceof Error ? cause.message : String(cause));
+    } finally { setEditBusy(false); }
+  };
+
   return (
     <div className="settings-page general-settings-page optional-features-settings-page">
       <section className="settings-form" aria-busy={loading || busy}>
         <header className="settings-form-heading">
           <h2>Optional Features</h2>
-          <p>Choose which built-in research capabilities are available to new sessions and continuations.</p>
+          <p>Choose built-in capabilities and edit the text they add to new sessions and continuations.</p>
         </header>
-        <fieldset className="settings-form-squircle" aria-label="Optional features">
-          {!pluginState && !error ? (
-            <CenteredLoadingState label="Loading optional features…" />
-          ) : (
-            <div className="settings-form-control-list">
-              {OPTIONAL_AGENT_FEATURES.map((feature) => {
-                const plugin = pluginState?.plugins.find((candidate) => candidate.id === `${feature.id}-builtin`);
-                const unavailable = !plugin || plugin.status !== 'ready';
-                return (
-                  <label className="settings-form-control-row" key={feature.id}>
+        <div className="optional-features-tab-row research-side-view-tabs research-side-view-tabs-scrollable pill-view-tabs" role="tablist" aria-label="Optional feature views">
+          {OPTIONAL_AGENT_FEATURES.map((feature) => <div
+            className={`research-side-view-tab provider-settings-tab ${selectedFeature.id === feature.id ? 'active' : ''}`.trim()}
+            key={feature.id}>
+            <button type="button" className="research-side-view-tab-activate" role="tab"
+              id={`optional-feature-tab-${feature.id}`} aria-selected={selectedFeature.id === feature.id}
+              aria-controls="optional-feature-panel" onClick={() => setSelectedId(feature.id)}>{feature.name}</button>
+          </div>)}
+        </div>
+        <div id="optional-feature-panel" role="tabpanel" aria-labelledby={`optional-feature-tab-${selectedFeature.id}`}
+          className="optional-feature-panel">
+          <section className="settings-form">
+            <header className="settings-form-heading">
+              <h2 id="optional-feature-heading">{selectedFeature.name}</h2>
+              <p>{selectedFeature.description}</p>
+            </header>
+            <div className="settings-form-squircle" aria-labelledby="optional-feature-heading">
+              <div className="settings-form-control-list">
+                <label className="settings-form-control-row">
+                  <span className="settings-form-control-copy">
+                    <strong>Enabled</strong>
+                    <small>{unavailable ? 'Unavailable in this installation.' : `Make ${selectedFeature.name} tools available to sessions.`}</small>
+                  </span>
+                  <input type="checkbox" aria-label={`Enable ${selectedFeature.name}`} checked={selectedPlugin?.enabled ?? false}
+                    disabled={loading || busy || unavailable}
+                    onChange={(event) => selectedPlugin && onSetEnabled(selectedPlugin.id, event.currentTarget.checked)} />
+                </label>
+                {saved ? <>
+                  <label className="settings-form-control-row optional-feature-textarea-row">
                     <span className="settings-form-control-copy">
-                      <strong>{feature.name}</strong>
-                      <small>{unavailable ? `${feature.description} Unavailable in this installation.` : feature.description}</small>
+                      <strong>Description in {'{{features}}'}</strong>
+                      <small>Shown beside this feature in the agent's internal feature catalog.</small>
                     </span>
-                    <input
-                      type="checkbox"
-                      aria-label={`Enable ${feature.name}`}
-                      checked={plugin?.enabled ?? false}
-                      disabled={loading || busy || unavailable}
-                      onChange={(event) => plugin && onSetEnabled(plugin.id, event.currentTarget.checked)}
-                    />
+                    <textarea aria-label={`${selectedFeature.name} feature description`} maxLength={240} rows={3}
+                      value={draft.description} disabled={editBusy} onChange={(event) => updateDraft({ description: event.currentTarget.value })} />
                   </label>
-                );
-              })}
+                  <label className="settings-form-control-row optional-feature-textarea-row">
+                    <span className="settings-form-control-copy">
+                      <strong>Prompt extension</strong>
+                      <small>{selectedFeature.id === 'beale-goals'
+                        ? <>Included through {'{{prompt_extensions}}'} only when Goal Mode is enabled in New Research.</>
+                        : <>Included through {'{{prompt_extensions}}'} while this feature is enabled.</>}</small>
+                    </span>
+                    <textarea aria-label={`${selectedFeature.name} prompt extension`} maxLength={24000} rows={12}
+                      value={draft.promptExtension} disabled={editBusy} onChange={(event) => updateDraft({ promptExtension: event.currentTarget.value })} />
+                  </label>
+                </> : !editError ? <CenteredLoadingState label="Loading feature prompt settings…" /> : null}
+              </div>
             </div>
-          )}
-          {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
-        </fieldset>
+            {saved ? <div className="settings-form-actions optional-feature-actions">
+              <span>{changed ? 'Unsaved changes' : saved.overridden ? 'Custom prompt saved' : 'Using defaults'}</span>
+              <button type="button" onClick={() => updateDraft({ description: saved.description, promptExtension: saved.promptExtension })}
+                disabled={editBusy || !changed}>Discard</button>
+              <button type="button" onClick={() => void reset()} disabled={editBusy || !saved.overridden}>Reset to Default</button>
+              <button type="button" onClick={() => void save()} disabled={editBusy || !changed}>Save</button>
+            </div> : null}
+            {error || editError ? <p className="settings-form-error" role="alert">{error ?? editError}</p> : null}
+          </section>
+        </div>
       </section>
     </div>
   );
@@ -3182,7 +3172,7 @@ export function settingsSectionLabel(section: SettingsSection): string {
     case 'ticketing':
       return 'Ticketing';
     case 'profile':
-      return 'Security Profile';
+      return 'Profile';
     case 'prompt':
       return 'Prompt';
     case 'archive':

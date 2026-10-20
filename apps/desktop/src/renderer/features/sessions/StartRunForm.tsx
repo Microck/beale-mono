@@ -50,6 +50,32 @@ import { SessionNextStepsWidget } from './SessionNextSteps';
 
 const PROMPT_STREAM_RENDER_INTERVAL_MS = 90;
 const MAX_RENDERED_GOAL_SUGGESTIONS = 12;
+const FLEET_READ_TIMEOUT_MS = 20_000;
+
+export async function loadWorkspaceFleetStateWithRetry(
+  workspaceId: string,
+  getState: (workspaceId: string) => Promise<FleetState>,
+  waitToRetry: () => Promise<void> = () => new Promise((resolve) => setTimeout(resolve, 500)),
+  timeoutMs = FLEET_READ_TIMEOUT_MS
+): Promise<FleetState> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        getState(workspaceId),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('Target loading timed out. Retry to check this workspace again.')), timeoutMs);
+        })
+      ]);
+    } catch (error) {
+      if (attempt === 1) throw error;
+      await waitToRetry();
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+  throw new Error('Target loading failed.');
+}
 
 export function newResearchPromptPlaceholder(addContext: boolean): string {
   return addContext ? 'Write a sentence or two' : 'Write a full research prompt';
@@ -384,6 +410,7 @@ export function ResearchSettingsForm({
   const selectedMachineIdsRef = useRef(selectedMachineIds);
   const [fleetState, setFleetState] = useState<FleetState | null>(null);
   const [fleetError, setFleetError] = useState<string | null>(null);
+  const [fleetLoadAttempt, setFleetLoadAttempt] = useState(0);
   const [startingRun, setStartingRun] = useState(false);
   const [editorStage, setEditorStage] = useState<PromptEditorStage>(initialInput || initialGoal?.promptMarkdown ? 'prompt' : 'goal');
   const [generateEnabled, setGenerateEnabled] = useState(false);
@@ -417,10 +444,6 @@ export function ResearchSettingsForm({
   );
   const selectedProvider = providerOptions.find((provider) => provider.id === selectedProviderId) ?? null;
   const selectedModel = selectedProvider?.models.find((model) => model.id === input.model) ?? null;
-  const daybreakBlueAvailable = selectedProviderId === 'openai-codex'
-    && Boolean(selectedModel)
-    && selectedModel?.id !== 'gpt-6-astra'
-    && !selectedModel?.id.startsWith('gpt-daybreak-');
   const configuredProviderModelCatalog = useMemo(
     () => providerModelCatalog.filter((catalog) => (
       providerOptions.some((provider) => provider.id === catalog.providerId && provider.configured)
@@ -581,6 +604,8 @@ export function ResearchSettingsForm({
   useEffect(() => {
     if (!fleetWorkspaceId || remoteTargetChoices) return;
     let active = true;
+    setFleetState(null);
+    setFleetError(null);
     const updateFleet = (state: FleetState): void => {
       if (!active) return;
       setFleetState(state);
@@ -596,11 +621,12 @@ export function ResearchSettingsForm({
         return next;
       });
     };
-    void window.beale.getFleetState().then(updateFleet).catch((caught: unknown) => {
-      if (active) setFleetError(userFacingErrorMessage(caught));
-    });
+    void loadWorkspaceFleetStateWithRetry(fleetWorkspaceId, (workspaceId) => window.beale.getFleetState(workspaceId))
+      .then(updateFleet).catch((caught: unknown) => {
+        if (active) setFleetError(userFacingErrorMessage(caught));
+      });
     return () => { active = false; };
-  }, [fleetWorkspaceId, formIdentity, initialInput?.machineId, Boolean(remoteTargetChoices)]);
+  }, [fleetWorkspaceId, formIdentity, initialInput?.machineId, Boolean(remoteTargetChoices), fleetLoadAttempt]);
 
   const remoteTargetKey = remoteTargetChoices?.map((target) => `${target.id}:${target.ready}`).join('|');
   useEffect(() => {
@@ -658,10 +684,7 @@ export function ResearchSettingsForm({
         model: model.id,
         reasoningEffort: effort,
         fastMode: selectedProvider.id === 'openai-codex' && current.fastMode === true,
-        ...(selectedProvider.id === 'openai-codex'
-          ? { daybreakBlue: model.id !== 'gpt-6-astra'
-              && !model.id.startsWith('gpt-daybreak-') && current.daybreakBlue === true }
-          : {})
+        ...(selectedProvider.id === 'openai-codex' ? { daybreakBlue: true } : {})
       };
     });
   }, [defaultProviderId, openAiStatus, providerModelDefaults, researchProviderStatuses, selectedProvider]);
@@ -838,10 +861,7 @@ export function ResearchSettingsForm({
         provider: providerId,
         model: model.id,
         fastMode: providerId === 'openai-codex' && current.fastMode === true,
-        ...(providerId === 'openai-codex'
-          ? { daybreakBlue: model.id !== 'gpt-6-astra'
-              && !model.id.startsWith('gpt-daybreak-') && current.daybreakBlue === true }
-          : {}),
+        ...(providerId === 'openai-codex' ? { daybreakBlue: true } : {}),
         reasoningEffort: inputValueForEffort(preferredEffort(
           model.effortLevels,
           providerModelDefaults?.[providerId]?.reasoningEffort ?? effortLevelFromInput(current.reasoningEffort)
@@ -860,10 +880,7 @@ export function ResearchSettingsForm({
       const next = {
         ...otherInput,
         model: model.id,
-        ...(selectedProviderId === 'openai-codex'
-          ? { daybreakBlue: model.id !== 'gpt-6-astra'
-              && !model.id.startsWith('gpt-daybreak-') && current.daybreakBlue === true }
-          : {}),
+        ...(selectedProviderId === 'openai-codex' ? { daybreakBlue: true } : {}),
         reasoningEffort: inputValueForEffort(preferredEffort(model.effortLevels, effortLevelFromInput(current.reasoningEffort)))
       };
       inputRef.current = next;
@@ -995,9 +1012,7 @@ export function ResearchSettingsForm({
       model: selectedModel.id,
       reasoningEffort: selectedEffort,
       fastMode: selectedProviderId === 'openai-codex' && input.fastMode === true,
-      ...(selectedProviderId === 'openai-codex'
-        ? { daybreakBlue: daybreakBlueAvailable && input.daybreakBlue === true }
-        : {})
+      ...(selectedProviderId === 'openai-codex' ? { daybreakBlue: true } : {})
     } : undefined;
     const startFromSessionComposer = (
       promptMarkdown: string,
@@ -1012,9 +1027,7 @@ export function ResearchSettingsForm({
         model: modelSelection.model,
         reasoningEffort: inputValueForEffort(modelSelection.reasoningEffort),
         fastMode: modelSelection.provider === 'openai-codex' && modelSelection.fastMode === true,
-        ...(modelSelection.provider === 'openai-codex'
-          ? { daybreakBlue: modelSelection.daybreakBlue === true }
-          : {}),
+        ...(modelSelection.provider === 'openai-codex' ? { daybreakBlue: true } : {}),
         shellSafetyMode
       };
       inputRef.current = next;
@@ -1069,7 +1082,7 @@ export function ResearchSettingsForm({
                   <span>{appServerName}</span>
                 </span>
                 <ArrowRight className="new-research-target-arrow" size={13} aria-hidden="true" />
-                {fleetWorkspaceId ? <MachinePicker targets={remoteTargetChoices ?? (fleetState ? allowedFleetTargets(fleetState, fleetWorkspaceId) : null)} values={selectedMachineIds} disabled={generatingPrompt} error={fleetError} onChange={selectMachine} /> : <span>No target</span>}
+                {fleetWorkspaceId ? <MachinePicker targets={remoteTargetChoices ?? (fleetState ? allowedFleetTargets(fleetState, fleetWorkspaceId) : null)} values={selectedMachineIds} disabled={generatingPrompt} error={fleetError} onChange={selectMachine} onRetry={() => setFleetLoadAttempt((attempt) => attempt + 1)} /> : <span>No target</span>}
               </div>
               <div className="new-research-options-tray-right">
                 <NewResearchSettingsMenu
@@ -1178,7 +1191,7 @@ export function ResearchSettingsForm({
                   <span>Add Context</span>
                 </label>
               ) : null}
-              {fleetWorkspaceId ? <MachinePicker targets={remoteTargetChoices ?? (fleetState ? allowedFleetTargets(fleetState, fleetWorkspaceId) : null)} values={selectedMachineIds} disabled={generatingPrompt} error={fleetError} onChange={selectMachine} /> : null}
+              {fleetWorkspaceId ? <MachinePicker targets={remoteTargetChoices ?? (fleetState ? allowedFleetTargets(fleetState, fleetWorkspaceId) : null)} values={selectedMachineIds} disabled={generatingPrompt} error={fleetError} onChange={selectMachine} onRetry={() => setFleetLoadAttempt((attempt) => attempt + 1)} /> : null}
             </div>
             {vmRepeatConflict ? <div role="alert">Repeating sessions are available on Local only. Choose No repeat to use this VM.</div> : null}
           </section>
@@ -1206,7 +1219,6 @@ export function ResearchSettingsForm({
                   modelValue={selectedModel?.id ?? ''}
                   effortValue={selectedEffort}
                   fastModeValue={selectedProviderId === 'openai-codex' ? input.fastMode === true : undefined}
-                  daybreakBlueValue={daybreakBlueAvailable ? input.daybreakBlue === true : undefined}
                   title="Lead provider, model, and effort"
                   ariaLabel="Lead model settings"
                   disabled={!selectedModel || generatingPrompt}
@@ -1224,7 +1236,6 @@ export function ResearchSettingsForm({
                   onSelectModel={selectModel}
                   onSelectEffort={(value) => selectEffort(value as ResearchModelEffortLevel)}
                   onSelectFastMode={(enabled) => update('fastMode', enabled)}
-                  onSelectDaybreakBlue={(enabled) => update('daybreakBlue', enabled)}
                 />
               </div>
               <div className="research-model-team-column research-collaborator-model-column">
@@ -1376,16 +1387,16 @@ function NewResearchSettingsMenu({
   onRepeatChange: (schedule: RepeatSchedule) => void;
 }): JSX.Element {
   const [open, setOpen] = useState(autoOpenSchedule);
-  const [section, setSection] = useState<NewResearchSettingsSection | null>(autoOpenSchedule ? 'repeat' : null);
+  const [section, setSection] = useState<'repeat' | null>(autoOpenSchedule ? 'repeat' : null);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const submenuRef = useRef<HTMLDivElement | null>(null);
   const normalizedSchedule = normalizeRepeatSchedule(repeatSchedule);
   const interval = normalizedSchedule.type === 'none' ? 1 : normalizedSchedule.interval;
-  const sections: { id: NewResearchSettingsSection; label: string; value: string }[] = [
-    { id: 'goal', label: 'Goal Mode', value: goalEnabled ? 'On' : 'Off' },
-    ...(showAddContext ? [{ id: 'context' as const, label: 'Add Context', value: addContextEnabled ? 'On' : 'Off' }] : []),
+  const sections: { id: NewResearchSettingsSection; label: string; value?: string; checked?: boolean }[] = [
+    { id: 'goal', label: 'Goal Mode', checked: goalEnabled },
+    ...(showAddContext ? [{ id: 'context' as const, label: 'Add Context', checked: addContextEnabled }] : []),
     { id: 'repeat', label: 'Repeat', value: repeatScheduleLabel(normalizedSchedule) }
   ];
   const close = (restoreFocus = false): void => {
@@ -1416,11 +1427,6 @@ function NewResearchSettingsMenu({
     window.requestAnimationFrame(() => menuRef.current?.focus());
   }, [open, autoOpenSchedule]);
 
-  const selectBoolean = (enabled: boolean): void => {
-    if (section === 'goal') onGoalChange(enabled);
-    if (section === 'context') onAddContextChange(enabled);
-    close(true);
-  };
   const focusSubmenu = (): void => {
     window.requestAnimationFrame(() => submenuRef.current?.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled)')?.focus());
   };
@@ -1440,54 +1446,62 @@ function NewResearchSettingsMenu({
         if (event.key === 'ArrowDown') {
           event.preventDefault();
           setOpen(true);
-          setSection('goal');
+          setSection(null);
           window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLButtonElement>('.new-research-settings-row')?.focus());
         }
       }}>
       <Settings size={16} aria-hidden="true" />
     </button>
     {open ? <div className="new-research-settings-menu" role="menu" aria-label="New research settings" tabIndex={-1} ref={menuRef}>
-      {sections.map((item, index) => <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={section === item.id}
+      {sections.map((item, index) => <button type="button" role={item.id === 'repeat' ? 'menuitem' : 'menuitemcheckbox'}
+        aria-checked={item.id === 'repeat' ? undefined : item.checked}
+        aria-haspopup={item.id === 'repeat' ? 'menu' : undefined}
+        aria-expanded={item.id === 'repeat' ? section === 'repeat' : undefined}
         className={`new-research-settings-row${section === item.id ? ' is-active' : ''}`} key={item.id}
-        onMouseEnter={() => setSection(item.id)} onFocus={() => setSection(item.id)}
-        onClick={() => { setSection(item.id); focusSubmenu(); }}
+        onMouseEnter={() => setSection(item.id === 'repeat' ? 'repeat' : null)}
+        onFocus={() => setSection(item.id === 'repeat' ? 'repeat' : null)}
+        onClick={() => {
+          if (item.id === 'goal') { onGoalChange(!goalEnabled); setSection(null); }
+          else if (item.id === 'context') { onAddContextChange(!addContextEnabled); setSection(null); }
+          else { setSection('repeat'); focusSubmenu(); }
+        }}
         onKeyDown={(event) => {
-          if (event.key === 'ArrowRight') { event.preventDefault(); setSection(item.id); focusSubmenu(); }
+          if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            if (item.id === 'repeat') { setSection('repeat'); focusSubmenu(); }
+          }
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault();
             const next = sections[(index + (event.key === 'ArrowDown' ? 1 : -1) + sections.length) % sections.length];
             menuRef.current?.querySelectorAll<HTMLButtonElement>('.new-research-settings-row')[sections.indexOf(next!)]?.focus();
           }
         }}>
-        <span>{item.label}</span><span className="new-research-settings-value">{item.value}</span><ChevronRight size={13} aria-hidden="true" />
+        <span>{item.label}</span>
+        {item.id === 'repeat' ? <><span className="new-research-settings-value">{item.value}</span><ChevronRight size={13} aria-hidden="true" /></>
+          : <span className={`menu-row-checkbox${item.checked ? ' is-checked' : ''}`} aria-hidden="true">{item.checked ? <Check size={11} /> : null}</span>}
       </button>)}
-      {section ? <div className="new-research-settings-submenu" role="menu" aria-label={sections.find((item) => item.id === section)?.label} ref={submenuRef}
+      {section === 'repeat' ? <div className="new-research-settings-submenu" role="menu" aria-label="Repeat" ref={submenuRef}
         onKeyDown={(event) => {
           if (event.key !== 'ArrowLeft') return;
           event.preventDefault();
           menuRef.current?.querySelectorAll<HTMLButtonElement>('.new-research-settings-row')[sections.findIndex((item) => item.id === section)]?.focus();
         }}>
-        {section === 'repeat' ? <>
-          {REPEAT_SCHEDULE_TYPES.map((type) => <button type="button" role="menuitemradio" aria-checked={normalizedSchedule.type === type}
-            className="new-research-settings-option" disabled={disableNoRepeat && type === 'none'} key={type}
-            onKeyDown={moveSubmenuFocus}
-            onClick={() => onRepeatChange(repeatScheduleFor(type, type === normalizedSchedule.type ? interval : 1))}>
-            <span>{repeatTypeLabel(type)}</span>{normalizedSchedule.type === type ? <Check size={13} aria-hidden="true" /> : null}
-          </button>)}
-          <div className="new-research-settings-repeat-interval">
-            <label htmlFor="new-research-repeat-interval">Every</label>
-            <input id="new-research-repeat-interval" type="number" min={1} max={99} step={1} value={interval}
-              disabled={normalizedSchedule.type === 'none'}
-              onChange={(event) => onRepeatChange(repeatScheduleFor(normalizedSchedule.type === 'none' ? 'daily' : normalizedSchedule.type, Number(event.target.value)))} />
-            <select value={repeatScheduleUnit(normalizedSchedule.type)} aria-label="Repeat unit" disabled={normalizedSchedule.type === 'none'}
-              onChange={(event) => onRepeatChange(repeatScheduleFor(repeatScheduleTypeForUnit(event.target.value as RepeatScheduleUnit), interval))}>
-              {(['minute', 'hour', 'day', 'week', 'month'] as const).map((unit) => <option value={unit} key={unit}>{unit}{interval === 1 ? '' : 's'}</option>)}
-            </select>
-          </div>
-        </> : [false, true].map((enabled) => <button type="button" role="menuitemradio" aria-checked={(section === 'goal' ? goalEnabled : addContextEnabled) === enabled}
-          className="new-research-settings-option" key={String(enabled)} onKeyDown={moveSubmenuFocus} onClick={() => selectBoolean(enabled)}>
-          <span>{enabled ? 'On' : 'Off'}</span>{(section === 'goal' ? goalEnabled : addContextEnabled) === enabled ? <Check size={13} aria-hidden="true" /> : null}
+        {REPEAT_SCHEDULE_TYPES.map((type) => <button type="button" role="menuitemradio" aria-checked={normalizedSchedule.type === type}
+          className="new-research-settings-option" disabled={disableNoRepeat && type === 'none'} key={type}
+          onKeyDown={moveSubmenuFocus}
+          onClick={() => onRepeatChange(repeatScheduleFor(type, type === normalizedSchedule.type ? interval : 1))}>
+          <span>{repeatTypeLabel(type)}</span>{normalizedSchedule.type === type ? <Check size={13} aria-hidden="true" /> : null}
         </button>)}
+        <div className="new-research-settings-repeat-interval">
+          <label htmlFor="new-research-repeat-interval">Every</label>
+          <input id="new-research-repeat-interval" type="number" min={1} max={99} step={1} value={interval}
+            disabled={normalizedSchedule.type === 'none'}
+            onChange={(event) => onRepeatChange(repeatScheduleFor(normalizedSchedule.type === 'none' ? 'daily' : normalizedSchedule.type, Number(event.target.value)))} />
+          <select value={repeatScheduleUnit(normalizedSchedule.type)} aria-label="Repeat unit" disabled={normalizedSchedule.type === 'none'}
+            onChange={(event) => onRepeatChange(repeatScheduleFor(repeatScheduleTypeForUnit(event.target.value as RepeatScheduleUnit), interval))}>
+            {(['minute', 'hour', 'day', 'week', 'month'] as const).map((unit) => <option value={unit} key={unit}>{unit}{interval === 1 ? '' : 's'}</option>)}
+          </select>
+        </div>
       </div> : null}
     </div> : null}
   </div>;
@@ -1815,18 +1829,20 @@ export function toggleResearchTargetSelection(selected: readonly string[], targe
     : selected.length < 16 ? [...selected, targetId] : [...selected];
 }
 
-function MachinePicker({ targets, values, disabled, error, onChange }: {
+function MachinePicker({ targets, values, disabled, error, onChange, onRetry }: {
   targets: FleetTargetChoice[] | null;
   values: readonly string[];
   disabled: boolean;
   error: string | null;
   onChange: (machineId: string) => void;
+  onRetry: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const selected = values.map((id) => targets?.find((target) => target.id === id)).filter((target) => target !== undefined);
   const ready = selected.length > 0 && selected.length === values.length && selected.every((target) => target.ready);
-  const label = !targets ? 'Loading…' : newResearchTargetSummary(selected.map((target) => target.name));
+  const retry = !targets && Boolean(error);
+  const label = !targets ? error ? 'Targets unavailable' : 'Loading…' : newResearchTargetSummary(selected.map((target) => target.name));
 
   useEffect(() => {
     if (!open) return undefined;
@@ -1851,11 +1867,13 @@ function MachinePicker({ targets, values, disabled, error, onChange }: {
   };
 
   return <div className={`new-research-machine-picker${open ? ' is-open' : ''}`} ref={pickerRef}>
-    <button type="button" className="new-research-machine-trigger" title={error ?? 'Choose workspace targets for this research session.'}
-      aria-label={`Research targets: ${label}${ready ? ', ready' : ', not ready'}`} aria-haspopup="dialog" aria-expanded={open}
-      disabled={disabled || !targets || targets.length === 0} onClick={() => setOpen((current) => !current)}>
+    <button type="button" className="new-research-machine-trigger" title={error ? `${error} Click to retry.` : 'Choose workspace targets for this research session.'}
+      aria-label={retry ? 'Retry loading research targets' : `Research targets: ${label}${ready ? ', ready' : ', not ready'}`}
+      aria-haspopup={retry ? undefined : 'dialog'} aria-expanded={retry ? undefined : open}
+      disabled={disabled || (!targets && !retry) || targets?.length === 0}
+      onClick={() => retry ? onRetry() : setOpen((current) => !current)}>
       <span className={`new-research-machine-status${ready ? ' is-ready' : ' is-unready'}`} aria-hidden="true" />
-      <strong>{label}</strong><ChevronDown size={13} aria-hidden="true" />
+      <strong>{label}</strong>{retry ? <RefreshCw size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
     </button>
     {open ? <div className="new-research-machine-menu" role="dialog" aria-label="Research targets">
       {targets?.map((target) => <label className={`new-research-machine-option${values.includes(target.id) ? ' is-selected' : ''}`}

@@ -605,18 +605,22 @@ test("publishes a path-free model catalog for connected providers with host defa
   assert.doesNotMatch(JSON.stringify(payload), /credential|token|auth|workspacePath|databasePath/u);
 });
 
-test("serves sanitized provider limits to the authenticated Desktop client", async () => {
+test("serves sanitized provider limits to authenticated clients and relays a saved app server", async () => {
   const directory = mkdtempSync(join(tmpdir(), "beale-app-server-limits-"));
   temporaryDirectories.push(directory);
   const host = new AppServerHostService({ registry: hostRegistryFixture(directory) });
-  host.providerUsageLimits = async (providerId, refresh) => ({
-    providerId,
-    checkedAt: "2033-01-01T00:00:00.000Z",
-    status: "available",
-    detail: null,
-    windows: [{ id: "session", label: "Session Limit", usedPercent: refresh ? 20 : 10,
-      resetsAt: "2033-01-01T04:00:00.000Z", durationMinutes: 240 }],
-  });
+  const requests = [];
+  host.providerUsageLimits = async (providerId, refresh, serverId) => {
+    requests.push({ providerId, refresh, serverId });
+    return {
+      providerId,
+      checkedAt: "2033-01-01T00:00:00.000Z",
+      status: "available",
+      detail: null,
+      windows: [{ id: "session", label: "Session Limit", usedPercent: refresh ? 20 : 10,
+        resetsAt: "2033-01-01T04:00:00.000Z", durationMinutes: 240 }],
+    };
+  };
   const server = await startAppServer({ hostService: host });
   servers.push(server);
   const path = "/v1/providers/limits?provider=openai-codex&refresh=1";
@@ -629,10 +633,22 @@ test("serves sanitized provider limits to the authenticated Desktop client", asy
   assert.equal(payload.windows[0].label, "Session Limit");
   assert.equal(payload.windows[0].usedPercent, 20);
   assert.doesNotMatch(JSON.stringify(payload), /credential|token|authFile|accessToken/u);
+  const remote = await fetch(`${server.url}${path}&serverId=server-example`, {
+    headers: { authorization: `Bearer ${server.operatorToken}` },
+  });
+  assert.equal(remote.status, 200);
+  assert.deepEqual(requests, [
+    { providerId: 'openai-codex', refresh: true, serverId: null },
+    { providerId: 'openai-codex', refresh: true, serverId: 'server-example' },
+  ]);
   const invalid = await fetch(`${server.url}/v1/providers/limits?provider=invalid`, {
     headers: { authorization: `Bearer ${server.operatorToken}` },
   });
   assert.equal(invalid.status, 400);
+  const invalidServer = await fetch(`${server.url}/v1/providers/limits?provider=openai-codex&serverId=`, {
+    headers: { authorization: `Bearer ${server.operatorToken}` },
+  });
+  assert.equal(invalidServer.status, 400);
 });
 
 test("executes canonical operations inside the app-server host", async () => {
@@ -1446,6 +1462,20 @@ test("workspace details use the owning app-server state and configured targets",
   assert.equal(JSON.stringify(details).includes(directory), false);
 });
 
+test('Fleet state operations use workspace-scoped discovery when requested', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-fleet-state-example-'));
+  temporaryDirectories.push(directory);
+  const host = new AppServerHostService({ registry: hostRegistryFixture(directory) });
+  const calls = [];
+  const scoped = { workspaceTargets: { 'workspace-test': ['local'] } };
+  const global = { workspaceTargets: {} };
+  host.fleet.stateForWorkspace = async (workspaceId) => { calls.push(workspaceId); return scoped; };
+  host.fleet.state = async () => global;
+  assert.equal(await host.executeOperation({ operation: 'fleet.state', input: { workspaceId: 'workspace-test' } }), scoped);
+  assert.equal(await host.executeOperation({ operation: 'fleet.state' }), global);
+  assert.deepEqual(calls, ['workspace-test']);
+});
+
 test("resolves workspace identity and host policy from the shared Beale registry", () => {
   const directory = mkdtempSync(join(tmpdir(), "beale-app-server-registry-"));
   temporaryDirectories.push(directory);
@@ -1925,7 +1955,7 @@ test('app-server prepares and releases every VM in one selected-target session',
     },
   });
   const vmTargets = ['vm:run:tart:example-one', 'vm:run:tart:example-two'];
-  service.fleet.state = async () => ({ enabled: true,
+  service.fleet.stateForWorkspace = async () => ({ enabled: true,
     workspaceTargets: { 'workspace-test': ['local', ...vmTargets] }, browsers: [], machines: [] });
   const preparedIds = [];
   const releasedIds = [];
@@ -1993,7 +2023,7 @@ test("app-server preserves launch options through restart metadata and runtime a
     model: "gpt-5.6-sol",
     reasoningEffort: "high",
     fastMode: true,
-    daybreakBlue: true,
+    daybreakBlue: false,
   };
   request.launch.devHarnessFeedback = true;
 
@@ -2229,6 +2259,9 @@ test("app-server owns built-in plugins and pins canonical session profile identi
   assert.equal(pluginCall.options.input.builtinPlugins.some((plugin) => plugin.id === "beale-browser-use-builtin"), false);
   assert.equal(pluginCall.options.input.builtinPlugins.some((plugin) => plugin.id === "beale-terminator-builtin"), false);
   assert.ok(pluginCall.options.input.builtinPlugins.some((plugin) =>
+    plugin.id === "beale-goals-builtin" && plugin.path.endsWith(join("harness-features", "beale-goals"))
+  ));
+  assert.ok(pluginCall.options.input.builtinPlugins.some((plugin) =>
     plugin.id === "meta-skills-builtin" && plugin.enabledByDefault === false
       && plugin.path.endsWith(join("managed-plugins", "meta-skills"))
   ));
@@ -2272,6 +2305,35 @@ test("app-server owns built-in plugins and pins canonical session profile identi
   assert.equal(nextArgs[nextArgs.indexOf('--managed-plugins') + 1], 'none');
   pluginReadFails = true;
   await assert.rejects(service.prepareSession({ ...sessionLaunchRequest(directory), sessionId: "session-plugin-unavailable" }, "generated-unavailable-session"), /Managed plugin settings could not be loaded/);
+});
+
+test("app-server snapshots edited feature prompts into the enabled session catalog", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "beale-feature-catalog-example-"));
+  temporaryDirectories.push(directory);
+  const sourceCatalogPath = join(directory, "plugin-catalog.json");
+  writeFileSync(sourceCatalogPath, JSON.stringify([
+    { id: "beale-claims", name: "Claims", description: "Original claim description.", skills: [], mcpServers: [] },
+    { id: "example-plugin", name: "Example Plugin", description: "External plugin.", skills: [], mcpServers: [] },
+  ]));
+  const registry = hostRegistryFixture(directory);
+  registry.featurePromptOverrides = () => ({ "beale-claims": {
+    description: "Synthetic claim guidance.", promptExtension: "Use the synthetic claim workflow."
+  } });
+  const service = new AppServerHostService({ registry, invokeProtocol: async (operation) => {
+    if (operation === "provider.describe") return { defaultSmallModels: {}, sessionTitleEffort: "medium", shellReviewEffort: "low" };
+    if (operation === "plugin.runtime") return { managedPluginIds: ["beale-claims"], pluginCatalogPath: sourceCatalogPath,
+      skillDirs: [], selectedSkillIds: [], allowedMcpServers: [] };
+    if (operation === "session.get") throw new Error("Session not found: session-feature-prompt");
+    if (operation === "session.create") return { revision: 1 };
+    throw new Error(`Unexpected operation: ${operation}`);
+  } });
+  const prepared = await service.prepareSession(sessionLaunchRequest(directory, { sessionId: "session-feature-prompt" }), "Example session");
+  assert.notEqual(prepared.launch.pluginRuntime.pluginCatalogPath, sourceCatalogPath);
+  const snapshot = JSON.parse(readFileSync(prepared.launch.pluginRuntime.pluginCatalogPath, "utf8"));
+  assert.deepEqual(snapshot[0], { id: "beale-claims", name: "Claims", description: "Synthetic claim guidance.",
+    promptExtension: "Use the synthetic claim workflow.", skills: [], mcpServers: [] });
+  assert.equal(snapshot[1].promptExtension, undefined);
+  assert.equal(JSON.parse(readFileSync(sourceCatalogPath, "utf8"))[0].description, "Original claim description.");
 });
 
 test("prepares automatic recovery as a child attempt and pauses an interrupted active attempt", async () => {
@@ -2468,7 +2530,7 @@ test("discovers overdue automations from canonical session metadata and rebuilds
       browserRelay: true,
       promptMarkdown: "Recheck the parser boundary.",
       goal: { objective: "Keep the parser audit moving." },
-      provider: { id: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high", fastMode: true },
+      provider: { id: "openai-codex", model: "gpt-5.6-sol", reasoningEffort: "high", fastMode: true, daybreakBlue: true },
       shellSafetyMode: "auto_review",
       workflowId: "discovery",
       researchProfileId: "security-research",
@@ -3874,6 +3936,7 @@ function hostRegistryFixture(directory, options = {}) {
       riskAcknowledgements: [],
     }),
     promptTemplateOverride: () => null,
+    featurePromptOverrides: () => ({}),
     memoryTypeDescriptions: () => null,
     storageForProfile: () => ({
       databasePath: join(directory, "memory.sqlite"),

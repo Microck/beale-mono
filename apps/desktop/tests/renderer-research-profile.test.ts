@@ -254,11 +254,7 @@ describe('renderer research profile presentation', () => {
 
   it('renders product-wide attention colors in Appearance with a light and dark toggle', () => {
     const html = renderToStaticMarkup(createElement(AppearanceSettingsView, {
-      background: 'solid',
-      transparencyPercentage: 50,
       theme: 'dark',
-      onChangeBackground: () => undefined,
-      onChangeTransparencyPercentage: () => undefined,
       onChangeTheme: () => undefined,
       sessionHeatPreferences: {
         heatOverrides: {},

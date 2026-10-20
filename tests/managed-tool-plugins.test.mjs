@@ -27,7 +27,8 @@ test("runtime assembly honors managed plugin selection while retaining core tool
     const disabled = await executeHostedUtilityOperation("tools.list", [...args, "--managed-plugins", "none"]);
     const knowledge = await executeHostedUtilityOperation("tools.list", [...args, "--managed-plugins", "beale-knowledge"]);
     const names = (capture) => capture.tools.map((tool) => tool.name);
-    for (const name of CORE_TOOL_NAMES) assert.ok(names(disabled).includes(name), name);
+    for (const name of CORE_TOOL_NAMES.filter((name) => name !== "harness.feedback")) assert.ok(names(disabled).includes(name), name);
+    assert.equal(names(disabled).includes("harness.feedback"), false);
     assert.ok(names(enabled).includes("repository.search"));
     assert.ok(names(enabled).includes("prior_art.fetch"));
     assert.ok(names(enabled).includes("repository.fetch_history"));
@@ -226,7 +227,7 @@ test("MCP-only discovery supplies exact bundled plugin counts without workspace 
     const catalog = mergeResearchPluginCatalog(runtime.pluginCatalog, [], capture.tools.map(({ name }) => stub(name)));
     const formatted = formatResearchPluginCatalog(catalog);
     assert.match(formatted, /\(plugin; 19 tools, 1 skill\): Realistic Apple security-research environments/);
-    assert.match(formatHarnessFeatureCatalog(catalog), /\(feature; 12 tools\): Default Beale tools/);
+    assert.match(formatHarnessFeatureCatalog(catalog), /\(feature; 10 tools\): Default Beale tools/);
     assert.doesNotMatch(formatted, /beale-introspection/);
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -302,6 +303,24 @@ test("bundled plugin defaults and disablement persist in launch arguments", asyn
     assert.deepEqual(JSON.parse(await readFile(disabledRuntime.pluginCatalogPath, "utf8")), []);
     reloaded.setEnabled("beale-knowledge-builtin", true);
     assert.deepEqual(reloaded.getAppServerRuntime().managedPluginIds, ["beale-knowledge"]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Goals is a prompt-only built-in feature with a saved enable switch", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "beale-goals-feature-example-"));
+  const id = "beale-goals-builtin";
+  const builtinPlugins = [{ id, path: resolve("app-server/resources/harness-features/beale-goals"),
+    installedAt: "2026-01-01T00:00:00.000Z", enabledByDefault: true }];
+  try {
+    const registry = new AgentPluginRegistry(directory, { builtinPlugins });
+    assert.equal(registry.getState().plugins.find((plugin) => plugin.id === id)?.status, "ready");
+    assert.equal(registry.getAppServerRuntime().pluginCatalog.find((plugin) => plugin.id === id)?.name, "beale-goals");
+    assert.equal(registry.getAppServerRuntime().managedPluginIds, undefined);
+    registry.setEnabled(id, false);
+    const reloaded = new AgentPluginRegistry(directory, { builtinPlugins });
+    assert.equal(reloaded.getAppServerRuntime().pluginCatalog.some((plugin) => plugin.id === id), false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

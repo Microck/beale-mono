@@ -1534,6 +1534,7 @@ export interface ResearchModelSelection {
   model: string;
   reasoningEffort: ResearchModelEffortLevel;
   fastMode?: boolean;
+  /** Retained for stored runs; native OpenAI requests always include Daybreak Blue. */
   daybreakBlue?: boolean;
 }
 
@@ -1606,6 +1607,7 @@ export interface StartRunInput {
   model: string;
   reasoningEffort: string;
   fastMode?: boolean;
+  /** Retained for stored runs; native OpenAI requests always include Daybreak Blue. */
   daybreakBlue?: boolean;
   collaboration?: ResearchCollaborationPreferences;
   sandboxProfile: string;
@@ -2275,7 +2277,14 @@ export interface IosDeviceCaptureFrame {
   jpegData: Uint8Array;
 }
 
-export type WindowBackgroundEffect = 'solid' | 'semi-transparent' | 'gradient' | 'blur';
+
+export interface FeaturePromptSettings {
+  description: string;
+  promptExtension: string;
+  defaultDescription: string;
+  defaultPromptExtension: string;
+  overridden: boolean;
+}
 
 export interface BealeApi {
   listBrowserContexts(): Promise<BrowserContextSummary[]>;
@@ -2317,13 +2326,18 @@ export interface BealeApi {
   setTicketingTarget(providerId: TicketingProviderId, target: TicketingTarget): Promise<TicketingSettings>;
   getResearchProfiles(): Promise<ResolvedResearchProfile[]>;
   getPromptTemplateSettings(profileId: ResearchProfileId): Promise<{ template: string; defaultTemplate: string; overridden: boolean }>;
+  getFeaturePromptSettings(): Promise<Record<string, FeaturePromptSettings>>;
+  setFeaturePromptSettings(featureId: string, description: string, promptExtension: string): Promise<void>;
+  resetFeaturePromptSettings(featureId: string): Promise<void>;
   setPromptTemplate(profileId: ResearchProfileId, template: string): Promise<void>;
   resetPromptTemplate(profileId: ResearchProfileId): Promise<void>;
   previewPromptTemplate(profileId: ResearchProfileId, template: string, agentPath?: string): Promise<string>;
   getAgentPlugins(): Promise<AgentPluginRegistryState>;
-  getFleetState(): Promise<import('@beale/app-server-runtime/protocol').FleetState>;
+  getFleetState(workspaceId?: string): Promise<import('@beale/app-server-runtime/protocol').FleetState>;
+  getFleetAppServerStatuses(): Promise<import('@beale/app-server-runtime/protocol').FleetAppServerStatus[]>;
   getBrowserHomePage(): Promise<string>;
   restartLocalAppServer(): Promise<void>;
+  testLocalAppServerConnection(): Promise<{ success: boolean; message: string }>;
   restartFleetAppServer(serverId: string): Promise<void>;
   restartFleetGuestAppServer(machineId: string): Promise<void>;
   getFleetRemoteMachines(): Promise<import('@beale/app-server-runtime/protocol').FleetMachine[]>;
@@ -2389,7 +2403,7 @@ export interface BealeApi {
   unlockProviderApiKeys(providerIds: ResearchModelProviderId[]): Promise<void>;
   refreshOpenAiStatus(): Promise<WorkspaceSnapshot>;
   getResearchProviderStatuses(): Promise<ResearchProviderStatus[]>;
-  getProviderUsageLimits(providerId: ResearchModelProviderId, refresh?: boolean): Promise<BealeProviderUsageLimits>;
+  getProviderUsageLimits(providerId: ResearchModelProviderId, refresh?: boolean, serverId?: string): Promise<BealeProviderUsageLimits>;
   getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]>;
   startResearchProviderOAuth(providerId: ResearchProviderId): Promise<ResearchProviderOAuthStartResult>;
   getProfilingState(): Promise<ProfilingState>;
@@ -2437,7 +2451,6 @@ export interface BealeApi {
   steerRun(action: SteeringAction): Promise<WorkspaceSnapshot>;
   openNotification(notificationId: string): Promise<WorkspaceSnapshot>;
   dismissNotification(notificationId: string): Promise<WorkspaceSnapshot>;
-  setWindowBackgroundEffect(effect: WindowBackgroundEffect): Promise<void>;
   minimizeWindow(): Promise<void>;
   toggleMaximizeWindow(): Promise<void>;
   closeWindow(): Promise<void>;

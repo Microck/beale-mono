@@ -6,6 +6,8 @@
 
 #### Added
 
+- The sidebar app-server selector shows green, red, or orange connection status dots and has an Add an App Server action that opens the Fleet form. A client-neutral Fleet status read checks remote peers without exposing their credentials. Control contract timestamp updated; rebuild Desktop and app-server together.
+- Local App Server settings now include a Test Connection action with health and compatibility feedback.
 - Remote workspace claims, memories, runbooks, and reports now open in the shared expanded right sidebar. The remote detail views are read-only.
 - New Research on a connected app server now uses the standard composer with that server's provider models, workspace targets, research suggestions, Goal Mode, Add Context, and Repeat. The selected app server owns suggestions, prompt expansion, the resulting session, and its repeat schedule. Rebuild Desktop and app-server binaries together; clients that pin the control timestamp must also update.
 - Quick Chat on a connected app server now opens a remote dock, starts chats in an app-server-owned internal workspace, and lets users reopen recent chats.
@@ -26,6 +28,8 @@
 
 #### Removed
 
+- Removed Appearance background choices and transparency controls. Beale now uses the Gradient window surface for every theme, including when an older background preference is stored.
+- Removed the rounded-square background pulse from active research sessions.
 - Removed the bottom panel, its workspace Terminal, and the header toggle. Desktop no longer bundles the terminal emulator or native PTY dependency.
 - Removed Campaign Highlights and its priority-claim presentation, plus Workspace Utilities, Dream, and Dejunk controls. Campaign opens on Claims; existing workspace Settings contains Remove Workspace. Historical stored data remains intact.
 - Removed automatic workspace Git initialization, managed commit hooks, research-session Git checkpoints, and Git checkpoint repair controls. Existing Git history is retained; canonical publication metadata for new workspaces lives under `.beale/publication/`. Control contract v44 requires rebuilt clients and hosts.
@@ -44,6 +48,14 @@
 
 #### Changed
 
+- Goal Mode guidance now joins the other enabled feature guidance in `{{prompt_extensions}}`. The default prompt template no longer includes `{{goal}}`; older saved templates remain readable.
+- Feature settings now use the same grouped form layout as other Agent Settings views.
+- The usage tracker follows the selected app server. The authenticated provider-limits endpoint can relay a saved Fleet app server for any client; remote credentials remain on the host. Control contract timestamp updated; rebuild Desktop and app-server together.
+- Goals is now an Optional Feature with editable catalog and prompt text. Its content and feature reference appear only when Goal Mode is enabled in New Research; general session guidance uses `{{session}}`.
+- Optional Features now has a tabbed editor for each feature's enablement, catalog description, and prompt extension. New sessions compose enabled extensions through `{{prompt_extensions}}`; saved templates using older feature variables remain readable.
+- On/Off options in New Research settings and the Fast mode model option now toggle from checkboxes in their rows instead of opening another menu.
+- The Daybreak Blue access toggle is removed from model pickers. OpenAI requests include it automatically; the separate Daybreak Blue model alias remains an optional model.
+- Research sessions now treat existing findings as prior art during new discovery, revisit them when directly requested, and check likely claim matches before creating a lead so evidence can be added to the canonical claim. Distinct claims in the same classification remain allowed after review.
 - Quick Chat on a connected app server now uses the local dock and composer, including model selection, resizing, collapse, and close controls. The selected app server continues to own the chat session.
 - New Research now supports selecting multiple workspace targets for one session. The target picker keeps selections visible as the first target with a count; connected app servers accept the same selection.
 - New Research shows the selected app server and target in its top tab, with Goal Mode, Add Context, and Repeat in a nested settings menu. In-Agent Browser is no longer offered as a research target; saved selections resolve to Local.
@@ -143,6 +155,7 @@
 
 #### Changed
 
+- The sidebar App Server selector shows status dots in its menu while the active server label shows only its name.
 - Assigned workflows now start in persistent Goal mode from Run All or New Research, and earlier assigned runs enter Goal mode when continued. The repository auditor's goal requires complete inventoried source coverage and a refreshed inventory before reporting completion; partial dispositions continue the session.
 - Workflow run history now reads the canonical session lifecycle, and app-server records terminal states for workers that end before their runbooks finish. Run All fetches current provider settings before launch so an unopened New Research view does not block it.
 - The MSRC Research Kit is now MSRC Windows for the Windows Insider Preview bounty. A selectable catalog of common Windows apps, services, four program-listed sandbox contexts, and repositories for shipped open-source code can be managed during workspace creation and kit refresh; existing `msrc` workspace metadata remains compatible. Catalog entries are candidates that require guest and program eligibility checks.
@@ -160,6 +173,9 @@
 
 #### Fixed
 
+- New Research retries failed or stalled target reads, including when opened from Schedule a Job, before reporting Targets unavailable.
+- New Research loads Local-only targets without waiting for VM inventory and offers a retry when target loading fails or stalls.
+- Archive settings now load closed Quick Chats through a registered Desktop IPC handler.
 - The Desktop update prompt now keeps a dismissal for the current app-server contract and makes only one restart attempt per Desktop build. If the same build returns, it asks for an updated installation instead of repeating the restart prompt.
 - Workspace Campaign loading now settles after the background summary completes, with renderer refresh if its update notification is missed; older open responses cannot restore the loading state.
 - Selecting In-Agent Browser for a local research session now opens Beale's embedded host browser instead of the streamed Fleet browser view. External host browsers use the session browser relay.
@@ -1336,6 +1352,7 @@
 
 #### Fixed
 
+- Workspace-scoped Fleet reads and Local target selection no longer wait for VM discovery when the workspace has no VM targets.
 - Timed-out shell commands now return even when a descendant retains their output pipes after the direct child exits. Expired concurrency leases from stopped workers are reclaimed.
 - OpenAI subscription limits now resolve the installed Codex Desktop executable on Windows when it is absent from the app-server PATH.
 - xAI subscription limits now show 0% used when its billing response omits the zero-valued usage field but reports a current weekly or monthly period. The billing probe sends the Grok CLI OAuth routing header.
@@ -1359,6 +1376,9 @@
 
 #### Changed
 
+- Goals is now a prompt-only built-in feature. The app-server persists its enablement and prompt edits with the other Optional Features.
+- The app-server registry now stores feature prompt edits and snapshots them into session plugin catalogs. Description-only edits retain default prompt instructions.
+- Native OpenAI research requests now include Daybreak Blue access automatically, including resumed sessions and Fleet brokered completions; older launch flags remain accepted.
 - Bundled managed-plugin registry entries now retain explicit installation state and absorb earlier filesystem imports of the same bundled directory. Session launch installs plugins required by its research kit.
 - Built-in harness feature packages now live under `app-server/resources/harness-features`. Introspection uses feature discovery and loading while retaining its saved registry ID and enabled state; Quick Chat refuses to start when Introspection is disabled.
 - Canonical session event reads now accept a backward cursor, allowing Desktop to load older transcript pages without transferring the full session at once. Desktop and app-server must be rebuilt together.

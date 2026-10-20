@@ -49,9 +49,10 @@ export const MANAGED_TOOL_PLUGINS = [
 export type ManagedToolPluginId = typeof MANAGED_TOOL_PLUGINS[number]["id"];
 export const MANAGED_TOOL_PLUGIN_IDS: readonly ManagedToolPluginId[] = MANAGED_TOOL_PLUGINS.map((plugin) => plugin.id);
 export const INTROSPECTION_HARNESS_FEATURE_ID = "beale-introspection-builtin";
+export const GOALS_HARNESS_FEATURE_ID = "beale-goals-builtin";
 
 export function isHarnessFeatureId(value: unknown): boolean {
-  return isManagedToolPluginId(value) || value === INTROSPECTION_HARNESS_FEATURE_ID;
+  return isManagedToolPluginId(value) || value === INTROSPECTION_HARNESS_FEATURE_ID || value === GOALS_HARNESS_FEATURE_ID;
 }
 
 export interface PluginSkillResourceCounts {
@@ -64,6 +65,7 @@ export interface ResearchPluginCatalogEntry {
   id: string;
   name: string;
   description?: string;
+  promptExtension?: string;
   toolCount?: number;
   skills: readonly { id: string; name: string; useWhen: string; path: string; resourceCounts?: PluginSkillResourceCounts }[];
   mcpServers: readonly string[];
@@ -105,7 +107,12 @@ export function decodeResearchPluginCatalog(value: unknown): ResearchPluginCatal
       return { id: skill.id, name: skill.name, useWhen: skill.useWhen, path: skill.path,
         ...(counts ? { resourceCounts: counts as PluginSkillResourceCounts } : {}) };
     });
+    if (plugin.promptExtension !== undefined && (!isHarnessFeatureId(plugin.id)
+      || typeof plugin.promptExtension !== "string" || plugin.promptExtension.length > 24_000)) {
+      throw new Error("Invalid harness feature prompt extension.");
+    }
     return { id: plugin.id, name: plugin.name, ...(typeof plugin.description === "string" ? { description: plugin.description } : {}),
+      ...(typeof plugin.promptExtension === "string" ? { promptExtension: plugin.promptExtension } : {}),
       ...(typeof plugin.toolCount === "number" ? { toolCount: plugin.toolCount } : {}), skills, mcpServers: plugin.mcpServers as string[] };
   });
 }

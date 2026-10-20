@@ -2,7 +2,7 @@ import { startTransition, useCallback, useDeferredValue, useEffect, useLayoutEff
 import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import 'katex/dist/katex.min.css';
-import type { FleetAppServer, FleetRemoteCatalog, FleetState } from '@beale/app-server-runtime/protocol';
+import type { FleetAppServer, FleetAppServerStatus, FleetRemoteCatalog, FleetState } from '@beale/app-server-runtime/protocol';
 import './styles.css';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
@@ -56,7 +56,6 @@ import type {
   WorkspaceSnapshot
 } from '@shared/types';
 import { AppModals } from './app/AppModals';
-import { AppBackgroundPulses } from './app/AppBackgroundPulses';
 import { AppNavigationRail, resolveAppNavigationDestination } from './app/AppNavigationRail';
 import { TopBar } from './app/TopBar';
 import { SidebarServerSelector } from './app/SidebarServerSelector';
@@ -94,11 +93,7 @@ import { useResearchGoalSuggestions } from './hooks/useResearchGoalSuggestions';
 import { useSidebarPerformanceProbe } from './hooks/useSidebarPerformanceProbe';
 import { usePermissionSettings } from './hooks/usePermissionSettings';
 import { permissionAllowsSteeringAction } from './view-models/permissionSettings';
-import {
-  useAppearanceBackground,
-  useAppearanceTheme,
-  useAppearanceTransparencyPercentage
-} from './hooks/useAppearanceTheme';
+import { useAppearanceTheme } from './hooks/useAppearanceTheme';
 import { useSessionHeatPreferences } from './hooks/useSessionHeatPreferences';
 import { useSuggestionPreferences } from './hooks/useSuggestionPreferences';
 import { filterEnabledProviderModelCatalogs } from '../shared/optionalProviderModels';
@@ -109,7 +104,6 @@ import {
   appShellClassName,
   selectedRunStatus,
   shouldShowHeaderResearchControls,
-  workspaceHasLiveResearchRun,
   windowControlPlatformForState
 } from './view-models/appShell';
 import type { WorkspaceOnboardingFormState } from './view-models/workspaceOnboarding';
@@ -170,13 +164,31 @@ export function App(): JSX.Element {
     loadWorkspaceRegistry
   } = useWorkspaceRuntime(handleError);
   const [fleetServers, setFleetServers] = useState<FleetAppServer[]>([]);
+  const [fleetServerStatuses, setFleetServerStatuses] = useState<Record<string, FleetAppServerStatus>>({});
+  const fleetStatusRequestId = useRef(0);
   const [selectedFleetServerId, setSelectedFleetServerId] = useState('local');
+  const refreshFleetServerStatuses = useCallback((): void => {
+    const requestId = ++fleetStatusRequestId.current;
+    void window.beale.getFleetAppServerStatuses().then((statuses) => {
+      if (fleetStatusRequestId.current !== requestId) return;
+      setFleetServerStatuses(Object.fromEntries(statuses.map((status) => [status.id, status])));
+    }).catch(() => {
+      if (fleetStatusRequestId.current !== requestId) return;
+      setFleetServerStatuses({ local: { id: 'local', state: 'offline', message: 'Could not check the local app server.' } });
+    });
+  }, []);
   const [remoteQuickChats, setRemoteQuickChats] = useState<RemoteQuickChatDescriptor[]>([]);
   const [remoteCatalog, setRemoteCatalog] = useState<FleetRemoteCatalog | null>(null);
   const [remoteCatalogError, setRemoteCatalogError] = useState<string | null>(null);
   const [remoteWorkspaceId, setRemoteWorkspaceId] = useState<string | null>(null);
   const [remoteSessionId, setRemoteSessionId] = useState<string | null>(null);
   const [remoteResearchOpen, setRemoteResearchOpen] = useState(false);
+  useEffect(() => {
+    if (startupPhase !== 'ready') return;
+    refreshFleetServerStatuses();
+    const interval = window.setInterval(refreshFleetServerStatuses, 20_000);
+    return () => { window.clearInterval(interval); fleetStatusRequestId.current += 1; };
+  }, [refreshFleetServerStatuses, startupPhase]);
   useEffect(() => {
     if (startupPhase !== 'ready') return;
     let active = true;
@@ -331,8 +343,6 @@ export function App(): JSX.Element {
   const [appServerRemoteAccessSettings, setAppServerRemoteAccessSettings] = useState<AppServerRemoteAccessSettings | null>(null);
   const [appServerRemoteAccessBusy, setAppServerRemoteAccessBusy] = useState(false);
   const [appearanceTheme, setAppearanceTheme] = useAppearanceTheme();
-  const [appearanceBackground, setAppearanceBackground] = useAppearanceBackground();
-  const [appearanceTransparencyPercentage, setAppearanceTransparencyPercentage] = useAppearanceTransparencyPercentage();
   const [permissionSettings, setDangerModeEnabled, setDefaultShellSafetyMode] = usePermissionSettings();
   const [sessionHeatPreferences, setSessionHeatPreference, setSessionHeatPalettePreference] = useSessionHeatPreferences();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
@@ -343,11 +353,16 @@ export function App(): JSX.Element {
   const [fleetConfiguration, setFleetConfiguration] = useState<FleetState | null>(null);
   const [fleetConfigurationError, setFleetConfigurationError] = useState<string | null>(null);
   const [fleetSelection, setFleetSelection] = useState<FleetSelection>({ section: 'app-servers', itemId: null });
+  const applyFleetConfiguration = useCallback((next: FleetState): void => {
+    setFleetConfiguration(next);
+    setFleetServers(next.enabled && next.role === 'primary' ? next.appServers : []);
+    refreshFleetServerStatuses();
+  }, [refreshFleetServerStatuses]);
   const refreshFleetConfiguration = useCallback(async (): Promise<void> => {
     const next = await window.beale.getFleetState();
-    setFleetConfiguration(next);
+    applyFleetConfiguration(next);
     setFleetConfigurationError(null);
-  }, []);
+  }, [applyFleetConfiguration]);
   useEffect(() => {
     if (!fleetOpen) return;
     void refreshFleetConfiguration().catch((caught: unknown) => setFleetConfigurationError(errorMessage(caught)));
@@ -1854,7 +1869,6 @@ export function App(): JSX.Element {
   const sessionHeatProfile = sessionHeatDisplay.profile ?? snapshot?.researchProfile.profile ?? null;
   const shellStyle = {
     '--sidebar-width': `${sidebarWidth}px`,
-    '--appearance-background-opacity': `${100 - appearanceTransparencyPercentage}%`,
     ...sessionHeatPaletteStyle(sessionHeatPaletteForProfile(sessionHeatProfile, sessionHeatPreferences, appearanceTheme))
   } as CSSProperties;
   const windowControlPlatform = windowControlPlatformForState(snapshot, hostEnvironment);
@@ -1870,7 +1884,6 @@ export function App(): JSX.Element {
   });
   const shellClassName = `${appShellClassName({
     sessionHeat,
-    sessionActive: workspaceHasLiveResearchRun(snapshot),
     platform: windowControlPlatform,
     windowChromeState,
     sidebarCollapsed
@@ -2069,16 +2082,17 @@ export function App(): JSX.Element {
     setRemoteWorkspaceId(null);
     setRemoteSessionId(null);
     setRemoteResearchOpen(false);
+  }} statuses={fleetServerStatuses} onRefreshStatuses={refreshFleetServerStatuses} onAdd={() => {
+    setFleetSelection({ section: 'app-servers', itemId: 'new' });
+    openFleet();
   }} />;
   return (
     <div
       ref={appShellRef}
       className={shellClassName}
-      data-background={appearanceBackground}
       data-theme={appearanceTheme}
       style={shellStyle}
     >
-      <AppBackgroundPulses />
       <TopBar
         sidebarCollapsed={sidebarCollapsed}
         workspaceOpen={selectedFleetServerId === 'local' && Boolean(snapshot)}
@@ -2144,6 +2158,7 @@ export function App(): JSX.Element {
       ) : null}
       <AppNavigationRail
         active={navigationDestination}
+        selectedServerId={selectedFleetServerId}
         providerAuthRevision={`${openAiStatus?.subscriptionConfigured ?? ''}:${researchProviderStatuses.map((provider) => `${provider.id}:${provider.subscriptionConfigured}`).join(',')}`}
         onOpenHome={openHome}
         onOpenAutomations={openAutomations}
@@ -2262,8 +2277,6 @@ export function App(): JSX.Element {
         {settingsOpen ? (
           <SettingsView
             section={settingsSection}
-            appearanceBackground={appearanceBackground}
-            appearanceTransparencyPercentage={appearanceTransparencyPercentage}
             appearanceTheme={appearanceTheme}
             researchProfiles={researchProfiles}
             researchProfilesLoading={researchProfilesLoading}
@@ -2297,8 +2310,6 @@ export function App(): JSX.Element {
             archiveLoading={archiveLoading}
             busy={busy}
             onChangeAppearanceTheme={setAppearanceTheme}
-            onChangeAppearanceBackground={setAppearanceBackground}
-            onChangeAppearanceTransparencyPercentage={setAppearanceTransparencyPercentage}
             onChangeTracesEnabled={changeTracesEnabled}
             onChangeProfilingEnabled={(enabled) => void setProfilingEnabled(enabled)}
             onChangeSuggestionPreference={setSuggestionPreference}
@@ -2339,7 +2350,7 @@ export function App(): JSX.Element {
                 loadError={fleetConfigurationError}
                 selection={fleetSelection}
                 onSelect={setFleetSelection}
-                onStateChange={setFleetConfiguration}
+                onStateChange={applyFleetConfiguration}
                 onRefresh={refreshFleetConfiguration}
               />
             </section>

@@ -4,7 +4,7 @@ import {
   type MemoryTypeDescriptionsInput,
 } from "./memory-taxonomy.js";
 import type { ResearchProfile } from "./research-profile.js";
-import { formatHarnessFeatureCatalog, formatResearchPluginCatalog, isHarnessFeatureId, type ResearchPluginCatalogEntry } from "./managed-tool-plugins.js";
+import { formatHarnessFeatureCatalog, formatResearchPluginCatalog, isHarnessFeatureId, MANAGED_TOOL_PLUGINS, INTROSPECTION_HARNESS_FEATURE_ID, GOALS_HARNESS_FEATURE_ID, type ResearchPluginCatalogEntry } from "./managed-tool-plugins.js";
 
 export interface CreateResearchSystemPromptOptions {
   hasTools: boolean;
@@ -22,10 +22,79 @@ export interface CreateResearchSystemPromptOptions {
   pluginCatalog?: readonly ResearchPluginCatalogEntry[];
 }
 
-const PROMPT_SECTIONS = ["identity", "style", "boundary", "tools", "features", "plugins", "collaboration", "goal", "memory", "claims", "runbooks"] as const;
+const PROMPT_SECTIONS = ["identity", "style", "boundary", "tools", "features", "plugins", "collaboration", "goal", "session", "prompt_extensions", "memory", "claims", "runbooks"] as const;
 type PromptSection = typeof PROMPT_SECTIONS[number];
 const SECTION_MARKER = "\u0000beale-prompt-section:";
-const DEFAULT_PROMPT_TEMPLATE = PROMPT_SECTIONS.map((section) => `{{${section}}}`).join("\n\n");
+const LEGACY_FEATURE_SECTIONS = ["goal", "memory", "claims", "runbooks"] as const;
+const DEFAULT_PROMPT_TEMPLATE = PROMPT_SECTIONS.filter((section) => !LEGACY_FEATURE_SECTIONS.includes(section as typeof LEGACY_FEATURE_SECTIONS[number]))
+  .map((section) => `{{${section}}}`).join("\n\n");
+const FEATURE_SECTION_IDS = {
+  "beale-knowledge": "memory",
+  "beale-claims": "claims",
+  "beale-runbooks": "runbooks",
+  [GOALS_HARNESS_FEATURE_ID]: "goal",
+} as const;
+const MAX_FEATURE_DESCRIPTION_CHARACTERS = 240;
+const MAX_FEATURE_EXTENSION_CHARACTERS = 24_000;
+
+export interface FeaturePromptOverride { description?: string; promptExtension?: string }
+export interface FeaturePromptSettings {
+  description: string;
+  promptExtension: string;
+  defaultDescription: string;
+  defaultPromptExtension: string;
+  overridden: boolean;
+}
+export type FeaturePromptOverrides = Record<string, FeaturePromptOverride>;
+
+export function decodeFeaturePromptOverrides(value: unknown): FeaturePromptOverrides {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid feature prompt settings.");
+  const entries = Object.entries(value);
+  if (entries.length > MANAGED_TOOL_PLUGINS.length + 2) throw new Error("Too many feature prompt settings.");
+  return Object.fromEntries(entries.map(([id, raw]) => {
+    if (!isHarnessFeatureId(id) || !raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error(`Invalid feature prompt setting: ${id}.`);
+    }
+    const setting = raw as Record<string, unknown>;
+    if ((!Object.hasOwn(setting, "description") && !Object.hasOwn(setting, "promptExtension"))
+      || (Object.hasOwn(setting, "description") && (typeof setting.description !== "string" || setting.description.length > MAX_FEATURE_DESCRIPTION_CHARACTERS))
+      || (Object.hasOwn(setting, "promptExtension") && (typeof setting.promptExtension !== "string" || setting.promptExtension.length > MAX_FEATURE_EXTENSION_CHARACTERS))) {
+      throw new Error(`Invalid feature prompt content: ${id}.`);
+    }
+    return [id, {
+      ...(typeof setting.description === "string" ? { description: setting.description } : {}),
+      ...(typeof setting.promptExtension === "string" ? { promptExtension: setting.promptExtension } : {}),
+    }];
+  }));
+}
+
+export function defaultFeaturePromptSettings(profile: ResearchProfile, memoryTypeDescriptions?: MemoryTypeDescriptionsInput): Record<string, FeaturePromptSettings> {
+  const catalog = [
+    ...MANAGED_TOOL_PLUGINS.map((feature) => ({ id: feature.id, name: feature.name, description: feature.description,
+      toolCount: feature.tools.length, skills: [], mcpServers: [] })),
+    { id: INTROSPECTION_HARNESS_FEATURE_ID, name: "Introspection",
+      description: "Default Beale tools for managing workspaces, resources, research sessions, and maintenance.",
+      toolCount: 0, skills: [], mcpServers: [] },
+    { id: GOALS_HARNESS_FEATURE_ID, name: "Goals",
+      description: "Persistent Goal Mode guidance for research sessions.",
+      toolCount: 0, skills: [], mcpServers: [] },
+  ] satisfies ResearchPluginCatalogEntry[];
+  const sections = buildResearchPromptSections({ hasTools: true, goalEnabled: true, researchProfile: profile,
+    ...(memoryTypeDescriptions ? { memoryTypeDescriptions } : {}), pluginCatalog: catalog });
+  return Object.fromEntries(catalog.map((feature) => {
+    const section = FEATURE_SECTION_IDS[feature.id as keyof typeof FEATURE_SECTION_IDS];
+    const defaultPromptExtension = section ? sections[section].join("\n").trim() : "";
+    return [feature.id, { description: feature.description, promptExtension: defaultPromptExtension,
+      defaultDescription: feature.description, defaultPromptExtension, overridden: false }];
+  }));
+}
+
+export function applyFeaturePromptOverrides(catalog: readonly ResearchPluginCatalogEntry[], overrides: FeaturePromptOverrides): ResearchPluginCatalogEntry[] {
+  return catalog.map((feature) => {
+    const override = isHarnessFeatureId(feature.id) ? overrides[feature.id] : undefined;
+    return override ? { ...feature, ...override } : feature;
+  });
+}
 
 export function defaultResearchSystemPromptTemplate(): string {
   return DEFAULT_PROMPT_TEMPLATE;
@@ -55,9 +124,9 @@ function renderResearchSystemPromptTemplate(template: string, variables: Record<
   }).join("\n");
 }
 
-export function createResearchSystemPrompt(
+function buildResearchPromptSections(
   options: CreateResearchSystemPromptOptions,
-): string {
+): Record<PromptSection, string[]> {
   const profile = options.researchProfile;
   const memoryTypeDescriptions = profile
     ? profile.memory.types
@@ -142,16 +211,19 @@ export function createResearchSystemPrompt(
       ...(options.collaborationGuidance ? ["", options.collaborationGuidance] : []),
     ] : []),
     `${SECTION_MARKER}goal`,
-    "Session progress:",
-    "Treat existing records and prior transcript as historical state. Attribute only work completed in this session to this session; an unchanged artifact cannot satisfy a request for new work.",
-    ...(profile?.id === "security-research" && options.hasTools ? [
-      "At evidence checkpoints, rank at most three candidates by expected evidence gain. For each, state the next positive proof obligation and genuinely contrary evidence; an incomplete proof or bounded miss is not refutation.",
-    ] : []),
     ...(options.goalEnabled ? [
-      "",
       "Persistent Goal mode:",
       "Continue researching the supplied objective until evidence supports a final disposition. The host handles goal persistence and terminal state.",
       "Treat the current user request and later user steering as binding completion requirements, even when the persistent goal is broader. Record objective_achieved only when evidence from this session satisfies all of them; record objective_partially_achieved when any requested outcome remains absent, even if an intermediate finding is valuable.",
+    ] : []),
+    `${SECTION_MARKER}session`,
+    "Session progress:",
+    "Treat existing records and prior transcript as historical state. Attribute only work completed in this session to this session; an unchanged artifact cannot satisfy a request for new work.",
+    ...(!profile || profile.id === "security-research" ? [
+      "When the user asks to find a vulnerability, a severity, or a bug class, pursue a distinct new candidate. Use existing findings as prior art and coverage context; do not choose their reproduction, revalidation, verification, or reporting as the main work or present an existing finding as the newly found result. A bug class or severity is a search criterion, not a request to revisit every matching claim. Work on an existing claim when the user directly asks for that claim or asks to continue, reproduce, verify, or report existing work; use its prior evidence and only repeat proof steps needed for that request.",
+    ] : []),
+    ...(profile?.id === "security-research" && options.hasTools ? [
+      "At evidence checkpoints, rank at most three candidates by expected evidence gain. For each, state the next positive proof obligation and genuinely contrary evidence; an incomplete proof or bounded miss is not refutation.",
     ] : []),
     ...(options.hasSessionDispositionTool ? [
       "",
@@ -189,6 +261,7 @@ export function createResearchSystemPrompt(
       "A claim marked operatorOverride had its current status set by a human without agent transition prerequisites. Treat that status as an operator disposition, inspect its actual evidence, and never infer missing proof or verification from the status alone. Your finding.transition calls remain evidence-gated.",
       "When history or list results expose duplicate claims, memories, or runbooks, coalesce the weaker or redundant record with history.mark_duplicate and keep the strongest record as the canonical parent. Use history.undo_duplicate to correct a mistaken match. Do not coalesce related components, distinct affected conditions, reusable variants, or claims that can compose into a chain.",
       "Create only through lead.create. Direct observation promotes that same stable claim ID into the finding view through finding.transition; never copy it into a new finding or memory node.",
+      "Before lead.create, search and inspect plausible existing leads and findings for the same root cause and affected condition, regardless of title wording. If the new evidence supports one, use finding.transition at its current status to append evidence, then finding.revise to sharpen its title, summary, impact, rating, or classification as needed. If the issue is genuinely distinct, keep a separate claim and explain the difference when lead.create requests it; sharing a classification or severity never makes two findings duplicates.",
       "Append new evidence to an existing claim with finding.transition and its current status as toStatus. This preserves its maturity and identity while recording a new revision; never create a duplicate claim merely to retain same-maturity evidence.",
       "Advance observed behavior only with direct evidence, reproduced behavior only with the runId emitted by a successful runbook.run execution, and verified behavior only with durable evidence from an independent reviewer. Agent verification may use the same provider and model, but it must use a distinct reviewer subagent spawned with fork_turns=none; the authoring agent cannot verify its own claim.",
       "For reproduction-grade evidence, execute every active cell of the current runbook revision and supply sourceRevision and environmentFingerprint matching the claim. Partial runs remain diagnostic evidence. Before independent verification, inspect the immutable execution with runbook.get id/runId, then reference that qualifying runId with independent=true. The host records reviewer identity and binds the review to the current claim content; changed claims or notebook revisions require renewed evidence.",
@@ -223,21 +296,62 @@ export function createResearchSystemPrompt(
       sections[section].push(line);
     }
   }
+  return sections;
+}
+
+export function createResearchSystemPrompt(
+  options: CreateResearchSystemPromptOptions,
+): string {
+  const pluginCatalog = options.pluginCatalog?.filter((feature) => options.goalEnabled || feature.id !== GOALS_HARNESS_FEATURE_ID);
+  const sections = buildResearchPromptSections({ ...options, ...(pluginCatalog ? { pluginCatalog } : {}) });
+  const profile = options.researchProfile;
+  const featureCatalog = pluginCatalog?.filter((feature) => isHarnessFeatureId(feature.id)) ?? [];
+  const defaultExtensions = defaultFeaturePromptSettingsForSections(sections);
+  const extensions = featureCatalog.map((feature) => ({
+    id: feature.id,
+    name: feature.name,
+    content: feature.promptExtension ?? defaultExtensions[feature.id] ?? "",
+  })).filter((extension) => extension.content.trim());
+  if (options.goalEnabled && options.pluginCatalog === undefined) {
+    extensions.push({ id: GOALS_HARNESS_FEATURE_ID, name: "Goals",
+      content: defaultExtensions[GOALS_HARNESS_FEATURE_ID] ?? "" });
+  }
+  const extensionText = (items: typeof extensions): string => items.map((extension) =>
+    `${extension.name} (${extension.id}):\n${extension.content.trim()}`).join("\n\n");
   const variables: Record<string, string> = {
     ...Object.fromEntries(PROMPT_SECTIONS.map((name) => [name, sections[name].join("\n")])),
+    // Saved templates may still reference {{goal}}; Goal guidance is composed as an extension.
+    goal: "",
+    prompt_extensions: extensionText(extensions),
+    memory: extensions.find((extension) => extension.id === "beale-knowledge")?.content ?? "",
+    claims: extensions.find((extension) => extension.id === "beale-claims")?.content ?? "",
+    runbooks: extensions.find((extension) => extension.id === "beale-runbooks")?.content ?? "",
     reports: "",
     "profile.id": profile?.id ?? "security-research",
     "profile.name": profile?.name ?? "Security",
   };
   const template = options.promptTemplate ?? DEFAULT_PROMPT_TEMPLATE;
   const renderedPrompt = template === DEFAULT_PROMPT_TEMPLATE
-    ? PROMPT_SECTIONS.map((name) => variables[name]).filter(Boolean).join("\n\n")
+    ? PROMPT_SECTIONS.filter((name) => !LEGACY_FEATURE_SECTIONS.includes(name as typeof LEGACY_FEATURE_SECTIONS[number]))
+      .map((name) => variables[name]).filter(Boolean).join("\n\n")
     : renderResearchSystemPromptTemplate(template, variables);
   const missingCatalogs = (["features", "plugins"] as const)
     .filter((name) => variables[name] && !new RegExp(`\\{\\{\\s*${name}\\s*\\}\\}`, "u").test(template))
     .map((name) => variables[name]);
-  const systemPrompt = [renderedPrompt, ...missingCatalogs].filter(Boolean).join("\n\n");
+  const hasExtensionVariable = /\{\{\s*prompt_extensions\s*\}\}/u.test(template);
+  const missingExtensions = hasExtensionVariable ? "" : extensionText(extensions.filter((extension) => {
+    const legacySection = FEATURE_SECTION_IDS[extension.id as keyof typeof FEATURE_SECTION_IDS];
+    return !legacySection || legacySection === "goal"
+      || !new RegExp(`\\{\\{\\s*${legacySection}\\s*\\}\\}`, "u").test(template);
+  }));
+  const missingSession = template !== DEFAULT_PROMPT_TEMPLATE && /\{\{\s*goal\s*\}\}/u.test(template)
+    && !/\{\{\s*session\s*\}\}/u.test(template) ? variables.session : "";
+  const systemPrompt = [renderedPrompt, ...missingCatalogs, missingExtensions, missingSession].filter(Boolean).join("\n\n");
   return appendResearchAgentInstructions(systemPrompt, options.agentInstructions);
+}
+
+function defaultFeaturePromptSettingsForSections(sections: Record<PromptSection, string[]>): Record<string, string> {
+  return Object.fromEntries(Object.entries(FEATURE_SECTION_IDS).map(([id, section]) => [id, sections[section].join("\n").trim()]));
 }
 
 export function appendResearchAgentInstructions(

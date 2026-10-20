@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  applyFeaturePromptOverrides,
   applyNativeOpenAiCompaction,
   applyOpenAiContextSize,
   applyOpenAiFastMode,
@@ -16,6 +17,7 @@ import {
   ResearchDispositionRecorder,
   createResearchPiAgent,
   createResearchSystemPrompt,
+  defaultResearchSystemPromptTemplate,
   createResearchToolRegistry,
   createSessionDispositionTool,
   initializeWorkspaceProject,
@@ -374,7 +376,7 @@ test("Daybreak Blue request access applies only to native OpenAI provider models
     { api: "openai-responses", provider: "openai", contextWindow: 400_000 },
   ]) {
     assert.deepEqual(
-      applyOpenAiDaybreakBlue(payload, model, true),
+      applyOpenAiDaybreakBlue(payload, model),
       { ...payload, access_programs: { cyber: "daybreak_blue" } },
     );
   }
@@ -383,7 +385,7 @@ test("Daybreak Blue request access applies only to native OpenAI provider models
     { api: "openai-responses", provider: "xai", contextWindow: 400_000 },
     { api: "anthropic-messages", provider: "anthropic", contextWindow: 400_000 },
   ]) {
-    assert.equal(applyOpenAiDaybreakBlue(payload, model, true), payload);
+    assert.equal(applyOpenAiDaybreakBlue(payload, model), payload);
   }
 });
 
@@ -395,7 +397,6 @@ test("Pi Agent never attaches Daybreak Blue to an OpenRouter stream", async () =
     executor: createPiAgentExecutor({
       provider: model.provider,
       model: model.id,
-      daybreakBlue: true,
       models: {
         getModel() {
           return model;
@@ -427,7 +428,6 @@ test("Pi Agent applies OpenAI Fast mode to Lead-model request payloads", async (
       provider: model.provider,
       model: model.id,
       fastMode: true,
-      daybreakBlue: true,
       models: {
         getModel() {
           return model;
@@ -454,7 +454,7 @@ test("Pi Agent applies OpenAI Fast mode to Lead-model request payloads", async (
   );
 });
 
-test("Pi Agent applies a selected Daybreak Blue access program to the chosen OpenAI model", async () => {
+test("Pi Agent applies Daybreak Blue to OpenAI even when saved settings disable it", async () => {
   const model = {
     ...FAUX_MODEL,
     id: "gpt-6-sol",
@@ -475,7 +475,7 @@ test("Pi Agent applies a selected Daybreak Blue access program to the chosen Ope
         provider: model.provider,
         model: model.id,
         reasoningEffort: "high",
-        daybreakBlue: true,
+        daybreakBlue: false,
       }),
       models: {
         getModel() {
@@ -745,17 +745,43 @@ test("memory prompt gives root agents and subagents direct persistence ownership
   }
 });
 
+test("enabled feature extensions render through one variable and legacy templates remain readable", () => {
+  const template = defaultResearchSystemPromptTemplate();
+  assert.match(template, /\{\{prompt_extensions\}\}/);
+  assert.doesNotMatch(template, /\{\{(?:goal|memory|claims|runbooks)\}\}/);
+  const catalog = [
+    { id: "beale-claims", name: "Claims", description: "Synthetic claim description.",
+      promptExtension: "Use the synthetic claim protocol.", mcpServers: [], skills: [] },
+    { id: "beale-source", name: "Source", promptExtension: "Inspect synthetic source boundaries.", mcpServers: [], skills: [] },
+  ];
+  const prompt = createResearchSystemPrompt({ hasTools: true, pluginCatalog: catalog });
+  assert.match(prompt, /beale-claims.*Synthetic claim description/u);
+  assert.match(prompt, /Claims \(beale-claims\):\nUse the synthetic claim protocol\./u);
+  assert.match(prompt, /Source \(beale-source\):\nInspect synthetic source boundaries\./u);
+  assert.doesNotMatch(prompt, /Use runbooks as durable executable research artifacts/u);
+  assert.doesNotMatch(prompt, /Use one canonical, evidence-gated research claim ledger/u);
+  const legacy = createResearchSystemPrompt({ hasTools: true, pluginCatalog: catalog,
+    promptTemplate: "{{boundary}}\n{{claims}}" });
+  assert.equal(legacy.match(/Use the synthetic claim protocol\./gu)?.length, 1);
+  assert.match(legacy, /Source \(beale-source\):\nInspect synthetic source boundaries\./u);
+});
+
 test("research-agent memory guidance uses the supplied authoritative type descriptions", () => {
+  const pluginCatalog = applyFeaturePromptOverrides(
+    [{ id: "beale-knowledge", name: "Knowledge", mcpServers: [], skills: [] }],
+    { "beale-knowledge": { description: "Synthetic knowledge guidance." } },
+  );
   const prompt = createResearchSystemPrompt({
     hasTools: true,
     hasMemoryTools: true,
-    pluginCatalog: [{ id: "beale-knowledge", name: "Knowledge", mcpServers: [], skills: [] }],
+    pluginCatalog,
     memoryTypeDescriptions: {
       ...DEFAULT_MEMORY_TYPE_DESCRIPTIONS,
       trajectory: "CUSTOM_AGENT_TRAJECTORY: a workspace-defined reusable research path.",
     },
   });
   assert.match(prompt, /memory type descriptions are authoritative for this run/i);
+  assert.match(prompt, /Synthetic knowledge guidance\./);
   assert.match(prompt, /CUSTOM_AGENT_TRAJECTORY/);
   assert.doesNotMatch(prompt, /A reusable sequence of significant research choices/);
 });

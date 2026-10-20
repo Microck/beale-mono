@@ -8,14 +8,14 @@ import { FleetBrowserSessionManager } from '../dist/fleetBrowserSessions.js';
 
 test('Fleet places the In-Agent Browser first and detects installed CDP browsers on Windows', () => {
   const installed = new Set([
-    'C:\\Example\\Programs\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Example\\Programs\\Microsoft\\Edge\\Application\\msedge.exe',
+    join('C:\\Example\\Programs', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    join('C:\\Example\\Programs', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
   ]);
   const environment = { PROGRAMFILES: 'C:\\Example\\Programs' };
   const browsers = detectFleetBrowsers('win32', 'C:\\Example\\Home', environment, (path) => installed.has(path));
   assert.deepEqual(browsers.map(({ id }) => id), ['in-agent', 'chrome', 'edge']);
   assert.equal(fleetBrowserExecutable('chrome', 'win32', 'C:\\Example\\Home', environment, (path) => installed.has(path)),
-    'C:\\Example\\Programs\\Google\\Chrome\\Application\\chrome.exe');
+    join('C:\\Example\\Programs', 'Google', 'Chrome', 'Application', 'chrome.exe'));
 });
 
 test('Fleet detects installed CDP browsers in the macOS Applications directory', () => {

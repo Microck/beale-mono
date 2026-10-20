@@ -623,7 +623,7 @@ export function createAppServerSessionBoundary(
           ...providerNeutralBudget,
           modelProvider: selection.provider,
           ...(selection.provider === 'openai-codex'
-            ? { daybreakBlue: selection.daybreakBlue === true }
+            ? { daybreakBlue: true }
             : {})
         }
       };

@@ -73,6 +73,11 @@ function defaultBuiltinPlugins(): AppServerBuiltinPlugin[] {
       installedAt: '2026-08-14T00:00:00.000Z', enabledByDefault: true
     })),
     {
+      id: 'beale-goals-builtin',
+      path: defaultHarnessFeaturePath('beale-goals'),
+      installedAt: '2026-08-14T00:00:00.000Z', enabledByDefault: true
+    },
+    {
       id: 'beale-introspection-builtin',
       path: defaultHarnessFeaturePath('beale-introspection'),
       installedAt: '2026-08-14T00:00:00.000Z'

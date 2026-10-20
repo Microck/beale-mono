@@ -3,8 +3,32 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION } from '@beale/app-server-runtime/protocol';
-import { FleetService, assertCompatibleRemoteAppServerDescriptor } from '../dist/fleet.js';
+import { APP_SERVER_PROTOCOL_VERSION, APP_SERVER_SESSION_LAUNCH_VERSION, BEALE_APP_SERVER_CAPABILITIES, BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION } from '@beale/app-server-runtime/protocol';
+import { FleetService, assertCompatibleRemoteAppServerDescriptor, probeFleetAppServerStatus } from '../dist/fleet.js';
+
+test('workspace-scoped Fleet state skips VM discovery for Local-only targets', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'beale-fleet-targets-example-'));
+  const path = join(root, 'fleet.json');
+  const commands = [];
+  const fleet = new FleetService(path, 'darwin', {
+    async run(command, args) { commands.push([command, ...args]); return '[]'; },
+    launch() {},
+  });
+  try {
+    const local = await fleet.stateForWorkspace('workspace-example');
+    assert.deepEqual(local.workspaceTargets, {});
+    assert.deepEqual(local.machines, []);
+    assert.deepEqual(commands, []);
+    await fleet.configure({ action: 'select-machine', workspaceId: 'workspace-example', machineId: 'local' });
+    assert.deepEqual(commands, []);
+
+    const config = JSON.parse(readFileSync(path, 'utf8'));
+    config.workspaceTargets['workspace-example'] = ['vm:run:tart:example-vm'];
+    writeFileSync(path, JSON.stringify(config));
+    await fleet.stateForWorkspace('workspace-example');
+    assert.deepEqual(commands, [['tart', 'list', '--source', 'local', '--format', 'json']]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test('Fleet saves a validated browser home page and restores the default for older configurations', async () => {
   const root = mkdtempSync(join(tmpdir(), 'beale-browser-settings-'));
@@ -38,6 +62,32 @@ test('remote primary compatibility identifies stale and newer runtime builds', (
     ok: true, controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
     contractTimestamp: '2099-01-01T00:00:00.000Z',
   }), /newer control contract.*Update and restart this Beale installation/u);
+});
+
+test('app-server status distinguishes reachable compatible, reachable troubled, and unreachable peers', async () => {
+  const descriptor = {
+    ok: true, controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
+    contractTimestamp: BEALE_APP_SERVER_CONTRACT_TIMESTAMP, capabilities: BEALE_APP_SERVER_CAPABILITIES,
+    sessionLaunchVersion: APP_SERVER_SESSION_LAUNCH_VERSION, appServerProtocolVersion: APP_SERVER_PROTOCOL_VERSION,
+    endpoints: { sessions: '/v1/sessions', workspaces: '/v1/workspaces', providers: '/v1/providers', operations: '/v1/operations', shutdown: '/v1/server/shutdown' },
+    limits: { requestBodyBytes: 1024, frameBytes: 1024, replayBytes: 4_194_304, replayFrames: 256 }
+  };
+  const verify = async (url) => { assert.equal(url, 'https://worker.example.test'); };
+  const get = async (url, options) => {
+    assert.equal(url, 'https://worker.example.test/v1/server');
+    assert.equal(options.headers.authorization, 'Bearer synthetic-operator-token');
+    return Response.json(descriptor);
+  };
+  const probe = (verifyPeer, fetcher) => probeFleetAppServerStatus(
+    'server-example', 'https://worker.example.test', 'synthetic-operator-token', verifyPeer, fetcher
+  );
+  assert.equal((await probe(verify, get)).state, 'online');
+  assert.equal((await probe(async () => { throw new Error('peer offline'); }, async () => { throw new Error('Should not fetch'); })).state, 'offline');
+  assert.equal((await probe(verify, async () => { throw new Error('Connection refused'); })).state, 'offline');
+  assert.equal((await probe(verify, async () => new Response(null, { status: 401 }))).state, 'issue');
+  assert.equal((await probe(verify, async () => new Response(null, { status: 503 }))).state, 'issue');
+  assert.equal((await probe(verify, async () => Response.json({ ...descriptor, contractTimestamp: '2000-01-01T00:00:00.000Z' }))).state, 'issue');
+  assert.equal((await probe(verify, async () => Response.json({ ok: true }))).state, 'issue');
 });
 
 test('connected primary sessions request one remote browser and attach with a session token', async () => {
@@ -103,6 +153,27 @@ test('remote catalog includes the selected app-server provider and target settin
     assert.equal(catalog.providerCatalog.defaultProviderId, 'openai-codex');
     assert.deepEqual(catalog.workspaceTargets['workspace-example'], ['local']);
     assert.ok(paths.includes('/v1/providers'));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('remote provider limits use the selected app server and validate its response', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'beale-fleet-limits-'));
+  const fleet = new FleetService(join(root, 'fleet.json'), 'linux');
+  const paths = [];
+  fleet.connectedRemoteAppServer = async (serverId) => {
+    assert.equal(serverId, 'server-example');
+    return { id: serverId, name: 'Example', url: 'https://worker.example.test', operatorToken: 'synthetic-operator-token' };
+  };
+  fleet.remoteGet = async (_server, path) => {
+    paths.push(path);
+    return { providerId: 'openai-codex', checkedAt: '2033-01-01T00:00:00.000Z', status: 'available', detail: null,
+      windows: [{ id: 'session', label: 'Session Limit', usedPercent: 20, resetsAt: null, durationMinutes: 300 }] };
+  };
+  try {
+    const limits = await fleet.remoteProviderUsageLimits('server-example', 'openai-codex', true);
+    assert.equal(limits.windows[0].usedPercent, 20);
+    assert.deepEqual(paths, ['/v1/providers/limits?provider=openai-codex&refresh=1']);
+    await assert.rejects(fleet.remoteProviderUsageLimits('server-example', 'xai', false), /different provider/u);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

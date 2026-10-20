@@ -22,7 +22,7 @@ export const OPTIONAL_PROVIDER_MODELS = Object.freeze([
     providerId: 'openai-codex',
     modelId: DAYBREAK_BLUE_MODEL_ID,
     name: 'Daybreak Blue',
-    accessNote: 'This alias follows OpenAI’s default. Select a base model and Daybreak Blue in the model picker for explicit choice; account or API project access is required.',
+    accessNote: 'This model alias follows OpenAI’s default. Daybreak Blue access is requested automatically for OpenAI models; account or API project access is required.',
     enabledByDefault: true
   },
   {

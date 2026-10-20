@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAppServerMemorySummaryAsync } from '../src/main/appServerCliClient';
 import {
   BEALE_APP_SERVER_CAPABILITIES,
@@ -14,6 +14,7 @@ import {
   attachAppServerSession,
   BealeDesktopRestartRequiredError,
   ensureBealeAppServerRunning,
+  fetchBealeProviderUsageLimits,
   fetchExistingAppServerCanonicalResult,
   fetchAppServerSession,
   invokeAppServerOperation,
@@ -28,6 +29,7 @@ import {
   shouldReplaceAppServerWithTray,
   startAppServerSession,
   stopAppServerSession,
+  testLocalAppServerConnection,
   writePrivateAppServerLaunchEnvironment,
   type BealeAppServerDiscovery
 } from '../src/main/bealeAppServerClient';
@@ -413,6 +415,70 @@ describe('beale app-server client', () => {
     const newer = await inspectAppServerCompatibility(record, 1_000);
     expect(newer).toMatchObject({ status: 'desktop_older', serverContractTimestamp: timestamp });
     expect(new BealeDesktopRestartRequiredError(timestamp).message).toMatch(/Restart Beale/);
+  });
+
+  it('tests the current local app server without launching a replacement', async () => {
+    await expect(testLocalAppServerConnection()).resolves.toEqual({
+      success: false,
+      message: 'No running local app server was found.'
+    });
+
+    let compatible = true;
+    let healthError = false;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => healthError
+      ? new Response(null, { status: 503 }) : new Response(JSON.stringify({
+      ok: true,
+      controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
+      contractTimestamp: BEALE_APP_SERVER_CONTRACT_TIMESTAMP,
+      capabilities: compatible ? BEALE_APP_SERVER_CAPABILITIES : []
+    }), { headers: { 'content-type': 'application/json' } }));
+    try {
+      writeFileSync(process.env.BEALE_APP_SERVER_STATE_FILE!, JSON.stringify(discoveryRecord({ url: 'http://127.0.0.1:47174' })), 'utf8');
+      await expect(testLocalAppServerConnection()).resolves.toEqual({
+        success: true,
+        message: 'Connected to the local app server.'
+      });
+      compatible = false;
+      await expect(testLocalAppServerConnection()).resolves.toEqual({
+        success: false,
+        message: 'The local app server uses an older or incomplete control contract.'
+      });
+      healthError = true;
+      await expect(testLocalAppServerConnection()).resolves.toEqual({
+        success: false,
+        message: 'The local app server responded, but its health check failed.'
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('routes provider limits through the local app server for a selected Fleet peer', async () => {
+    writeFileSync(process.env.BEALE_APP_SERVER_STATE_FILE!, JSON.stringify(discoveryRecord({ url: 'http://127.0.0.1:47173' })), 'utf8');
+    const requests: Array<{ url: string; authorization: string | null }> = [];
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+      const requestUrl = String(url);
+      requests.push({ url: requestUrl, authorization: new Headers(init?.headers).get('authorization') });
+      if (requestUrl.endsWith('/health')) return Response.json({
+        ok: true,
+        controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
+        contractTimestamp: BEALE_APP_SERVER_CONTRACT_TIMESTAMP,
+        capabilities: BEALE_APP_SERVER_CAPABILITIES
+      });
+      return Response.json({ providerId: 'openai-codex', checkedAt: '2033-01-01T00:00:00.000Z', status: 'available', detail: null,
+        windows: [{ id: 'session', label: 'Session Limit', usedPercent: 20, resetsAt: null, durationMinutes: 300 }] });
+    });
+    try {
+      const limits = await fetchBealeProviderUsageLimits('openai-codex', true, 'server-example');
+      expect(limits.windows[0]?.usedPercent).toBe(20);
+      expect(requests.at(-1)).toEqual({
+        url: 'http://127.0.0.1:47173/v1/providers/limits?provider=openai-codex&refresh=1&serverId=server-example',
+        authorization: 'Bearer operator-token'
+      });
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 
   it('requests a Desktop restart instead of replacing a newer app-server', async () => {
