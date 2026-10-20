@@ -1363,6 +1363,7 @@
 #### Fixed
 
 - Workspace-scoped Fleet reads and Local target selection no longer wait for VM discovery when the workspace has no VM targets.
+- Timed-out shell commands now return even when a descendant retains their output pipes after the direct child exits. Expired concurrency leases from stopped workers are reclaimed.
 - OpenAI subscription limits now resolve the installed Codex Desktop executable on Windows when it is absent from the app-server PATH.
 - xAI subscription limits now show 0% used when its billing response omits the zero-valued usage field but reports a current weekly or monthly period. The billing probe sends the Grok CLI OAuth routing header.
 - Unanswered Auto-Review shell overrides now expire after five minutes, deny the command, and release the waiting agent so collaboration can continue.
