@@ -255,15 +255,29 @@ export class WorkspaceRegistry {
     const settings = this.getProviderSettings();
     const current = new Set(settings.enabledOptionalModels?.[providerId] ?? []);
     const disabledCurrent = new Set(settings.disabledOptionalModels?.[providerId] ?? []);
-    const enabledByDefault = isOptionalProviderModelEnabled(null, providerId, modelId);
-    if (enabled) {
-      disabledCurrent.delete(modelId);
-      if (enabledByDefault) current.delete(modelId);
-      else current.add(modelId);
+    if (providerId === 'openai-codex') {
+      const blueModelId = 'gpt-daybreak-blue-latest';
+      const redModelId = 'gpt-daybreak-red-latest';
+      const selectedModelId = enabled ? modelId : modelId === blueModelId ? redModelId : blueModelId;
+      current.delete(blueModelId);
+      current.delete(redModelId);
+      disabledCurrent.delete(blueModelId);
+      disabledCurrent.delete(redModelId);
+      if (selectedModelId === redModelId) {
+        current.add(redModelId);
+        disabledCurrent.add(blueModelId);
+      }
     } else {
-      current.delete(modelId);
-      if (enabledByDefault) disabledCurrent.add(modelId);
-      else disabledCurrent.delete(modelId);
+      const enabledByDefault = isOptionalProviderModelEnabled(null, providerId, modelId);
+      if (enabled) {
+        disabledCurrent.delete(modelId);
+        if (enabledByDefault) current.delete(modelId);
+        else current.add(modelId);
+      } else {
+        current.delete(modelId);
+        if (enabledByDefault) disabledCurrent.add(modelId);
+        else disabledCurrent.delete(modelId);
+      }
     }
     const enabledOptionalModels = { ...settings.enabledOptionalModels };
     const disabledOptionalModels = { ...settings.disabledOptionalModels };
@@ -273,9 +287,12 @@ export class WorkspaceRegistry {
     else delete disabledOptionalModels[providerId];
     this.setMeta('provider_optional_models_json', JSON.stringify(enabledOptionalModels));
     this.setMeta('provider_disabled_optional_models_json', JSON.stringify(disabledOptionalModels));
-    if (!enabled) {
+    if (!enabled || providerId === 'openai-codex') {
       const defaults = settings.modelDefaults[providerId];
-      if (defaults && (defaults.largeModel === modelId || defaults.smallModel === modelId)) {
+      const disabledModelId = providerId === 'openai-codex'
+        ? modelId === 'gpt-daybreak-red-latest' && enabled ? 'gpt-daybreak-blue-latest' : 'gpt-daybreak-red-latest'
+        : modelId;
+      if (defaults && (defaults.largeModel === disabledModelId || defaults.leadModel === disabledModelId || defaults.smallModel === disabledModelId)) {
         delete settings.modelDefaults[providerId];
         this.setMeta('provider_model_defaults_json', JSON.stringify(settings.modelDefaults));
       }

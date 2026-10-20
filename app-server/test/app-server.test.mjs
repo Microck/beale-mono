@@ -108,6 +108,25 @@ test("persists the OpenAI context size provider setting", () => {
   reopened.close();
 });
 
+test("persists one OpenAI Daybreak mode and exposes it to the session host", () => {
+  const directory = mkdtempSync(join(tmpdir(), "beale-daybreak-mode-"));
+  temporaryDirectories.push(directory);
+  const registry = new WorkspaceRegistry(directory);
+  registry.setProviderModelDefaults("openai-codex", {
+    largeModel: "gpt-daybreak-blue-latest", smallModel: "gpt-5.6-luna", reasoningEffort: "high",
+  });
+  registry.setProviderOptionalModelEnabled("openai-codex", "gpt-daybreak-red-latest", true);
+  assert.deepEqual(registry.getProviderSettings().enabledOptionalModels?.["openai-codex"], ["gpt-daybreak-red-latest"]);
+  assert.deepEqual(registry.getProviderSettings().disabledOptionalModels?.["openai-codex"], ["gpt-daybreak-blue-latest"]);
+  assert.equal(registry.getProviderSettings().modelDefaults["openai-codex"], undefined);
+  assert.equal(new AppServerHostRegistry({ registryDirectory: directory }).providerSettings().daybreakMode, "red");
+  registry.setProviderOptionalModelEnabled("openai-codex", "gpt-daybreak-blue-latest", true);
+  assert.equal(registry.getProviderSettings().enabledOptionalModels?.["openai-codex"], undefined);
+  assert.equal(registry.getProviderSettings().disabledOptionalModels?.["openai-codex"], undefined);
+  assert.equal(new AppServerHostRegistry({ registryDirectory: directory }).providerSettings().daybreakMode, "blue");
+  registry.close();
+});
+
 test('research starts without a workspace Git checkpoint', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-no-checkpoint-example-'));
   temporaryDirectories.push(directory);
@@ -1621,6 +1640,7 @@ test("resolves workspace identity and host policy from the shared Beale registry
     },
     authenticationPreferences: { "openai-codex": "subscription" },
     contextSizes: { "openai-codex": "large" },
+    daybreakMode: "blue",
     riskAcknowledgements: ["openai-codex"],
   });
 });
@@ -2066,6 +2086,7 @@ test("app-server preserves launch options through restart metadata and runtime a
   registry.providerSettings = () => ({
     ...providerSettings,
     contextSizes: { "openai-codex": "large" },
+    daybreakMode: "red",
   });
   const service = new AppServerHostService({
     registry,
@@ -2099,11 +2120,13 @@ test("app-server preserves launch options through restart metadata and runtime a
   const prepared = await service.prepareSession(request, "generated-session");
 
   assert.equal(prepared.launch.provider.fastMode, true);
-  assert.equal(prepared.launch.provider.daybreakBlue, true);
+  assert.equal(prepared.launch.provider.daybreakBlue, undefined);
+  assert.equal(prepared.launch.provider.daybreakMode, "red");
   assert.equal(prepared.launch.provider.contextSize, "large");
   assert.equal(appServerSessionEnvironment(prepared.launch, {}).APP_SERVER_OPENAI_CONTEXT_SIZE, "large");
   assert.ok(appServerSessionArgs(prepared.launch, {}).includes("--fast-mode"));
-  assert.ok(appServerSessionArgs(prepared.launch, {}).includes("--daybreak-blue"));
+  assert.ok(appServerSessionArgs(prepared.launch, {}).includes("--daybreak-mode"));
+  assert.ok(appServerSessionArgs(prepared.launch, {}).includes("red"));
   assert.ok(appServerSessionArgs(prepared.launch, {}).includes("--dev-harness-feedback"));
   const createCall = calls.find((call) => call.operation === "session.create");
   assert.equal(
@@ -2112,7 +2135,7 @@ test("app-server preserves launch options through restart metadata and runtime a
   );
   assert.equal(
     createCall.options.input.metadata.appServerRestartLaunch.launch.provider.daybreakBlue,
-    true,
+    undefined,
   );
   assert.equal(createCall.options.input.metadata.appServerRestartLaunch.launch.devHarnessFeedback, true);
 

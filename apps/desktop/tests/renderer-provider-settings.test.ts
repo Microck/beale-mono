@@ -633,7 +633,7 @@ describe('renderer provider settings', () => {
     expect(html).toContain('Acknowledgment is recorded until this provider is removed.');
   });
 
-  it('offers Daybreak Blue by default and Daybreak Red as an access-restricted opt-in', () => {
+  it('offers one Daybreak mode for OpenAI requests', () => {
     const render = (settings: { red?: boolean; blueDisabled?: boolean }): string => renderToStaticMarkup(createElement(ProvidersSettingsView, {
       openAiStatus: configuredOpenAiStatus(),
       openAiOAuthResult: null,
@@ -657,22 +657,22 @@ describe('renderer provider settings', () => {
     }));
 
     const disabledHtml = render({});
-    expect(disabledHtml).toContain('aria-label="Optional Models"');
-    expect(disabledHtml).toContain('<h2>Optional Models</h2>');
-    expect(disabledHtml).toContain('Enable additional provider models when they are available to your account.');
+    expect(disabledHtml).toContain('role="radiogroup" aria-label="Daybreak Mode"');
+    expect(disabledHtml).toContain('<h2>Daybreak Mode</h2>');
+    expect(disabledHtml).toContain('Choose the Daybreak access marker used for OpenAI requests during sessions.');
     expect(disabledHtml).toContain('class="provider-optional-model-copy"');
     expect(disabledHtml).toContain('<strong>Daybreak Blue</strong>');
-    expect(disabledHtml).toContain('Daybreak Blue access is requested automatically for OpenAI models');
-    expect(disabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Blue<\/strong>[\s\S]*?<\/span><input type="checkbox"[^>]*checked=""\/><\/label>/u);
+    expect(disabledHtml).toContain('OpenAI requests use this access marker when Blue is selected');
+    expect(disabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Blue<\/strong>[\s\S]*?<\/span><input type="radio"(?=[^>]*value="blue")(?=[^>]*checked="")[^>]*\/><\/label>/u);
     expect(disabledHtml).toContain('<strong>Daybreak Red</strong>');
     expect(disabledHtml).toContain('primarily available to approved commercial users');
-    expect(disabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Red<\/strong>[\s\S]*?<\/span><input type="checkbox"\/><\/label>/u);
+    expect(disabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Red<\/strong>[\s\S]*?<\/span><input type="radio"[^>]*\/><\/label>/u);
     expect(disabledHtml).not.toContain('gpt-daybreak-red-latest');
     const enabledHtml = render({ red: true });
-    expect(enabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Red<\/strong>[\s\S]*?<\/span><input type="checkbox" checked=""\/><\/label>/u);
+    expect(enabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Red<\/strong>[\s\S]*?<\/span><input type="radio"(?=[^>]*value="red")(?=[^>]*checked="")[^>]*\/><\/label>/u);
     expect(enabledHtml).toContain('gpt-daybreak-red-latest');
     const blueDisabledHtml = render({ blueDisabled: true });
-    expect(blueDisabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Blue<\/strong>[\s\S]*?<\/span><input type="checkbox" disabled=""\/><\/label>/u);
+    expect(blueDisabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Daybreak Red<\/strong>[\s\S]*?<\/span><input type="radio"(?=[^>]*value="red")(?=[^>]*checked="")[^>]*\/><\/label>/u);
   });
 
   it('shows the xAI policy-use risk acknowledgement without a program-membership claim', () => {

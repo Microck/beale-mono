@@ -28,6 +28,16 @@ const OPTIONAL_MODELS = new Map([
   ['anthropic\u0000claude-fable-5', true],
   ['anthropic\u0000claude-mythos-5', false],
 ]);
+const DAYBREAK_BLUE_MODEL_ID = 'gpt-daybreak-blue-latest';
+const DAYBREAK_RED_MODEL_ID = 'gpt-daybreak-red-latest';
+
+export function daybreakModeFromOptionalModels(
+  settings: { enabledOptionalModels?: Record<string, string[]>; disabledOptionalModels?: Record<string, string[]> } | null,
+): 'blue' | 'red' {
+  return settings?.enabledOptionalModels?.['openai-codex']?.includes(DAYBREAK_RED_MODEL_ID)
+    || settings?.disabledOptionalModels?.['openai-codex']?.includes(DAYBREAK_BLUE_MODEL_ID)
+    ? 'red' : 'blue';
+}
 
 export function isResearchKitId(value: unknown): boolean {
   return typeof value === 'string' && RESEARCH_KIT_IDS.has(value);
@@ -50,6 +60,9 @@ export function isOptionalProviderModelEnabled(
   providerId: string,
   modelId: string,
 ): boolean {
+  if (providerId === 'openai-codex' && (modelId === DAYBREAK_BLUE_MODEL_ID || modelId === DAYBREAK_RED_MODEL_ID)) {
+    return (modelId === DAYBREAK_RED_MODEL_ID) === (daybreakModeFromOptionalModels(settings) === 'red');
+  }
   if (settings?.disabledOptionalModels?.[providerId]?.includes(modelId)) return false;
   if (settings?.enabledOptionalModels?.[providerId]?.includes(modelId)) return true;
   return OPTIONAL_MODELS.get(`${providerId}\u0000${modelId}`) === true;

@@ -28,19 +28,18 @@ describe('optional provider models', () => {
     }
   ];
 
-  it('enables Daybreak Blue by default while keeping Daybreak Red opt-in', () => {
+  it('selects Daybreak Blue by default and Daybreak Red when configured', () => {
     expect(filterEnabledProviderModelCatalogs(catalogs, null)[0]?.models.map((model) => model.id)).toEqual([
       DAYBREAK_BLUE_MODEL_ID
     ]);
     expect(filterEnabledProviderModelCatalogs(catalogs, {
       enabledOptionalModels: { 'openai-codex': [DAYBREAK_RED_MODEL_ID] }
     })[0]?.models.map((model) => model.id)).toEqual([
-      DAYBREAK_BLUE_MODEL_ID,
       DAYBREAK_RED_MODEL_ID
     ]);
   });
 
-  it('persists an explicit Daybreak Blue disable independently of Red opt-in', () => {
+  it('treats a previous Daybreak Blue disable as a Red selection', () => {
     expect(filterEnabledProviderModelCatalogs(catalogs, {
       enabledOptionalModels: { 'openai-codex': [DAYBREAK_RED_MODEL_ID] },
       disabledOptionalModels: { 'openai-codex': [DAYBREAK_BLUE_MODEL_ID] }

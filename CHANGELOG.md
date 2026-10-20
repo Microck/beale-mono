@@ -49,6 +49,7 @@
 
 #### Changed
 
+- OpenAI Providers now selects one Daybreak mode, Blue or Red. Session requests use the selected mode for the OpenAI API access marker, including requests brokered through a Fleet primary. Existing optional-model choices resolve to Red when Red was enabled or Blue was disabled.
 - Features now places its tabs above the selected feature title. Provider forms use the shared settings text size.
 - Fleet’s Local app-server view now uses the same grouped field and action layout as saved app servers, with a read-only Tailscale HTTPS URL. Its sidebar and detail label is Local.
 - iPhone Remote Access controls now appear under Fleet’s Local App Server details. Agent Settings no longer has a Remote view.

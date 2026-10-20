@@ -35,6 +35,7 @@ export interface AppServerHostProviderSettings {
   modelDefaults: Readonly<Record<string, { leadModel?: string; smallModel?: string; reasoningEffort?: string }>>;
   authenticationPreferences: Readonly<Record<string, AppServerProviderAuthenticationMethod>>;
   contextSizes?: Readonly<Record<string, AppServerProviderContextSize>>;
+  daybreakMode: 'blue' | 'red';
   riskAcknowledgements: readonly AppServerProviderRiskAcknowledgement[];
 }
 
@@ -207,6 +208,14 @@ export class AppServerHostRegistry {
       meta.get('provider_preferred_authentication_methods_json')
     );
     const contextSizes = providerContextSizeRecord(meta.get('provider_context_sizes_json'));
+    const enabledOptionalModels = parseJson(meta.get('provider_optional_models_json'));
+    const disabledOptionalModels = parseJson(meta.get('provider_disabled_optional_models_json'));
+    const redEnabled = isRecord(enabledOptionalModels)
+      && Array.isArray(enabledOptionalModels['openai-codex'])
+      && enabledOptionalModels['openai-codex'].includes('gpt-daybreak-red-latest');
+    const blueDisabled = isRecord(disabledOptionalModels)
+      && Array.isArray(disabledOptionalModels['openai-codex'])
+      && disabledOptionalModels['openai-codex'].includes('gpt-daybreak-blue-latest');
     const riskAcknowledgements: AppServerProviderRiskAcknowledgement[] = [];
     for (const [key, acknowledgement] of [
       ['openai_trusted_access_cyber_risk_acknowledged', 'openai-codex'],
@@ -222,6 +231,7 @@ export class AppServerHostRegistry {
       modelDefaults,
       authenticationPreferences,
       contextSizes,
+      daybreakMode: redEnabled || blueDisabled ? 'red' : 'blue',
       riskAcknowledgements
     };
   }

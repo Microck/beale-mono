@@ -310,6 +310,7 @@ interface ParsedArgs {
   model: string | undefined;
   fastMode: boolean;
   daybreakBlue: boolean;
+  daybreakMode: 'blue' | 'red';
   titleModel: string | undefined;
   titleEffort: ResearchModelEffort | undefined;
   titleModelDefault: string | undefined;
@@ -431,6 +432,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   let model: string | undefined;
   let fastMode = false;
   let daybreakBlue = false;
+  let daybreakMode: 'blue' | 'red' = 'blue';
   let titleModel: string | undefined;
   let titleEffort: ResearchModelEffort | undefined;
   let titleModelDefault: string | undefined;
@@ -566,6 +568,11 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       fastMode = true;
     } else if (arg === "--daybreak-blue") {
       daybreakBlue = true;
+    } else if (arg === "--daybreak-mode") {
+      const value = readOptionValue(argv, index, arg);
+      if (value !== 'blue' && value !== 'red') throw new Error('Daybreak mode must be blue or red.');
+      daybreakMode = value;
+      index += 1;
     } else if (arg === "--title-model") {
       titleModel = readOptionValue(argv, index, arg);
       index += 1;
@@ -793,6 +800,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
     model,
     fastMode,
     daybreakBlue,
+    daybreakMode,
     titleModel,
     titleEffort,
     titleModelDefault,
@@ -2447,6 +2455,7 @@ function createRealAgentExecutor(
     model: modelConfig.model,
     ...(args.fastMode ? { fastMode: true } : {}),
     ...(args.daybreakBlue ? { daybreakBlue: true } : {}),
+    daybreakMode: args.daybreakMode,
     ...(providerSessionId ? { sessionId: providerSessionId } : {}),
     ...(args.maxTokens ? { maxTokens: args.maxTokens } : {}),
     ...(modelConfig.effort ? { reasoning: modelConfig.effort } : {}),

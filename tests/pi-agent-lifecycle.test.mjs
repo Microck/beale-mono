@@ -9,6 +9,7 @@ import {
   applyNativeOpenAiCompaction,
   applyOpenAiContextSize,
   applyOpenAiFastMode,
+  applyOpenAiDaybreakMode,
   applyOpenAiDaybreakBlue,
   compactAgentContext,
   DEFAULT_MEMORY_TYPE_DESCRIPTIONS,
@@ -389,6 +390,13 @@ test("Daybreak Blue request access applies only to native OpenAI provider models
   }
 });
 
+test("Daybreak Red uses the configured OpenAI access marker", () => {
+  const payload = { model: "example-model", input: [] };
+  assert.deepEqual(applyOpenAiDaybreakMode(payload,
+    { api: "openai-responses", provider: "openai", contextWindow: 400_000 }, "red"),
+  { ...payload, access_programs: { cyber: "daybreak_red" } });
+});
+
 test("Pi Agent never attaches Daybreak Blue to an OpenRouter stream", async () => {
   const model = { ...FAUX_MODEL, id: "openrouter/auto", provider: "openrouter", api: "openai-responses" };
   let streamOptions;
@@ -454,7 +462,7 @@ test("Pi Agent applies OpenAI Fast mode to Lead-model request payloads", async (
   );
 });
 
-test("Pi Agent applies Daybreak Blue to OpenAI even when saved settings disable it", async () => {
+test("Pi Agent applies the selected Daybreak mode to OpenAI requests", async () => {
   const model = {
     ...FAUX_MODEL,
     id: "gpt-6-sol",
@@ -471,6 +479,7 @@ test("Pi Agent applies Daybreak Blue to OpenAI even when saved settings disable 
       provider: model.provider,
       model: model.id,
       daybreakBlue: false,
+      daybreakMode: "red",
       getModelSelection: () => ({
         provider: model.provider,
         model: model.id,
@@ -492,7 +501,7 @@ test("Pi Agent applies Daybreak Blue to OpenAI even when saved settings disable 
   assert.equal(typeof streamOptions?.onPayload, "function");
   const payload = await streamOptions.onPayload({ model: model.id, input: [] }, model);
   assert.equal(payload.model, model.id);
-  assert.deepEqual(payload.access_programs, { cyber: "daybreak_blue" });
+  assert.deepEqual(payload.access_programs, { cyber: "daybreak_red" });
 });
 
 test("patched Responses stream preserves and replays opaque compaction items", async () => {

@@ -119,7 +119,8 @@ async function requestBrokerCompletion(endpoint: ModelBrokerEndpoint, model: Mod
 
 /** Called by the workspace-owning primary with its own provider credentials. */
 export async function completeBrokerModelRequest(request: ModelBrokerRequest,
-  authenticationPreferences: ProviderAuthenticationPreferences, codexAuthFile?: string): Promise<AssistantMessage> {
+  authenticationPreferences: ProviderAuthenticationPreferences, codexAuthFile?: string,
+  daybreakMode: 'blue' | 'red' = 'blue'): Promise<AssistantMessage> {
   const router = new ProviderAuthenticationRouter(authenticationPreferences);
   const { createAuthenticatedModels } = await import("./auth.js");
   const models = createAuthenticatedModels({ authContext: router.authContext(), ...(codexAuthFile ? { codexAuthFile } : {}) });
@@ -136,12 +137,12 @@ export async function completeBrokerModelRequest(request: ModelBrokerRequest,
   const contextWindow = flags?.contextWindow;
   const onPayload = flags?.nativeCompaction || flags?.fastMode || nativeOpenAi
     ? async (payload: unknown) => {
-        const { applyNativeOpenAiCompaction, applyOpenAiFastMode, applyOpenAiDaybreakBlue } = await import("./agent-executor.js");
+        const { applyNativeOpenAiCompaction, applyOpenAiFastMode, applyOpenAiDaybreakMode } = await import("./agent-executor.js");
         const brokerModel = { ...model, contextWindow: typeof contextWindow === "number" && Number.isSafeInteger(contextWindow)
           && contextWindow > 0 && contextWindow <= 1_000_000 ? contextWindow : model.contextWindow };
         let transformed = flags?.nativeCompaction ? applyNativeOpenAiCompaction(payload, brokerModel) : payload;
         transformed = applyOpenAiFastMode(transformed, brokerModel, flags?.fastMode === true);
-        return applyOpenAiDaybreakBlue(transformed, brokerModel);
+        return applyOpenAiDaybreakMode(transformed, brokerModel, daybreakMode);
       }
     : undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {

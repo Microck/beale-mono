@@ -93,7 +93,8 @@ export interface CreatePiAgentExecutorOptions {
   maxTokens?: number;
   reasoning?: SimpleStreamOptions["reasoning"];
   fastMode?: boolean;
-  /** Legacy launch setting; native OpenAI requests always include Daybreak Blue. */
+  daybreakMode?: 'blue' | 'red';
+  /** Legacy launch setting; the configured Daybreak mode controls native OpenAI requests. */
   daybreakBlue?: boolean;
   sessionId?: string;
   initialMessages?: readonly AgentMessage[];
@@ -216,18 +217,23 @@ export function applyOpenAiFastMode(
   return { ...payload, service_tier: "priority" };
 }
 
-export function applyOpenAiDaybreakBlue(
+export function applyOpenAiDaybreakMode(
   payload: unknown,
   model: NativeOpenAiCompactionModel,
+  mode: 'blue' | 'red',
 ): unknown {
   if (!isNativeOpenAiResponsesModel(model) || !isRecord(payload)) return payload;
   return {
     ...payload,
     access_programs: {
       ...(isRecord(payload.access_programs) ? payload.access_programs : {}),
-      cyber: "daybreak_blue",
+      cyber: mode === 'red' ? "daybreak_red" : "daybreak_blue",
     },
   };
+}
+
+export function applyOpenAiDaybreakBlue(payload: unknown, model: NativeOpenAiCompactionModel): unknown {
+  return applyOpenAiDaybreakMode(payload, model, 'blue');
 }
 
 export function extractCompatiblePiAgentResumableState(
@@ -683,6 +689,7 @@ export function createPiAgentExecutor(
                 { ...streamOptions, ...(apiKey ? { apiKey } : {}) },
                 providerSessionId,
                 options.fastMode === true,
+                options.daybreakMode ?? 'blue',
               ),
             );
           }
@@ -699,6 +706,7 @@ export function createPiAgentExecutor(
               },
               providerSessionId,
               options.fastMode === true,
+              options.daybreakMode ?? 'blue',
             ),
           );
         };
@@ -3072,6 +3080,7 @@ function withProviderSession(
   options: SimpleStreamOptions | undefined,
   sessionId: string,
   fastMode: boolean,
+  daybreakMode: 'blue' | 'red',
 ): SimpleStreamOptions {
   const nativeOpenAi = isNativeOpenAiResponsesModel(model);
   const brokerFlags = process.env.APP_SERVER_MODEL_BROKER_URL
@@ -3088,7 +3097,7 @@ function withProviderSession(
         ? await previousOnPayload(payload, payloadModel)
         : payload;
       const result = fastMode ? applyOpenAiFastMode(transformed ?? payload, model, true) : transformed ?? payload;
-      return applyOpenAiDaybreakBlue(result, model);
+      return applyOpenAiDaybreakMode(result, model, daybreakMode);
     },
   };
 }

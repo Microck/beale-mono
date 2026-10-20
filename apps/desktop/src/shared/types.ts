@@ -1534,7 +1534,7 @@ export interface ResearchModelSelection {
   model: string;
   reasoningEffort: ResearchModelEffortLevel;
   fastMode?: boolean;
-  /** Retained for stored runs; native OpenAI requests always include Daybreak Blue. */
+  /** Retained for stored runs; the host's configured Daybreak mode controls OpenAI requests. */
   daybreakBlue?: boolean;
 }
 
@@ -1607,7 +1607,7 @@ export interface StartRunInput {
   model: string;
   reasoningEffort: string;
   fastMode?: boolean;
-  /** Retained for stored runs; native OpenAI requests always include Daybreak Blue. */
+  /** Retained for stored runs; the host's configured Daybreak mode controls OpenAI requests. */
   daybreakBlue?: boolean;
   collaboration?: ResearchCollaborationPreferences;
   sandboxProfile: string;

@@ -45,6 +45,9 @@ import type { FloatingTextPickerOption } from '../../app/FloatingTextPicker';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { researchModelNameLabel, stateClass } from '../../lib/formatting';
 import {
+  DAYBREAK_BLUE_MODEL_ID,
+  DAYBREAK_RED_MODEL_ID,
+  daybreakModeFromSettings,
   filterEnabledProviderModelCatalogs,
   isOptionalProviderModelEnabled,
   OPTIONAL_PROVIDER_MODELS
@@ -2540,18 +2543,25 @@ function ProviderSettingsProviderPanel({
       </section>
       <section className="settings-form provider-settings-form provider-optional-models-form">
         <header className="settings-form-heading">
-          <h2>Optional Models</h2>
-          <p>Enable additional provider models when they are available to your account.</p>
+          <h2>{providerId === 'openai-codex' ? 'Daybreak Mode' : 'Optional Models'}</h2>
+          <p>{providerId === 'openai-codex'
+            ? 'Choose the Daybreak access marker used for OpenAI requests during sessions.'
+            : 'Enable additional provider models when they are available to your account.'}</p>
         </header>
         <div className="settings-form-squircle provider-settings-form-squircle">
-          <ProviderOptionalModelsControls
+          {providerId === 'openai-codex' ? <ProviderDaybreakModeControls
+            busy={policyBusy}
+            enabledModelIds={enabledOptionalModelIds}
+            disabledModelIds={disabledOptionalModelIds}
+            onChange={(modelId) => onSetOptionalModelEnabled(modelId, true)}
+          /> : <ProviderOptionalModelsControls
             busy={policyBusy}
             catalog={fullModelCatalog}
             enabledModelIds={enabledOptionalModelIds}
             disabledModelIds={disabledOptionalModelIds}
             providerId={providerId}
             onChange={onSetOptionalModelEnabled}
-          />
+          />}
         </div>
       </section>
     </div>
@@ -2727,6 +2737,38 @@ function ProviderOptionalModelsControls({
             />
           </label>
         );
+      })}
+    </div>
+  );
+}
+
+function ProviderDaybreakModeControls({
+  busy,
+  enabledModelIds,
+  disabledModelIds,
+  onChange
+}: {
+  busy: boolean;
+  enabledModelIds: readonly string[];
+  disabledModelIds: readonly string[];
+  onChange: (modelId: string) => void;
+}): JSX.Element {
+  const selectedMode = daybreakModeFromSettings({
+    enabledOptionalModels: { 'openai-codex': [...enabledModelIds] },
+    disabledOptionalModels: { 'openai-codex': [...disabledModelIds] }
+  });
+  return (
+    <div className="provider-optional-models" role="radiogroup" aria-label="Daybreak Mode">
+      {OPTIONAL_PROVIDER_MODELS.filter((model) => model.providerId === 'openai-codex').map((model) => {
+        const mode = model.modelId === DAYBREAK_RED_MODEL_ID ? 'red' : 'blue';
+        return <label key={model.modelId}>
+          <span className="provider-optional-model-copy">
+            <strong>{model.name}</strong>
+            <small>{model.accessNote}</small>
+          </span>
+          <input type="radio" name="openai-daybreak-mode" value={mode} checked={selectedMode === mode}
+            disabled={busy} onChange={() => onChange(mode === 'red' ? DAYBREAK_RED_MODEL_ID : DAYBREAK_BLUE_MODEL_ID)} />
+        </label>;
       })}
     </div>
   );

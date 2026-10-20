@@ -44,7 +44,8 @@ export class FleetRemoteController {
 
   public constructor(private readonly fleet: FleetService, private readonly files: FleetWorkspaceStore,
     private readonly authenticationPreferences: () => ProviderAuthenticationPreferences = () => ({}),
-    private readonly riskAcknowledgements: () => readonly AppServerProviderRiskAcknowledgement[] = () => []) {}
+    private readonly riskAcknowledgements: () => readonly AppServerProviderRiskAcknowledgement[] = () => [],
+    private readonly daybreakMode: () => 'blue' | 'red' = () => 'blue') {}
 
   public resumePendingBrokers(): void {
     for (const baseline of this.files.pendingBaselines()) {
@@ -493,7 +494,7 @@ export class FleetRemoteController {
           throw new Error('This provider cannot use the Fleet model broker.');
         }
         result = { state: 'done', message: await completeBrokerModelRequest(request, this.authenticationPreferences(),
-          resolveAppServerCodexAuthFile()) };
+          resolveAppServerCodexAuthFile(), this.daybreakMode()) };
       } catch {
         result = { state: 'error', error: 'The model request failed on the workspace primary app-server.' };
       }

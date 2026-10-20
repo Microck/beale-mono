@@ -171,7 +171,8 @@ export class AppServerHostService {
     this.fleetBroker = new FleetModelBrokerQueue(join(this.registry.registryDirectory, 'fleet-model-broker'));
     this.fleetRemote = new FleetRemoteController(this.fleet, this.fleetWorkspace,
       () => this.registry.providerSettings().authenticationPreferences,
-      () => this.registry.providerSettings().riskAcknowledgements);
+      () => this.registry.providerSettings().riskAcknowledgements,
+      () => this.registry.providerSettings().daybreakMode ?? 'blue');
     this.databaseCoordinator = options.databaseCoordinator ?? new AppServerWorkerDatabaseCoordinator();
     const invokeProtocol = options.invokeProtocol ?? invokeAppServerProtocol;
     this.invokeProtocol = (operation, invokeOptions) => invokeOptions.storage
@@ -736,7 +737,8 @@ export class AppServerHostService {
     const reasoningEffort = request.launch.provider?.reasoningEffort?.trim()
       || providerDefaults?.reasoningEffort;
     const fastMode = request.launch.provider?.fastMode === true;
-    const daybreakBlue = providerId === 'openai-codex';
+    const daybreakMode = providerSettings.daybreakMode ?? 'blue';
+    const daybreakBlue = providerId === 'openai-codex' && daybreakMode === 'blue';
     if (fastMode && providerId !== 'openai-codex') {
       throw new Error('Fast mode is available only when OpenAI is the Lead provider.');
     }
@@ -920,6 +922,7 @@ export class AppServerHostService {
           ...(reasoningEffort ? { reasoningEffort } : {}),
           ...(fastMode ? { fastMode: true } : {}),
           ...(daybreakBlue ? { daybreakBlue: true } : {}),
+          ...(providerId === 'openai-codex' ? { daybreakMode } : {}),
           contextSize: providerSettings.contextSizes?.['openai-codex'] ?? 'default',
           riskAcknowledgements: this.fleetBroker.token(sessionId) && request.launch.brokerRiskAcknowledgements
             ? request.launch.brokerRiskAcknowledgements : providerSettings.riskAcknowledgements,

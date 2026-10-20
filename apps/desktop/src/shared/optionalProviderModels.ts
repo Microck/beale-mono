@@ -17,12 +17,22 @@ export const DAYBREAK_RED_MODEL_ID = 'gpt-daybreak-red-latest';
 export const CLAUDE_FABLE_MODEL_ID = 'claude-fable-5';
 export const CLAUDE_MYTHOS_MODEL_ID = 'claude-mythos-5';
 
+export type DaybreakMode = 'blue' | 'red';
+
+export function daybreakModeFromSettings(
+  settings: Pick<ProviderSettings, 'enabledOptionalModels' | 'disabledOptionalModels'> | null | undefined
+): DaybreakMode {
+  return settings?.enabledOptionalModels?.['openai-codex']?.includes(DAYBREAK_RED_MODEL_ID) === true
+    || settings?.disabledOptionalModels?.['openai-codex']?.includes(DAYBREAK_BLUE_MODEL_ID) === true
+    ? 'red' : 'blue';
+}
+
 export const OPTIONAL_PROVIDER_MODELS = Object.freeze([
   {
     providerId: 'openai-codex',
     modelId: DAYBREAK_BLUE_MODEL_ID,
     name: 'Daybreak Blue',
-    accessNote: 'This model alias follows OpenAI’s default. Daybreak Blue access is requested automatically for OpenAI models; account or API project access is required.',
+    accessNote: 'Available to accounts with Daybreak Blue access. OpenAI requests use this access marker when Blue is selected.',
     enabledByDefault: true
   },
   {
@@ -57,6 +67,9 @@ export function isOptionalProviderModelEnabled(
   providerId: ResearchModelProviderId,
   modelId: string
 ): boolean {
+  if (providerId === 'openai-codex' && (modelId === DAYBREAK_BLUE_MODEL_ID || modelId === DAYBREAK_RED_MODEL_ID)) {
+    return (modelId === DAYBREAK_RED_MODEL_ID) === (daybreakModeFromSettings(settings) === 'red');
+  }
   if (settings?.disabledOptionalModels?.[providerId]?.includes(modelId) === true) return false;
   if (settings?.enabledOptionalModels?.[providerId]?.includes(modelId) === true) return true;
   return OPTIONAL_PROVIDER_MODELS.find((model) => model.providerId === providerId && model.modelId === modelId)?.enabledByDefault === true;
