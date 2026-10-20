@@ -266,7 +266,12 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none;
   padding: 0 0 4px;
+}
+
+.campaign-board-lane-list::-webkit-scrollbar {
+  display: none;
 }
 
 .campaign-board-lane-list > .campaign-board-empty {
@@ -3376,6 +3381,7 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-targets-panel {
+  --settings-view-font-size: 14px;
   align-content: start;
 }
 
@@ -3429,6 +3435,7 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-rules-layout {
+  --settings-view-font-size: 14px;
   width: 100%;
   max-width: var(--session-content-max-width);
   margin-inline: auto;
@@ -3788,6 +3795,7 @@ body.is-resizing-research-side .main-session-grid {
 }
 
 .workspace-research-kit-form {
+  --settings-view-font-size: 14px;
   width: 100%;
   max-width: var(--session-content-max-width);
   margin-inline: auto;
@@ -4809,6 +4817,10 @@ body.is-resizing-research-side .main-session-grid {
   overflow: visible;
 }
 
+.workspace-research-kit-catalog .workspace-surface-item-main > small {
+  font-size: var(--settings-view-font-size);
+}
+
 .workspace-surface-item {
   width: 100%;
   min-height: 86px;
@@ -4819,6 +4831,10 @@ body.is-resizing-research-side .main-session-grid {
   background: color-mix(in srgb, var(--text) 2.8%, transparent);
   color: inherit;
   transition: background 140ms ease;
+}
+
+.workspace-surface-area .workspace-surface-item {
+  font-size: 14px;
 }
 
 .workspace-surface-item:hover,
@@ -4930,6 +4946,22 @@ body.is-resizing-research-side .main-session-grid {
 .workspace-surface-item-main > small {
   color: var(--muted);
   font-size: 0.73rem;
+}
+
+.workspace-surface-area .workspace-surface-item-heading strong,
+.workspace-surface-area .workspace-surface-item-main > :is(strong, small) {
+  font-size: 14px;
+}
+
+.workspace-surface-area .workspace-surface-item-heading strong,
+.workspace-surface-area .workspace-surface-item-main > strong {
+  font-weight: 400;
+}
+
+.workspace-surface-area .workspace-surface-item-heading > span,
+.workspace-surface-area .workspace-surface-item-meta span,
+.workspace-surface-area .workspace-creation-candidate em {
+  font-size: 12px;
 }
 
 .workspace-surface-item-meta {
@@ -14945,14 +14977,20 @@ button.research-goal-choice:focus-visible {
 .general-settings-page .settings-form,
 .profile-settings-page .settings-form,
 .fleet-settings-page .settings-form,
-.provider-settings-page .settings-form {
+.provider-settings-page .settings-form,
+.workspace-research-kit-form,
+.workspace-rules-layout.settings-form,
+.workspace-targets-panel.settings-form {
   font-size: var(--settings-view-font-size);
 }
 
 .general-settings-page .settings-form-heading h2,
 .profile-settings-page .settings-form-heading h2,
 .fleet-settings-page .settings-form-heading h2,
-.provider-settings-page .settings-form-heading h2 {
+.provider-settings-page .settings-form-heading h2,
+.workspace-research-kit-form .settings-form-heading h2,
+.workspace-rules-layout .settings-form-heading h2,
+.workspace-targets-panel .settings-form-heading h2 {
   font-size: 26px;
 }
 
@@ -14961,10 +14999,15 @@ button.research-goal-choice:focus-visible {
 .provider-settings-page .settings-form-control-row,
 .general-settings-page .settings-form-radio-list,
 .profile-settings-page .settings-form-control-row,
+.workspace-research-kit-form .settings-form-control-row,
+.workspace-targets-panel .settings-form-control-row,
 .general-settings-page .settings-form-heading p,
 .fleet-settings-page .settings-form-heading p,
 .profile-settings-page .settings-form-heading p,
-.provider-settings-page .settings-form-heading p {
+.provider-settings-page .settings-form-heading p,
+.workspace-research-kit-form .settings-form-heading p,
+.workspace-rules-layout .settings-form-heading p,
+.workspace-targets-panel .settings-form-heading p {
   font-size: var(--settings-view-font-size);
 }
 
