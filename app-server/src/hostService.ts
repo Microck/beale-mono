@@ -813,9 +813,12 @@ export class AppServerHostService {
         }
       }
     }
-    const loadedPluginRuntime = introspection?.runtimeMode === 'isolated'
-      ? await this.loadIntrospectionPluginRuntime()
-      : await this.resolvePluginRuntime();
+    const [loadedPluginRuntime, workspaceReferences] = await Promise.all([
+      introspection?.runtimeMode === 'isolated'
+        ? this.loadIntrospectionPluginRuntime()
+        : this.resolvePluginRuntime(),
+      this.sameSubjectWorkspaceReferences(workspace, storage)
+    ]);
     const metaSkillDirectory = resolve(builtinPluginPath('meta-skills', 'managed'), 'skills');
     const sourcePluginCatalogPath = loadedPluginRuntime?.pluginCatalogPath;
     const featurePromptOverrides = this.registry.featurePromptOverrides();
@@ -852,7 +855,6 @@ export class AppServerHostService {
             : {})
         }
       : null;
-    const workspaceReferences = await this.sameSubjectWorkspaceReferences(workspace, storage);
     const restartLaunch = restartLaunchDescriptor(request, {
       providerId,
       ...(model ? { model } : {}),

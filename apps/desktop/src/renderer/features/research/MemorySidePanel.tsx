@@ -49,8 +49,6 @@ import { RunbookView } from './RunbookView';
 import { ReportView } from './ReportView';
 import { BrowserSideView } from './BrowserSideView';
 import { FleetBrowserSideView } from './FleetBrowserSideView';
-import { SurfaceTracking } from './SurfaceTracking';
-import { surfaceTrackingView } from '../../view-models/surfaceTracking';
 import { renderInlineCodeText } from '../traces/traceMarkup';
 
 const EMPTY_SUBAGENT_OVERVIEW = { count: 0, activeCount: 0, completedCount: 0 };
@@ -443,10 +441,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const reportLabel = 'Reports';
   const viewSpaceLabel = researchViewSpaceLabel(viewSpace);
   const summaryEvents: readonly TraceEventRecord[] = events.length > 0 ? events : detail?.traceEvents ?? [];
-  const surfaceTracking = useMemo(
-    () => surfaceTrackingView(detail?.traceEvents ?? [], runStatus),
-    [detail?.traceEvents, runStatus]
-  );
   const sessionMemoryNodes = useMemo(
     () => sessionMemoryCatalogNodes(nodes, runId),
     [nodes, runId]
@@ -903,7 +897,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           <section className="session-summary-section session-summary-metadata" aria-label="Session metadata">
             {detail ? <SessionUsageSummary detail={detail} /> : null}
           </section>
-          <SurfaceTracking charts={surfaceTracking.charts} unassignedAgents={surfaceTracking.unassignedAgents} />
           {hasSessionMetadata && (hasSessionResources || hasSessionMemories) ? <hr className="session-summary-divider" /> : null}
           <section className="session-summary-items session-summary-resources" aria-label="Session resources">
             {featureAvailability.collaboration && subagentOverview.count > 0 ? (

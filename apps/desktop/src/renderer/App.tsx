@@ -63,7 +63,7 @@ import { NotificationStack, type WorkspaceAlert } from './features/notifications
 import { WorkspaceSidebar } from './features/workspaces/WorkspaceSidebar';
 import { RemoteFleetSidebar, RemoteFleetWorkspace } from './features/fleet/RemoteFleetWorkspace';
 import { RemoteQuickChatDock, type RemoteQuickChatDescriptor } from './features/fleet/RemoteQuickChatDock';
-import { remoteWorkspaceRegistry } from './features/fleet/remoteFleetProjection';
+import { remoteRunStatus, remoteWorkspaceRegistry } from './features/fleet/remoteFleetProjection';
 import { FleetSidebar, type FleetSelection } from './features/fleet/FleetSidebar';
 import { FleetSettingsView } from './features/settings/FleetSettingsView';
 import { QuickChatDock, type QuickChatDescriptor } from './features/quick-chat/QuickChatDock';
@@ -83,6 +83,7 @@ import {
   ShellApprovalModal
 } from './features/sessions/ShellApprovalModal';
 import { subagentSummaries } from './view-models/subagents';
+import { surfaceTrackingView, type SurfaceTrackingView } from './view-models/surfaceTracking';
 import { SettingsSidebar, SettingsView, settingsSectionHeaderIcon, settingsSectionLabel, type SettingsSection } from './features/settings/SettingsModal';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
 import { useWorkspaceActions, type WorkspaceActionOptions } from './hooks/useWorkspaceActions';
@@ -182,7 +183,18 @@ export function App(): JSX.Element {
   const [remoteCatalogError, setRemoteCatalogError] = useState<string | null>(null);
   const [remoteWorkspaceId, setRemoteWorkspaceId] = useState<string | null>(null);
   const [remoteSessionId, setRemoteSessionId] = useState<string | null>(null);
+  const [remoteSurfaceTracking, setRemoteSurfaceTracking] = useState<{
+    serverId: string; workspaceId: string; sessionId: string; view: SurfaceTrackingView;
+  } | null>(null);
+  const [remoteSelectedSubagentPath, setRemoteSelectedSubagentPath] = useState<string | null>(null);
+  const onRemoteSurfaceTrackingChange = useCallback((serverId: string, workspaceId: string, sessionId: string, view: SurfaceTrackingView | null): void => {
+    setRemoteSurfaceTracking(view ? { serverId, workspaceId, sessionId, view } : null);
+  }, []);
   const [remoteResearchOpen, setRemoteResearchOpen] = useState(false);
+  useEffect(() => {
+    setRemoteSurfaceTracking(null);
+    setRemoteSelectedSubagentPath(null);
+  }, [selectedFleetServerId, remoteWorkspaceId, remoteSessionId]);
   useEffect(() => {
     if (startupPhase !== 'ready') return;
     refreshFleetServerStatuses();
@@ -1571,6 +1583,12 @@ export function App(): JSX.Element {
   const renderedRunDetail = activeRunDetail?.run.id === deferredActiveRunDetail?.run.id
     ? deferredActiveRunDetail
     : activeRunDetail;
+  const localSurfaceTracking = useMemo(() => (
+    !newResearchOpen && !reportsOpen && !workspaceDraft && selectedRunId
+      && activeRunDetail?.run.status === 'active' && renderedRunDetail?.run.id === selectedRunId
+      ? surfaceTrackingView(renderedRunDetail.traceEvents ?? [], 'active')
+      : null
+  ), [newResearchOpen, reportsOpen, workspaceDraft, selectedRunId, activeRunDetail?.run.status, renderedRunDetail]);
   const activeResearchProfile = selectedRunId
     ? activeRunDetail?.researchProfile?.profile ?? null
     : snapshot?.researchProfile.profile ?? null;
@@ -2209,7 +2227,13 @@ export function App(): JSX.Element {
           catalog={remoteCatalog} serverName={selectedFleetServer?.name ?? 'Remote'}
           selectedWorkspaceId={remoteWorkspaceId} selectedSessionId={remoteSessionId}
           automations={automationsOpen} collapsed={sidebarCollapsed} serverSelector={serverSelector}
+          surfaceTracking={remoteSurfaceTracking?.serverId === selectedFleetServerId
+            && remoteSurfaceTracking.workspaceId === remoteWorkspaceId
+            && remoteSurfaceTracking.sessionId === remoteSessionId
+            && !remoteResearchOpen && !automationsOpen && remoteRunStatus(remoteSession?.status ?? '') === 'active'
+            ? remoteSurfaceTracking.view : null}
           onSelect={(workspaceId, sessionId) => { setRemoteWorkspaceId(workspaceId); setRemoteSessionId(sessionId); setRemoteResearchOpen(false); }}
+          onSelectSubagent={setRemoteSelectedSubagentPath}
           onStartNewResearch={(workspaceId) => { setRemoteWorkspaceId(workspaceId); setRemoteSessionId(null); setRemoteResearchOpen(true); }}
           onOpenQuickChat={openSelectedQuickChat}
           onResizePointerDown={beginSidebarResize}
@@ -2257,6 +2281,7 @@ export function App(): JSX.Element {
           workspaceRegistry={workspaceRegistry}
           workspaceRegistryLoading={startupPhase === 'shell' || startupPhase === 'registry'}
           selectedRunId={reportsOpen || automationsOpen || pluginsOpen ? null : selectedRunId}
+          surfaceTracking={localSurfaceTracking}
           workspaceCreationActive={workspaceDraft !== null}
           newResearchActive={newResearchOpen}
           automationsActive={automationsOpen}
@@ -2266,6 +2291,7 @@ export function App(): JSX.Element {
           onImportWorkspace={importWorkspace}
           onOpenWorkspace={openWorkspaceFromSidebar}
           onOpenResearchSession={openResearchSessionFromSidebar}
+          onSelectSubagent={selectSubagent}
           onArchiveSession={archiveResearchSession}
           onResizePointerDown={beginSidebarResize}
           onStartNewResearch={startNewResearch}
@@ -2364,6 +2390,8 @@ export function App(): JSX.Element {
                 serverId={selectedFleetServerId} serverName={selectedFleetServer?.name ?? 'Remote'}
                 catalog={remoteCatalog} workspaceId={remoteWorkspaceId} sessionId={remoteSessionId}
                 newResearchOpen={remoteResearchOpen} automations={automationsOpen} error={remoteCatalogError}
+                selectedSubagentPath={remoteSelectedSubagentPath} onBackToSubagents={() => setRemoteSelectedSubagentPath(null)}
+                onSurfaceTrackingChange={onRemoteSurfaceTrackingChange}
                 onLaunched={(workspaceId, sessionId) => {
                   setRemoteWorkspaceId(workspaceId);
                   setRemoteSessionId(sessionId);

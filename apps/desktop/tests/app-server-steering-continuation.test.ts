@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AppServerRunEngine, steeringContinuationConsumed } from '../src/main/appServerRunEngine';
+import { WorkspaceService } from '../src/main/workspaceService';
 
 interface PendingSteeringHarness {
   requestId: string;
@@ -39,6 +40,36 @@ interface EngineHarness {
 }
 
 describe('app-server steering continuation fallback', () => {
+  it('acknowledges an ended-session follow-up before its new transport is ready', async () => {
+    let continuationRequested = false;
+    const service = Object.create(WorkspaceService.prototype) as WorkspaceService;
+    Object.assign(service, {
+      workspacePath: 'example-workspace',
+      requireRuntimeForRunId: () => ({
+        workspacePath: 'example-workspace',
+        db: {
+          getRun: () => ({ status: 'completed', budget: { runEngine: 'app-server' } }),
+          getRunDetail: () => ({ attempts: [{ id: 'attempt-example' }] })
+        },
+        appServerEngine: {
+          extendRunWhenInactive: () => {
+            continuationRequested = true;
+            return new Promise<boolean>(() => undefined);
+          }
+        }
+      }),
+      emitChange: () => undefined,
+      requireSnapshot: () => ({ accepted: true })
+    });
+
+    const accepted = await Promise.race([
+      service.steerRunForClient({ type: 'steer', runId: 'session-example', instruction: 'Continue the analysis.' }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Follow-up waited for transport.')), 100))
+    ]);
+    expect(continuationRequested).toBe(true);
+    expect(accepted).toEqual({ accepted: true });
+  });
+
   it('requires a later completed root turn before treating accepted steering as consumed', () => {
     expect(steeringContinuationConsumed(3, 3)).toBe(false);
     expect(steeringContinuationConsumed(3, 4)).toBe(true);

@@ -2093,6 +2093,7 @@ export async function main(
     let runtimeConfig: Awaited<ReturnType<typeof createRuntimeConfig>> | undefined;
     try {
       let modelConfig: ResolvedResearchModelConfig | undefined;
+      let resumableStatePromise: ReturnType<typeof loadCompatibleResumeState> | undefined;
       const isCybersecurityRun = !args.mock
         && resolvedResearchProfile.profile.id === "security-research";
       const collaborationConfig = args.collaborationConfigPath
@@ -2101,20 +2102,32 @@ export async function main(
       let preparedRuntimeConfig: PreparedRuntimeConfigInputs | undefined;
       if (!args.mock) {
         hostOptions.reportStartupPhase?.("provider", "Resolving provider settings and workspace context.");
-        modelConfig = await resolveResearchModelConfig({
-          workspaceRoot: args.workspaceRoot,
-          ...(args.configPath ? { configPath: args.configPath } : {}),
-          ...(args.provider ? { provider: args.provider } : {}),
-          ...(args.model ? { model: args.model } : {}),
-          ...(args.reasoning ? { effort: args.reasoning } : {}),
-        });
-        preparedRuntimeConfig = await prepareRuntimeConfigInputs({
-          runtimeTools: args.runtimeTools,
-          workspaceRoot: args.workspaceRoot,
-          resolvedResearchProfile,
-          workflowId: workflow.id,
-          ...(args.sessionId ? { sessionId: args.sessionId } : {}),
-        });
+        [modelConfig, preparedRuntimeConfig] = await Promise.all([
+          resolveResearchModelConfig({
+            workspaceRoot: args.workspaceRoot,
+            ...(args.configPath ? { configPath: args.configPath } : {}),
+            ...(args.provider ? { provider: args.provider } : {}),
+            ...(args.model ? { model: args.model } : {}),
+            ...(args.reasoning ? { effort: args.reasoning } : {}),
+          }).then((resolvedModelConfig) => {
+            if (args.resumeCapturePath) {
+              resumableStatePromise = loadCompatibleResumeState(
+                args.resumeCapturePath,
+                resolvedModelConfig,
+                resolvedResearchProfile.hash,
+                workflow.id,
+              );
+            }
+            return resolvedModelConfig;
+          }),
+          prepareRuntimeConfigInputs({
+            runtimeTools: args.runtimeTools,
+            workspaceRoot: args.workspaceRoot,
+            resolvedResearchProfile,
+            workflowId: workflow.id,
+            ...(args.sessionId ? { sessionId: args.sessionId } : {}),
+          }),
+        ]);
         validateCybersecurityRunPreflight(
           args,
           modelConfig,
@@ -2237,14 +2250,7 @@ export async function main(
       if (args.mock) {
         agentExecutor = createDeterministicAgentExecutor();
       } else {
-        resumableState = args.resumeCapturePath
-          ? await loadCompatibleResumeState(
-              args.resumeCapturePath,
-              modelConfig!,
-              resolvedResearchProfile.hash,
-              workflow.id,
-            )
-          : undefined;
+        resumableState = await resumableStatePromise;
         if (resumableState) effectivePrompt = args.prompt;
         agentExecutor = createRealAgentExecutor(
           args,

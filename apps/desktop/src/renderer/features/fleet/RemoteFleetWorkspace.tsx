@@ -6,7 +6,10 @@ import { ResearchSettingsForm } from '../sessions/StartRunForm';
 import { WorkspaceSidebar } from '../workspaces/WorkspaceSidebar';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { FleetBrowserSideView } from '../research/FleetBrowserSideView';
+import { SubagentDetailPanel } from '../research/MemorySidePanel';
 import { buildTraceDisplayEventsForAgentPath } from '../../view-models/traceDisplay';
+import { subagentSummaries } from '../../view-models/subagents';
+import { surfaceTrackingView, type SurfaceTrackingView } from '../../view-models/surfaceTracking';
 import { mergeRemoteSessionHistory, remoteRunDetail, remoteRunStatus, remoteSessionHistoryPage, remoteWorkspaceRegistry } from './remoteFleetProjection';
 import type { RemoteSessionHistoryPage } from './remoteFleetProjection';
 import { RemoteWorkspaceDetails } from './RemoteWorkspaceDetails';
@@ -19,7 +22,7 @@ interface RemoteGoalState {
   errors: ResearchGoalSuggestionStateByPhase<string | null>;
 }
 
-export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, selectedSessionId, automations, collapsed, serverSelector, onSelect, onStartNewResearch, onOpenQuickChat, onResizePointerDown }: {
+export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, selectedSessionId, automations, collapsed, serverSelector, surfaceTracking, onSelect, onSelectSubagent, onStartNewResearch, onOpenQuickChat, onResizePointerDown }: {
   catalog: FleetRemoteCatalog | null;
   serverName: string;
   selectedWorkspaceId: string | null;
@@ -27,7 +30,9 @@ export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, s
   automations: boolean;
   collapsed: boolean;
   serverSelector: ReactNode;
+  surfaceTracking?: SurfaceTrackingView | null;
   onSelect: (workspaceId: string, sessionId: string | null) => void;
+  onSelectSubagent?: (path: string) => void;
   onStartNewResearch: (workspaceId: string) => void;
   onOpenQuickChat: () => void;
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -43,6 +48,7 @@ export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, s
     workspaceRegistry={registry}
     workspaceRegistryLoading={!catalog}
     selectedRunId={selectedSessionId}
+    surfaceTracking={surfaceTracking}
     selectedWorkspaceId={selectedWorkspaceId}
     snapshot={null}
     automationsActive={automations}
@@ -51,6 +57,7 @@ export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, s
     onImportWorkspace={() => undefined}
     onOpenWorkspace={(workspace) => onSelect(workspace.workspaceId, null)}
     onOpenResearchSession={(workspace, session) => onSelect(workspace.workspaceId, session.runId)}
+    onSelectSubagent={onSelectSubagent}
     onResizePointerDown={onResizePointerDown}
     onStartNewResearch={() => selectedWorkspaceId && onStartNewResearch(selectedWorkspaceId)}
     onStartNewResearchForWorkspace={(workspace) => onStartNewResearch(workspace.workspaceId)}
@@ -58,7 +65,7 @@ export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, s
   />;
 }
 
-export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceId, sessionId, newResearchOpen, automations, error, onLaunched }: {
+export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceId, sessionId, newResearchOpen, automations, error, selectedSubagentPath = null, onBackToSubagents = () => undefined, onLaunched, onSurfaceTrackingChange }: {
   serverId: string;
   serverName: string;
   catalog: FleetRemoteCatalog | null;
@@ -67,7 +74,10 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   newResearchOpen: boolean;
   automations: boolean;
   error: string | null;
+  selectedSubagentPath?: string | null;
+  onBackToSubagents?: () => void;
   onLaunched: (workspaceId: string, sessionId: string) => void;
+  onSurfaceTrackingChange?: (serverId: string, workspaceId: string, sessionId: string, view: SurfaceTrackingView | null) => void;
 }): JSX.Element {
   const [detail, setDetail] = useState<unknown>(null);
   const [workspaceDetails, setWorkspaceDetails] = useState<BealeAppServerWorkspaceDetails | null>(null);
@@ -88,6 +98,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   const browserOpen = browserSelection === `${serverId}:${sessionId ?? ''}`;
   const showingWorkspaceDetails = Boolean(workspaceId && !sessionId && !newResearchOpen && !automations);
   useEffect(() => { setBrowserSelection(null); }, [serverId, sessionId]);
+  useEffect(() => { if (selectedSubagentPath) setBrowserSelection(null); }, [selectedSubagentPath]);
   useEffect(() => {
     setWorkspaceDetails(null);
     setWorkspaceDetailsError(null);
@@ -156,6 +167,24 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   const runDetail = useMemo(() => remoteRunDetail(mergedDetail), [mergedDetail]);
   const events = useMemo(() => runDetail ? buildTraceDisplayEventsForAgentPath(runDetail, null) : [], [runDetail]);
   const runStatus = runDetail?.run.status ?? remoteRunStatus(session?.status ?? '');
+  const selectedSubagent = useMemo(() => {
+    if (!runDetail || !selectedSubagentPath) return null;
+    return subagentSummaries(runDetail.traceEvents ?? [], runStatus, 'commentary')
+      .find((agent) => agent.path === selectedSubagentPath) ?? {
+      path: selectedSubagentPath,
+      name: selectedSubagentPath.split('/').at(-1) ?? selectedSubagentPath,
+      provider: null,
+      model: null,
+      status: 'unknown' as const
+    };
+  }, [runDetail, runStatus, selectedSubagentPath]);
+  const selectedSubagentEvents = useMemo(() => runDetail && selectedSubagentPath
+    ? buildTraceDisplayEventsForAgentPath(runDetail, selectedSubagentPath) : [], [runDetail, selectedSubagentPath]);
+  const surfaceTracking = useMemo(() => sessionId && runDetail?.run.id === sessionId && runStatus === 'active'
+    ? surfaceTrackingView(runDetail.traceEvents ?? [], runStatus) : null, [runDetail, runStatus, sessionId]);
+  useEffect(() => {
+    if (workspaceId && sessionId) onSurfaceTrackingChange?.(serverId, workspaceId, sessionId, surfaceTracking);
+  }, [onSurfaceTrackingChange, serverId, workspaceId, sessionId, surfaceTracking]);
   const loadGoalSuggestions = (phase: string, refresh = false): void => {
     if (!workspaceId || !refresh && visibleGoalState.loading[phase]) return;
     const key = suggestionKey;
@@ -249,13 +278,16 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
         {controlError ? <p className="settings-form-error" role="alert">{controlError}</p> : null}
         {browserAvailable ? <div className="remote-fleet-view-switch" aria-label="Remote session view">
           <button type="button" className="secondary-button" aria-pressed={!browserOpen} onClick={() => setBrowserSelection(null)}>Commentary</button>
-          <button type="button" className="secondary-button" aria-pressed={browserOpen} onClick={() => setBrowserSelection(`${serverId}:${sessionId ?? ''}`)}>Browser</button>
+          <button type="button" className="secondary-button" aria-pressed={browserOpen} onClick={() => {
+            onBackToSubagents();
+            setBrowserSelection(`${serverId}:${sessionId ?? ''}`);
+          }}>Browser</button>
           {runStatus === 'active' ? <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => void control('pause')}>Pause</button> : null}
           {runStatus === 'paused' ? <button type="button" className="secondary-button" disabled={controlBusy} onClick={() => void control('resume')}>Resume</button> : null}
         </div> : null}
-        {browserAvailable && browserOpen && sessionId ? <div className="remote-fleet-browser">
+        {browserAvailable && browserOpen && sessionId && !selectedSubagent ? <div className="remote-fleet-browser">
           <FleetBrowserSideView runId={sessionId} remoteServerId={serverId} visible />
-        </div> : <div className="main-session-grid session-main-only" data-session-view-state="session">
+        </div> : <div className={`main-session-grid ${selectedSubagent ? 'research-details-open' : 'session-main-only'}`} data-session-view-state="session">
           <CommentaryView
             busy={controlBusy}
             detail={runDetail}
@@ -287,6 +319,16 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
             }}
             onSteerInstruction={(_runId, instruction) => void control(runStatus === 'paused' ? 'resume' : 'steer', instruction)}
           />
+          {selectedSubagent && sessionId ? (
+            <>
+              <div className="research-side-resize-handle" aria-hidden="true" />
+              <div className="research-side-column">
+                <SubagentDetailPanel detail={runDetail} events={selectedSubagentEvents}
+                  providerModelCatalog={providerCatalog} runId={sessionId} subagent={selectedSubagent}
+                  backLabel="Session" onBack={onBackToSubagents} />
+              </div>
+            </>
+          ) : null}
         </div>}
       </> : workspace && !automations && newResearchOpen ? <>
         {launchError ? <p className="settings-form-error remote-research-error" role="alert">{launchError}</p> : null}

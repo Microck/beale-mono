@@ -18,6 +18,7 @@ export interface SurfaceTrackingSegment {
   id: string;
   name: string;
   label: string;
+  ancestorNames: string[];
   depth: number;
   startAngle: number;
   endAngle: number;
@@ -39,8 +40,8 @@ export interface SurfaceTrackingView { charts: SurfaceTrackingChart[]; unassigne
 interface FocusState { path: string; trail: SurfaceTrailNode[]; active: boolean }
 interface TreeNode extends SurfaceTrailNode { children: Map<string, TreeNode> }
 
-const RING_STEP = 28;
-const RING_START = 30;
+const RING_STEP = 18;
+const RING_START = 25;
 
 /** Read-only location from compact trace scaffolds; no tool output body is required. */
 export function surfaceTrackingCharts(events: readonly TraceEventRecord[], runStatus: RunStatus | null): SurfaceTrackingChart[] {
@@ -58,7 +59,7 @@ export function surfaceTrackingView(events: readonly TraceEventRecord[], runStat
   const charts = [...byRoot.entries()].map(([rootId, focused]) => layoutChart(rootId, focused))
     .sort((left, right) => left.rootName.localeCompare(right.rootName) || left.rootId.localeCompare(right.rootId));
   const unassignedAgents = [...states.values()]
-    .filter((state) => state.active && state.trail.length === 0)
+    .filter((state) => state.active && state.trail.length === 0 && state.path !== '/root')
     .map((state) => ({ path: state.path, label: agentLabel(state.path), shadePercent: agentShade(state.path) }))
     .sort((left, right) => left.path.localeCompare(right.path));
   return { charts, unassignedAgents };
@@ -71,7 +72,6 @@ export function unassignedSurfaceAgents(events: readonly TraceEventRecord[], run
 function focusStates(events: readonly TraceEventRecord[], runStatus: RunStatus | null): Map<string, FocusState> {
   const states = new Map<string, FocusState>();
   if (runStatus !== 'active') return states;
-  states.set('/root', { path: '/root', trail: [], active: true });
   for (const event of [...events].sort((left, right) => left.sequence - right.sequence)) {
     const payload = event.payload;
     const nested = record(payload.payload);
@@ -113,7 +113,7 @@ function layoutChart(rootId: string, focused: FocusState[]): SurfaceTrackingChar
   }
   const segments: SurfaceTrackingSegment[] = [];
   const angles = new Map<string, { depth: number; middle: number }>([[rootId, { depth: 0, middle: -90 }]]);
-  const visit = (parent: TreeNode, depth: number, start: number, end: number, parentLabel: string): void => {
+  const visit = (parent: TreeNode, depth: number, start: number, end: number, ancestorNames: string[]): void => {
     const children = [...parent.children.values()].sort((left, right) =>
       left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
     const slice = (end - start) / Math.max(1, children.length);
@@ -123,13 +123,13 @@ function layoutChart(rootId: string, focused: FocusState[]): SurfaceTrackingChar
       const childEnd = start + (index + 1) * slice - gap / 2;
       const radius = RING_START + (depth - 1) * RING_STEP;
       angles.set(child.id, { depth, middle: (childStart + childEnd) / 2 });
-      const label = `${parentLabel} / ${child.name}`;
-      segments.push({ id: child.id, name: child.name, label, depth, startAngle: childStart,
+      const label = [...ancestorNames, child.name].join(' / ');
+      segments.push({ id: child.id, name: child.name, label, ancestorNames, depth, startAngle: childStart,
         endAngle: childEnd, radius, path: arcPath(radius, childStart, childEnd) });
-      visit(child, depth + 1, childStart, childEnd, label);
+      visit(child, depth + 1, childStart, childEnd, [...ancestorNames, child.name]);
     });
   };
-  visit(root, 1, -90, 270, root.name);
+  visit(root, 1, -90, 270, [root.name]);
 
   const occupants = new Map<string, FocusState[]>();
   for (const agent of focused) {
@@ -142,17 +142,19 @@ function layoutChart(rootId: string, focused: FocusState[]): SurfaceTrackingChar
     const angle = degreesToRadians(location.middle);
     const tangent = { x: -Math.sin(angle), y: Math.cos(angle) };
     return group.sort((left, right) => left.path.localeCompare(right.path)).map((agent, index) => {
-      const offset = (index - (group.length - 1) / 2) * Math.min(11, 5 + group.length);
+      const offset = (index - (group.length - 1) / 2) * Math.min(8, 5 + group.length);
       return { path: agent.path, label: agentLabel(agent.path),
         surfaceId, surfaceDepth: location.depth, shadePercent: agentShade(agent.path),
         x: Math.cos(angle) * radius + tangent.x * offset,
         y: Math.sin(angle) * radius + tangent.y * offset,
-        radius: Math.min(9, 5 + (group.length - 1) * 1.2), countOnSurface: group.length };
+        radius: Math.min(5.5, 3.5 + (group.length - 1) * 0.6), countOnSurface: group.length };
     });
   });
   agents.sort((left, right) => left.path.localeCompare(right.path));
   const maxDepth = Math.max(0, ...segments.map((segment) => segment.depth));
-  const outerRadius = maxDepth === 0 ? 40 : RING_START + (maxDepth - 1) * RING_STEP + 22;
+  const ringRadius = maxDepth === 0 ? 0 : RING_START + (maxDepth - 1) * RING_STEP;
+  const occupiedRadius = Math.max(0, ...agents.map((agent) => Math.hypot(agent.x, agent.y) + agent.radius));
+  const outerRadius = Math.ceil(Math.max(21, ringRadius + 10, occupiedRadius + 4));
   return { rootId, rootName: root.name, size: outerRadius * 2, segments, agents };
 }
 

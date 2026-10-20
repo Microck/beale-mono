@@ -3872,17 +3872,14 @@ export class WorkspaceService {
   }
 
   public steerRun(action: SteeringAction): WorkspaceSnapshot | Promise<WorkspaceSnapshot> {
-    return this.applySteeringAction(action, false);
+    return this.applySteeringAction(action);
   }
 
   public async steerRunForClient(action: SteeringAction): Promise<WorkspaceSnapshot> {
-    return await this.applySteeringAction(action, true);
+    return await this.applySteeringAction(action);
   }
 
-  private applySteeringAction(
-    action: SteeringAction,
-    waitForContinuationTransport: boolean
-  ): WorkspaceSnapshot | Promise<WorkspaceSnapshot> {
+  private applySteeringAction(action: SteeringAction): WorkspaceSnapshot | Promise<WorkspaceSnapshot> {
     if (action.type === 'review_shell_command') {
       if (typeof action.workspacePath !== 'string' || !action.workspacePath.trim()) {
         throw new Error('Shell approval review requires an originating workspace path.');
@@ -3903,7 +3900,6 @@ export class WorkspaceService {
     }
     const attempt = db.getRunDetail(action.runId).attempts.at(-1) ?? null;
     const runEngine = stringFromRecord(run.budget, 'runEngine');
-    let continuationTransportReady: Promise<boolean> | null = null;
 
     switch (action.type) {
       case 'pause': {
@@ -4022,17 +4018,10 @@ export class WorkspaceService {
                 // The workspace may have closed while the detached continuation was waiting.
               }
             };
-            const continuation = runtime.appServerEngine.extendRunWhenInactive(action.runId, instruction);
-            if (waitForContinuationTransport) {
-              continuationTransportReady = continuation.catch((error: unknown) => {
-                reportContinuationFailure(error);
-                throw error;
-              });
-            } else {
-              void continuation.catch(reportContinuationFailure);
-            }
+            void runtime.appServerEngine.extendRunWhenInactive(action.runId, instruction)
+              .catch(reportContinuationFailure);
           } else {
-            continuationTransportReady = runtime.appServerEngine.extendRun(action.runId, instruction).transportReady;
+            runtime.appServerEngine.extendRun(action.runId, instruction);
           }
           break;
         }
@@ -4305,16 +4294,6 @@ export class WorkspaceService {
       }
     }
 
-    if (waitForContinuationTransport && continuationTransportReady) {
-      return continuationTransportReady.then(() => {
-        if (runtime.workspacePath === this.workspacePath) {
-          this.emitChangeNow();
-          return this.requireSnapshot();
-        }
-        this.emitRuntimeChange(runtime.workspacePath, { workspaceRegistryChanged: true });
-        return this.snapshotForRuntime(runtime);
-      });
-    }
     if (runtime.workspacePath === this.workspacePath) {
       this.emitChange();
       return this.requireSnapshot();

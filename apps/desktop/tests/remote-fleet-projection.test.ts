@@ -35,7 +35,16 @@ test('remote workspaces and sessions use the standard sidebar hierarchy', () => 
     automations: false,
     collapsed: false,
     serverSelector: null,
+    surfaceTracking: {
+      charts: [{
+        rootId: 'asset-example', rootName: 'Example service', size: 70, segments: [],
+        agents: [{ path: '/root/scout', label: 'scout', surfaceId: 'asset-example',
+          surfaceDepth: 0, shadePercent: 67, x: 0, y: 0, radius: 3.5, countOnSurface: 1 }]
+      }],
+      unassignedAgents: []
+    },
     onSelect: () => undefined,
+    onSelectSubagent: () => undefined,
     onStartNewResearch: () => undefined,
     onOpenQuickChat: () => undefined,
     onResizePointerDown: () => undefined
@@ -45,6 +54,7 @@ test('remote workspaces and sessions use the standard sidebar hierarchy', () => 
   expect(html).toContain('ExampleCo Research');
   expect(html).toContain('Inspect example service');
   expect(html).toContain('Quick Chat');
+  expect(html).toContain('aria-label="Open scout subagent"');
 });
 
 test('remote workspace details render the workspace dashboard from the shared details DTO', () => {

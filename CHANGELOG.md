@@ -6,7 +6,7 @@
 
 #### Added
 
-- Session summaries now show a read-only radial surface-focus map for active agents, with unassigned dots when no focus is recorded. Occupied child surfaces split each ring, agent depth controls dot shade, and dots animate between focused layers.
+- Active sessions show a compact radial surface-focus map beneath the scrolling left sidebar list, including while a browser is open. A divider appears when a mapped surface is available; the main agent's focused surface, or the first focused subagent surface, appears with its asset and parent path beside the closely spaced thin-ring diagram. Agent dots animate between focused layers, and selecting a subagent dot opens its details in the expanded right sidebar.
 - Finding details now show an evidence-maturity-preserving progress blocker and associated surface IDs. The updated Fleet claim projection requires rebuilt Beale and app-server clients.
 - Fleet App Server details show a scannable pairing QR code for the local or a saved app server. Closing the preview clears the image from the view.
 - The sidebar app-server selector shows green, red, or orange connection status dots and has an Add an App Server action that opens the Fleet form. A client-neutral Fleet status read checks remote peers without exposing their credentials. Control contract timestamp updated; rebuild Desktop and app-server together.
@@ -187,6 +187,8 @@
 
 #### Fixed
 
+- Surface tracking no longer shows a detached main-agent dot before the agent records a surface focus.
+- Continuing a completed Desktop session now returns the accepted follow-up immediately while its hosted attempt reconnects, so the composer no longer waits for the new WebSocket transport.
 - Desktop session commentary continues polling through app-server recovery and drains multiple bounded event pages at one session revision, so live updates resume after a provider transport interruption.
 - Reset to Default in Agent Prompt now rejects an outdated app-server default containing `{{goal}}` and reloads the current template after clearing an override. The updated control contract requires matching rebuilt Desktop and app-server binaries.
 - New Research retries failed or stalled target reads, including when opened from Schedule a Job, before reporting Targets unavailable.
@@ -1372,6 +1374,7 @@
 #### Fixed
 
 - Workspace-scoped Fleet reads and Local target selection no longer wait for VM discovery when the workspace has no VM targets.
+- Hosted continuations load compatible model state alongside workspace and tool preparation, reducing serial startup work before the agent resumes.
 - Timed-out shell commands now return even when a descendant retains their output pipes after the direct child exits. Expired concurrency leases from stopped workers are reclaimed.
 - OpenAI subscription limits now resolve the installed Codex Desktop executable on Windows when it is absent from the app-server PATH.
 - xAI subscription limits now show 0% used when its billing response omits the zero-valued usage field but reports a current weekly or monthly period. The billing probe sends the Grok CLI OAuth routing header.
