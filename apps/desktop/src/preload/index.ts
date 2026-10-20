@@ -243,6 +243,15 @@ const api: BealeApi = {
   getPromptTemplateSettings(profileId: ResearchProfileId): Promise<{ template: string; defaultTemplate: string; overridden: boolean }> {
     return ipcRenderer.invoke(IPC_CHANNELS.getPromptTemplateSettings, profileId);
   },
+  getFeaturePromptSettings(): Promise<Record<string, import('@shared/types').FeaturePromptSettings>> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getFeaturePromptSettings);
+  },
+  setFeaturePromptSettings(featureId: string, description: string, promptExtension: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setFeaturePromptSettings, featureId, description, promptExtension);
+  },
+  resetFeaturePromptSettings(featureId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.resetFeaturePromptSettings, featureId);
+  },
   setPromptTemplate(profileId: ResearchProfileId, template: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.setPromptTemplate, profileId, template);
   },

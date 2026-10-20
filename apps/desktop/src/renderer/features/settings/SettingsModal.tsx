@@ -6,6 +6,7 @@ import { Archive, ArchiveRestore, FileText, KeyRound, MessageSquare, Palette, Pl
 import { OPTIONAL_AGENT_FEATURES } from '../../../shared/optionalAgentFeatures';
 import type {
   AgentPluginRegistryState,
+  FeaturePromptSettings,
   AppServerRemoteAccessSettings,
   AppServerRemoteAccessUpdate,
   OpenAiAccountStatus,
@@ -787,7 +788,7 @@ export function AppearanceSettingsView({
 }
 
 const PROMPT_VARIABLES = [
-  'identity', 'style', 'boundary', 'tools', 'features', 'plugins', 'collaboration', 'goal', 'memory', 'claims', 'runbooks',
+  'identity', 'style', 'boundary', 'tools', 'features', 'plugins', 'collaboration', 'goal', 'prompt_extensions',
   'profile.id', 'profile.name'
 ] as const;
 
@@ -1114,41 +1115,110 @@ export function OptionalFeaturesSettingsView({
   error: string | null;
   onSetEnabled: (pluginId: string, enabled: boolean) => void;
 }): JSX.Element {
+  const [selectedId, setSelectedId] = useState<string>(OPTIONAL_AGENT_FEATURES[0].id);
+  const [settings, setSettings] = useState<Record<string, FeaturePromptSettings> | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, { description: string; promptExtension: string }>>({});
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.beale.getFeaturePromptSettings().then((loaded) => {
+      if (cancelled) return;
+      setSettings(loaded);
+      setDrafts(Object.fromEntries(Object.entries(loaded).map(([id, value]) => [id,
+        { description: value.description, promptExtension: value.promptExtension }])));
+    }).catch((cause: unknown) => {
+      if (!cancelled) setEditError(cause instanceof Error ? cause.message : String(cause));
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const selectedFeature = OPTIONAL_AGENT_FEATURES.find((feature) => feature.id === selectedId) ?? OPTIONAL_AGENT_FEATURES[0];
+  const selectedPromptId = selectedFeature.id === 'beale-introspection' ? 'beale-introspection-builtin' : selectedFeature.id;
+  const selectedPlugin = pluginState?.plugins.find((candidate) => candidate.id === `${selectedFeature.id}-builtin`);
+  const unavailable = !selectedPlugin || selectedPlugin.status !== 'ready';
+  const saved = settings?.[selectedPromptId];
+  const draft = drafts[selectedPromptId] ?? { description: saved?.description ?? '', promptExtension: saved?.promptExtension ?? '' };
+  const changed = Boolean(saved && (draft.description !== saved.description || draft.promptExtension !== saved.promptExtension));
+  const updateDraft = (update: Partial<typeof draft>): void => setDrafts((current) => ({
+    ...current, [selectedPromptId]: { ...draft, ...update }
+  }));
+  const refreshSettings = async (): Promise<void> => {
+    const loaded = await window.beale.getFeaturePromptSettings();
+    setSettings(loaded);
+    setDrafts((current) => ({ ...current, [selectedPromptId]: {
+      description: loaded[selectedPromptId]?.description ?? '',
+      promptExtension: loaded[selectedPromptId]?.promptExtension ?? ''
+    } }));
+  };
+  const save = async (): Promise<void> => {
+    setEditBusy(true);
+    try {
+      await window.beale.setFeaturePromptSettings(selectedPromptId, draft.description, draft.promptExtension);
+      await refreshSettings();
+      setEditError(null);
+    } catch (cause) {
+      setEditError(cause instanceof Error ? cause.message : String(cause));
+    } finally { setEditBusy(false); }
+  };
+  const reset = async (): Promise<void> => {
+    setEditBusy(true);
+    try {
+      await window.beale.resetFeaturePromptSettings(selectedPromptId);
+      await refreshSettings();
+      setEditError(null);
+    } catch (cause) {
+      setEditError(cause instanceof Error ? cause.message : String(cause));
+    } finally { setEditBusy(false); }
+  };
+
   return (
     <div className="settings-page general-settings-page optional-features-settings-page">
       <section className="settings-form" aria-busy={loading || busy}>
         <header className="settings-form-heading">
           <h2>Optional Features</h2>
-          <p>Choose which built-in research capabilities are available to new sessions and continuations.</p>
+          <p>Choose built-in capabilities and edit the text they add to new sessions and continuations.</p>
         </header>
-        <fieldset className="settings-form-squircle" aria-label="Optional features">
-          {!pluginState && !error ? (
-            <CenteredLoadingState label="Loading optional features…" />
-          ) : (
-            <div className="settings-form-control-list">
-              {OPTIONAL_AGENT_FEATURES.map((feature) => {
-                const plugin = pluginState?.plugins.find((candidate) => candidate.id === `${feature.id}-builtin`);
-                const unavailable = !plugin || plugin.status !== 'ready';
-                return (
-                  <label className="settings-form-control-row" key={feature.id}>
-                    <span className="settings-form-control-copy">
-                      <strong>{feature.name}</strong>
-                      <small>{unavailable ? `${feature.description} Unavailable in this installation.` : feature.description}</small>
-                    </span>
-                    <input
-                      type="checkbox"
-                      aria-label={`Enable ${feature.name}`}
-                      checked={plugin?.enabled ?? false}
-                      disabled={loading || busy || unavailable}
-                      onChange={(event) => plugin && onSetEnabled(plugin.id, event.currentTarget.checked)}
-                    />
-                  </label>
-                );
-              })}
+        <div className="optional-features-tab-row research-side-view-tabs research-side-view-tabs-scrollable pill-view-tabs" role="tablist" aria-label="Optional feature views">
+          {OPTIONAL_AGENT_FEATURES.map((feature) => <div
+            className={`research-side-view-tab provider-settings-tab ${selectedFeature.id === feature.id ? 'active' : ''}`.trim()}
+            key={feature.id}>
+            <button type="button" className="research-side-view-tab-activate" role="tab"
+              id={`optional-feature-tab-${feature.id}`} aria-selected={selectedFeature.id === feature.id}
+              aria-controls="optional-feature-panel" onClick={() => setSelectedId(feature.id)}>{feature.name}</button>
+          </div>)}
+        </div>
+        <div id="optional-feature-panel" role="tabpanel" aria-labelledby={`optional-feature-tab-${selectedFeature.id}`}
+          className="optional-feature-panel">
+          <label className="settings-form-control-row optional-feature-enabled-row">
+            <span className="settings-form-control-copy"><strong>Enabled</strong>
+              <small>{unavailable ? 'Unavailable in this installation.' : `Make ${selectedFeature.name} tools available to sessions.`}</small></span>
+            <input type="checkbox" aria-label={`Enable ${selectedFeature.name}`} checked={selectedPlugin?.enabled ?? false}
+              disabled={loading || busy || unavailable}
+              onChange={(event) => selectedPlugin && onSetEnabled(selectedPlugin.id, event.currentTarget.checked)} />
+          </label>
+          {saved ? <>
+            <label className="optional-feature-field"><strong>Description in {'{{features}}'}</strong>
+              <small>Shown beside this feature in the agent's internal feature catalog.</small>
+              <textarea aria-label={`${selectedFeature.name} feature description`} maxLength={240} rows={3}
+                value={draft.description} disabled={editBusy} onChange={(event) => updateDraft({ description: event.currentTarget.value })} />
+            </label>
+            <label className="optional-feature-field"><strong>Prompt extension</strong>
+              <small>Included through {'{{prompt_extensions}}'} while this feature is enabled.</small>
+              <textarea aria-label={`${selectedFeature.name} prompt extension`} maxLength={24000} rows={12}
+                value={draft.promptExtension} disabled={editBusy} onChange={(event) => updateDraft({ promptExtension: event.currentTarget.value })} />
+            </label>
+            <div className="optional-feature-actions">
+              <span>{changed ? 'Unsaved changes' : saved.overridden ? 'Custom prompt saved' : 'Using defaults'}</span>
+              <button type="button" onClick={() => updateDraft({ description: saved.description, promptExtension: saved.promptExtension })}
+                disabled={editBusy || !changed}>Discard</button>
+              <button type="button" onClick={() => void reset()} disabled={editBusy || !saved.overridden}>Reset to Default</button>
+              <button type="button" onClick={() => void save()} disabled={editBusy || !changed}>Save</button>
             </div>
-          )}
-          {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
-        </fieldset>
+          </> : !editError ? <CenteredLoadingState label="Loading feature prompt settings…" /> : null}
+          {error || editError ? <p className="settings-form-error" role="alert">{error ?? editError}</p> : null}
+        </div>
       </section>
     </div>
   );

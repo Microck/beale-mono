@@ -906,6 +906,18 @@ export class WorkspaceService {
     this.getWorkspaceRegistry().resetPromptTemplate(profileId);
   }
 
+  public getFeaturePromptSettings(): Record<string, import('../shared/types').FeaturePromptSettings> {
+    return this.getWorkspaceRegistry().getFeaturePromptSettings();
+  }
+
+  public setFeaturePromptSettings(featureId: string, description: string, promptExtension: string): void {
+    this.getWorkspaceRegistry().setFeaturePromptSettings(featureId, description, promptExtension);
+  }
+
+  public resetFeaturePromptSettings(featureId: string): void {
+    this.getWorkspaceRegistry().resetFeaturePromptSettings(featureId);
+  }
+
   public async previewPromptTemplate(profileId: ResearchProfileId, template: string, agentPath?: string): Promise<string> {
     const plugins = this.getAgentPluginRegistry().getState().plugins;
     const fallbackCatalog: ResearchPluginCatalogEntry[] = plugins

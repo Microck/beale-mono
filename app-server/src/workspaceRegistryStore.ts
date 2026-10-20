@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { applyDatabaseMigrations, bundledResearchProfile, createResearchSystemPrompt, defaultResearchSystemPromptTemplate, validateResearchSystemPromptTemplate, type ResearchPluginCatalogEntry } from '@beale/research-agent';
+import { applyDatabaseMigrations, applyFeaturePromptOverrides, bundledResearchProfile, createResearchSystemPrompt, decodeFeaturePromptOverrides, defaultFeaturePromptSettings, defaultResearchSystemPromptTemplate, validateResearchSystemPromptTemplate, type ResearchPluginCatalogEntry } from '@beale/research-agent';
 import {
   DEFAULT_MEMORY_TYPE_DESCRIPTIONS,
   MEMORY_NODE_TYPES,
@@ -30,6 +30,7 @@ const SHELL_UTILITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/u;
 const MAX_MEMORY_TYPE_DESCRIPTION_CHARACTERS = 4_000;
 const MAX_MEMORY_TYPE_DESCRIPTIONS_JSON_CHARACTERS = 64_000;
 const DEFAULT_RESEARCH_PROFILE_ID: ResearchProfileId = 'security-research';
+export const FEATURE_PROMPT_SETTINGS_KEY = 'feature_prompt_settings';
 
 function defaultWorkspaceRegistryDirectory(): string {
   return process.env.BEALE_WORKSPACE_REGISTRY_DIR?.trim() || join(homedir(), '.beale');
@@ -75,6 +76,42 @@ export class WorkspaceRegistry {
     this.deleteMeta(`prompt_template_${profileId}`);
   }
 
+  public getFeaturePromptSettings(): Record<string, import('@beale/research-agent').FeaturePromptSettings> {
+    const defaults = defaultFeaturePromptSettings(bundledResearchProfile('security-research'));
+    const overrides = this.featurePromptOverrides();
+    return Object.fromEntries(Object.entries(defaults).map(([id, setting]) => [id, overrides[id]
+      ? { ...setting, ...overrides[id], overridden: true }
+      : setting]));
+  }
+
+  public featurePromptOverrides(): import('@beale/research-agent').FeaturePromptOverrides {
+    const stored = this.getMeta(FEATURE_PROMPT_SETTINGS_KEY);
+    return stored ? decodeFeaturePromptOverrides(JSON.parse(stored) as unknown) : {};
+  }
+
+  public setFeaturePromptSettings(featureId: string, description: string, promptExtension: string): void {
+    const defaults = defaultFeaturePromptSettings(bundledResearchProfile('security-research'))[featureId];
+    if (!defaults) throw new Error(`Unknown harness feature: ${featureId}.`);
+    const overrides = this.featurePromptOverrides();
+    const setting = {
+      ...(description !== defaults.defaultDescription ? { description } : {}),
+      ...(promptExtension !== defaults.defaultPromptExtension ? { promptExtension } : {}),
+    };
+    if (Object.keys(setting).length) overrides[featureId] = setting;
+    else delete overrides[featureId];
+    const next = decodeFeaturePromptOverrides(overrides);
+    if (Object.keys(next).length) this.setMeta(FEATURE_PROMPT_SETTINGS_KEY, JSON.stringify(next));
+    else this.deleteMeta(FEATURE_PROMPT_SETTINGS_KEY);
+  }
+
+  public resetFeaturePromptSettings(featureId: string): void {
+    if (!Object.hasOwn(this.getFeaturePromptSettings(), featureId)) throw new Error(`Unknown harness feature: ${featureId}.`);
+    const overrides = this.featurePromptOverrides();
+    delete overrides[featureId];
+    if (Object.keys(overrides).length) this.setMeta(FEATURE_PROMPT_SETTINGS_KEY, JSON.stringify(overrides));
+    else this.deleteMeta(FEATURE_PROMPT_SETTINGS_KEY);
+  }
+
   public previewPromptTemplate(profileId: string, template: string, agentPath?: string, pluginCatalog?: readonly ResearchPluginCatalogEntry[]): string {
     if (profileId !== 'security-research') throw new Error(`Unsupported active research profile: ${profileId}`);
     validateResearchSystemPromptTemplate(template);
@@ -86,7 +123,7 @@ export class WorkspaceRegistry {
       ...(agentPath ? { agentPath } : {}),
       researchProfile: bundledResearchProfile(profileId),
       promptTemplate: template,
-      ...(pluginCatalog ? { pluginCatalog } : {}),
+      ...(pluginCatalog ? { pluginCatalog: applyFeaturePromptOverrides(pluginCatalog, this.featurePromptOverrides()) } : {}),
     });
   }
 

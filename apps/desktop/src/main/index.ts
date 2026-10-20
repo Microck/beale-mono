@@ -768,6 +768,10 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC_CHANNELS.getResearchProfiles, () => workspaceService.getResearchProfiles());
   ipcMain.handle(IPC_CHANNELS.getPromptTemplateSettings, (_event, profileId: ResearchProfileId) => workspaceService.getPromptTemplateSettings(profileId));
+  ipcMain.handle(IPC_CHANNELS.getFeaturePromptSettings, () => workspaceService.getFeaturePromptSettings());
+  ipcMain.handle(IPC_CHANNELS.setFeaturePromptSettings, (_event, featureId: string, description: string, promptExtension: string) =>
+    workspaceService.setFeaturePromptSettings(featureId, description, promptExtension));
+  ipcMain.handle(IPC_CHANNELS.resetFeaturePromptSettings, (_event, featureId: string) => workspaceService.resetFeaturePromptSettings(featureId));
   ipcMain.handle(IPC_CHANNELS.setPromptTemplate, (_event, profileId: ResearchProfileId, template: string) => workspaceService.setPromptTemplate(profileId, template));
   ipcMain.handle(IPC_CHANNELS.resetPromptTemplate, (_event, profileId: ResearchProfileId) => workspaceService.resetPromptTemplate(profileId));
   ipcMain.handle(IPC_CHANNELS.previewPromptTemplate, (_event, profileId: ResearchProfileId, template: string, agentPath?: string) => workspaceService.previewPromptTemplate(profileId, template, agentPath));

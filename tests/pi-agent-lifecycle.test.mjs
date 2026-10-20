@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  applyFeaturePromptOverrides,
   applyNativeOpenAiCompaction,
   applyOpenAiContextSize,
   applyOpenAiFastMode,
@@ -16,6 +17,7 @@ import {
   ResearchDispositionRecorder,
   createResearchPiAgent,
   createResearchSystemPrompt,
+  defaultResearchSystemPromptTemplate,
   createResearchToolRegistry,
   createSessionDispositionTool,
   initializeWorkspaceProject,
@@ -743,17 +745,43 @@ test("memory prompt gives root agents and subagents direct persistence ownership
   }
 });
 
+test("enabled feature extensions render through one variable and legacy templates remain readable", () => {
+  const template = defaultResearchSystemPromptTemplate();
+  assert.match(template, /\{\{prompt_extensions\}\}/);
+  assert.doesNotMatch(template, /\{\{(?:memory|claims|runbooks)\}\}/);
+  const catalog = [
+    { id: "beale-claims", name: "Claims", description: "Synthetic claim description.",
+      promptExtension: "Use the synthetic claim protocol.", mcpServers: [], skills: [] },
+    { id: "beale-source", name: "Source", promptExtension: "Inspect synthetic source boundaries.", mcpServers: [], skills: [] },
+  ];
+  const prompt = createResearchSystemPrompt({ hasTools: true, pluginCatalog: catalog });
+  assert.match(prompt, /beale-claims.*Synthetic claim description/u);
+  assert.match(prompt, /Claims \(beale-claims\):\nUse the synthetic claim protocol\./u);
+  assert.match(prompt, /Source \(beale-source\):\nInspect synthetic source boundaries\./u);
+  assert.doesNotMatch(prompt, /Use runbooks as durable executable research artifacts/u);
+  assert.doesNotMatch(prompt, /Use one canonical, evidence-gated research claim ledger/u);
+  const legacy = createResearchSystemPrompt({ hasTools: true, pluginCatalog: catalog,
+    promptTemplate: "{{boundary}}\n{{claims}}" });
+  assert.equal(legacy.match(/Use the synthetic claim protocol\./gu)?.length, 1);
+  assert.match(legacy, /Source \(beale-source\):\nInspect synthetic source boundaries\./u);
+});
+
 test("research-agent memory guidance uses the supplied authoritative type descriptions", () => {
+  const pluginCatalog = applyFeaturePromptOverrides(
+    [{ id: "beale-knowledge", name: "Knowledge", mcpServers: [], skills: [] }],
+    { "beale-knowledge": { description: "Synthetic knowledge guidance." } },
+  );
   const prompt = createResearchSystemPrompt({
     hasTools: true,
     hasMemoryTools: true,
-    pluginCatalog: [{ id: "beale-knowledge", name: "Knowledge", mcpServers: [], skills: [] }],
+    pluginCatalog,
     memoryTypeDescriptions: {
       ...DEFAULT_MEMORY_TYPE_DESCRIPTIONS,
       trajectory: "CUSTOM_AGENT_TRAJECTORY: a workspace-defined reusable research path.",
     },
   });
   assert.match(prompt, /memory type descriptions are authoritative for this run/i);
+  assert.match(prompt, /Synthetic knowledge guidance\./);
   assert.match(prompt, /CUSTOM_AGENT_TRAJECTORY/);
   assert.doesNotMatch(prompt, /A reusable sequence of significant research choices/);
 });

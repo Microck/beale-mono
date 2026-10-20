@@ -45,6 +45,7 @@
 
 #### Changed
 
+- Optional Features now has a tabbed editor for each feature's enablement, catalog description, and prompt extension. New sessions compose enabled extensions through `{{prompt_extensions}}`; saved templates using older feature variables remain readable.
 - On/Off options in New Research settings and the Fast mode model option now toggle from checkboxes in their rows instead of opening another menu.
 - The Daybreak Blue access toggle is removed from model pickers. OpenAI requests include it automatically; the separate Daybreak Blue model alias remains an optional model.
 - Research sessions now treat existing findings as prior art during new discovery, revisit them when directly requested, and check likely claim matches before creating a lead so evidence can be added to the canonical claim. Distinct claims in the same classification remain allowed after review.
@@ -1362,6 +1363,7 @@
 
 #### Changed
 
+- The app-server registry now stores feature prompt edits and snapshots them into session plugin catalogs. Description-only edits retain default prompt instructions.
 - Native OpenAI research requests now include Daybreak Blue access automatically, including resumed sessions and Fleet brokered completions; older launch flags remain accepted.
 - Bundled managed-plugin registry entries now retain explicit installation state and absorb earlier filesystem imports of the same bundled directory. Session launch installs plugins required by its research kit.
 - Built-in harness feature packages now live under `app-server/resources/harness-features`. Introspection uses feature discovery and loading while retaining its saved registry ID and enabled state; Quick Chat refuses to start when Introspection is disabled.

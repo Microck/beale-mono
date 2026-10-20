@@ -14,7 +14,8 @@ import {
   preBealeRuntimeId,
   readCompatibleEnvironment
 } from '@beale/research-agent/legacy-compatibility';
-import { WorkspaceRegistry } from './workspaceRegistryStore.js';
+import { FEATURE_PROMPT_SETTINGS_KEY, WorkspaceRegistry } from './workspaceRegistryStore.js';
+import { decodeFeaturePromptOverrides, type FeaturePromptOverrides } from '@beale/research-agent';
 
 export type AppServerMemoryBackendId = 'app-server' | 'disabled';
 export type AppServerProviderContextSize = 'default' | 'large';
@@ -77,6 +78,15 @@ export class AppServerHostRegistry {
       const row = database.prepare('SELECT value FROM registry_meta WHERE key = ?').get(`prompt_template_${profileId}`) as SqlRow | undefined;
       return typeof row?.value === 'string' ? row.value : null;
     }, null);
+  }
+
+  public featurePromptOverrides(): FeaturePromptOverrides {
+    return this.withDatabase((database) => {
+      if (!tableExists(database, 'registry_meta')) return {};
+      const row = database.prepare('SELECT value FROM registry_meta WHERE key = ?').get(FEATURE_PROMPT_SETTINGS_KEY) as SqlRow | undefined;
+      return typeof row?.value === 'string'
+        ? decodeFeaturePromptOverrides(JSON.parse(row.value) as unknown) : {};
+    }, {});
   }
 
   public listWorkspaces(): BealeAppServerWorkspaceSummary[] {

@@ -4,7 +4,7 @@ import {
   type MemoryTypeDescriptionsInput,
 } from "./memory-taxonomy.js";
 import type { ResearchProfile } from "./research-profile.js";
-import { formatHarnessFeatureCatalog, formatResearchPluginCatalog, isHarnessFeatureId, type ResearchPluginCatalogEntry } from "./managed-tool-plugins.js";
+import { formatHarnessFeatureCatalog, formatResearchPluginCatalog, isHarnessFeatureId, MANAGED_TOOL_PLUGINS, INTROSPECTION_HARNESS_FEATURE_ID, type ResearchPluginCatalogEntry } from "./managed-tool-plugins.js";
 
 export interface CreateResearchSystemPromptOptions {
   hasTools: boolean;
@@ -22,10 +22,75 @@ export interface CreateResearchSystemPromptOptions {
   pluginCatalog?: readonly ResearchPluginCatalogEntry[];
 }
 
-const PROMPT_SECTIONS = ["identity", "style", "boundary", "tools", "features", "plugins", "collaboration", "goal", "memory", "claims", "runbooks"] as const;
+const PROMPT_SECTIONS = ["identity", "style", "boundary", "tools", "features", "plugins", "collaboration", "goal", "prompt_extensions", "memory", "claims", "runbooks"] as const;
 type PromptSection = typeof PROMPT_SECTIONS[number];
 const SECTION_MARKER = "\u0000beale-prompt-section:";
-const DEFAULT_PROMPT_TEMPLATE = PROMPT_SECTIONS.map((section) => `{{${section}}}`).join("\n\n");
+const LEGACY_FEATURE_SECTIONS = ["memory", "claims", "runbooks"] as const;
+const DEFAULT_PROMPT_TEMPLATE = PROMPT_SECTIONS.filter((section) => !LEGACY_FEATURE_SECTIONS.includes(section as typeof LEGACY_FEATURE_SECTIONS[number]))
+  .map((section) => `{{${section}}}`).join("\n\n");
+const FEATURE_SECTION_IDS = {
+  "beale-knowledge": "memory",
+  "beale-claims": "claims",
+  "beale-runbooks": "runbooks",
+} as const;
+const MAX_FEATURE_DESCRIPTION_CHARACTERS = 240;
+const MAX_FEATURE_EXTENSION_CHARACTERS = 24_000;
+
+export interface FeaturePromptOverride { description?: string; promptExtension?: string }
+export interface FeaturePromptSettings {
+  description: string;
+  promptExtension: string;
+  defaultDescription: string;
+  defaultPromptExtension: string;
+  overridden: boolean;
+}
+export type FeaturePromptOverrides = Record<string, FeaturePromptOverride>;
+
+export function decodeFeaturePromptOverrides(value: unknown): FeaturePromptOverrides {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid feature prompt settings.");
+  const entries = Object.entries(value);
+  if (entries.length > MANAGED_TOOL_PLUGINS.length + 1) throw new Error("Too many feature prompt settings.");
+  return Object.fromEntries(entries.map(([id, raw]) => {
+    if (!isHarnessFeatureId(id) || !raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error(`Invalid feature prompt setting: ${id}.`);
+    }
+    const setting = raw as Record<string, unknown>;
+    if ((!Object.hasOwn(setting, "description") && !Object.hasOwn(setting, "promptExtension"))
+      || (Object.hasOwn(setting, "description") && (typeof setting.description !== "string" || setting.description.length > MAX_FEATURE_DESCRIPTION_CHARACTERS))
+      || (Object.hasOwn(setting, "promptExtension") && (typeof setting.promptExtension !== "string" || setting.promptExtension.length > MAX_FEATURE_EXTENSION_CHARACTERS))) {
+      throw new Error(`Invalid feature prompt content: ${id}.`);
+    }
+    return [id, {
+      ...(typeof setting.description === "string" ? { description: setting.description } : {}),
+      ...(typeof setting.promptExtension === "string" ? { promptExtension: setting.promptExtension } : {}),
+    }];
+  }));
+}
+
+export function defaultFeaturePromptSettings(profile: ResearchProfile, memoryTypeDescriptions?: MemoryTypeDescriptionsInput): Record<string, FeaturePromptSettings> {
+  const catalog = [
+    ...MANAGED_TOOL_PLUGINS.map((feature) => ({ id: feature.id, name: feature.name, description: feature.description,
+      toolCount: feature.tools.length, skills: [], mcpServers: [] })),
+    { id: INTROSPECTION_HARNESS_FEATURE_ID, name: "Introspection",
+      description: "Default Beale tools for managing workspaces, resources, research sessions, and maintenance.",
+      toolCount: 0, skills: [], mcpServers: [] },
+  ] satisfies ResearchPluginCatalogEntry[];
+  const sections = buildResearchPromptSections({ hasTools: true, researchProfile: profile,
+    ...(memoryTypeDescriptions ? { memoryTypeDescriptions } : {}), pluginCatalog: catalog });
+  return Object.fromEntries(catalog.map((feature) => {
+    const section = FEATURE_SECTION_IDS[feature.id as keyof typeof FEATURE_SECTION_IDS];
+    const defaultPromptExtension = section ? sections[section].join("\n").trim() : "";
+    return [feature.id, { description: feature.description, promptExtension: defaultPromptExtension,
+      defaultDescription: feature.description, defaultPromptExtension, overridden: false }];
+  }));
+}
+
+export function applyFeaturePromptOverrides(catalog: readonly ResearchPluginCatalogEntry[], overrides: FeaturePromptOverrides): ResearchPluginCatalogEntry[] {
+  return catalog.map((feature) => {
+    const override = isHarnessFeatureId(feature.id) ? overrides[feature.id] : undefined;
+    return override ? { ...feature, ...override } : feature;
+  });
+}
 
 export function defaultResearchSystemPromptTemplate(): string {
   return DEFAULT_PROMPT_TEMPLATE;
@@ -55,9 +120,9 @@ function renderResearchSystemPromptTemplate(template: string, variables: Record<
   }).join("\n");
 }
 
-export function createResearchSystemPrompt(
+function buildResearchPromptSections(
   options: CreateResearchSystemPromptOptions,
-): string {
+): Record<PromptSection, string[]> {
   const profile = options.researchProfile;
   const memoryTypeDescriptions = profile
     ? profile.memory.types
@@ -227,21 +292,52 @@ export function createResearchSystemPrompt(
       sections[section].push(line);
     }
   }
+  return sections;
+}
+
+export function createResearchSystemPrompt(
+  options: CreateResearchSystemPromptOptions,
+): string {
+  const sections = buildResearchPromptSections(options);
+  const profile = options.researchProfile;
+  const featureCatalog = options.pluginCatalog?.filter((feature) => isHarnessFeatureId(feature.id)) ?? [];
+  const defaultExtensions = defaultFeaturePromptSettingsForSections(sections);
+  const extensions = featureCatalog.map((feature) => ({
+    id: feature.id,
+    name: feature.name,
+    content: feature.promptExtension ?? defaultExtensions[feature.id] ?? "",
+  })).filter((extension) => extension.content.trim());
+  const extensionText = (items: typeof extensions): string => items.map((extension) =>
+    `${extension.name} (${extension.id}):\n${extension.content.trim()}`).join("\n\n");
   const variables: Record<string, string> = {
     ...Object.fromEntries(PROMPT_SECTIONS.map((name) => [name, sections[name].join("\n")])),
+    prompt_extensions: extensionText(extensions),
+    memory: extensions.find((extension) => extension.id === "beale-knowledge")?.content ?? "",
+    claims: extensions.find((extension) => extension.id === "beale-claims")?.content ?? "",
+    runbooks: extensions.find((extension) => extension.id === "beale-runbooks")?.content ?? "",
     reports: "",
     "profile.id": profile?.id ?? "security-research",
     "profile.name": profile?.name ?? "Security",
   };
   const template = options.promptTemplate ?? DEFAULT_PROMPT_TEMPLATE;
   const renderedPrompt = template === DEFAULT_PROMPT_TEMPLATE
-    ? PROMPT_SECTIONS.map((name) => variables[name]).filter(Boolean).join("\n\n")
+    ? PROMPT_SECTIONS.filter((name) => !LEGACY_FEATURE_SECTIONS.includes(name as typeof LEGACY_FEATURE_SECTIONS[number]))
+      .map((name) => variables[name]).filter(Boolean).join("\n\n")
     : renderResearchSystemPromptTemplate(template, variables);
   const missingCatalogs = (["features", "plugins"] as const)
     .filter((name) => variables[name] && !new RegExp(`\\{\\{\\s*${name}\\s*\\}\\}`, "u").test(template))
     .map((name) => variables[name]);
-  const systemPrompt = [renderedPrompt, ...missingCatalogs].filter(Boolean).join("\n\n");
+  const hasExtensionVariable = /\{\{\s*prompt_extensions\s*\}\}/u.test(template);
+  const missingExtensions = hasExtensionVariable ? "" : extensionText(extensions.filter((extension) => {
+    const legacySection = FEATURE_SECTION_IDS[extension.id as keyof typeof FEATURE_SECTION_IDS];
+    return !legacySection || !new RegExp(`\\{\\{\\s*${legacySection}\\s*\\}\\}`, "u").test(template);
+  }));
+  const systemPrompt = [renderedPrompt, ...missingCatalogs, missingExtensions].filter(Boolean).join("\n\n");
   return appendResearchAgentInstructions(systemPrompt, options.agentInstructions);
+}
+
+function defaultFeaturePromptSettingsForSections(sections: Record<PromptSection, string[]>): Record<string, string> {
+  return Object.fromEntries(Object.entries(FEATURE_SECTION_IDS).map(([id, section]) => [id, sections[section].join("\n").trim()]));
 }
 
 export function appendResearchAgentInstructions(

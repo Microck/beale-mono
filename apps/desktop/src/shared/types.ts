@@ -2279,6 +2279,14 @@ export interface IosDeviceCaptureFrame {
 
 export type WindowBackgroundEffect = 'solid' | 'semi-transparent' | 'gradient' | 'blur';
 
+export interface FeaturePromptSettings {
+  description: string;
+  promptExtension: string;
+  defaultDescription: string;
+  defaultPromptExtension: string;
+  overridden: boolean;
+}
+
 export interface BealeApi {
   listBrowserContexts(): Promise<BrowserContextSummary[]>;
   createBrowserContext(label: string): Promise<BrowserContextSummary>;
@@ -2319,6 +2327,9 @@ export interface BealeApi {
   setTicketingTarget(providerId: TicketingProviderId, target: TicketingTarget): Promise<TicketingSettings>;
   getResearchProfiles(): Promise<ResolvedResearchProfile[]>;
   getPromptTemplateSettings(profileId: ResearchProfileId): Promise<{ template: string; defaultTemplate: string; overridden: boolean }>;
+  getFeaturePromptSettings(): Promise<Record<string, FeaturePromptSettings>>;
+  setFeaturePromptSettings(featureId: string, description: string, promptExtension: string): Promise<void>;
+  resetFeaturePromptSettings(featureId: string): Promise<void>;
   setPromptTemplate(profileId: ResearchProfileId, template: string): Promise<void>;
   resetPromptTemplate(profileId: ResearchProfileId): Promise<void>;
   previewPromptTemplate(profileId: ResearchProfileId, template: string, agentPath?: string): Promise<string>;

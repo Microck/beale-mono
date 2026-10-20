@@ -31,7 +31,7 @@ describe('optional agent features', () => {
     expect(OPTIONAL_AGENT_FEATURES.map((feature) => feature.id)).toEqual([...MANAGED_TOOL_PLUGIN_IDS, 'beale-introspection']);
   });
 
-  it('places their toggles in Agent Settings and leaves traditional plugins in Plugins', () => {
+  it('places feature tabs and their enabled control in Agent Settings, leaving traditional plugins in Plugins', () => {
     const sidebar = renderToStaticMarkup(createElement(SettingsSidebar, {
       collapsed: false, section: 'optional-features', error: null,
       onChangeSection: () => undefined, onResizePointerDown: () => undefined
@@ -49,9 +49,10 @@ describe('optional agent features', () => {
     expect(sidebar).not.toContain('Computer Permissions');
     expect(sidebar).not.toContain('Terminator');
     expect(sidebar).toContain('aria-current="page"');
+    expect(settings).toContain('role="tablist" aria-label="Optional feature views"');
+    expect(settings).toContain('role="tab" id="optional-feature-tab-beale-introspection"');
+    expect(settings).toContain('role="tabpanel" aria-labelledby="optional-feature-tab-beale-source"');
     expect(settings).toContain('type="checkbox" aria-label="Enable Source" checked=""');
-    expect(settings).toContain('type="checkbox" aria-label="Enable Introspection" checked=""');
-    expect(settings).toContain('type="checkbox" aria-label="Enable Reporting" disabled=""');
     expect(plugins).not.toContain('<strong>beale-source</strong>');
     expect(plugins).not.toContain('<strong>beale-introspection</strong>');
     expect(plugins).toContain('<h1>meta-skills</h1>');

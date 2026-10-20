@@ -8,6 +8,41 @@ import { appServerSessionArgs } from '../../../app-server/src/sessionLaunch';
 import { invokeAppServerProtocol } from '../../../app-server/src/appServerProtocolClient';
 
 describe('prompt template settings', () => {
+  it('saves feature catalog descriptions and prompt extensions in the app-server registry', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-feature-prompt-'));
+    try {
+      const registry = new WorkspaceRegistry(directory);
+      const defaults = registry.getFeaturePromptSettings();
+      expect(defaults['beale-claims']?.promptExtension).toContain('Use one canonical, evidence-gated research claim ledger');
+      expect(defaults['beale-source']?.promptExtension).toBe('');
+      registry.setFeaturePromptSettings('beale-claims', 'Synthetic claim catalog guidance.', 'Use the synthetic claim workflow.');
+      const catalog = [{ id: 'beale-claims', name: 'Claims', description: 'Original description.', skills: [], mcpServers: [] }];
+      const preview = registry.previewPromptTemplate('security-research', '{{boundary}}\n{{features}}\n{{prompt_extensions}}', undefined, catalog);
+      expect(preview).toContain('Synthetic claim catalog guidance.');
+      expect(preview).toContain('Claims (beale-claims):\nUse the synthetic claim workflow.');
+      expect(preview).not.toContain('Use one canonical, evidence-gated research claim ledger');
+      expect(registry.previewPromptTemplate('security-research', '{{boundary}}\n{{claims}}', undefined, catalog))
+        .toContain('Use the synthetic claim workflow.');
+      const host = new AppServerHostRegistry({ registryDirectory: directory });
+      expect(host.featurePromptOverrides()['beale-claims']).toEqual({
+        description: 'Synthetic claim catalog guidance.', promptExtension: 'Use the synthetic claim workflow.'
+      });
+      registry.setFeaturePromptSettings('beale-knowledge', 'Synthetic knowledge catalog.', defaults['beale-knowledge'].promptExtension);
+      expect(host.featurePromptOverrides()['beale-knowledge']).toEqual({ description: 'Synthetic knowledge catalog.' });
+      registry.resetFeaturePromptSettings('beale-knowledge');
+      expect(() => registry.setFeaturePromptSettings('unknown-feature', 'Example', '')).toThrow(/Unknown harness feature/);
+      registry.close();
+      const reopened = new WorkspaceRegistry(directory);
+      expect(reopened.getFeaturePromptSettings()['beale-claims']?.overridden).toBe(true);
+      reopened.resetFeaturePromptSettings('beale-claims');
+      expect(reopened.getFeaturePromptSettings()['beale-claims']?.promptExtension).toBe(defaults['beale-claims']?.promptExtension);
+      expect(host.featurePromptOverrides()).toEqual({});
+      reopened.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('persists a profile override, previews it, and restores the default', () => {
     const directory = mkdtempSync(join(tmpdir(), 'beale-prompt-template-'));
     try {
@@ -91,6 +126,19 @@ describe('prompt template settings', () => {
         args: [], input: { registryDirectory: directory, action: 'getPromptTemplateSettings', args: ['security-research'] }
       });
       expect(settings.overridden).toBe(false);
+      await invokeAppServerProtocol('registry.state', {
+        args: [], input: { registryDirectory: directory, action: 'setFeaturePromptSettings',
+          args: ['beale-source', 'Synthetic source guidance.', 'Use a focused source review.'] }
+      });
+      const featureSettings = await invokeAppServerProtocol<Record<string, { description: string; promptExtension: string }>>('registry.state', {
+        args: [], input: { registryDirectory: directory, action: 'getFeaturePromptSettings' }
+      });
+      expect(featureSettings['beale-source']).toMatchObject({
+        description: 'Synthetic source guidance.', promptExtension: 'Use a focused source review.'
+      });
+      await invokeAppServerProtocol('registry.state', {
+        args: [], input: { registryDirectory: directory, action: 'resetFeaturePromptSettings', args: ['beale-source'] }
+      });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

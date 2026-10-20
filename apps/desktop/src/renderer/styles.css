@@ -14711,6 +14711,83 @@ button.research-goal-choice:focus-visible {
   border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
 }
 
+.optional-features-settings-page {
+  width: 100%;
+  align-content: start;
+}
+
+.optional-features-tab-row {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  min-height: 40px;
+}
+
+.optional-feature-panel {
+  display: grid;
+  gap: 18px;
+  width: min(100%, 900px);
+  padding-top: 10px;
+}
+
+.optional-feature-enabled-row {
+  border-radius: 18px;
+  background: var(--panel-raised);
+  padding-inline: 16px;
+}
+
+.optional-feature-field {
+  display: grid;
+  gap: 6px;
+  color: var(--text);
+}
+
+.optional-feature-field small {
+  color: var(--muted);
+}
+
+.optional-feature-field textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 12px;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.optional-feature-field:last-of-type textarea {
+  font-family: ui-monospace, monospace;
+}
+
+.optional-feature-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.optional-feature-actions span {
+  margin-right: auto;
+  color: var(--muted);
+}
+
+.optional-feature-actions button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  color: var(--text);
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.optional-feature-actions button:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
 .provider-settings-heading-icon {
   flex: 0 0 auto;
   color: var(--muted-strong);

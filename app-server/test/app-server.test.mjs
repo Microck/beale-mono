@@ -2274,6 +2274,35 @@ test("app-server owns built-in plugins and pins canonical session profile identi
   await assert.rejects(service.prepareSession({ ...sessionLaunchRequest(directory), sessionId: "session-plugin-unavailable" }, "generated-unavailable-session"), /Managed plugin settings could not be loaded/);
 });
 
+test("app-server snapshots edited feature prompts into the enabled session catalog", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "beale-feature-catalog-example-"));
+  temporaryDirectories.push(directory);
+  const sourceCatalogPath = join(directory, "plugin-catalog.json");
+  writeFileSync(sourceCatalogPath, JSON.stringify([
+    { id: "beale-claims", name: "Claims", description: "Original claim description.", skills: [], mcpServers: [] },
+    { id: "example-plugin", name: "Example Plugin", description: "External plugin.", skills: [], mcpServers: [] },
+  ]));
+  const registry = hostRegistryFixture(directory);
+  registry.featurePromptOverrides = () => ({ "beale-claims": {
+    description: "Synthetic claim guidance.", promptExtension: "Use the synthetic claim workflow."
+  } });
+  const service = new AppServerHostService({ registry, invokeProtocol: async (operation) => {
+    if (operation === "provider.describe") return { defaultSmallModels: {}, sessionTitleEffort: "medium", shellReviewEffort: "low" };
+    if (operation === "plugin.runtime") return { managedPluginIds: ["beale-claims"], pluginCatalogPath: sourceCatalogPath,
+      skillDirs: [], selectedSkillIds: [], allowedMcpServers: [] };
+    if (operation === "session.get") throw new Error("Session not found: session-feature-prompt");
+    if (operation === "session.create") return { revision: 1 };
+    throw new Error(`Unexpected operation: ${operation}`);
+  } });
+  const prepared = await service.prepareSession(sessionLaunchRequest(directory, { sessionId: "session-feature-prompt" }), "Example session");
+  assert.notEqual(prepared.launch.pluginRuntime.pluginCatalogPath, sourceCatalogPath);
+  const snapshot = JSON.parse(readFileSync(prepared.launch.pluginRuntime.pluginCatalogPath, "utf8"));
+  assert.deepEqual(snapshot[0], { id: "beale-claims", name: "Claims", description: "Synthetic claim guidance.",
+    promptExtension: "Use the synthetic claim workflow.", skills: [], mcpServers: [] });
+  assert.equal(snapshot[1].promptExtension, undefined);
+  assert.equal(JSON.parse(readFileSync(sourceCatalogPath, "utf8"))[0].description, "Original claim description.");
+});
+
 test("prepares automatic recovery as a child attempt and pauses an interrupted active attempt", async () => {
   const directory = mkdtempSync(join(tmpdir(), "beale-app-server-recovery-policy-"));
   temporaryDirectories.push(directory);
@@ -3874,6 +3903,7 @@ function hostRegistryFixture(directory, options = {}) {
       riskAcknowledgements: [],
     }),
     promptTemplateOverride: () => null,
+    featurePromptOverrides: () => ({}),
     memoryTypeDescriptions: () => null,
     storageForProfile: () => ({
       databasePath: join(directory, "memory.sqlite"),

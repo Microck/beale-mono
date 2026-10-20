@@ -585,6 +585,7 @@ const REGISTRY_STATE_ACTIONS = new Set([
   'removeRegisteredWorkspace', 'syncWorkspace', 'syncWorkspaceFromStorage', 'syncResearchSession', 'touchResearchSessionActivity',
   'reconcileAppServerSessions', 'markAppServerSessionsInterrupted',
   'getPromptTemplateSettings', 'setPromptTemplate', 'resetPromptTemplate', 'previewPromptTemplate',
+  'getFeaturePromptSettings', 'setFeaturePromptSettings', 'resetFeaturePromptSettings',
 ]);
 
 function registryStateOperation(options: InvokeAppServerProtocolOptions): unknown {
