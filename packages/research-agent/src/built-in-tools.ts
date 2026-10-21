@@ -184,6 +184,7 @@ export interface BuiltInRepositorySearchToolOptions {
 }
 
 export interface BuiltInStructuredFileReadToolOptions {
+  workspaceRoot?: string;
   allowedRoots?: readonly string[];
   contextRoots?: readonly string[];
   maxBytes?: number;
@@ -367,6 +368,7 @@ export function createStructuredFileReadTool(
 ): ResearchExecutableTool {
   const researchSession = options.researchSession ?? new RepositoryResearchSession();
   const contextRootHints = uniqueResolvedPaths([
+    ...(options.workspaceRoot ? [options.workspaceRoot] : []),
     ...(options.contextRoots ?? []),
     ...(options.allowedRoots ?? []),
   ]);
@@ -374,7 +376,7 @@ export function createStructuredFileReadTool(
     name: "file.read",
     transportName: "file_read",
     description:
-      "Read a bounded byte range from a local file. Workspace context roots are audit hints, not access fences. Canonical research records must be read through claim, memory, runbook, report, or history tools; exported workspace projections are point-in-time files and may be stale.",
+      "Read a bounded byte range from a local file. Relative paths resolve from the active research workspace; absolute paths remain available. Workspace context roots are audit hints, not access fences. Canonical research records must be read through claim, memory, runbook, report, or history tools; exported workspace projections are point-in-time files and may be stale.",
     actionClasses: ["inspect"],
     sideEffects: "read",
     requiredPermissions: ["filesystem:read"],
@@ -401,6 +403,7 @@ export function createStructuredFileReadTool(
         const target = await resolvePathWithContextRoot(
           readRequiredString(action.input, "path"),
           roots,
+          options.workspaceRoot,
         );
         const offset = readNonNegativeInteger(action.input.offset, 0);
         const maxBytes = Math.min(
@@ -1369,8 +1372,11 @@ async function resolveExistingRoots(
 async function resolvePathWithContextRoot(
   requestedPath: string,
   roots: readonly string[],
+  workspaceRoot?: string,
 ): Promise<{ path: string; root?: string }> {
-  const target = await realpath(resolve(requestedPath));
+  const target = await realpath(isAbsolute(requestedPath)
+    ? requestedPath
+    : resolve(workspaceRoot ?? roots[0] ?? process.cwd(), requestedPath));
   const root = roots.find((candidate) => {
     const relativePath = relative(candidate, target);
     return relativePath === "" || (!relativePath.startsWith("..") && relativePath !== "..");

@@ -4216,6 +4216,7 @@ async function createRuntimeConfig(args: {
     executableTools.push(...mutationTools);
     toolDescriptors.push(...mutationTools.map((tool) => tool.descriptor));
     const tool = createStructuredFileReadTool({
+      workspaceRoot,
       contextRoots: workspaceContextFileReadHints(workspaceContext),
       researchSession: repositoryResearchSession,
       ...(runtimeTools.toolMaxBytes

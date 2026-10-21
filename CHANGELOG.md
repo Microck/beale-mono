@@ -187,6 +187,9 @@
 
 #### Fixed
 
+- Embedded browser agent input now verifies browser focus and serializes input across contexts, preventing editing commands such as select-all from affecting Beale content. Browser guests suppress application menu shortcuts.
+- Embedded browser guests stay mounted when the right sidebar closes or the selected session changes, and multiple sessions can hold CDP connections to one context without disconnecting each other.
+- A recovered Desktop renderer restores its selected session after reload when that session remains in the workspace snapshot.
 - Surface tracking no longer shows a detached main-agent dot before the agent records a surface focus.
 - Continuing a completed Desktop session now returns the accepted follow-up immediately while its hosted attempt reconnects, so the composer no longer waits for the new WebSocket transport.
 - Desktop session commentary continues polling through app-server recovery and drains multiple bounded event pages at one session revision, so live updates resume after a provider transport interruption.
@@ -1373,6 +1376,9 @@
 
 #### Fixed
 
+- Hosted `file.read` resolves relative paths from the active research workspace instead of the worker's current directory.
+- Browser control accepts a listed page ID in `browser.connect` and distinguishes page IDs from browser aliases in its tool guidance.
+- Memory correction now explains evidence replacement, and resource-history errors identify the resource ID required for reads.
 - Workspace-scoped Fleet reads and Local target selection no longer wait for VM discovery when the workspace has no VM targets.
 - Hosted continuations load compatible model state alongside workspace and tool preparation, reducing serial startup work before the agent resumes.
 - Timed-out shell commands now return even when a descendant retains their output pipes after the direct child exits. Expired concurrency leases from stopped workers are reclaimed.

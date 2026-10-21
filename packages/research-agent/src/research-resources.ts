@@ -277,7 +277,7 @@ const RESOURCE_PARAMETERS = {
     name: { type: "string" },
     locator: { type: "string", description: "Stable path, service identifier, package/binary name, URL, or other canonical locator." },
     rationale: { type: "string", description: "Why this ambient resource may be relevant to the active campaign." },
-    resourceId: { type: "string" },
+    resourceId: { type: "string", description: "Required for history and touch. Obtain it from resource.catalog list or discover." },
     purpose: { type: "string", description: "The bounded research purpose for the proposed first touch." },
     revision: { type: "string", description: "Optional resource build, version, commit, or environment identity." },
   },

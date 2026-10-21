@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { WebContents } from 'electron';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { BrowserCdpSession } from '../../../packages/research-agent/src/browser-tools';
 import { allowedBrowserCommand, allowedBrowserUrl, InAgentBrowserBridge } from '../src/main/inAgentBrowserBridge';
 import { browserContextLabel, DEFAULT_BROWSER_CONTEXT } from '../src/shared/browserContexts';
@@ -129,6 +129,7 @@ describe('in-agent browser', () => {
     const discoveryFile = join(directory, 'browser.json');
     const guest = Object.assign(new EventEmitter(), {
       isDestroyed: () => false,
+      setIgnoreMenuShortcuts: () => undefined,
       setWindowOpenHandler: () => undefined,
       debugger: { isAttached: () => false }
     }) as unknown as WebContents;
@@ -212,6 +213,9 @@ describe('in-agent browser', () => {
     const discoveryFile = join(directory, 'browser.json');
     const acknowledgements: string[] = [];
     const updates: string[] = [];
+    let focusedGuest = 0;
+    let focusAllowed = true;
+    const inputs: number[] = [];
     const bridge = new InAgentBrowserBridge(discoveryFile, (update) => {
       if (update.openedId) updates.push(update.openedId);
     }, async (sessionId) => { acknowledgements.push(sessionId); return sessionId !== 'session-example-denied'; });
@@ -224,13 +228,29 @@ describe('in-agent browser', () => {
         getTitle: () => 'Example page',
         getURL: () => 'https://example.test/',
         close: () => undefined,
+        setIgnoreMenuShortcuts: vi.fn(),
         setWindowOpenHandler: () => undefined,
+        hostWebContents: {
+          isDestroyed: () => false,
+          executeJavaScript: async () => {
+            if (!focusAllowed) return false;
+            focusedGuest = id;
+            return true;
+          }
+        },
         session: { clearStorageData: async () => undefined },
         debugger: Object.assign(debuggerEvents, {
           isAttached: () => attached,
           attach: () => { attached = true; },
           detach: () => { attached = false; },
-          sendCommand: async (method: string, params: Record<string, unknown>) => ({ guestId: id, method, params })
+          sendCommand: async (method: string, params: Record<string, unknown>) => {
+            if (method.startsWith('Input.')) {
+              await new Promise((resolve) => setTimeout(resolve, 5));
+              if (focusedGuest !== id) throw new Error('Input escaped its browser context');
+              inputs.push(id);
+            }
+            return { guestId: id, method, params };
+          }
         })
       }) as unknown as WebContents;
       return { guest, debuggerEvents };
@@ -264,6 +284,24 @@ describe('in-agent browser', () => {
       expect(acknowledgements).toEqual(['session-example-denied', 'session-example-001']);
       const defaultConnection = await browser.connect();
       const adminConnection = await browser.connect(undefined, '8');
+      expect(defaultGuest.guest.setIgnoreMenuShortcuts).toHaveBeenCalledWith(true);
+      expect(adminGuest.guest.setIgnoreMenuShortcuts).toHaveBeenCalledWith(true);
+      const inputResults = await Promise.all([
+        browser.command(defaultConnection, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', commands: ['selectAll'] }),
+        browser.command(adminConnection, 'Input.insertText', { text: 'Example input' }),
+        browser.command(defaultConnection, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'a' })
+      ]);
+      expect(inputResults).toMatchObject([
+        { result: { guestId: 7 } }, { result: { guestId: 8 } }, { result: { guestId: 7 } }
+      ]);
+      expect(inputs).toHaveLength(3);
+      focusAllowed = false;
+      expect(await browser.command(defaultConnection, 'Input.insertText', { text: 'Must not reach the host' }))
+        .toMatchObject({ error: { code: -32000, message: expect.stringContaining('Open the embedded browser') } });
+      expect(inputs).toHaveLength(3);
+      focusAllowed = true;
+      expect(await browser.command(adminConnection, 'Input.insertText', { text: 'Example recovery' }))
+        .toMatchObject({ result: { guestId: 8 } });
       expect(acknowledgements).toEqual(['session-example-denied', 'session-example-001']);
       expect(await browser.command(defaultConnection, 'Page.navigate', { url: 'https://example.test/next' })).toMatchObject({
         result: { guestId: 7, method: 'Page.navigate' }
@@ -280,8 +318,10 @@ describe('in-agent browser', () => {
       expect(await nextSession.targets()).toHaveLength(2);
       const reusedConnection = await nextSession.connect(undefined, '8');
       expect(await nextSession.command(reusedConnection, 'DOM.getDocument')).toMatchObject({ result: { guestId: 8 } });
+      expect(await browser.command(adminConnection, 'DOM.getDocument')).toMatchObject({ result: { guestId: 8 } });
       expect(acknowledgements).toEqual(['session-example-denied', 'session-example-001']);
       await nextSession.cleanup();
+      expect(await browser.command(adminConnection, 'DOM.getDocument')).toMatchObject({ result: { guestId: 8 } });
       await expect(browser.createContext('two words')).rejects.toThrow('one word');
       await expect(browser.createContext('member')).rejects.toThrow('already exists');
       await expect(browser.closeContext('default')).rejects.toThrow('cannot be removed');
@@ -318,6 +358,7 @@ describe('in-agent browser', () => {
       isDestroyed: () => destroyed,
       getTitle: () => 'Example page',
       getURL: () => 'https://example.test/',
+      setIgnoreMenuShortcuts: () => undefined,
       setWindowOpenHandler: () => undefined,
       debugger: Object.assign(debuggerEvents, {
         isAttached: () => attached,
@@ -356,6 +397,7 @@ describe('in-agent browser', () => {
       id: 21,
       isDestroyed: () => false,
       getURL: () => currentUrl,
+      setIgnoreMenuShortcuts: () => undefined,
       setWindowOpenHandler: () => undefined,
       debugger: { isAttached: () => false }
     }) as unknown as WebContents;

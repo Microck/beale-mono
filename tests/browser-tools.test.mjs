@@ -16,15 +16,18 @@ test('selected browser IDs resolve to session-local endpoints', async () => {
   const tools = createBrowserTools(session, { 'browser:example': 'http://127.0.0.1:9223' });
   const targets = tools.find((tool) => tool.descriptor.name === 'browser.targets');
   const connect = tools.find((tool) => tool.descriptor.name === 'browser.connect');
-  assert.match(targets.descriptor.description, /selected browser target ID/u);
+  assert.match(targets.descriptor.description, /page ID to browser\.connect as targetId/u);
   assert.doesNotMatch(JSON.stringify(targets.descriptor), /127\.0\.0\.1:9223/u);
   assert.equal((await targets.execute({ id: 'targets-example', toolName: 'browser.targets', actionClass: 'inspect',
     input: { endpoint: 'browser:example' } })).status, 'complete');
   assert.equal((await connect.execute({ id: 'connect-example', toolName: 'browser.connect', actionClass: 'inspect',
     input: { endpoint: 'browser:example', targetId: 'page-example' } })).status, 'complete');
+  assert.equal((await connect.execute({ id: 'connect-page-example', toolName: 'browser.connect', actionClass: 'inspect',
+    input: { endpoint: 'page-example' } })).status, 'complete');
   assert.deepEqual(calls, [
     ['targets', 'http://127.0.0.1:9223'],
     ['connect', 'http://127.0.0.1:9223', 'page-example'],
+    ['connect', undefined, 'page-example'],
   ]);
 });
 

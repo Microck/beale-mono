@@ -1487,6 +1487,7 @@ test("structured file read supports ranges and annotates paths outside context r
 
   try {
     const tool = createStructuredFileReadTool({
+      workspaceRoot: root,
       allowedRoots: [root],
       maxBytes: 4,
     });
@@ -1509,6 +1510,16 @@ test("structured file read supports ranges and annotates paths outside context r
     assert.equal(readResult.result.output.encoding, "utf8");
     assert.equal(readResult.result.output.containsNulByte, false);
     assert.equal(readResult.result.output.withinContextRoot, true);
+
+    const relativeRead = await registry.execute({
+      id: "read_relative",
+      actionClass: "inspect",
+      toolName: "file.read",
+      input: { path: "notes.txt", maxBytes: 4 },
+    });
+    assert.equal(relativeRead.result.status, "complete");
+    assert.equal(relativeRead.result.output.resolvedPath, await realpath(file));
+    assert.equal(relativeRead.result.output.text, "abcd");
 
     const readProjection = projectModelToolResult(readResult.result);
     const readPayload = JSON.parse(readProjection.content[0].text);

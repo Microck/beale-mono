@@ -8,6 +8,7 @@ import type { WebContents } from 'electron';
 import { WebSocket, WebSocketServer } from 'ws';
 import { browserContextLabel, browserContextPartition, DEFAULT_BROWSER_CONTEXT, MAX_BROWSER_CONTEXTS } from '../shared/browserContexts';
 import type { BrowserContextSummary, BrowserContextsUpdate } from '../shared/browserContexts';
+import { focusInAgentBrowserInput } from './inAgentBrowserInput';
 
 const DISCOVERY_FILE = join(homedir(), '.beale', 'desktop-browser.json');
 const MAX_MESSAGE_BYTES = 8_000_000;
@@ -35,7 +36,7 @@ interface CdpRequest {
 interface BrowserContextState {
   summary: BrowserContextSummary;
   guest: WebContents | null;
-  client: WebSocket | null;
+  clients: Set<WebSocket>;
 }
 
 interface SavedBrowserContext {
@@ -57,7 +58,7 @@ function browserAccessApproved(file: string): boolean {
 
 function restoredContexts(file: string): Map<string, BrowserContextState> {
   const contexts = new Map<string, BrowserContextState>([[DEFAULT_BROWSER_CONTEXT.id, {
-    summary: DEFAULT_BROWSER_CONTEXT, guest: null, client: null
+    summary: DEFAULT_BROWSER_CONTEXT, guest: null, clients: new Set()
   }]]);
   let saved: unknown;
   try {
@@ -81,7 +82,7 @@ function restoredContexts(file: string): Map<string, BrowserContextState> {
     contexts.set(candidate.id, {
       summary: { id: candidate.id, label, partition: browserContextPartition(candidate.id), lastUrl },
       guest: null,
-      client: null
+      clients: new Set()
     });
   }
   return contexts;
@@ -126,6 +127,7 @@ export class InAgentBrowserBridge {
   #approved: boolean;
   readonly #acknowledgedSessions = new Set<string>();
   #pendingApproval: Promise<boolean> | null = null;
+  #inputQueue: Promise<void> = Promise.resolve();
 
   constructor(
     discoveryFile = DISCOVERY_FILE,
@@ -179,7 +181,7 @@ export class InAgentBrowserBridge {
     }
     const id = randomUUID();
     const summary = { id, label, partition: browserContextPartition(id), lastUrl: 'about:blank' };
-    this.#contexts.set(id, { summary, guest: null, client: null });
+    this.#contexts.set(id, { summary, guest: null, clients: new Set() });
     try { this.#saveContexts(); } catch (error) { this.#contexts.delete(id); throw error; }
     this.#onChange({ contexts: this.listContexts(), createdId: id });
     return summary;
@@ -289,6 +291,7 @@ export class InAgentBrowserBridge {
     if (!context) throw new Error('Browser context was not found.');
     this.#detach(context);
     context.guest = guest;
+    guest.setIgnoreMenuShortcuts(true);
     guest.setWindowOpenHandler(() => ({ action: 'deny' }));
     guest.on('will-navigate', (event, url) => {
       if (!allowedBrowserUrl(url)) event.preventDefault();
@@ -399,14 +402,13 @@ export class InAgentBrowserBridge {
       client.close();
       return;
     }
-    context.client?.close();
-    context.client = client;
     try {
       if (!guest.debugger.isAttached()) guest.debugger.attach('1.3');
     } catch {
       client.close();
       return;
     }
+    context.clients.add(client);
     const onMessage = (_event: Electron.Event, method: string, params: unknown, sessionId?: string): void => {
       if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ method, params, ...(sessionId ? { sessionId } : {}) }));
     };
@@ -418,7 +420,7 @@ export class InAgentBrowserBridge {
       try { request = cdpRequest(JSON.parse(String(raw))); } catch { /* Invalid CDP frame. */ }
       if (!request) return;
       const { id, method, params, sessionId } = request;
-      if (context.client !== client || guest.isDestroyed()) {
+      if (!context.clients.has(client) || guest.isDestroyed()) {
         client.close();
         return;
       }
@@ -431,7 +433,23 @@ export class InAgentBrowserBridge {
         return;
       }
       try {
-        void guest.debugger.sendCommand(method, params ?? {}, sessionId).then(
+        const isInput = method.startsWith('Input.');
+        const send = async (): Promise<unknown> => {
+          const ensureCurrentGuest = (): void => {
+            if (context.guest !== guest || !context.clients.has(client) || guest.isDestroyed()) {
+              throw new Error('The embedded browser connection is no longer active.');
+            }
+          };
+          ensureCurrentGuest();
+          if (isInput) await focusInAgentBrowserInput(guest);
+          ensureCurrentGuest();
+          return guest.debugger.sendCommand(method, params ?? {}, sessionId);
+        };
+        // All contexts share one embedder focus. Keep focus and dispatch together,
+        // including when different research sessions send input concurrently.
+        const result = isInput ? this.#inputQueue.then(send) : send();
+        if (isInput) this.#inputQueue = result.then(() => undefined, () => undefined);
+        void result.then(
           (result) => {
             if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ id, result }));
           },
@@ -444,18 +462,17 @@ export class InAgentBrowserBridge {
       }
     });
     client.on('close', () => {
-      const activeClient = context.client === client;
-      if (activeClient) context.client = null;
+      context.clients.delete(client);
       if (guest.isDestroyed()) return;
       guest.debugger.off('message', onMessage);
       guest.debugger.off('detach', onDetach);
-      if (activeClient && guest.debugger.isAttached()) guest.debugger.detach();
+      if (context.clients.size === 0 && guest.debugger.isAttached()) guest.debugger.detach();
     });
   }
 
   #detach(context: BrowserContextState): void {
-    context.client?.close();
-    context.client = null;
+    for (const client of context.clients) client.close();
+    context.clients.clear();
     const guest = context.guest;
     if (guest && !guest.isDestroyed() && guest.debugger.isAttached()) guest.debugger.detach();
     context.guest = null;

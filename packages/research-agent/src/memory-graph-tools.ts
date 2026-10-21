@@ -310,7 +310,7 @@ export function createMemoryGraphTools(store: MemoryGraphStore): ResearchExecuta
         ...(Array.isArray(input.links) ? { links: input.links.map(parseMemoryLink) } : {}),
       }, context?.modelAuthor);
     }),
-    tool("memory.correct", "memory_correct", "Exactly correct supplied fields or reclassify a memory node using its current revision. Reclassification preserves evidence and relationships and returns a new type-derived id. Retired and non-creatable types remain readable but cannot be reclassification targets.", "write", schemas.correct, (input, context) => {
+    tool("memory.correct", "memory_correct", "Exactly correct supplied fields or reclassify a memory node using its current revision. Supplied evidence replaces the full evidence list; omit evidence to preserve it, or use memory.save to append. Reclassification preserves evidence and relationships unless replacement evidence is supplied, and returns a new type-derived id. Retired and non-creatable types remain readable but cannot be reclassification targets.", "write", schemas.correct, (input, context) => {
       const patch: Partial<Omit<SaveMemoryNodeInput, "id">> = {};
       if ("type" in input) patch.type = requiredString(input.type, "type") as MemoryNodeType;
       if ("title" in input) patch.title = requiredString(input.title, "title");

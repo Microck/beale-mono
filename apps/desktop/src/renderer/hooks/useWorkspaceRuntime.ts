@@ -19,6 +19,17 @@ export type WorkspaceStartupPhase = 'shell' | 'registry' | 'ready';
 
 const WORKSPACE_REGISTRY_REFRESH_INTERVAL_MS = 5_000;
 const WORKSPACE_MEMORY_REFRESH_INTERVAL_MS = 5_000;
+const SELECTED_RUN_STORAGE_KEY = 'beale:selected-run';
+
+function restoredSelectedRunId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const id = window.sessionStorage.getItem(SELECTED_RUN_STORAGE_KEY);
+    return id && /^[A-Za-z0-9_.:-]{1,128}$/u.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
 
 export function useWorkspaceRuntime(onError: (message: string) => void): {
   snapshot: WorkspaceSnapshot | null;
@@ -41,13 +52,20 @@ export function useWorkspaceRuntime(onError: (message: string) => void): {
   const [windowChromeState, setWindowChromeState] = useState<WindowChromeState>({ isMaximized: false, isFullScreen: false });
   const [openAiStatus, setOpenAiStatus] = useState<OpenAiAccountStatus | null>(null);
   const [startupPhase, setStartupPhase] = useState<WorkspaceStartupPhase>('shell');
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(restoredSelectedRunId);
   const pendingSnapshotRef = useRef<WorkspaceSnapshot | null | undefined>(undefined);
   const pendingWorkspaceRegistryRef = useRef<WorkspaceRegistryState | null>(null);
   const appliedSnapshotRef = useRef<WorkspaceSnapshot | null>(null);
   const snapshotActivityRef = useRef(0);
   const snapshotFrameRef = useRef<number | null>(null);
   const workspaceRegistryFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    try {
+      if (selectedRunId) window.sessionStorage.setItem(SELECTED_RUN_STORAGE_KEY, selectedRunId);
+      else window.sessionStorage.removeItem(SELECTED_RUN_STORAGE_KEY);
+    } catch { /* Session selection remains usable when browser storage is unavailable. */ }
+  }, [selectedRunId]);
 
   const applySnapshot = useCallback((next: WorkspaceSnapshot | null, selectedRunIdOverride?: string) => {
     snapshotActivityRef.current += 1;

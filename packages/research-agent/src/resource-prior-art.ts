@@ -58,7 +58,7 @@ export class ResourcePriorArtStore {
   close(): void { if (this.#ownsConnection) this.#db.close(); }
 
   requireResource(value: unknown): string {
-    if (typeof value !== "string" || !value.trim()) throw new Error("resourceId is required to save prior art. Obtain it from resource.catalog.");
+    if (typeof value !== "string" || !value.trim()) throw new Error("resourceId is required to access prior art. Obtain it from resource.catalog.");
     const row = this.#db.prepare("SELECT id FROM app_server_research_resources WHERE workspace_id = ? AND (id = ? OR scope_asset_id = ?)").get(this.workspaceId, value, value) as { id: string } | undefined;
     if (!row) throw new Error("Resource not found in this workspace.");
     return row.id;

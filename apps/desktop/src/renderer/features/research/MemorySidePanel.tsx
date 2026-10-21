@@ -350,6 +350,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const featureAvailability = researchProfileFeatureAvailability(researchProfile);
   const subagentsAvailable = featureAvailability.collaboration && viewSpace === 'session';
   const [browserContexts, setBrowserContexts] = useState<BrowserContextSummary[]>([DEFAULT_BROWSER_CONTEXT]);
+  const [mountedBrowserContextIds, setMountedBrowserContextIds] = useState<ReadonlySet<string>>(new Set());
   const [fleetBrowserMachine, setFleetBrowserMachine] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     if (!browserContextsEnabled || viewSpace !== 'session' || !runId) { setFleetBrowserMachine(null); return; }
@@ -379,8 +380,18 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     const unsubscribe = window.beale.onBrowserContextsChanged((update) => {
       receivedUpdate = true;
       setBrowserContexts(update.contexts);
+      const removedId = update.removedId;
+      if (removedId) {
+        setMountedBrowserContextIds((current) => {
+          const next = new Set(current);
+          next.delete(removedId);
+          return next;
+        });
+      }
       if (update.createdId || update.openedId) {
-        dispatchNavigation({ type: 'open', view: browserSideViewId(update.createdId ?? update.openedId!) });
+        const contextId = update.createdId ?? update.openedId!;
+        setMountedBrowserContextIds((current) => current.has(contextId) ? current : new Set(current).add(contextId));
+        dispatchNavigation({ type: 'open', view: browserSideViewId(contextId) });
         onExpandedChange?.(true);
       }
     });
@@ -725,6 +736,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 
   const openDetails = (view: ResearchSideView, campaignEntryTarget: CampaignEntryTarget = 'top'): void => {
     if (!enabledViews.includes(view)) return;
+    if (isBrowserSideView(view) && !fleetBrowserMachine) {
+      const contextId = view.slice('browser:'.length);
+      setMountedBrowserContextIds((current) => current.has(contextId) ? current : new Set(current).add(contextId));
+    }
     if (view === 'memory') {
       const entrySelection = campaignEntryFilterSelection(campaignEntryTarget);
       if (entrySelection) {
@@ -781,13 +796,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   };
   const browserPages = (
     <Fragment key="browser-pages">
-      {browserContextsEnabled && fleetBrowserMachine !== undefined && visibleBrowserContexts.filter((context) => visibleNavigation.openViews.includes(browserSideViewId(context.id))).map((context) => (
-        fleetBrowserMachine
-          ? <FleetBrowserSideView key={context.id} runId={runId}
-              visible={detailsOpen && activeView === browserSideViewId(context.id) && !visibleSelectedSubagentPath && !visibleSelectedRunbookId && !visibleSelectedReportId && !selectedNode && !selectedClaim} />
-          : <BrowserSideView key={context.id} label={context.label} partition={context.partition} lastUrl={context.lastUrl}
-              visible={detailsOpen && activeView === browserSideViewId(context.id) && !visibleSelectedSubagentPath && !visibleSelectedRunbookId && !visibleSelectedReportId && !selectedNode && !selectedClaim} />
+      {browserContextsEnabled && browserContexts.filter((context) => mountedBrowserContextIds.has(context.id)).map((context) => (
+        <BrowserSideView key={`embedded:${context.id}`} label={context.label} partition={context.partition} lastUrl={context.lastUrl}
+          visible={!fleetBrowserMachine && detailsOpen && activeView === browserSideViewId(context.id) && !visibleSelectedSubagentPath && !visibleSelectedRunbookId && !visibleSelectedReportId && !selectedNode && !selectedClaim} />
       ))}
+      {browserContextsEnabled && fleetBrowserMachine && visibleNavigation.openViews.includes(browserSideViewId(DEFAULT_BROWSER_CONTEXT.id)) ? (
+        <FleetBrowserSideView key={`fleet:${runId}`} runId={runId}
+          visible={detailsOpen && activeView === browserSideViewId(DEFAULT_BROWSER_CONTEXT.id) && !visibleSelectedSubagentPath && !visibleSelectedRunbookId && !visibleSelectedReportId && !selectedNode && !selectedClaim} />
+      ) : null}
     </Fragment>
   );
   const browserSummaryRows = (browserContextsEnabled ? visibleBrowserContexts : []).map((context) => (
