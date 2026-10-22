@@ -10,9 +10,15 @@ import { BrowserCdpSession } from '../../../packages/research-agent/src/browser-
 import { allowedBrowserCommand, allowedBrowserUrl, InAgentBrowserBridge } from '../src/main/inAgentBrowserBridge';
 import { browserContextLabel, DEFAULT_BROWSER_CONTEXT } from '../src/shared/browserContexts';
 import { browserNavigationUrl, BrowserSideView } from '../src/renderer/features/research/BrowserSideView';
-import { BrowserContextCloseDialog, ResearchSidePanel, ResearchSideViewChooser, ResearchSideViewTabs, availableResearchSideViews, removeBrowserContextForClosedTab, requiresBrowserContextCloseConfirmation, researchSideNavigationReducer, researchSideViewsForProfile } from '../src/renderer/features/research/MemorySidePanel';
+import { BrowserContextCloseDialog, ResearchSidePanel, ResearchSideViewChooser, ResearchSideViewTabs, availableResearchSideViews, removeBrowserContextForClosedTab, requiresBrowserContextCloseConfirmation, researchSideNavigationReducer, researchSidePickerMenuLeft, researchSideViewsForProfile } from '../src/renderer/features/research/MemorySidePanel';
 
 describe('in-agent browser', () => {
+  it('keeps the add-view menu inside the research sidebar', () => {
+    expect(researchSidePickerMenuLeft(410, 190, 238, 575)).toBe(244);
+    expect(researchSidePickerMenuLeft(575, 190, 238, 575)).toBe(379);
+    expect(researchSidePickerMenuLeft(140, 138, 0, 150)).toBe(6);
+  });
+
   it('offers Browser in the expanded chooser and tab picker', () => {
     expect(researchSideViewsForProfile(null)).toContain('browser:default');
     const chooser = renderToStaticMarkup(createElement(ResearchSideViewChooser, { onOpen: () => undefined }));
@@ -221,6 +227,7 @@ describe('in-agent browser', () => {
     }, async (sessionId) => { acknowledgements.push(sessionId); return sessionId !== 'session-example-denied'; });
     const fakeGuest = (id: number) => {
       const debuggerEvents = new EventEmitter();
+      const debuggerCommands: string[] = [];
       let attached = false;
       const guest = Object.assign(new EventEmitter(), {
         id,
@@ -230,6 +237,8 @@ describe('in-agent browser', () => {
         close: () => undefined,
         setIgnoreMenuShortcuts: vi.fn(),
         setWindowOpenHandler: () => undefined,
+        reload: vi.fn(),
+        reloadIgnoringCache: vi.fn(),
         hostWebContents: {
           isDestroyed: () => false,
           executeJavaScript: async () => {
@@ -244,6 +253,7 @@ describe('in-agent browser', () => {
           attach: () => { attached = true; },
           detach: () => { attached = false; },
           sendCommand: async (method: string, params: Record<string, unknown>) => {
+            debuggerCommands.push(method);
             if (method.startsWith('Input.')) {
               await new Promise((resolve) => setTimeout(resolve, 5));
               if (focusedGuest !== id) throw new Error('Input escaped its browser context');
@@ -253,7 +263,7 @@ describe('in-agent browser', () => {
           }
         })
       }) as unknown as WebContents;
-      return { guest, debuggerEvents };
+      return { guest, debuggerEvents, debuggerCommands };
     };
     const defaultGuest = fakeGuest(7);
     const adminGuest = fakeGuest(8);
@@ -309,6 +319,15 @@ describe('in-agent browser', () => {
       expect(await browser.command(adminConnection, 'Page.navigate', { url: 'https://example.test/admin' })).toMatchObject({
         result: { guestId: 8, method: 'Page.navigate' }
       });
+      expect(await browser.command(defaultConnection, 'Page.reload')).toMatchObject({ result: {} });
+      expect(await browser.command(adminConnection, 'Page.reload', { ignoreCache: true })).toMatchObject({ result: {} });
+      expect(defaultGuest.guest.reload).toHaveBeenCalledOnce();
+      expect(adminGuest.guest.reloadIgnoringCache).toHaveBeenCalledOnce();
+      expect(defaultGuest.debuggerCommands).not.toContain('Page.reload');
+      expect(adminGuest.debuggerCommands).not.toContain('Page.reload');
+      expect(await browser.command(defaultConnection, 'Page.reload', {}, 'other-target')).toMatchObject({ error: { code: -32602 } });
+      expect(await browser.command(defaultConnection, 'Page.reload', { scriptToEvaluateOnLoad: '1' })).toMatchObject({ error: { code: -32602 } });
+      expect(defaultGuest.guest.reload).toHaveBeenCalledOnce();
       expect(await browser.command(defaultConnection, 'Target.getTargets')).toMatchObject({ error: { code: -32601 } });
       expect(await browser.command(defaultConnection, 'Page.navigate', { url: 'file:///example.txt' })).toMatchObject({ error: { code: -32602 } });
       defaultGuest.debuggerEvents.emit('message', {}, 'Page.frameNavigated', { frame: { url: 'https://example.test/next' } });

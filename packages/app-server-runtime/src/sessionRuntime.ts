@@ -122,6 +122,7 @@ import {
   selectResearchGoalObjective,
   AppServerSessionStore,
   installPreBealeEnvironmentAliases,
+  type ResearchGoalFindingProgress,
 } from "@beale/research-agent";
 import { BEALE_APP_SERVER_CONTROL_VERSION, BEALE_APP_SERVER_OPERATIONS_PATH, type FleetState } from './protocol.js';
 
@@ -2230,8 +2231,7 @@ export async function main(
                 startCellId: request.startCellId ?? null,
                 endCellId: request.endCellId ?? null,
                 status: "failed",
-                proofTarget: request.proofTarget,
-                ...(request.deviceOs ? { deviceOs: request.deviceOs } : {}),
+                proofTarget: 'other',
                 error: error instanceof Error ? error.message : String(error),
               },
             });
@@ -2266,6 +2266,7 @@ export async function main(
           runtimeConfig.getContinuityContext,
           promptTemplate,
           runtimeConfig.surfaceStore,
+          runtimeConfig.getFindingProgress,
         );
       }
       const sessionTitleRoute = args.mock
@@ -2460,6 +2461,7 @@ function createRealAgentExecutor(
   getContinuityContext?: () => unknown,
   promptTemplate?: string,
   surfaceStore?: SurfaceStore,
+  getFindingProgress?: () => readonly ResearchGoalFindingProgress[],
 ): ResearchAgentExecutor {
   const authenticationPreferences = readProviderAuthenticationPreferences();
   const providerSessionId = args.sessionId?.trim() || resumableState?.providerSessionId;
@@ -2559,6 +2561,9 @@ function createRealAgentExecutor(
             currentRequest: args.prompt!,
             getDisposition: () => dispositionRecorder.get(),
             resetDisposition: () => dispositionRecorder.resetForGoalContinuation(),
+            ...(resolvedResearchProfile.profile.id === "security-research" && getFindingProgress
+              ? { getFindingProgress }
+              : {}),
           },
         }
       : {}),
@@ -3842,14 +3847,13 @@ async function createRuntimeConfig(args: {
   dispositionRecorder: ResearchDispositionRecorder;
   memoryGraph: MemoryGraphStore;
   surfaceStore: SurfaceStore;
+  getFindingProgress: () => readonly ResearchGoalFindingProgress[];
   executeRunbook?: (request: {
     runbookId: string;
     cellId?: string;
     startCellId?: string;
     endCellId?: string;
     signal?: AbortSignal;
-    proofTarget: "localhost" | "device" | "vm" | "web" | "other";
-    deviceOs?: string;
   }) => Promise<RunbookExecutionResult>;
   cleanup?: () => Promise<void>;
 }> {
@@ -3971,6 +3975,18 @@ async function createRuntimeConfig(args: {
   executableTools.push(...memoryTools);
   toolDescriptors.push(...memoryTools.map((tool) => tool.descriptor));
   const findingStore = new FindingStore(memoryGraph);
+  const getFindingProgress = (): ResearchGoalFindingProgress[] => findingStore.list()
+    .filter((finding) => (
+      finding.status === "observed" || finding.status === "reproduced"
+    ) && Boolean(args.sessionId) && (
+      finding.originSessionId === args.sessionId
+      || finding.transitions.some((transition) => transition.sessionId === args.sessionId)
+    ))
+    .map((finding) => ({
+      id: finding.id,
+      maturity: finding.status as "observed" | "reproduced",
+      progressBlocker: finding.securityTracking?.progressBlocker?.reason ?? null,
+    }));
   const findingTools = memoryActive
     ? createFindingTools(findingStore, {
         classifications: effectiveClaimClassifications(resolvedResearchProfile.profile).map((classification) => classification.id),
@@ -4367,6 +4383,7 @@ async function createRuntimeConfig(args: {
     dispositionRecorder,
     memoryGraph,
     surfaceStore,
+    getFindingProgress,
     ...(executeRunbook ? { executeRunbook } : {}),
     capture: createRuntimeCapture({
       families,

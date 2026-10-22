@@ -57,6 +57,20 @@
 
 #### Changed
 
+- Session and workspace summaries now show browser contexts in a separate section before other resources, with each browser's current host and port beside its context name.
+- Session and workspace summary sidebars now show all memory type counts without a disclosure control.
+- The expanded Findings catalog hides refuted findings by default and opens them from a right-aligned refuted count.
+- Workspace Targets now uses flat checkbox rows with full-width horizontal separators.
+- Workspace Rules lists now use flat rows with horizontal separators in workspace and creation views.
+- Fleet App Servers now shows local and saved servers as flat rows with full-width separators in the main view.
+- Provider Subscription Limits now uses the shared settings heading and padded, divided rows for reported windows, with Refresh beside the title.
+- Expanded Runbook details now show model authors and the last update above Cells and Duplicates tabs. The circular run action sits beside the tabs, and revision and execution metrics appear as bottom tags.
+- Expanded Runbook details now match the main content background in workspace and session views and show controls without a repeated category icon or title. Runbook execution derives its retained target metadata from cell executors; the Proof Target and Device OS inputs are removed from the model tool and Desktop controls. Existing execution records remain readable. Rebuild Desktop and app-server together for the updated control contract.
+- Updated Beale branding to the simplified charcoal and red-eye vector mark, including Desktop welcome screens, native app icons, app-server tray assets, and the retained iOS icon.
+- Goal Mode now asks researchers to carry current-session findings toward verified evidence or a sound progress blocker, while respecting an explicit lower-maturity stopping point. An achieved disposition with an open current-session finding triggers a finding-aware completion audit.
+- Finding References now labels command and runbook execution entries as Evidence.
+- Finding and Memory Breakdown prose now renders Markdown, including lists, code blocks, and inline formatting.
+- Add Context now retains the researcher\'s New Research input verbatim and appends security-focused workspace context. Local expansion also receives bounded workspace agent guidance instead of assuming it is visible to the expansion model.
 - Research runbook guidance now applies across profiles before claim-confirming tests, and the evidence checkpoint includes shell activity so extended sessions cannot bypass the runbook path through direct commands. Runbook catalog metrics now identify cumulative cell executions, and the detail view distinguishes unavailable content from an empty runbook.
 - The Resource details editor now uses the workspace form layout with aligned field rows, a rounded field surface, and separate actions.
 - Workspace Rules now displays each rule in its own rounded surface with a small gap between entries.
@@ -223,6 +237,11 @@
 
 #### Fixed
 
+- The expanded research sidebar keeps its add-view menu within the sidebar when the tab row approaches either edge.
+- Workspace Targets scrolls vertically when its list exceeds the available view height.
+- Workspace Settings right-aligns research-directory paths within the form and truncates long values without horizontal overflow.
+- Runbook detail authors now resolve model display names from the provider catalog, matching Finding details.
+- Embedded browser `Page.reload` now uses the guest webContents reload API instead of forwarding the raw CDP command. Cache bypass remains supported; unsupported reload options are rejected.
 - Resource tiles keep their content height as the list grows, allowing vertical scrolling instead of compressing rows.
 - Expanded Memory details now use the workspace content background in the right sidebar.
 - The Findings Ratings menu now opens within the board instead of being clipped at its left edge.

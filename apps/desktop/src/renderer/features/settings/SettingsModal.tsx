@@ -2903,16 +2903,16 @@ function ProviderLimitsSection({ providerId, subscriptionConfigured }: {
 
   return (
     <section className="settings-form provider-settings-form provider-limits-section" aria-label="Subscription limits">
-      <header className="settings-form-heading provider-limits-heading">
-        <div>
+      <header className="settings-form-heading">
+        <div className="provider-settings-form-title">
           <h2>Subscription Limits</h2>
-          <p>Allowance reported by your signed-in provider account.</p>
+          {subscriptionSupported && subscriptionConfigured ? (
+            <button className="provider-settings-heading-refresh provider-limits-refresh" type="button" aria-label={`Refresh ${providerCompanyName(providerId)} limits`} title="Refresh limits" disabled={loading} onClick={() => load(true)}>
+              <RefreshCw size={16} aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
-        {subscriptionSupported && subscriptionConfigured ? (
-          <button className="provider-limits-refresh" type="button" aria-label={`Refresh ${providerCompanyName(providerId)} limits`} title="Refresh limits" disabled={loading} onClick={() => load(true)}>
-            <RefreshCw size={15} aria-hidden="true" />
-          </button>
-        ) : null}
+        <p>Allowance reported by your signed-in provider account.</p>
       </header>
       <div className="settings-form-squircle provider-settings-form-squircle">
         {!subscriptionSupported ? <p className="provider-limits-message">This provider does not report subscription limit windows.</p>

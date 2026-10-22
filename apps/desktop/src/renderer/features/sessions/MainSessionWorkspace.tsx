@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
-import type { ApprovalRecord, AppServerFindingSummary, AppServerMemorySummary, AppServerReportDocument, AppServerReportSummary, AppServerRunbookDocument, AppServerRunbookSummary, ClaimBoardMaturity, PolicyReviewDecision, ProviderModelDefaults, RepositoryCloneMode, ResearchKitId, ResearchKitRefreshInput, ResearchKitRefreshResult, ResearchModelProviderId, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookExecutionSelection, RunbookProofTarget, RunbookProofTargetSelection, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceMemoryBackendId, WorkspaceRule, WorkspaceScopeVersion } from '@shared/types';
+import type { ApprovalRecord, AppServerFindingSummary, AppServerMemorySummary, AppServerReportDocument, AppServerReportSummary, AppServerRunbookDocument, AppServerRunbookSummary, ClaimBoardMaturity, PolicyReviewDecision, ProviderModelDefaults, RepositoryCloneMode, ResearchKitId, ResearchKitRefreshInput, ResearchKitRefreshResult, ResearchModelProviderId, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookExecutionSelection, RunbookProofTarget, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceMemoryBackendId, WorkspaceRule, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceConfigurationInput, WorkspaceDashboardView } from '../workspaces/WorkspaceUnderstandingView';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
@@ -160,7 +160,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onWorkspaceViewSelectionChange?: (view: WorkspaceDashboardView) => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
   onOpenAppServerRunbook: (runbookId: string) => void;
-  onRunAppServerRunbook?: (runbookId: string, selection: RunbookExecutionSelection, target: RunbookProofTargetSelection) => Promise<void>;
+  onRunAppServerRunbook?: (runbookId: string, selection: RunbookExecutionSelection) => Promise<void>;
   onBackToRunbooks: () => void;
   onOpenAppServerReport?: (reportId: string) => void;
   onOpenWorkspaceReport?: (report: AppServerReportSummary) => void;
@@ -176,7 +176,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   const [selectedWorkspaceMemoryId, setSelectedWorkspaceMemoryId] = useState<string | null>(null);
   const [connectedDeviceCaptureVisible, setConnectedDeviceCaptureVisible] = useState(false);
   const [connectedDeviceCaptureExpanded, setConnectedDeviceCaptureExpanded] = useState(false);
-  const [connectedDeviceOs, setConnectedDeviceOs] = useState<string | null>(null);
   const [connectedDeviceAspectRatio, setConnectedDeviceAspectRatio] = useState(CONNECTED_DEVICE_DEFAULT_ASPECT_RATIO);
   const [mainSessionSize, setMainSessionSize] = useState({ width: 0, height: 0 });
   const autoExpandedRunbookRunIdRef = useRef<string | null>(null);
@@ -331,7 +330,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   return (
     <div
       ref={containerRef}
-      className={`main-session-grid${workspaceSideView ? ' workspace-context' : ''}${visibleResearchDetails || (viewState === 'session' && connectedDeviceCaptureExpanded) ? ' research-details-open' : ''}${workspaceView && visibleResearchDetails && selectedWorkspaceClaimId ? ' finding-details-open' : ''}${workspaceView && visibleResearchDetails && selectedWorkspaceMemoryId ? ' memory-details-open' : ''}${workspaceSideView && !visibleResearchDetails ? ' workspace-main-only' : ''}${(viewState === 'new-research' && !visibleResearchDetails) || (viewState === 'session' && selectedRunId !== null && !sessionHasContent) ? ' session-main-only' : ''}`}
+      className={`main-session-grid${workspaceSideView ? ' workspace-context' : ''}${visibleResearchDetails || (viewState === 'session' && connectedDeviceCaptureExpanded) ? ' research-details-open' : ''}${workspaceView && visibleResearchDetails && selectedWorkspaceClaimId ? ' finding-details-open' : ''}${workspaceView && visibleResearchDetails && selectedWorkspaceMemoryId ? ' memory-details-open' : ''}${visibleResearchDetails && selectedRunbookId ? ' runbook-details-open' : ''}${workspaceSideView && !visibleResearchDetails ? ' workspace-main-only' : ''}${(viewState === 'new-research' && !visibleResearchDetails) || (viewState === 'session' && selectedRunId !== null && !sessionHasContent) ? ' session-main-only' : ''}`}
       data-session-view-state={viewState}
       style={{
         '--research-side-panel-width': `${panelWidth}px`,
@@ -435,7 +434,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           selectedMemoryNodeId={!sidePanelRunId ? selectedWorkspaceMemoryId : undefined}
           runbookLoading={runbookLoading}
           runbookError={runbookError}
-          connectedDeviceOs={connectedDeviceOs}
           selectedReport={selectedReport}
           selectedReportDocument={selectedReportDocument}
           selectedReportId={selectedReportId}
@@ -464,7 +462,6 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
             active={connectedDeviceCaptureEnabled}
             expanded={connectedDeviceCaptureExpanded}
             onAspectRatioChange={setConnectedDeviceAspectRatio}
-            onDeviceOsChange={setConnectedDeviceOs}
             onExpandedChange={changeConnectedDeviceCaptureExpanded}
             onVisibilityChange={setConnectedDeviceCaptureVisible}
           />

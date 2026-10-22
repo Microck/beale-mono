@@ -851,11 +851,6 @@ export interface AppServerRunbookExecutionSummary {
 
 export type RunbookProofTarget = 'localhost' | 'device' | 'vm' | 'web' | 'other';
 
-export interface RunbookProofTargetSelection {
-  proofTarget: RunbookProofTarget;
-  deviceOs?: string;
-}
-
 export interface AppServerRunbookCell {
   id: string;
   type: 'markdown' | 'code' | 'raw';
@@ -2218,8 +2213,6 @@ export type SteeringAction =
       cellId?: string;
       startCellId?: string;
       endCellId?: string;
-      proofTarget: RunbookProofTarget;
-      deviceOs?: string;
     }
   | {
       type: 'review_shell_command';

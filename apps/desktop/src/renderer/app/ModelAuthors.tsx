@@ -1,9 +1,11 @@
 import type { JSX } from 'react';
-import type { AppServerModelAuthor } from '@shared/types';
+import type { AppServerModelAuthor, ResearchProviderModelCatalog } from '@shared/types';
+import { researchModelDisplayName } from '../lib/formatting';
 import { ProviderIcon } from './ProviderIcon';
 
-export function ModelAuthors({ authors }: {
+export function ModelAuthors({ authors, providerModelCatalog = [] }: {
   authors?: readonly AppServerModelAuthor[];
+  providerModelCatalog?: readonly ResearchProviderModelCatalog[];
 }): JSX.Element {
   return (
     <div className="model-authors" aria-label="Model authors">
@@ -17,7 +19,7 @@ export function ModelAuthors({ authors }: {
               title={`${author.provider}/${author.model}`}
             >
               <ProviderIcon provider={author.provider || author.model} size={13} aria-hidden="true" />
-              <span>{author.model}</span>
+              <span>{researchModelDisplayName(author.provider, author.model, providerModelCatalog)}</span>
             </span>
           ))}
         </span>

@@ -21,7 +21,6 @@ import type {
   RunDetail,
   RunRecord,
   RunbookExecutionSelection,
-  RunbookProofTarget,
   ShellSafetyMode,
   TranscriptMessageRecord,
   StartRunInput,
@@ -1121,9 +1120,7 @@ export class AppServerRunEngine {
   public executeRunbook(
     runId: string,
     runbookId: string,
-    proofTarget: RunbookProofTarget,
-    selection: RunbookExecutionSelection,
-    deviceOs?: string
+    selection: RunbookExecutionSelection
   ): AppServerControlDispatch | null {
     const active = this.activeRuns.get(runId);
     if (!active) return null;
@@ -1135,8 +1132,6 @@ export class AppServerRunEngine {
       ...(selection.cellId ? { cellId: selection.cellId } : {}),
       ...(selection.startCellId ? { startCellId: selection.startCellId } : {}),
       ...(selection.endCellId ? { endCellId: selection.endCellId } : {}),
-      proofTarget,
-      ...(deviceOs ? { deviceOs } : {})
     });
   }
 

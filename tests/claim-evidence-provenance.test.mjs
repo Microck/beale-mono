@@ -35,7 +35,7 @@ async function fixture(t) {
     return { action, status: "complete", startedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
       summary: "Example assertion passed.", output: { stdout: "example passed", stderr: "", exitCode: 0 }, followUpActions: [] };
   } } });
-  const run = (overrides = {}) => execute({ runbookId: book.id, proofTarget: "localhost", sourceRevision, environmentFingerprint, actorId: "author-example", ...overrides });
+  const run = (overrides = {}) => execute({ runbookId: book.id, sourceRevision, environmentFingerprint, actorId: "author-example", ...overrides });
   const reproduce = (runId, overrides = {}) => {
     const current = claims.get(claim.id);
     return claims.transition(claim.id, { expectedRevision: current.revision, toStatus: "reproduced", reason: "Example reproduction.", reproductionRunbookId: book.id,
@@ -219,7 +219,7 @@ test("runbook tool records host actor identity and declared source/environment p
   const tool = createRunbookExecutionTool(f.execute);
   assert.equal(tool.parameters.properties.actorId, undefined);
   const result = await tool.execute({ id: "run-example", toolName: "runbook.run", actionClass: "experiment", input: {
-    id: f.book.id, proofTarget: "localhost", sourceRevision: f.sourceRevision, environmentFingerprint: f.environmentFingerprint, actorId: "spoof-example",
+    id: f.book.id, sourceRevision: f.sourceRevision, environmentFingerprint: f.environmentFingerprint, actorId: "spoof-example",
   } }, { agentId: "host-actor-example" });
   assert.equal(result.status, "complete", result.error?.message);
   const run = f.database.prepare("SELECT actor_id, source_revision, environment_fingerprint FROM app_server_runbook_executions WHERE run_id = ?").get(result.output.runId);

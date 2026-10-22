@@ -857,7 +857,7 @@ describe('renderer dialog surfaces', () => {
       subjectName: 'Parser Research',
       type: 'primitive',
       title: 'Unchecked parser length',
-      summary: 'The captured source multiplies a length before checking bounds.',
+      summary: 'The captured source **multiplies a length** before checking bounds.',
       body: '## Detailed parser analysis\n\n- Check the boundary\n- Trace `length` before allocation',
       status: 'suspected',
       confidence: 0.8,
@@ -893,7 +893,7 @@ describe('renderer dialog surfaces', () => {
     expect(html).not.toContain('bottom-sheet-panel');
     expect(header).not.toContain(node.title);
     expect(header).toContain(`<time dateTime="${node.updatedAt}"`);
-    expect(html).toContain('<section class="memory-detail-breakdown" aria-label="Overview and details"><div><strong>Overview</strong><p class="memory-catalog-summary">The captured source multiplies a length before checking bounds.</p></div><div><strong>Details</strong>');
+    expect(html).toContain('<section class="memory-detail-breakdown" aria-label="Overview and details"><div><strong>Overview</strong><div class="memory-catalog-summary"><div class="main-trace-markdown"><p>The captured source <strong>multiplies a length</strong> before checking bounds.</p></div></div></div><div><strong>Details</strong>');
     expect(html).toContain('<h2>Detailed parser analysis</h2>');
     expect(html).toContain('<li>Check the boundary</li>');
     expect(html).toContain('<code class="main-trace-inline-code">length</code>');

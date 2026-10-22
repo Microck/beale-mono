@@ -83,8 +83,9 @@ describe('workspace dashboard', () => {
     const ruleComposerStyles = styles.match(/\.workspace-rule-composer\s*\{([^}]*)\}/)?.[1] ?? '';
     const ruleComposerButtonStyles = styles.match(/\.workspace-rule-composer button\s*\{([^}]*)\}/)?.[1] ?? '';
     const directoriesWidgetStyles = styles.match(/^\.workspace-directories-widget\s*\{([^}]*)\}/m)?.[1] ?? '';
-    const directoriesFieldStyles = styles.match(/\.workspace-directories-field\s*\{([^}]*)\}/)?.[1] ?? '';
+    const directoriesFieldStyles = styles.match(/\.settings-form-control-row\.workspace-directories-field\s*\{([^}]*)\}/)?.[1] ?? '';
     const directoriesFieldControlStyles = styles.match(/\.workspace-directories-field-control\s*\{([^}]*)\}/)?.[1] ?? '';
+    const directoriesFieldPathStyles = styles.match(/\.workspace-directories-field-control > span\s*\{([^}]*)\}/)?.[1] ?? '';
     const directoriesInputStyles = styles.match(/\.workspace-directories-input-area\s*\{([^}]*)\}/)?.[1] ?? '';
     const directoryInputRowStyles = styles.match(/\.workspace-directories-input-row\s*\{([^}]*)\}/)?.[1] ?? '';
     const dividedDirectoryInputRowStyles = styles.match(/\.workspace-directories-input-row \+ \.workspace-directories-input-row\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -208,7 +209,11 @@ describe('workspace dashboard', () => {
     expect(directoriesWidgetStyles).toContain('background: transparent');
     expect(directoriesWidgetStyles).toContain('padding: 0');
     expect(directoriesFieldStyles).toContain('align-items: start');
-    expect(directoriesFieldControlStyles).toContain('grid-template-columns: 26px auto');
+    expect(directoriesFieldStyles).toContain('grid-template-columns: minmax(0, 1fr) minmax(0, 50%)');
+    expect(directoriesFieldControlStyles).toContain('width: 100%');
+    expect(directoriesFieldControlStyles).toContain('grid-template-columns: minmax(0, 1fr) auto');
+    expect(directoriesFieldPathStyles).toContain('justify-self: end');
+    expect(directoriesFieldPathStyles).toContain('text-overflow: ellipsis');
     expect(directoriesInputStyles).toContain('width: 220px');
     expect(directoriesInputStyles).toContain('background: var(--panel-strong)');
     expect(directoriesInputStyles).toContain('resize: horizontal');

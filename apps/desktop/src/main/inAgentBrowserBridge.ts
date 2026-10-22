@@ -432,6 +432,11 @@ export class InAgentBrowserBridge {
         client.send(JSON.stringify({ id, error: { code: -32602, message: 'Only HTTP, HTTPS, and about:blank page URLs are supported.' } }));
         return;
       }
+      if (method === 'Page.reload' && (sessionId || Object.keys(params ?? {}).some((key) => key !== 'ignoreCache')
+        || (params?.ignoreCache !== undefined && typeof params.ignoreCache !== 'boolean'))) {
+        client.send(JSON.stringify({ id, error: { code: -32602, message: 'Embedded browser reload supports only the ignoreCache option and no target session.' } }));
+        return;
+      }
       try {
         const isInput = method.startsWith('Input.');
         const send = async (): Promise<unknown> => {
@@ -443,6 +448,11 @@ export class InAgentBrowserBridge {
           ensureCurrentGuest();
           if (isInput) await focusInAgentBrowserInput(guest);
           ensureCurrentGuest();
+          if (method === 'Page.reload') {
+            if (params?.ignoreCache === true) guest.reloadIgnoringCache();
+            else guest.reload();
+            return {};
+          }
           return guest.debugger.sendCommand(method, params ?? {}, sessionId);
         };
         // All contexts share one embedder focus. Keep focus and dispatch together,

@@ -1,9 +1,7 @@
 import type { Readable } from "node:stream";
-import { RUNBOOK_PROOF_TARGETS } from "@beale/research-agent";
 import type {
   ManualShellApprovalResult,
   ManualToolApprovalResult,
-  RunbookProofTarget,
   RunbookExecutionRequest,
   ShellSafetyMode,
 } from "@beale/research-agent";
@@ -26,8 +24,6 @@ export type AppServerControlMessage = AppServerControlRequest & (
       cellId?: string;
       startCellId?: string;
       endCellId?: string;
-      proofTarget: RunbookProofTarget;
-      deviceOs?: string;
     }
   | {
       type: "resolve_shell_approval";
@@ -314,8 +310,6 @@ export class AppServerControlStream {
           ...(message.cellId ? { cellId: message.cellId } : {}),
           ...(message.startCellId ? { startCellId: message.startCellId } : {}),
           ...(message.endCellId ? { endCellId: message.endCellId } : {}),
-          proofTarget: message.proofTarget,
-          ...(message.deviceOs ? { deviceOs: message.deviceOs } : {}),
         });
         this.runbookExecutions.add(execution);
         void execution.then(
@@ -490,10 +484,6 @@ function parseControlMessage(line: string): AppServerControlMessage {
     if (cellId && (startCellId || endCellId)) {
       throw new Error("Runbook cellId cannot be combined with startCellId or endCellId.");
     }
-    const proofTarget = parseProofTarget(parsed.proofTarget);
-    const deviceOs = proofTarget === "device"
-      ? parseRequiredText(parsed.deviceOs, "Runbook target device OS", 120)
-      : undefined;
     return {
       schemaVersion: 1,
       type: "runbook_execute",
@@ -501,8 +491,6 @@ function parseControlMessage(line: string): AppServerControlMessage {
       ...(cellId ? { cellId } : {}),
       ...(startCellId ? { startCellId } : {}),
       ...(endCellId ? { endCellId } : {}),
-      proofTarget,
-      ...(deviceOs ? { deviceOs } : {}),
       ...(requestId ? { requestId } : {}),
     };
   }
@@ -551,13 +539,6 @@ function parseRequiredText(value: unknown, label: string, maxLength: number): st
     throw new Error(`${label} must be a non-empty string of at most ${maxLength} characters.`);
   }
   return value.trim();
-}
-
-function parseProofTarget(value: unknown): RunbookProofTarget {
-  if (typeof value === "string" && RUNBOOK_PROOF_TARGETS.includes(value as RunbookProofTarget)) {
-    return value as RunbookProofTarget;
-  }
-  throw new Error(`Runbook proof target must be one of: ${RUNBOOK_PROOF_TARGETS.join(", ")}.`);
 }
 
 function parseRequestId(value: unknown): string | undefined {

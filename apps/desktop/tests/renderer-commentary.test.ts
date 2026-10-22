@@ -595,14 +595,14 @@ describe('renderer commentary projection', () => {
       toolEvent(`${actionId}-result`, 'tool.observed', toolName, actionId, input, result)
     ];
 
-    expect(toolMessage(pairedEvents('runbook.run', 'run-entirety', { id: 'runbook_parser', proofTarget: 'localhost' }, {
+    expect(toolMessage(pairedEvents('runbook.run', 'run-entirety', { id: 'runbook_parser' }, {
       output: { title: 'Parser proof', runId: 'runbook_run_one', status: 'succeeded' }
     }))).toBe('Executing runbook entirety in Parser proof');
     expect(toolMessage(pairedEvents('runbook.run', 'run-cell', {
-      id: 'runbook_parser', cellId: 'cell-3', proofTarget: 'localhost'
+      id: 'runbook_parser', cellId: 'cell-3'
     }, { output: { title: 'Parser proof' } }))).toBe('Executing runbook cell 3 in Parser proof');
     expect(toolMessage(pairedEvents('runbook.run', 'run-range', {
-      id: 'runbook_parser', startCellId: 'cell-2', endCellId: 'cell-4', proofTarget: 'localhost'
+      id: 'runbook_parser', startCellId: 'cell-2', endCellId: 'cell-4'
     }, { output: { title: 'Parser proof' } }))).toBe('Executing runbook cells 2-4 in Parser proof');
     expect(toolMessage(pairedEvents('lead.list', 'lead-list', {
       statuses: ['proposed', 'refuted'], query: 'parser boundary'

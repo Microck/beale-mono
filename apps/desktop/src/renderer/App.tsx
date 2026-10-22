@@ -39,7 +39,6 @@ import type {
   RunRecord,
   RunStatus,
   RunbookExecutionSelection,
-  RunbookProofTargetSelection,
   ScopeAssetInput,
   WorkspaceOnboardingProgressUpdate,
   RunDetail,
@@ -1761,8 +1760,7 @@ export function App(): JSX.Element {
 
   const runAppServerRunbook = useCallback(async (
     runbookId: string,
-    selection: RunbookExecutionSelection,
-    target: RunbookProofTargetSelection
+    selection: RunbookExecutionSelection
   ): Promise<void> => {
     const runbook = researchPanelMemory?.runbooks.find((candidate) => candidate.id === runbookId);
     if (!runbook?.sessionId) throw new Error('This runbook is not attached to an executable app-server session.');
@@ -1777,8 +1775,6 @@ export function App(): JSX.Element {
         type: 'run_runbook',
         runId: runbook.sessionId,
         runbookId,
-        proofTarget: target.proofTarget,
-        ...(target.deviceOs ? { deviceOs: target.deviceOs } : {}),
         ...(selection.cellId ? { cellId: selection.cellId } : {}),
         ...(selection.startCellId ? { startCellId: selection.startCellId } : {}),
         ...(selection.endCellId ? { endCellId: selection.endCellId } : {})

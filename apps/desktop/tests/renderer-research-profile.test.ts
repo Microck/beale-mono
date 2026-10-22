@@ -6,10 +6,12 @@ import type {
   AppServerMemoryNodeSummary,
   ResearchProfile,
   ResearchProfileWorkflow,
+  RunDetail,
   WorkspaceSnapshot
 } from '@shared/types';
 import { MemoryTypeLabel } from '../src/renderer/features/research/MemoryTypeLabel';
 import {
+  browserBaseUrl,
   CampaignClaimDetailView,
   orderedCatalogMemoryTypes,
   ResearchSideNestedHeader,
@@ -31,6 +33,12 @@ import { researchGoalSuggestionCacheKey } from '../src/renderer/view-models/rese
 import { testResearchProfile } from './researchProfileFixture';
 
 describe('renderer research profile presentation', () => {
+  it('shows the current browser host without a protocol as the summary label', () => {
+    expect(browserBaseUrl('https://example.test:8443/path?q=1')).toBe('example.test:8443');
+    expect(browserBaseUrl('http://example.test/path')).toBe('example.test');
+    expect(browserBaseUrl('about:blank')).toBe('about:blank');
+  });
+
   it('uses an accessible circular back button for campaign item details', () => {
     const campaign = renderToStaticMarkup(createElement(ResearchSideNestedHeader, {
       iconOnly: true, label: 'Campaign', name: 'Example finding title', onBack: () => undefined
@@ -232,10 +240,53 @@ describe('renderer research profile presentation', () => {
     expect(html).toContain('>Session</h2>');
     expect(html).not.toContain('Study summary');
     expect(html).toContain('aria-label="Loading session memories"');
+    expect(html).toContain('aria-label="Open Browser Default"');
+    expect(html).toContain('<span title="about:blank">about:blank</span>');
+    expect(html).toMatch(/aria-label="Session metadata"[\s\S]*?<hr class="session-summary-divider"\/><section class="session-summary-items session-summary-resources" aria-label="Browser contexts"/u);
+    expect(html).toMatch(/aria-label="Browser contexts"[\s\S]*?<hr class="session-summary-divider"\/><section class="session-summary-items session-summary-resources" aria-label="Session resources"/u);
+    expect(html.indexOf('aria-label="Open Browser Default"')).toBeLessThan(html.indexOf('aria-label="Loading session memories"'));
     expect(html).not.toContain('0 Memories');
     expect(html).not.toContain('0 Runbooks');
     expect(html).not.toContain('0 Notes');
     expect(html).not.toContain('0 Guides');
+  });
+
+  it('shows every memory type count directly in session and workspace summaries', () => {
+    const profile = customProfile();
+    const memory = {
+      nodes: [node('memory-note', 'note', 'published'), node('memory-archive', 'retired_note', 'draft')],
+      runbooks: [], edges: [], contextWorkspaceId: 'workspace_one', contextSubjectId: 'subject_one'
+    } as never;
+    const detail = {
+      run: { id: 'run_one', status: 'completed', createdAt: '2026-08-10T00:00:00.000Z' },
+      attempts: [], traceEvents: [], artifacts: [], verifierContracts: [], verifierRuns: [],
+      modelSessions: [], policyEvents: [], exports: []
+    } as unknown as RunDetail;
+
+    for (const viewSpace of ['session', 'workspace'] as const) {
+      const html = renderToStaticMarkup(createElement(ResearchSidePanel, {
+        detail, events: [], memory, researchProfile: profile, providerModelCatalog: [],
+        runId: 'run_one', runStatus: null, selectedRunbook: null,
+        selectedRunbookDocument: null, runbookLoading: false, runbookError: null,
+        selectedSubagentPath: null, selectedRunbookId: null, searchHighlightQuery: '',
+        onOpenRunbook: () => undefined, onSelectSubagent: () => undefined,
+        onBackToRunbooks: () => undefined, onBackToSubagents: () => undefined,
+        expanded: false, viewSpace, browserContextsEnabled: true
+      }));
+
+      expect(html).toContain('aria-label="Open Browser Default"');
+      expect(html).toContain('aria-label="Browser contexts"');
+      const browserSection = html.indexOf('aria-label="Browser contexts"');
+      const resourceSection = html.indexOf(`aria-label="${viewSpace === 'session' ? 'Session' : 'Workspace'} resources"`);
+      expect(browserSection).toBeLessThan(resourceSection);
+      expect(html.slice(browserSection, resourceSection)).toContain('session-summary-divider');
+      expect(html).toContain('<span>2 Memories</span>');
+      expect(html.indexOf('aria-label="Open Browser Default"')).toBeLessThan(html.indexOf('<span>2 Memories</span>'));
+      expect(html).toContain('<div class="session-memory-type-item"><span>1 Note</span>');
+      expect(html).toContain('<div class="session-memory-type-item"><span>1 Archived Note</span>');
+      expect(html).not.toContain('session-memory-type-toggle');
+      expect(html).not.toContain('session-memory-type-overflow');
+    }
   });
 
   it('starts finding details on Breakdown with tabs below the status and timestamp', () => {
@@ -279,11 +330,37 @@ describe('renderer research profile presentation', () => {
     expect(html).not.toContain('Redundant parser boundary');
     expect(html).toContain('<span class="campaign-claim-identifier-tag">claim_parent</span><span class="campaign-claim-identifier-tag">workspace_one</span><span class="campaign-claim-identifier-tag">subject_one</span><span class="campaign-claim-identifier-tag">session_example</span>');
     expect(html).not.toContain('>Identifiers</h4>');
-    expect(html).toContain('<strong>Steps to Reproduce</strong><p>1. Run the example parser.\n2. Observe the retained state.</p>');
+    expect(html).toMatch(/<strong>Steps to Reproduce<\/strong><div class="main-trace-markdown"><ol>\s*<li>Run the example parser.<\/li>\s*<li>Observe the retained state.<\/li>\s*<\/ol><\/div>/u);
     expect(html.indexOf('class="campaign-claim-reproduction-steps"')).toBeLessThan(html.indexOf('class="memory-catalog-meta"'));
     expect(html).not.toContain('<dt><strong>Freshness</strong></dt>');
     expect(html).not.toContain('<dt><strong>Workflow</strong></dt>');
     expect(html).not.toContain('<dt><strong>Finding</strong></dt>');
+  });
+
+  it('renders finding breakdown prose as Markdown without raw HTML', () => {
+    const finding = claim('claim_example', 'Example parser boundary');
+    finding.summary = '**Observed** parser state. <script>unexpected()</script>';
+    finding.impact = '- Shared state can change.\n- A later request can read it.';
+    finding.stepsToReproduce = '```sh\nexample-parser --check\n```';
+    finding.staleReason = '*Recheck* the example input.';
+    finding.securityTracking = {
+      reachability: {
+        state: 'conditional', conditions: 'Requires `example-mode`.', evidenceIds: [], assessorId: null,
+        assessedAt: null, sourceRevision: null, environmentFingerprint: null
+      },
+      cvssAssessments: [], affectedAssetIds: [], surfaceIds: [], progressBlocker: null,
+      externalReferences: []
+    };
+    const html = renderToStaticMarkup(createElement(CampaignClaimDetailView, { claim: finding }));
+
+    expect(html).toContain('<strong>Observed</strong> parser state.');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('<li>Shared state can change.</li>');
+    expect(html).toContain('<li>A later request can read it.</li>');
+    expect(html).toContain('<code class="main-trace-inline-code">example-mode</code>');
+    expect(html).toContain('main-trace-markdown-code-block');
+    expect(html).toContain('example-parser --check');
+    expect(html).toContain('<em>Recheck</em> the example input.');
   });
 
   it('shows a blocked finding notice immediately below the view tabs', () => {
@@ -353,7 +430,7 @@ describe('renderer research profile presentation', () => {
         externalReferences: []
       };
       const html = render();
-      expect(html).toContain(`<strong>${heading}</strong><p>Example boundary condition.</p>`);
+      expect(html).toContain(`<strong>${heading}</strong><div class="main-trace-markdown"><p>Example boundary condition.</p></div>`);
       expect(html).not.toContain('<dt><strong>Reachability</strong></dt>');
     }
   });

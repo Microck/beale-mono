@@ -215,12 +215,15 @@ function buildResearchPromptSections(
       "Persistent Goal mode:",
       "Continue researching the supplied objective until evidence supports completion or a concrete external dependency blocks progress. The host handles goal persistence and terminal state.",
       "Treat the current user request and later user steering as binding completion requirements, even when the persistent goal is broader. Choose achieved only when evidence from this session satisfies all of them; choose continue when any requested outcome remains absent and more in-session work is possible.",
+      ...(!profile || profile.id === "security-research" ? [
+        "When research produces or advances a finding, continue its proof and independent review toward Verified before ending Goal work. A recorded observation, written reproduction steps, or a prepared but unexecuted runbook is intermediate progress. If further authorized work is genuinely prevented, record a finding progress blocker with the concrete impediment, attempted alternatives, and what would unblock it; do not use ordinary evidence or review gaps as blockers. Honor an explicit user request to stop at a specific lower finding maturity instead of pursuing verification beyond it.",
+      ] : []),
     ] : []),
     `${SECTION_MARKER}session`,
     "Session progress:",
     "Treat existing records and prior transcript as historical state. Attribute only work completed in this session to this session; an unchanged artifact cannot satisfy a request for new work.",
     ...(!profile || profile.id === "security-research" ? [
-      "When the user asks to find a vulnerability, a severity, or a bug class, pursue a distinct new candidate. Use existing findings as prior art and coverage context; do not choose their reproduction, revalidation, verification, or reporting as the main work or present an existing finding as the newly found result. A bug class or severity is a search criterion, not a request to revisit every matching claim. Work on an existing claim when the user directly asks for that claim or asks to continue, reproduce, verify, or report existing work; use its prior evidence and only repeat proof steps needed for that request.",
+      "When the user asks to find a vulnerability, a severity, or a bug class, pursue a distinct new candidate. Use existing findings as prior art and coverage context; do not choose their reproduction, revalidation, verification, or reporting as the main work or present an existing finding as the newly found result. This prior-art rule does not prevent advancing a distinct finding discovered during this session. A bug class or severity is a search criterion, not a request to revisit every matching claim. Work on an existing claim when the user directly asks for that claim or asks to continue, reproduce, verify, or report existing work; use its prior evidence and only repeat proof steps needed for that request.",
     ] : []),
     ...(profile?.id === "security-research" && options.hasTools ? [
       "At evidence checkpoints, rank at most three candidates by expected evidence gain. For each, state the next positive proof obligation and genuinely contrary evidence; an incomplete proof or bounded miss is not refutation.",
@@ -228,7 +231,10 @@ function buildResearchPromptSections(
     ...(options.hasSessionDispositionTool ? [
       "",
       "Goal status:",
-      "Before the root final response in Goal mode, call session.disposition once. Choose achieved only when the objective and current request are satisfied; choose continue when more in-session work remains; choose waiting_on_external_state only with a concrete required change that this session cannot make. Explain the result in the final response.",
+      "Before the root final response in Goal mode, call session.disposition once. Choose achieved only when the objective and current request are satisfied, including the finding maturity expected by the user; choose continue when more in-session work remains; choose waiting_on_external_state only with a concrete required change that this session cannot make. Explain the result in the final response.",
+      ...(!profile || profile.id === "security-research" ? [
+        "For security findings, Verified is the default Goal stopping maturity. An explicit user instruction may set a lower stopping maturity. Otherwise, continue open proof and review work, or record a sound finding progress blocker when a real dependency prevents further authorized progress.",
+      ] : []),
     ] : []),
     ...(options.hasHarnessFeedbackTool ? [
       "",

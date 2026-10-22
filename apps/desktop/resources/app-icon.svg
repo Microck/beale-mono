@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Beale</title>
+  <desc>A tilted charcoal face with two unequal signal-red eyes.</desc>
+  <g transform="rotate(-7 512 512)">
+    <rect x="152" y="136" width="720" height="752" rx="220" fill="#252623" stroke="#393a35" stroke-width="36"/>
+    <ellipse cx="410" cy="516" rx="69" ry="87" fill="#f24b3d"/>
+    <ellipse cx="622" cy="502" rx="93" ry="111" fill="#f24b3d"/>
+  </g>
+</svg>

@@ -202,12 +202,10 @@ test("runbook execution stages host-built executables into Tart VMs and records 
       tartVm: { workspaceRoot, storageLayout: layout, inspectTool, copyTool, execTool },
     });
 
-    const wrongTarget = await execute({ runbookId: created.runbook.id, proofTarget: "localhost" });
-    assert.equal(wrongTarget.status, "failed");
-    assert.match(wrongTarget.error, /requires proofTarget vm/);
-    const result = await execute({ runbookId: created.runbook.id, proofTarget: "vm" });
+    const result = await execute({ runbookId: created.runbook.id });
 
     assert.equal(result.status, "succeeded", result.error);
+    assert.equal(result.proofTarget, "vm");
     assert.deepEqual(calls.map((call) => call.operation), ["copy", "inspect", "exec", "cleanup"]);
     assert.equal(calls[0].input.vmName, "example-vm");
     assert.match(calls[0].input.localPath, /runbook-packages/);
@@ -369,16 +367,14 @@ test("runbook execution records cell status, output, and duration through the sh
       shellTool,
       onUpdate: (update) => updates.push(update),
     });
-    await assert.rejects(
-      execute({ runbookId: created.runbook.id, proofTarget: "device" }),
-      /deviceOs/,
-    );
     const executionTool = createRunbookExecutionTool(execute);
+    assert.deepEqual(executionTool.descriptor.inputSchema.required, ["id"]);
+    assert.equal("proofTarget" in executionTool.descriptor.inputSchema.properties, false);
     const executionResult = await executionTool.execute({
       id: "execute_proof",
       toolName: "runbook.run",
       actionClass: "experiment",
-      input: { id: created.runbook.id, proofTarget: "device", deviceOs: "iOS 27.0" },
+      input: { id: created.runbook.id },
     });
 
     assert.equal(calls.length, 1);
@@ -402,12 +398,12 @@ test("runbook execution records cell status, output, and duration through the sh
     assert.equal(codeCell.execution_count, 1);
     assert.equal(codeCell.outputs[0].text.join(""), "proof passed\n");
     assert.equal(codeCell.metadata.beale.latestRun.status, "succeeded");
-    assert.equal(codeCell.metadata.beale.latestRun.proofTarget, "device");
-    assert.equal(codeCell.metadata.beale.latestRun.deviceOs, "iOS 27.0");
+    assert.equal(codeCell.metadata.beale.latestRun.proofTarget, "localhost");
+    assert.equal(codeCell.metadata.beale.latestRun.deviceOs, undefined);
     assert.equal(typeof codeCell.metadata.beale.latestRun.durationMs, "number");
     assert.equal(notebook.metadata.beale.latestRun.status, "succeeded");
-    assert.equal(notebook.metadata.beale.latestRun.proofTarget, "device");
-    assert.equal(notebook.metadata.beale.latestRun.deviceOs, "iOS 27.0");
+    assert.equal(notebook.metadata.beale.latestRun.proofTarget, "localhost");
+    assert.equal(notebook.metadata.beale.latestRun.deviceOs, undefined);
     assert.equal(typeof notebook.metadata.beale.latestRun.durationMs, "number");
     const executed = store.get(created.runbook.id);
     assert.equal(executed.contentRevision, 1);
@@ -471,7 +467,7 @@ test("runbook preparation reuses an entry cell and revision-checked editing revi
           summary: "complete", output: { exitCode: 0 }, followUpActions: [] };
       },
     };
-    const entryRun = await createRunbookExecutor({ store, shellTool })({ runbookId: minimal.output.runbookId, proofTarget: "localhost" });
+    const entryRun = await createRunbookExecutor({ store, shellTool })({ runbookId: minimal.output.runbookId });
     assert.equal(entryRun.status, "succeeded");
     assert.equal(invocations[0].cwd, ".");
     assert.equal(invocations[0].command, minimal.output.entryCommand);
@@ -576,7 +572,7 @@ test("runbook failure runs remaining cleanup cells and preserves the proof failu
       { kind: "code", language: "sh", source: "later-proof", features: ["runtime"] },
       { kind: "code", language: "sh", source: "cleanup", features: ["cleanup"] },
     ] }).runbook;
-    const executed = await createRunbookExecutor({ store, shellTool })({ runbookId: created.id, proofTarget: "localhost" });
+    const executed = await createRunbookExecutor({ store, shellTool })({ runbookId: created.id });
     assert.equal(executed.status, "failed");
     assert.match(executed.error, /proof failed/);
     assert.deepEqual(calls, ["setup", "proof", "cleanup"]);

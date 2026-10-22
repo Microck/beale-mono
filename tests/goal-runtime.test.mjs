@@ -68,6 +68,52 @@ test("research goal completion is inferred from an objective_achieved dispositio
   assert.deepEqual(resumed.continueAfterRootResponse(), []);
 });
 
+test("an open current-session finding triggers a Goal completion audit even without separate steering", () => {
+  const recorder = new ResearchDispositionRecorder();
+  let findings = [{ id: "finding-example", maturity: "observed", progressBlocker: null }];
+  const runtime = new ResearchGoalRuntime({
+    objective: "Investigate the ExampleCo authorization boundary.",
+    getDisposition: () => recorder.get(),
+    resetDisposition: () => recorder.resetForGoalContinuation(),
+    getFindingProgress: () => findings,
+  });
+
+  recorder.record(disposition({
+    outcome: "objective_achieved",
+    summary: "An observation and written reproduction steps were recorded.",
+  }));
+  const [audit] = runtime.continueAfterRootResponse("The observation is documented.");
+  assert.equal(runtime.snapshot().status, "active");
+  assert.equal(recorder.get(), null);
+  assert.match(audit.content, /finding-example/);
+  assert.match(audit.content, /qualifying reproduction and independent verification/);
+  assert.match(audit.content, /explicitly requested a lower stopping maturity/);
+
+  findings = [];
+  recorder.record(disposition({
+    outcome: "objective_achieved",
+    summary: "The finding has now been independently verified.",
+  }));
+  assert.deepEqual(runtime.continueAfterRootResponse(), []);
+  assert.equal(runtime.snapshot().status, "complete");
+});
+
+test("a requested lower finding maturity is presented as an audit exception", () => {
+  const recorder = new ResearchDispositionRecorder();
+  const runtime = new ResearchGoalRuntime({
+    objective: "Stop at an Observed finding for the ExampleCo boundary.",
+    getDisposition: () => recorder.get(),
+    resetDisposition: () => recorder.resetForGoalContinuation(),
+    getFindingProgress: () => [{ id: "finding-example", maturity: "observed", progressBlocker: null }],
+  });
+  recorder.record(disposition({ outcome: "objective_achieved", summary: "Observed finding recorded." }));
+  const [audit] = runtime.continueAfterRootResponse();
+  assert.match(audit.content, /Stop at an Observed finding/);
+  assert.match(audit.content, /unless the user explicitly requested a lower stopping maturity/);
+  recorder.record(disposition({ outcome: "objective_achieved", summary: "The user's Observed stopping point is satisfied." }));
+  assert.deepEqual(runtime.continueAfterRootResponse(), []);
+});
+
 test("binding requests and steering require one bounded completion audit before goal mode stops", () => {
   const recorder = new ResearchDispositionRecorder();
   const runtime = new ResearchGoalRuntime({

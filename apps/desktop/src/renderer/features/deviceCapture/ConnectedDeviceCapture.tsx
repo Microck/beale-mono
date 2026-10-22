@@ -74,14 +74,12 @@ export function ConnectedDeviceCapture({
   expanded = false,
   onAspectRatioChange,
   onExpandedChange,
-  onDeviceOsChange,
   onVisibilityChange
 }: {
   active: boolean;
   expanded?: boolean;
   onAspectRatioChange?: (aspectRatio: number) => void;
   onExpandedChange?: (expanded: boolean) => void;
-  onDeviceOsChange?: (deviceOs: string | null) => void;
   onVisibilityChange?: (visible: boolean) => void;
 }): JSX.Element | null {
   const frameUrlRef = useRef<string | null>(null);
@@ -91,8 +89,6 @@ export function ConnectedDeviceCapture({
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const visibilityCallbackRef = useRef(onVisibilityChange);
   visibilityCallbackRef.current = onVisibilityChange;
-  const deviceOsCallbackRef = useRef(onDeviceOsChange);
-  deviceOsCallbackRef.current = onDeviceOsChange;
   const aspectRatioCallbackRef = useRef(onAspectRatioChange);
   aspectRatioCallbackRef.current = onAspectRatioChange;
   const lastAspectRatioRef = useRef<number | null>(null);
@@ -196,17 +192,6 @@ export function ConnectedDeviceCapture({
       if (visible) visibilityCallbackRef.current?.(false);
     };
   }, [visible]);
-
-  const rawDeviceOs = capture.device?.osVersion?.trim() || null;
-  const deviceOs = rawDeviceOs
-    ? (/^ios\b/i.test(rawDeviceOs) ? rawDeviceOs : `iOS ${rawDeviceOs}`)
-    : null;
-  useEffect(() => {
-    deviceOsCallbackRef.current?.(deviceOs);
-    return () => {
-      if (deviceOs) deviceOsCallbackRef.current?.(null);
-    };
-  }, [deviceOs]);
 
   return (
     <ConnectedDeviceCaptureSurface

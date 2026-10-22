@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { layoutCampaignGraph } from '../src/renderer/view-models/campaignGraph';
 import { campaignClaimRatingPresentation } from '../src/renderer/view-models/campaignClaims';
 import { CampaignBoardView, adjacentCampaignBoardMaturity, campaignBoardAuthorOptions, campaignBoardClaimMetadata, campaignBoardFindings } from '../src/renderer/features/workspaces/CampaignGraphView';
+import { CampaignClaimCatalogSection } from '../src/renderer/features/research/MemorySidePanel';
 import { findingRevisionContext } from '../src/main/findingRevisionContext';
 import type { AppServerFindingSummary, AppServerMemorySummary, WorkspaceScopeVersion } from '@shared/types';
 
@@ -180,6 +181,26 @@ describe('campaign graph projection', () => {
     expect(html).toContain('1 refuted hidden');
     expect(html).not.toContain('Example disproved path');
     expect(html).not.toContain('campaign-board-refuted-heading');
+  });
+
+  it('hides refuted findings in the expanded catalog and puts their count on the right', () => {
+    const observed = {
+      id: 'finding-example-observed', projection: 'finding', maturity: 'observed',
+      title: 'Example observed path', rating: 'low', classification: 'security.vulnerability',
+      authors: [], evidence: [], securityTracking: null, updatedAt: '2026-01-01T00:00:00Z', revision: 1
+    } as unknown as AppServerFindingSummary;
+    const refuted = { ...observed, id: 'finding-example-refuted', maturity: 'refuted', title: 'Example disproved path' } as AppServerFindingSummary;
+    const render = (claims: AppServerFindingSummary[]) => renderToStaticMarkup(createElement(CampaignClaimCatalogSection, {
+      claims, label: 'Findings', selectedClaimId: null, onOpen: () => undefined
+    }));
+    const html = render([observed, refuted]);
+
+    expect(html).toContain('<h3>2 Findings</h3>');
+    expect(html).toContain('1 refuted hidden');
+    expect(html).not.toContain('Unrefuted');
+    expect(html).toContain('Example observed path');
+    expect(html).not.toContain('Example disproved path');
+    expect(render([refuted])).toContain('No unrefuted findings.');
   });
 
   it('shows a stop sign only for blocked board findings', () => {

@@ -387,6 +387,7 @@ describe('research profile host integration', () => {
       }
     };
     const modelRequests: Record<string, unknown>[] = [];
+    const promptUpdates: string[] = [];
     const databasePath = join(root, 'memory.sqlite');
     const service = new WorkspaceService(() => undefined, {
       workspaceRegistryDirectory: join(root, 'registry'),
@@ -410,6 +411,7 @@ describe('research profile host integration', () => {
 
     try {
       service.createWorkspace(workspace);
+      writeFileSync(join(workspace, 'AGENTS.md'), 'Investigate unauthorized cross-tenant effects on example.test.');
       startRunForTest(service, runInput('discovery'));
 
       // Any accidental recommendation-path memory read now fails on the deliberately incompatible table.
@@ -423,16 +425,24 @@ describe('research profile host integration', () => {
       await expect(service.generateResearchGoalSuggestions({ phase: 'discovery' }))
         .resolves.toMatchObject({ phase: 'discovery' });
       await expect(service.generateResearchPrompt({
-        operation: 'generate',
+        requestId: 'prompt-example',
+        operation: 'expand_goal',
+        goalSentence: 'Test whether attacker-controlled requests can cross the example tenant boundary.',
         researchPhase: 'discovery',
         mode: 'discovery',
         attemptStrategy: 'iterative_research',
         model: 'session-model',
         reasoningEffort: 'medium',
         sandboxProfile: 'host'
-      })).resolves.toMatchObject({ promptMarkdown: expect.stringContaining('Security discovery') });
+      }, (update) => promptUpdates.push(update.promptMarkdown)))
+        .resolves.toMatchObject({ promptMarkdown: expect.stringContaining('## Researcher objective\n\nTest whether attacker-controlled requests can cross the example tenant boundary.') });
+      expect(promptUpdates.length).toBeGreaterThan(0);
+      expect(promptUpdates.every((update) => update.includes('Test whether attacker-controlled requests can cross the example tenant boundary.'))).toBe(true);
 
       expect(modelRequests).toHaveLength(2);
+      const expansionPayload = modelRequestPayload(modelRequests[1]) as Record<string, unknown>;
+      expect((expansionPayload.workspace as Record<string, unknown>).agentInstructions)
+        .toContain('Investigate unauthorized cross-tenant effects on example.test.');
       for (const request of modelRequests) {
         expect(String(request.instructions)).not.toMatch(/app-server memory|recorded memories|active memory/i);
         const payload = modelRequestPayload(request);

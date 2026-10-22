@@ -3,7 +3,19 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { expandStoredResearchPrompt } from '../packages/research-agent/dist/index.js';
+import { composeResearchPromptWithContext, expandStoredResearchPrompt } from '../packages/research-agent/dist/index.js';
+
+test('context expansion preserves the researcher objective without model paraphrase', () => {
+  const original = 'Test whether attacker-controlled request headers can cross the tenant boundary and expose private data.';
+  const context = 'Inspect the parsing boundary and seek evidence of unauthorized disclosure.';
+  assert.equal(composeResearchPromptWithContext(original, context),
+    `## Researcher objective\n\n${original}\n\n## Added context\n\n${context}`);
+  const refined = composeResearchPromptWithContext(composeResearchPromptWithContext(original, context),
+    'Prioritize the direct unauthorized disclosure proof.');
+  assert.equal(refined.match(/## Researcher objective/g)?.length, 1);
+  assert.ok(refined.includes(original));
+  assert.doesNotMatch(refined, /Inspect the parsing boundary/);
+});
 
 test('research prompt expansion selects the profile default lane and validates bounded JSON output', async () => {
   const workspaceRoot = mkdtempSync(join(tmpdir(), 'app-server-prompt-expansion-'));
@@ -33,11 +45,14 @@ test('research prompt expansion selects the profile default lane and validates b
     });
 
     assert.equal(result.phase, 'discovery');
+    assert.match(result.promptMarkdown, /## Researcher objective\n\nInspect request parsing\./);
+    assert.match(result.promptMarkdown, /## Added context/);
     assert.match(result.promptMarkdown, /conflicting framing interpretations/);
     assert.equal(completions.length, 1);
     assert.equal(completions[0].provider, 'xai');
     assert.equal(completions[0].model, 'grok-4.6');
     assert.equal(completions[0].effort, 'low');
+    assert.match(completions[0].systemPrompt, /do not rewrite, soften, summarize, or repeat it/);
     assert.equal(completions[0].authenticationPreferences.xai, 'api_key');
     const payload = JSON.parse(completions[0].prompt);
     assert.equal(payload.originalPrompt, 'Inspect request parsing.');
@@ -66,6 +81,31 @@ test('research prompt expansion rejects non-JSON model output', async () => {
       }),
       /invalid JSON/,
     );
+  } finally {
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('research prompt expansion adds context to a long objective without requiring a longer addendum', async () => {
+  const workspaceRoot = mkdtempSync(join(tmpdir(), 'app-server-prompt-expansion-long-'));
+  const original = 'Investigate the synthetic cross-tenant trust boundary. '.repeat(120).trim();
+  try {
+    const result = await expandStoredResearchPrompt({
+      workspaceId: 'workspace-test',
+      workspaceRoot,
+      databasePath: ':memory:',
+      artifactDirectoryPath: join(workspaceRoot, 'artifacts'),
+      researchProfileId: 'security-research',
+      memoryEnabled: false,
+      promptMarkdown: original,
+      provider: { id: 'xai', model: 'grok-4.6' },
+    }, {
+      completeText: async () => ({
+        text: JSON.stringify({ promptMarkdown: 'Examine attacker control at the trust boundary and seek direct evidence of unauthorized cross-tenant data access.' }),
+      }),
+    });
+    assert.ok(result.promptMarkdown.includes(original));
+    assert.match(result.promptMarkdown, /unauthorized cross-tenant data access/);
   } finally {
     rmSync(workspaceRoot, { recursive: true, force: true });
   }

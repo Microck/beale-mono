@@ -145,7 +145,10 @@ test("goal guidance adds status signaling only when Goal mode is enabled", () =>
   assert.match(regular, /At evidence checkpoints/);
   assert.doesNotMatch(regular, /Goal status:|session\.disposition|Persistent Goal mode:/);
   assert.match(persistent, /Persistent Goal mode:\nContinue researching/);
+  assert.match(persistent, /continue its proof and independent review toward Verified/);
+  assert.match(persistent, /Honor an explicit user request to stop at a specific lower finding maturity/);
   assert.match(persistent, /Goal status:\nBefore the root final response in Goal mode/);
+  assert.match(persistent, /Verified is the default Goal stopping maturity/);
   assert.doesNotMatch(persistent, /\n{3,}/);
 });
 

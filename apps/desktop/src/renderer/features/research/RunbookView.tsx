@@ -1,16 +1,15 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
-import { ArrowLeft, BookOpen, CircleAlert, CircleCheck, Clock3, LoaderCircle, Play } from 'lucide-react';
+import { ArrowLeft, CircleAlert, CircleCheck, Clock3, Copy, ListChecks, LoaderCircle, Play } from 'lucide-react';
 import type {
   AppServerRunbookCell,
   AppServerRunbookDocument,
   AppServerRunbookOutput,
   AppServerRunbookSummary,
-  RunbookExecutionSelection,
-  RunbookProofTarget,
-  RunbookProofTargetSelection
+  ResearchProviderModelCatalog,
+  RunbookExecutionSelection
 } from '@shared/types';
-import { traceLabel } from '../../lib/formatting';
+import { formatSessionDateTime, traceLabel } from '../../lib/formatting';
 import { ModelAuthors } from '../../app/ModelAuthors';
 import { runbookDescriptionText, runbookExecutionStatus } from '../../view-models/runbooks';
 import { renderHighlightedCodeBlock, renderTraceProseText } from '../traces/traceMarkup';
@@ -19,10 +18,14 @@ const RUNBOOK_INITIAL_CELL_RENDER_COUNT = 32;
 const RUNBOOK_CELL_RENDER_CHUNK = 24;
 const RUNBOOK_CELL_SOURCE_PREVIEW_CHARACTERS = 24_000;
 const RUNBOOK_OUTPUT_PREVIEW_CHARACTERS = 12_000;
+const RUNBOOK_DETAIL_VIEWS = ['Cells', 'Duplicates'] as const;
+type RunbookDetailView = typeof RUNBOOK_DETAIL_VIEWS[number];
+const RUNBOOK_DETAIL_VIEW_ICONS = { Cells: ListChecks, Duplicates: Copy };
 
 export const RunbookView = memo(function RunbookView({
   runbook,
   document,
+  providerModelCatalog = [],
   runbookCandidates = [],
   loading,
   error,
@@ -32,22 +35,21 @@ export const RunbookView = memo(function RunbookView({
   onMarkDuplicate,
   onUndoDuplicate,
   executionAvailable = false,
-  connectedDeviceOs = null,
   showBackButton = true,
   followLatest = false
 }: {
   runbook: AppServerRunbookSummary;
   document: AppServerRunbookDocument | null;
+  providerModelCatalog?: readonly ResearchProviderModelCatalog[];
   runbookCandidates?: readonly AppServerRunbookSummary[];
   loading: boolean;
   error: string | null;
   mutationBusy?: boolean;
   onBackToMain: () => void;
-  onRun?: (selection: RunbookExecutionSelection, target: RunbookProofTargetSelection) => Promise<void>;
+  onRun?: (selection: RunbookExecutionSelection) => Promise<void>;
   onMarkDuplicate?: (id: string, parentId: string, expectedRevision: number) => void;
   onUndoDuplicate?: (id: string, expectedRevision: number) => void;
   executionAvailable?: boolean;
-  connectedDeviceOs?: string | null;
   showBackButton?: boolean;
   followLatest?: boolean;
 }): JSX.Element {
@@ -55,11 +57,12 @@ export const RunbookView = memo(function RunbookView({
   const followLatestRef = useRef(true);
   const runbookIdRef = useRef(runbook.id);
   const [requestedCellId, setRequestedCellId] = useState<string | null | undefined>(undefined);
-  const [proofTarget, setProofTarget] = useState<RunbookProofTarget>('localhost');
-  const [deviceOs, setDeviceOs] = useState('');
   const [rangeStartCellId, setRangeStartCellId] = useState('');
   const [rangeEndCellId, setRangeEndCellId] = useState('');
   const [duplicateParentId, setDuplicateParentId] = useState('');
+  const tabId = useId();
+  const [selectedView, setSelectedView] = useState<{ runbookId: string; view: RunbookDetailView }>({ runbookId: runbook.id, view: 'Cells' });
+  const activeView = selectedView.runbookId === runbook.id ? selectedView.view : 'Cells';
   const executionRunning = document?.latestRun?.status === 'running' || document?.latestRun?.status === 'queued';
   const executableCellOptions = useMemo(() => document?.cells
     .map((cell, index) => ({ cell, index }))
@@ -77,13 +80,10 @@ export const RunbookView = memo(function RunbookView({
     : executableCells.length - 1;
   const rangeValid = executableCells.length > 0 && rangeStartIndex >= 0
     && rangeEndIndex >= 0 && rangeStartIndex <= rangeEndIndex;
-  const selectedRangeCells = rangeValid ? executableCells.slice(rangeStartIndex, rangeEndIndex + 1) : [];
-  const selectedRangeHealthy = selectedRangeCells.every(isExecutableRunbookCell);
-  const selectedRangeRequiresVm = selectedRangeCells.some((cell) => cell.executor.kind === 'tart-vm');
-  const targetValid = (!selectedRangeRequiresVm || proofTarget === 'vm')
-    && (proofTarget !== 'device' || deviceOs.trim().length > 0);
+  const selectedRangeHealthy = (rangeValid ? executableCells.slice(rangeStartIndex, rangeEndIndex + 1) : [])
+    .every(isExecutableRunbookCell);
   const canRun = executionAvailable && Boolean(onRun) && rangeValid && selectedRangeHealthy
-    && targetValid && !executionRunning && requestedCellId === undefined;
+    && !executionRunning && requestedCellId === undefined;
   const updateKey = useMemo(
     () => runbookViewUpdateKey(runbook, document, loading, error),
     [document, error, loading, runbook]
@@ -126,14 +126,6 @@ export const RunbookView = memo(function RunbookView({
   }, [document?.latestRun?.runId, executionRunning]);
 
   useEffect(() => {
-    if (proofTarget === 'device' && !deviceOs.trim() && connectedDeviceOs) setDeviceOs(connectedDeviceOs);
-  }, [connectedDeviceOs, deviceOs, proofTarget]);
-
-  useEffect(() => {
-    if (selectedRangeRequiresVm && proofTarget !== 'vm') setProofTarget('vm');
-  }, [proofTarget, selectedRangeRequiresVm]);
-
-  useEffect(() => {
     setRangeStartCellId('');
     setRangeEndCellId('');
     setDuplicateParentId('');
@@ -143,16 +135,13 @@ export const RunbookView = memo(function RunbookView({
     if (!onRun) return;
     setRequestedCellId(selection.cellId ?? null);
     try {
-      await onRun(selection, {
-        proofTarget,
-        ...(proofTarget === 'device' ? { deviceOs: deviceOs.trim() } : {})
-      });
+      await onRun(selection);
     } catch {
       setRequestedCellId(undefined);
       return;
     }
     setRequestedCellId(undefined);
-  }, [deviceOs, onRun, proofTarget]);
+  }, [onRun]);
   const requestCellExecution = useCallback(
     (cellId: string) => requestExecution({ cellId }),
     [requestExecution]
@@ -193,97 +182,76 @@ export const RunbookView = memo(function RunbookView({
         </button>
       ) : null}
       <div className="runbook-view-scroll" ref={scrollRef} onScroll={handleScroll}>
-        <header className="runbook-view-header">
-          <div className="runbook-view-heading-row">
-            <span className="runbook-view-eyebrow"><BookOpen size={15} aria-hidden="true" /> Runbook</span>
-            <div className="runbook-run-controls">
-              <label className="runbook-target-field">
-                <span>Proof target</span>
-                <select
-                  aria-label="Proof target"
-                  disabled={executionRunning || requestedCellId !== undefined}
-                  value={proofTarget}
-                  onChange={(event) => setProofTarget(event.currentTarget.value as RunbookProofTarget)}
+        <header className="runbook-detail-heading memory-detail-heading">
+          <ModelAuthors authors={runbook.authors} providerModelCatalog={providerModelCatalog} />
+          <time dateTime={runbook.updatedAt} title={formatSessionDateTime(runbook.updatedAt)}>{formatSessionDateTime(runbook.updatedAt)}</time>
+        </header>
+        <div className="runbook-detail-toolbar">
+          <div className="campaign-claim-detail-tabs" role="tablist" aria-label="Runbook detail views">
+            {RUNBOOK_DETAIL_VIEWS.map((view, index) => {
+              const ViewIcon = RUNBOOK_DETAIL_VIEW_ICONS[view];
+              return (
+                <button
+                  key={view}
+                  id={`${tabId}-${view}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeView === view}
+                  aria-controls={`${tabId}-panel`}
+                  tabIndex={activeView === view ? 0 : -1}
+                  onClick={() => setSelectedView({ runbookId: runbook.id, view })}
+                  onKeyDown={(event) => {
+                    const nextIndex = event.key === 'ArrowRight' ? (index + 1) % RUNBOOK_DETAIL_VIEWS.length
+                      : event.key === 'ArrowLeft' ? (index - 1 + RUNBOOK_DETAIL_VIEWS.length) % RUNBOOK_DETAIL_VIEWS.length
+                        : event.key === 'Home' ? 0 : event.key === 'End' ? RUNBOOK_DETAIL_VIEWS.length - 1 : null;
+                    if (nextIndex === null) return;
+                    event.preventDefault();
+                    setSelectedView({ runbookId: runbook.id, view: RUNBOOK_DETAIL_VIEWS[nextIndex] });
+                    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus();
+                  }}
                 >
-                  <option value="localhost">Localhost</option>
-                  <option value="device">Device</option>
-                  <option value="vm">VM</option>
-                  <option value="web">Web</option>
-                  <option value="other">Other</option>
+                  <ViewIcon aria-hidden="true" size={14} />
+                  <span>{view}</span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            className="runbook-run-button"
+            aria-label={executionRunning || requestedCellId === null ? 'Running runbook' : rangeStartCellId || rangeEndCellId ? 'Run selected range' : 'Run runbook'}
+            disabled={!canRun}
+            title={!executionAvailable ? 'Runbooks execute only in their active app-server session.' : !rangeValid ? 'Choose a start cell that precedes the end cell.' : !selectedRangeHealthy ? 'Every selected code cell needs a supported language.' : rangeStartCellId || rangeEndCellId ? 'Run selected range' : 'Run runbook'}
+            onClick={() => void requestExecution({
+              ...(rangeStartCellId ? { startCellId: rangeStartCellId } : {}),
+              ...(rangeEndCellId ? { endCellId: rangeEndCellId } : {})
+            })}
+          >
+            {executionRunning || requestedCellId === null ? <LoaderCircle className="runbook-view-spinner" size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
+          </button>
+        </div>
+        <div className="runbook-detail-content" id={`${tabId}-panel`} role="tabpanel" aria-labelledby={`${tabId}-${activeView}`}>
+        {activeView === 'Cells' ? <>
+        <header className="runbook-view-header">
+          {runbook.purpose ? <p>{runbookDescriptionText(runbook.purpose)}</p> : null}
+          {executableCellOptions.length > 1 ? (
+            <div className="runbook-run-controls">
+              <label className="runbook-target-field runbook-range-field">
+                <span>Start</span>
+                <select aria-label="Runbook range start" disabled={executionRunning || requestedCellId !== undefined} value={rangeStartCellId} onChange={(event) => setRangeStartCellId(event.currentTarget.value)}>
+                  <option value="">First code cell</option>
+                  {executableCellOptions.map(({ cell, index }) => <option key={`start-${cell.id}`} value={cell.id}>Cell {index + 1}</option>)}
                 </select>
               </label>
-              {proofTarget === 'device' ? (
-                <label className="runbook-target-field runbook-device-os-field">
-                  <span>Device OS</span>
-                  <input
-                    aria-label="Target device OS"
-                    disabled={executionRunning || requestedCellId !== undefined}
-                    maxLength={120}
-                    placeholder="iOS 27.0"
-                    value={deviceOs}
-                    onChange={(event) => setDeviceOs(event.currentTarget.value)}
-                  />
-                </label>
-              ) : null}
-              {executableCellOptions.length > 1 ? (
-                <>
-                  <label className="runbook-target-field runbook-range-field">
-                    <span>Start</span>
-                    <select
-                      aria-label="Runbook range start"
-                      disabled={executionRunning || requestedCellId !== undefined}
-                      value={rangeStartCellId}
-                      onChange={(event) => setRangeStartCellId(event.currentTarget.value)}
-                    >
-                      <option value="">First code cell</option>
-                      {executableCellOptions.map(({ cell, index }) => (
-                        <option key={`start-${cell.id}`} value={cell.id}>Cell {index + 1}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="runbook-target-field runbook-range-field">
-                    <span>End</span>
-                    <select
-                      aria-label="Runbook range end"
-                      disabled={executionRunning || requestedCellId !== undefined}
-                      value={rangeEndCellId}
-                      onChange={(event) => setRangeEndCellId(event.currentTarget.value)}
-                    >
-                      <option value="">Last code cell</option>
-                      {executableCellOptions.map(({ cell, index }) => (
-                        <option key={`end-${cell.id}`} value={cell.id}>Cell {index + 1}</option>
-                      ))}
-                    </select>
-                  </label>
-                </>
-              ) : null}
-              <button
-                type="button"
-                className="runbook-run-button"
-                disabled={!canRun}
-                title={!executionAvailable ? 'Runbooks execute only in their active app-server session.' : !rangeValid ? 'Choose a start cell that precedes the end cell.' : !selectedRangeHealthy ? 'Every selected code cell needs a supported language.' : !targetValid ? 'Enter the target device OS.' : undefined}
-                onClick={() => void requestExecution({
-                  ...(rangeStartCellId ? { startCellId: rangeStartCellId } : {}),
-                  ...(rangeEndCellId ? { endCellId: rangeEndCellId } : {})
-                })}
-              >
-                {executionRunning || requestedCellId === null ? <LoaderCircle className="runbook-view-spinner" size={13} aria-hidden="true" /> : <Play size={13} aria-hidden="true" />}
-                {executionRunning || requestedCellId === null ? 'Running' : rangeStartCellId || rangeEndCellId ? 'Run range' : 'Run'}
-              </button>
+              <label className="runbook-target-field runbook-range-field">
+                <span>End</span>
+                <select aria-label="Runbook range end" disabled={executionRunning || requestedCellId !== undefined} value={rangeEndCellId} onChange={(event) => setRangeEndCellId(event.currentTarget.value)}>
+                  <option value="">Last code cell</option>
+                  {executableCellOptions.map(({ cell, index }) => <option key={`end-${cell.id}`} value={cell.id}>Cell {index + 1}</option>)}
+                </select>
+              </label>
             </div>
-          </div>
-          <h2>{runbook.title}</h2>
-          <ModelAuthors authors={runbook.authors} />
-          {runbook.purpose ? <p>{runbookDescriptionText(runbook.purpose)}</p> : null}
-          <div className="runbook-view-meta">
-            <span>Content revision {runbook.contentRevision}</span>
-            <span>{runbook.execution.completedRunCount} completed {runbook.execution.completedRunCount === 1 ? 'run' : 'runs'}</span>
-            <span>{runbook.execution.executedCellCount} {runbook.execution.executedCellCount === 1 ? 'cell' : 'cells'} executed</span>
-            <span>Latest run {runbookExecutionStatus(runbook).label}</span>
-            {document ? <span>Features {document.enabledFeatures.length > 0 ? document.enabledFeatures.join(', ') : 'none'}</span> : null}
-            {document?.language ? <span>{document.language}</span> : null}
-            {document?.latestRun ? <RunStatus now={now} state={document.latestRun} /> : null}
-          </div>
+          ) : null}
           <div className={`runbook-guidance${unhealthyCells.length > 0 || executableCells.length === 0 ? ' needs-attention' : ''}`}>
             {unhealthyCells.length > 0 || executableCells.length === 0 ? <CircleAlert size={14} aria-hidden="true" /> : <CircleCheck size={14} aria-hidden="true" />}
             <span>{runbookGuidance(executableCells.length, unhealthyCells.length, executionAvailable)}</span>
@@ -300,7 +268,7 @@ export const RunbookView = memo(function RunbookView({
               <RunbookCellView
                 cell={cell}
                 executionAvailable={executionAvailable}
-                executionRunning={executionRunning || requestedCellId !== undefined || !targetValid}
+                executionRunning={executionRunning || requestedCellId !== undefined}
                 index={index}
                 key={`${cell.id}:${index}`}
                 now={cell.latestRun?.status === 'running' ? now : 0}
@@ -319,9 +287,17 @@ export const RunbookView = memo(function RunbookView({
         ) : (
           <div className="runbook-view-state is-error">Runbook content is unavailable.</div>
         )}
-        {(runbook.duplicateRunbooks?.length ?? 0) > 0 || (onMarkDuplicate && runbookCandidates.some((candidate) => candidate.id !== runbook.id)) ? (
+        <div className="memory-catalog-meta runbook-detail-tags">
+          <span>Revision {runbook.contentRevision}</span>
+          <span>{runbook.execution.completedRunCount} completed {runbook.execution.completedRunCount === 1 ? 'run' : 'runs'}</span>
+          <span>{runbook.execution.executedCellCount} {runbook.execution.executedCellCount === 1 ? 'cell' : 'cells'} executed</span>
+          <span>Latest run {runbookExecutionStatus(runbook).label}</span>
+          {document ? <span>Features {document.enabledFeatures.length > 0 ? document.enabledFeatures.join(', ') : 'none'}</span> : null}
+          {document?.language ? <span>{document.language}</span> : null}
+          {document?.latestRun ? <RunStatus now={now} state={document.latestRun} /> : null}
+        </div>
+        </> : (
           <section className="memory-catalog-subsection campaign-claim-duplicates runbook-duplicates" aria-label="Duplicate runbook management">
-            <h4>Duplicates</h4>
             {(runbook.duplicateRunbooks?.length ?? 0) > 0 ? (
               <div className="campaign-claim-duplicate-list">
                 {runbook.duplicateRunbooks!.map((duplicate) => (
@@ -363,7 +339,8 @@ export const RunbookView = memo(function RunbookView({
               </div>
             ) : null}
           </section>
-        ) : null}
+        )}
+        </div>
       </div>
     </section>
   );
@@ -387,7 +364,7 @@ export function runbookViewUpdateKey(
     cell.outputs.length,
     cell.outputs.at(-1)?.text.length ?? 0
   ].join(':')).join('|') ?? '';
-  return `${runbook.id}:${document?.revision ?? runbook.revision}:${document?.latestRun?.status ?? ''}:${document?.latestRun?.proofTarget ?? ''}:${document?.latestRun?.deviceOs ?? ''}:${loading ? 'loading' : 'ready'}:${error ?? ''}:${cells}`;
+  return `${runbook.id}:${document?.revision ?? runbook.revision}:${document?.latestRun?.status ?? ''}:${loading ? 'loading' : 'ready'}:${error ?? ''}:${cells}`;
 }
 
 interface RunbookCellViewProps {
@@ -508,7 +485,7 @@ function runbookCellExecutorKey(cell: AppServerRunbookCell): string {
 
 function runbookRunStatusKey(state: AppServerRunbookCell['latestRun']): string {
   return state
-    ? `${state.runId}:${state.status}:${state.startedAt}:${state.completedAt ?? ''}:${state.durationMs ?? ''}:${state.exitCode ?? ''}:${state.error ?? ''}:${state.proofTarget}:${state.deviceOs ?? ''}`
+    ? `${state.runId}:${state.status}:${state.startedAt}:${state.completedAt ?? ''}:${state.durationMs ?? ''}:${state.exitCode ?? ''}:${state.error ?? ''}`
     : '';
 }
 
@@ -521,21 +498,14 @@ function RunStatus({ state, now, compact = false }: {
   const liveDuration = state.status === 'running' && Number.isFinite(startedAt) ? Math.max(0, now - startedAt) : null;
   const durationMs = state.durationMs ?? liveDuration;
   const duration = durationMs === null ? null : formatDuration(durationMs);
-  const target = state.proofTarget === 'device' && state.deviceOs
-    ? `Device · ${state.deviceOs}`
-    : proofTargetLabel(state.proofTarget);
   return (
     <span className={`runbook-run-status status-${state.status}`} title={state.error ?? undefined}>
       {state.status === 'running' || state.status === 'queued'
         ? <LoaderCircle className="runbook-view-spinner" size={12} aria-hidden="true" />
         : <Clock3 size={12} aria-hidden="true" />}
-      {compact ? traceLabel(state.status) : `Last run ${traceLabel(state.status)}`}{duration ? ` · ${duration}` : ''}{` · ${target}`}
+      {compact ? traceLabel(state.status) : `Last run ${traceLabel(state.status)}`}{duration ? ` · ${duration}` : ''}
     </span>
   );
-}
-
-function proofTargetLabel(target: RunbookProofTarget): string {
-  return target === 'localhost' ? 'Localhost' : target === 'device' ? 'Device' : target === 'vm' ? 'VM' : target === 'web' ? 'Web' : 'Other';
 }
 
 export function isSupportedRunbookLanguage(language: string | null): boolean {

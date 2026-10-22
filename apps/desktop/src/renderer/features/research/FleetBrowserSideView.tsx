@@ -3,13 +3,15 @@ import type { FormEvent, JSX, KeyboardEvent, PointerEvent } from 'react';
 import { browserNavigationUrl } from './BrowserSideView';
 import type { FleetBrowserInput } from '../../../shared/fleetBrowser';
 
-export function FleetBrowserSideView({ runId, visible, remoteServerId }: { runId: string; visible: boolean; remoteServerId?: string }): JSX.Element {
+export function FleetBrowserSideView({ runId, visible, remoteServerId, onUrlChange }: { runId: string; visible: boolean; remoteServerId?: string; onUrlChange?: (url: string) => void }): JSX.Element {
   const frameRef = useRef<HTMLImageElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const keyboardRef = useRef<HTMLTextAreaElement | null>(null);
   const viewportRef = useRef({ width: 1280, height: 800 });
   const lastMoveRef = useRef(0);
   const [address, setAddress] = useState('');
+  const onUrlChangeRef = useRef(onUrlChange);
+  onUrlChangeRef.current = onUrlChange;
   const [status, setStatus] = useState('Connecting to browser…');
   const [connected, setConnected] = useState(false);
 
@@ -29,10 +31,12 @@ export function FleetBrowserSideView({ runId, visible, remoteServerId }: { runId
       } else if (update.type === 'browser.ready') {
         viewportRef.current = { width: update.width, height: update.height };
         setAddress(update.url === 'about:blank' ? '' : update.url);
+        onUrlChangeRef.current?.(update.url);
         setConnected(true);
         setStatus('');
       } else if (update.type === 'browser.location') {
         setAddress(update.url === 'about:blank' ? '' : update.url);
+        onUrlChangeRef.current?.(update.url);
       } else if (update.type === 'browser.error') {
         setStatus(update.message);
       } else if (update.type === 'browser.disconnected') {

@@ -362,7 +362,7 @@ describe('renderer app shell view model', () => {
     expect(compactSummary).toContain('--session-summary-font-size: 0.9rem');
     expect(compactSummary).toContain('--session-summary-tooltip-font-size: 0.7rem');
     expect(expandedColumn).toContain('border-left: 1px solid var(--panel-border)');
-    for (const selector of ['session-summary-title', 'session-summary-duration', 'session-summary-item', 'session-summary-meta', 'session-memory-type-item', 'session-memory-type-toggle']) {
+    for (const selector of ['session-summary-title', 'session-summary-duration', 'session-summary-item', 'session-summary-meta', 'session-memory-type-item']) {
       expect(styles).toMatch(new RegExp(`\\.${selector}\\s*\\{[^}]*font-size: var\\(--session-summary-font-size, 1rem\\);`, 'u'));
     }
   });

@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
 import { browserContextLabel, browserSideViewId, DEFAULT_BROWSER_CONTEXT, isBrowserSideView } from '../../../shared/browserContexts';
 import type { BrowserContextSummary } from '../../../shared/browserContexts';
@@ -13,7 +13,6 @@ import type {
   AppServerRunbookDocument,
   AppServerRunbookSummary,
   RunbookExecutionSelection,
-  RunbookProofTargetSelection,
   ResearchProfile,
   ResearchProfileMemoryStatus,
   ResearchProfileMemoryType,
@@ -54,6 +53,16 @@ const EMPTY_SUBAGENT_OVERVIEW = { count: 0, activeCount: 0, completedCount: 0 };
 const EMPTY_MEMORY_NODES: AppServerMemoryNodeSummary[] = [];
 const EMPTY_CAMPAIGN_CLAIMS: readonly AppServerFindingSummary[] = [];
 const EMPTY_RUNBOOKS: readonly AppServerRunbookSummary[] = [];
+
+export function browserBaseUrl(lastUrl: string): string {
+  try {
+    const url = new URL(lastUrl);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.host : lastUrl;
+  } catch {
+    return lastUrl || 'about:blank';
+  }
+}
+
 const FINDING_DETAIL_VIEWS = ['Breakdown', 'History', 'References', 'Duplicates'] as const;
 type FindingDetailView = typeof FINDING_DETAIL_VIEWS[number];
 const FINDING_DETAIL_VIEW_ICONS = {
@@ -292,7 +301,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedRunbookDocument,
   runbookLoading,
   runbookError,
-  connectedDeviceOs = null,
   selectedReport = null,
   selectedReportDocument = null,
   reportLoading = false,
@@ -333,7 +341,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedRunbookDocument: AppServerRunbookDocument | null;
   runbookLoading: boolean;
   runbookError: string | null;
-  connectedDeviceOs?: string | null;
   selectedReport?: AppServerReportSummary | null;
   selectedReportDocument?: AppServerReportDocument | null;
   reportLoading?: boolean;
@@ -345,7 +352,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   selectedMemoryNodeId?: string | null;
   searchHighlightQuery: string;
   onOpenRunbook: (runbookId: string) => void;
-  onRunbookExecute?: (runbookId: string, selection: RunbookExecutionSelection, target: RunbookProofTargetSelection) => Promise<void>;
+  onRunbookExecute?: (runbookId: string, selection: RunbookExecutionSelection) => Promise<void>;
   onOpenReport?: (reportId: string) => void;
   onOpenClaim?: (claimId: string) => void;
   historyMutationBusy?: boolean;
@@ -365,6 +372,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const featureAvailability = researchProfileFeatureAvailability(researchProfile);
   const subagentsAvailable = featureAvailability.collaboration && viewSpace === 'session';
   const [browserContexts, setBrowserContexts] = useState<BrowserContextSummary[]>([DEFAULT_BROWSER_CONTEXT]);
+  const [fleetBrowserUrl, setFleetBrowserUrl] = useState('about:blank');
   const [mountedBrowserContextIds, setMountedBrowserContextIds] = useState<ReadonlySet<string>>(new Set());
   const [fleetBrowserMachine, setFleetBrowserMachine] = useState<string | null | undefined>(undefined);
   useEffect(() => {
@@ -377,6 +385,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     return () => { active = false; };
   }, [browserContextsEnabled, runId, viewSpace]);
   const visibleBrowserContexts = fleetBrowserMachine ? [DEFAULT_BROWSER_CONTEXT] : browserContexts;
+  const hasBrowserContexts = browserContextsEnabled && visibleBrowserContexts.length > 0;
   const enabledViews = [
     ...researchSideViewsForProfile(researchProfile).filter((view) => (viewSpace === 'session' || view !== 'subagents')
       && (browserContextsEnabled || !isBrowserSideView(view))),
@@ -655,6 +664,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   useEffect(() => {
     if (runIdRef.current === runId) return;
     runIdRef.current = runId;
+    setFleetBrowserUrl('about:blank');
     dispatchNavigation({ type: 'reset' });
     setExpandedMemoryGroups(new Set());
     setSelectedNodeId(null);
@@ -792,24 +802,33 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       ))}
       {browserContextsEnabled && fleetBrowserMachine && visibleNavigation.openViews.includes(browserSideViewId(DEFAULT_BROWSER_CONTEXT.id)) ? (
         <FleetBrowserSideView key={`fleet:${runId}`} runId={runId}
+          onUrlChange={setFleetBrowserUrl}
           visible={detailsOpen && activeView === browserSideViewId(DEFAULT_BROWSER_CONTEXT.id) && !visibleSelectedSubagentPath && !visibleSelectedRunbookId && !visibleSelectedReportId && !selectedNode && !selectedClaim} />
       ) : null}
     </Fragment>
   );
-  const browserSummaryRows = (browserContextsEnabled ? visibleBrowserContexts : []).map((context) => (
-    <button
-      key={context.id}
-      type="button"
-      className="session-summary-item"
-      aria-label={`Open Browser ${context.label}`}
-      onClick={() => openDetails(browserSideViewId(context.id))}
-    >
-      <Globe2 size={15} aria-hidden="true" />
-      <span>Browser</span>
-      <span className="session-summary-meta">{context.label}</span>
-      <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
-    </button>
-  ));
+  const browserSummaryRows = (browserContextsEnabled ? visibleBrowserContexts : []).map((context) => {
+    const currentUrl = fleetBrowserMachine ? fleetBrowserUrl : context.lastUrl;
+    return (
+      <button
+        key={context.id}
+        type="button"
+        className="session-summary-item"
+        aria-label={`Open Browser ${context.label}`}
+        onClick={() => openDetails(browserSideViewId(context.id))}
+      >
+        <Globe2 size={15} aria-hidden="true" />
+        <span title={currentUrl}>{browserBaseUrl(currentUrl)}</span>
+        <span className="session-summary-meta">{context.label}</span>
+        <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+      </button>
+    );
+  });
+  const browserSummarySection = hasBrowserContexts ? (
+    <section className="session-summary-items session-summary-resources" aria-label="Browser contexts">
+      {browserSummaryRows}
+    </section>
+  ) : null;
 
   if (!detailsOpen) {
     if (viewSpace === 'workspace') {
@@ -819,6 +838,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             <header className="session-summary-heading">
               <h2 className="session-summary-title">Workspace</h2>
             </header>
+            {browserSummarySection}
+            {hasBrowserContexts ? <hr className="session-summary-divider" /> : null}
             <section className="session-summary-items session-summary-resources" aria-label="Workspace resources">
               {featureAvailability.runbooks && workspaceRunbooks.length > 0 ? (
                 <button type="button" className="session-summary-item" onClick={() => openDetails('memory', 'runbooks')}>
@@ -851,13 +872,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                     <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
                   </button>
                   <MemoryTypeSummaryRows
-                    key={`workspace:${workspaceId ?? runId}`}
                     summaries={workspaceMemoryTypes.summaries}
-                    defaultVisibleCount={0}
                   />
                 </>
               ) : null}
-              {browserSummaryRows}
             </section>
           </section>
           {browserPages}
@@ -875,7 +893,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             <section className="session-summary-section session-summary-metadata" aria-label="Session metadata">
               <SessionUsageSummaryLoading />
             </section>
-            {hasSessionMemories ? <hr className="session-summary-divider" /> : null}
+            {hasBrowserContexts || hasSessionMemories ? <hr className="session-summary-divider" /> : null}
+            {browserSummarySection}
+            {hasBrowserContexts && hasSessionMemories ? <hr className="session-summary-divider" /> : null}
             {hasSessionMemories ? (
               <section className="session-summary-items session-summary-resources" aria-label="Session resources">
                 <div aria-label="Loading session memories" className="session-summary-item session-summary-loading-item">
@@ -884,9 +904,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 </div>
               </section>
             ) : null}
-            <section className="session-summary-items session-summary-resources" aria-label="Browser contexts">
-              {browserSummaryRows}
-            </section>
           </section>
           {browserPages}
         </aside>
@@ -902,7 +919,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           <section className="session-summary-section session-summary-metadata" aria-label="Session metadata">
             {detail ? <SessionUsageSummary detail={detail} /> : null}
           </section>
-          {hasSessionMetadata && (hasSessionResources || hasSessionMemories) ? <hr className="session-summary-divider" /> : null}
+          {hasSessionMetadata && (hasBrowserContexts || hasSessionResources || hasSessionMemories) ? <hr className="session-summary-divider" /> : null}
+          {browserSummarySection}
+          {hasBrowserContexts && (hasSessionResources || hasSessionMemories) ? <hr className="session-summary-divider" /> : null}
           <section className="session-summary-items session-summary-resources" aria-label="Session resources">
             {featureAvailability.collaboration && subagentOverview.count > 0 ? (
               <button type="button" className="session-summary-item" onClick={() => openDetails('subagents')}>
@@ -945,13 +964,10 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                   <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
                 </button>
                 <MemoryTypeSummaryRows
-                  key={`session:${runId}`}
                   summaries={sessionMemoryTypes.summaries}
-                  defaultVisibleCount={0}
                 />
               </>
             ) : null}
-            {browserSummaryRows}
           </section>
         </section>
         {browserPages}
@@ -1067,18 +1083,18 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
         ) : visibleSelectedRunbook ? (
           <div className="research-side-nested-content runbook-detail-content">
             <RunbookView
-              connectedDeviceOs={connectedDeviceOs}
               document={selectedRunbookDocument}
               error={runbookError}
               executionAvailable={viewSpace === 'session' && runStatus === 'active' && runbookBelongsToSession(visibleSelectedRunbook, runId)}
               followLatest
               loading={runbookLoading}
               runbook={visibleSelectedRunbook}
+              providerModelCatalog={providerModelCatalog}
               runbookCandidates={runbooks}
               mutationBusy={historyMutationBusy}
               showBackButton={false}
               onBackToMain={onBackToRunbooks}
-              onRun={onRunbookExecute ? (selection, target) => onRunbookExecute(visibleSelectedRunbook.id, selection, target) : undefined}
+              onRun={onRunbookExecute ? (selection) => onRunbookExecute(visibleSelectedRunbook.id, selection) : undefined}
               onMarkDuplicate={onMarkHistoryDuplicate ? (id, parentId, revision) => onMarkHistoryDuplicate('runbook', id, parentId, revision) : undefined}
               onUndoDuplicate={onUndoHistoryDuplicate ? (id, revision) => onUndoHistoryDuplicate('runbook', id, revision) : undefined}
             />
@@ -1451,37 +1467,12 @@ function CatalogSearch({
   );
 }
 
-function MemoryTypeSummaryRows({ summaries, defaultVisibleCount }: {
+function MemoryTypeSummaryRows({ summaries }: {
   summaries: readonly SessionMemoryTypeSummary[];
-  defaultVisibleCount: number;
 }): JSX.Element {
-  const [expanded, setExpanded] = useState(false);
-  const visibleSummaries = summaries.slice(0, defaultVisibleCount);
-  const hiddenSummaries = summaries.slice(defaultVisibleCount);
   return (
     <div className="session-memory-type-list">
-      {visibleSummaries.map((memoryType) => <MemoryTypeSummaryRow memoryType={memoryType} key={memoryType.type} />)}
-      {hiddenSummaries.length > 0 ? (
-        <>
-          <div
-            className={`session-memory-type-overflow ${expanded ? 'expanded' : ''}`.trim()}
-            aria-hidden={!expanded}
-            inert={!expanded}
-          >
-            <div className="session-memory-type-overflow-inner">
-              {hiddenSummaries.map((memoryType) => <MemoryTypeSummaryRow memoryType={memoryType} key={memoryType.type} />)}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="session-memory-type-toggle"
-            aria-expanded={expanded}
-            onClick={() => setExpanded((current) => !current)}
-          >
-            {expanded ? 'Show less' : 'Show more'}
-          </button>
-        </>
-      ) : null}
+      {summaries.map((memoryType) => <MemoryTypeSummaryRow memoryType={memoryType} key={memoryType.type} />)}
     </div>
   );
 }
@@ -1600,6 +1591,17 @@ export function SubagentDetailPanel({
   );
 }
 
+export function researchSidePickerMenuLeft(
+  pickerRight: number,
+  menuWidth: number,
+  panelLeft: number,
+  panelRight: number
+): number {
+  const leftEdge = panelLeft + 6;
+  const rightEdge = Math.max(leftEdge, panelRight - menuWidth - 6);
+  return Math.min(Math.max(pickerRight - menuWidth, leftEdge), rightEdge);
+}
+
 export function ResearchSideViewTabs({
   activeView,
   enabledViews = RESEARCH_SIDE_VIEWS,
@@ -1635,7 +1637,34 @@ export function ResearchSideViewTabs({
   const [pendingCloseView, setPendingCloseView] = useState<ResearchSideView | null>(null);
   const closingRef = useRef(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  const pickerMenuRef = useRef<HTMLDivElement | null>(null);
   const availableViews = availableResearchSideViews(openViews, enabledViews);
+
+  useLayoutEffect(() => {
+    if (!pickerOpen) return undefined;
+    const picker = pickerRef.current;
+    const menu = pickerMenuRef.current;
+    const panel = picker?.closest('.main-session-side');
+    if (!picker || !menu || !panel) return undefined;
+    const positionMenu = (): void => {
+      const panelRect = panel.getBoundingClientRect();
+      const pickerRect = picker.getBoundingClientRect();
+      menu.style.maxWidth = `${Math.max(0, panelRect.width - 12)}px`;
+      const menuLeft = researchSidePickerMenuLeft(pickerRect.right, menu.getBoundingClientRect().width, panelRect.left, panelRect.right);
+      menu.style.left = `${menuLeft - pickerRect.left}px`;
+      menu.style.right = 'auto';
+    };
+    positionMenu();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(positionMenu);
+    observer?.observe(panel);
+    observer?.observe(picker);
+    observer?.observe(menu);
+    window.addEventListener('resize', positionMenu);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', positionMenu);
+    };
+  }, [availableViews.length, pickerOpen]);
 
   useEffect(() => {
     if (!pickerOpen) return undefined;
@@ -1736,7 +1765,7 @@ export function ResearchSideViewTabs({
             <Plus size={16} aria-hidden="true" />
           </button>
           {pickerOpen ? (
-            <div className="research-side-view-picker-menu" role="menu">
+            <div className="research-side-view-picker-menu" ref={pickerMenuRef} role="menu">
               {availableViews.map((view) => (
                 <button
                   type="button"
@@ -2465,16 +2494,21 @@ export function CampaignClaimCatalogSection({
   onOpen: (claimId: string) => void;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
-  const boundedPreviewLimit = previewLimit === undefined ? claims.length : Math.max(0, previewLimit);
-  const visibleClaims = claims.slice(0, boundedPreviewLimit);
-  const overflowClaims = claims.slice(boundedPreviewLimit);
+  const [refutedOpen, setRefutedOpen] = useState(false);
+  const unrefutedClaims = claims.filter((claim) => claim.maturity !== 'refuted');
+  const refutedClaims = claims.filter((claim) => claim.maturity === 'refuted');
+  const boundedPreviewLimit = previewLimit === undefined ? unrefutedClaims.length : Math.max(0, previewLimit);
+  const visibleClaims = unrefutedClaims.slice(0, boundedPreviewLimit);
+  const overflowClaims = unrefutedClaims.slice(boundedPreviewLimit);
   const sectionLabel = claims.length === 1 ? singularizePresentationLabel(label) : label;
-  const unrefutedClaimCount = claims.filter((claim) => claim.maturity !== 'refuted').length;
-  const renderClaim = (claim: AppServerFindingSummary): JSX.Element => {
+  const renderClaim = (claim: AppServerFindingSummary, inRefutedDialog = false): JSX.Element => {
     const rating = campaignClaimRatingPresentation(claim);
     return (
       <article className={`memory-catalog-item campaign-claim-item is-compact is-${claim.projection} ${selectedClaimId === claim.id ? 'selected' : ''}`} key={claim.id}>
-        <button type="button" className="memory-catalog-toggle" aria-pressed={selectedClaimId === claim.id} onClick={() => onOpen(claim.id)}>
+        <button type="button" className="memory-catalog-toggle" aria-pressed={selectedClaimId === claim.id} onClick={() => {
+          if (inRefutedDialog) setRefutedOpen(false);
+          onOpen(claim.id);
+        }}>
           <span className="memory-catalog-item-heading">
             <span className="memory-catalog-item-meta-line">
               <span className="memory-catalog-item-trailing">
@@ -2507,25 +2541,28 @@ export function CampaignClaimCatalogSection({
   return (
     <section
       className="memory-type-section campaign-claim-section"
-      aria-label={`${claims.length} ${sectionLabel}, ${unrefutedClaimCount} unrefuted`}
+      aria-label={`${claims.length} ${sectionLabel}, ${refutedClaims.length} refuted hidden`}
       data-campaign-projection={label.toLocaleLowerCase()}
     >
-      <h3>
-        {claims.length.toLocaleString()} {sectionLabel}
-        {` (${unrefutedClaimCount.toLocaleString()} Unrefuted)`}
-      </h3>
+      <div className="campaign-claim-section-heading">
+        <h3>{claims.length.toLocaleString()} {sectionLabel}</h3>
+        <button className="campaign-board-refuted-toggle" onClick={() => setRefutedOpen(true)} type="button">
+          {refutedClaims.length.toLocaleString()} refuted hidden
+        </button>
+      </div>
       <div className="memory-type-items">
-        <div className="workspace-claim-primary-items">{visibleClaims.map(renderClaim)}</div>
+        <div className="workspace-claim-primary-items">{visibleClaims.map((claim) => renderClaim(claim))}</div>
         {overflowClaims.length > 0 ? (
           <div
             aria-hidden={!expanded}
             className={`workspace-claim-overflow ${expanded ? 'expanded' : ''}`.trim()}
             inert={expanded ? undefined : true}
           >
-            <div>{overflowClaims.map(renderClaim)}</div>
+            <div>{overflowClaims.map((claim) => renderClaim(claim))}</div>
           </div>
         ) : null}
-        {claims.length === 0 && emptyLabel ? <p className="workspace-catalog-empty">{emptyLabel}</p> : null}
+        {unrefutedClaims.length === 0 && (claims.length > 0 || emptyLabel)
+          ? <p className="workspace-catalog-empty">{claims.length > 0 ? 'No unrefuted findings.' : emptyLabel}</p> : null}
       </div>
       {overflowClaims.length > 0 ? (
         <button
@@ -2537,6 +2574,13 @@ export function CampaignClaimCatalogSection({
           {expanded ? 'Show less' : `Show ${overflowClaims.length.toLocaleString()} more`}
         </button>
       ) : null}
+      {refutedOpen ? <Modal onClose={() => setRefutedOpen(false)} title="Refuted findings">
+        <div className="campaign-board-refuted-list">
+          {refutedClaims.length > 0
+            ? refutedClaims.map((claim) => renderClaim(claim, true))
+            : <p>No refuted findings.</p>}
+        </div>
+      </Modal> : null}
     </section>
   );
 }
@@ -2709,7 +2753,9 @@ export function MemoryDetailView({
           <section className="memory-detail-breakdown" aria-label="Overview and details">
             <div>
               <strong>Overview</strong>
-              {node.summary.trim() ? <p className="memory-catalog-summary">{node.summary}</p> : <em>Unknown</em>}
+              {node.summary.trim()
+                ? <div className="memory-catalog-summary">{renderTraceProseText(node.summary, 'agent_output')}</div>
+                : <em>Unknown</em>}
             </div>
             <div>
               <strong>Details</strong>
@@ -2882,27 +2928,27 @@ export function CampaignClaimDetailView({
           <section className="campaign-claim-assessment" aria-label="Overview, impact, and reachability">
             <div>
               <strong>Overview</strong>
-              {claim.summary.trim() ? <p>{claim.summary}</p> : <em>Unknown</em>}
+              {claim.summary.trim() ? renderTraceProseText(claim.summary, 'agent_output') : <em>Unknown</em>}
             </div>
             <div>
               <div className="campaign-claim-impact-heading">
                 <strong>{traceLabel(claim.rating)} Impact</strong>
                 <FindingCvssMeter score={latestCvss?.score ?? null} version={latestCvss?.version ?? null} />
               </div>
-              {claim.impact.trim() ? <p>{claim.impact}</p> : <em>Unknown</em>}
+              {claim.impact.trim() ? renderTraceProseText(claim.impact, 'agent_output') : <em>Unknown</em>}
             </div>
             <div>
               <strong>{reachabilityTitle}</strong>
               {securityTracking?.reachability.conditions?.trim()
-                ? <p>{securityTracking.reachability.conditions}</p>
+                ? renderTraceProseText(securityTracking.reachability.conditions, 'agent_output')
                 : <em>Unknown</em>}
             </div>
             <div className="campaign-claim-reproduction-steps">
               <strong>Steps to Reproduce</strong>
-              {claim.stepsToReproduce.trim() ? <p>{claim.stepsToReproduce}</p> : <em>Not recorded</em>}
+              {claim.stepsToReproduce.trim() ? renderTraceProseText(claim.stepsToReproduce, 'agent_output') : <em>Not recorded</em>}
             </div>
           </section>
-          {claim.staleReason ? <p className="memory-catalog-body"><strong>Stale reason:</strong> {claim.staleReason}</p> : null}
+          {claim.staleReason ? <div className="memory-catalog-body"><strong>Stale reason:</strong> {renderTraceProseText(claim.staleReason, 'agent_output')}</div> : null}
           {claim.operatorOverride ? (
             <p className="memory-catalog-body"><strong>Human override:</strong> The current status was set on the Findings board without requiring the agent transition prerequisites. Review the recorded evidence before relying on it.</p>
           ) : null}
@@ -2943,7 +2989,10 @@ export function CampaignClaimDetailView({
               <div className="campaign-claim-reference-list">
                 {claim.evidence.map((evidence) => (
                   <article key={evidence.id}>
-                    <span>{traceLabel(evidence.kind)}{evidence.independent ? ' · Independent' : ''}</span>
+                    <span>
+                      {evidence.kind === 'command' || evidence.kind === 'runbook_execution' ? 'Evidence' : traceLabel(evidence.kind)}
+                      {evidence.independent ? ' · Independent' : ''}
+                    </span>
                     <p>{evidence.summary || evidence.referenceId || evidence.id}</p>
                     {evidence.referenceId ? <code>{evidence.referenceId}</code> : null}
                   </article>

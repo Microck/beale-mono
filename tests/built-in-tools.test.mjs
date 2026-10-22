@@ -986,7 +986,7 @@ test("runbook execution delegates runtime limits to its cell executors", async (
     id: "runbook_runtime_fixture",
     actionClass: "experiment",
     toolName: "runbook.run",
-    input: { id: "runbook-example", proofTarget: "vm" },
+    input: { id: "runbook-example" },
   };
   assert.equal(resolveResearchToolRuntimeBudgetMs(action, undefined), 0);
   assert.equal(

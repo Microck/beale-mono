@@ -31,7 +31,7 @@ export function WorkspaceDirectoriesField({ directories, disabled = false, locke
       <div className="workspace-directories-field-control">
         <span title={directories[0]}>{directories[0] ? compactUserPath(directories[0]) : 'No directory selected'}</span>
         {!lockedDirectory ? <button aria-label="Choose workspace directory" disabled={disabled || selecting} onClick={choose} type="button">{directories[0] ? 'Change directory' : 'Choose directory'}</button> : null}
-        {error ? <p role="alert">{error}</p> : null}
+        {error ? <p className="workspace-directories-error" role="alert">{error}</p> : null}
       </div>
     </div>
   );

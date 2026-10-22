@@ -85,7 +85,7 @@ export function FleetSettingsView({ state, loadError, remoteAccessSettings, remo
 
   return <div className="settings-page fleet-settings-page"><section className="settings-form" aria-busy={busy}>
     <header className="settings-form-heading"><h2>App Servers</h2><p>Connect to other Beale app servers on this Tailscale network. Configure each server on its own machine.</p></header>
-    <div className="settings-form-squircle" aria-label="App servers"><div className="settings-form-control-list fleet-machine-list">
+    <div className="settings-form-control-list fleet-machine-list fleet-app-server-list" aria-label="App servers">
       <div className="settings-form-control-row fleet-machine-row">
         <span className="settings-form-control-copy"><strong>Local</strong><small>This machine’s Beale app-server process.</small></span>
         <button type="button" className="fleet-machine-configure-button" aria-label="Restart local app server" title="Restart local app server" disabled={busy} onClick={() => void restart('local', () => window.beale.restartLocalAppServer())}><RotateCw size={18} aria-hidden="true" /></button>
@@ -98,7 +98,7 @@ export function FleetSettingsView({ state, loadError, remoteAccessSettings, remo
           <button type="button" className="fleet-machine-configure-button" aria-label={`Configure ${server.name}`} title={`Configure ${server.name}`} disabled={busy} onClick={() => onSelect({ section: 'app-servers', itemId: server.id })}><Settings2 size={18} aria-hidden="true" /></button>
         </span>
       </div>)}
-    </div></div>
+    </div>
     {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
     {restartingId ? <p role="status" className="fleet-machine-empty">Restarting app-server…</p> : null}
     <div className="settings-form-actions fleet-machine-refresh"><span /><button type="button" disabled={busy} onClick={() => onSelect({ section: 'app-servers', itemId: 'new' })}><Plus size={14} aria-hidden="true" />Add App Server</button></div>

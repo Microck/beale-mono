@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { AppServerRunbookDocument, AppServerRunbookSummary } from '../src/shared/types';
+import type { AppServerRunbookDocument, AppServerRunbookSummary, ResearchProviderModelCatalog } from '../src/shared/types';
 import { RunbookCatalogItem } from '../src/renderer/features/research/MemorySidePanel';
 import { RunbookView, runbookViewUpdateKey } from '../src/renderer/features/research/RunbookView';
 
@@ -32,6 +32,19 @@ const summary: AppServerRunbookSummary = {
   createdAt: '2026-07-23T10:00:00.000Z',
   updatedAt: '2026-07-23T11:00:00.000Z'
 };
+
+const providerModelCatalog: ResearchProviderModelCatalog[] = [
+  {
+    providerId: 'openai-codex', providerName: 'OpenAI', models: [
+      { id: 'gpt-5.6', name: 'GPT-5.6 Sol', reasoning: true, effortLevels: ['low'], contextWindow: 200_000, maxTokens: 32_000 }
+    ]
+  },
+  {
+    providerId: 'anthropic', providerName: 'Anthropic', models: [
+      { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', reasoning: true, effortLevels: ['low'], contextWindow: 200_000, maxTokens: 32_000 }
+    ]
+  }
+];
 
 const document: AppServerRunbookDocument = {
   runbookId: summary.id,
@@ -123,15 +136,26 @@ describe('RunbookView', () => {
     const html = renderToStaticMarkup(createElement(RunbookView, {
       runbook: summary,
       document,
+      providerModelCatalog,
       loading: false,
       error: null,
       onBackToMain: () => undefined
     }));
 
     expect(html).toContain('Back to Main');
+    expect(html).not.toContain('runbook-view-eyebrow');
+    expect(html).not.toContain('<h2>Validate parser boundary</h2>');
     expect(html).toContain('Authored by');
-    expect(html).toContain('gpt-5.6');
-    expect(html).toContain('claude-opus-4-6');
+    expect(html).toContain('>5.6 Sol</span>');
+    expect(html).toContain('>Opus 4.6</span>');
+    expect(html).not.toContain('>gpt-5.6</span>');
+    expect(html).not.toContain('>claude-opus-4-6</span>');
+    expect(html).toContain('dateTime="2026-07-23T11:00:00.000Z"');
+    expect(html).toContain('aria-label="Runbook detail views"');
+    expect(html).toContain('role="tab" aria-selected="true"');
+    expect(html).toContain('>Cells</span>');
+    expect(html).toContain('>Duplicates</span>');
+    expect(html).toContain('aria-label="Run runbook"');
     expect(html).toContain('<p>Capture a repeatable validation procedure with one display line.</p>');
     expect(html).toContain('<h1>Procedure</h1>');
     expect(html).toContain('<ul>');
@@ -140,8 +164,10 @@ describe('RunbookView', () => {
     expect(html).toContain('<strong>Result:</strong> pass');
     expect(html).toContain('Keep this note visible.');
     expect(html).toContain('Succeeded · 1.3s');
-    expect(html).toContain('Device · iOS 27.0');
-    expect(html).toContain('Content revision 2');
+    expect(html).not.toContain('Device · iOS 27.0');
+    expect(html).toContain('Revision 2');
+    expect(html).not.toContain('Content revision 2');
+    expect(html).toContain('class="memory-catalog-meta runbook-detail-tags"');
     expect(html).toContain('Latest run Succeeded');
     expect(html).not.toContain('>Active<');
     expect(html).toContain('3 completed runs');
@@ -180,10 +206,10 @@ describe('RunbookView', () => {
 
     expect(html).toContain('Healthy runbook: run cells are bounded and repeatable');
     expect(html).toContain('class="runbook-run-button"');
-    expect(html).toContain('aria-label="Proof target"');
+    expect(html).not.toContain('aria-label="Proof target"');
     expect(html).toContain('aria-label="Runbook range start"');
     expect(html).toContain('aria-label="Runbook range end"');
-    expect(html).toContain('<option value="localhost" selected="">Localhost</option>');
+    expect(html).not.toContain('<option value="localhost" selected="">Localhost</option>');
     expect(html).toContain('aria-label="Run cell 2"');
     expect(html).not.toContain('class="runbook-run-button" disabled=""');
   });
@@ -212,7 +238,7 @@ describe('RunbookView', () => {
     );
   });
 
-  it('renders duplicate runbooks as the bottom detail section', () => {
+  it('keeps duplicate runbooks in the Duplicates tab', () => {
     const canonical = {
       ...summary,
       duplicateRunbooks: [{
@@ -235,10 +261,10 @@ describe('RunbookView', () => {
       onUndoDuplicate: () => undefined
     }));
 
-    expect(html).toContain('aria-label="Duplicate runbook management"');
-    expect(html).toContain('Repeated parser procedure');
-    expect(html).toContain('Other parser procedure');
-    expect(html.lastIndexOf('<section')).toBe(html.indexOf('<section class="memory-catalog-subsection campaign-claim-duplicates runbook-duplicates"'));
+    expect(html).toContain('>Duplicates</span>');
+    expect(html).not.toContain('aria-label="Duplicate runbook management"');
+    expect(html).not.toContain('Repeated parser procedure');
+    expect(html).not.toContain('Other parser procedure');
   });
 
   it('bounds initial work for large runbooks and collapses oversized cell content and output', () => {
