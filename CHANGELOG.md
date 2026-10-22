@@ -6,6 +6,7 @@
 
 #### Added
 
+- Session commentary now marks context compaction and automatic recovery from a provider cybersecurity safeguard. Repeated safeguards still show the existing steering prompt.
 - Security surfaces can retain a progress blocker after accessible research is exhausted; the surface map shows blocked work and its reason. The updated control contract requires rebuilt Beale and app-server clients.
 - Guardian now uses the lead model to decide commands denied by Auto-Review, with complete direct-script inspection, path environment context, and actionable denials. The Permission agent setting is enabled by default for new local and Fleet sessions and can restore human overrides when disabled. Rebuild Beale and app-server together.
 - Findings now store Steps to Reproduce and show them in Breakdown. Reproduced and later transitions, including Findings board moves, require steps; older records remain readable with an empty value. Claim migration 9 and control contract v58 require rebuilt Beale and app-server clients.

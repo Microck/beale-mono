@@ -7198,6 +7198,28 @@ button.subagent-catalog-item:hover:not(:disabled),
   line-height: 1.55;
 }
 
+.main-commentary-session-marker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.015em;
+  text-align: center;
+}
+
+.main-commentary-session-marker::before,
+.main-commentary-session-marker::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: var(--panel-border);
+}
+
+.main-commentary-session-marker.is-safeguard_recovery { color: var(--muted-strong); }
+.main-commentary-session-marker span { flex: 0 1 auto; }
+
 .main-commentary-abort-notice {
   margin: 12px 0 0;
   color: var(--muted);

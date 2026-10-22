@@ -811,7 +811,11 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
       data-commentary-window-item={windowed ? '' : undefined}
       data-commentary-trace-id={message.traceEventId ?? undefined}
     >
-      {message.kind === 'progress' ? (
+      {message.kind === 'marker' ? (
+        <div className={`main-commentary-session-marker is-${message.markerType ?? 'compaction'}`}>
+          <span>{message.contentMarkdown}</span>
+        </div>
+      ) : message.kind === 'progress' ? (
         <div className="main-commentary-reasoning-lines">
           {reasoningTraceLines.map((line, index) => (
             <div className="main-commentary-reasoning-line" key={`${index}:${line}`}>
@@ -1093,6 +1097,7 @@ function commentaryMessagesRenderEqual(left: CommentaryMessage, right: Commentar
     left.id !== right.id ||
     left.traceEventId !== right.traceEventId ||
     left.kind !== right.kind ||
+    left.markerType !== right.markerType ||
     left.taskAction !== right.taskAction ||
     left.toolName !== right.toolName ||
     left.toolCount !== right.toolCount ||

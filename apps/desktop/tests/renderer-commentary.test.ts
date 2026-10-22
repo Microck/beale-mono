@@ -1388,6 +1388,10 @@ describe('renderer commentary projection', () => {
     ], { includeInitialPrompt: false });
 
     expect(messages.map(({ id, kind, contentMarkdown }) => [id, kind, contentMarkdown])).toEqual([[
+      'session-marker:automatic-retry',
+      'marker',
+      'Cybersecurity safeguard encountered · Beale recovering'
+    ], [
       'model-safety-pause:session-steering',
       'error',
       '`gpt-6-astra` is waiting for a steering instruction after the provider flagged the request for possible cybersecurity risk. Clarify the authorized scope or revise the request, then send the steering message to continue.'
@@ -1405,6 +1409,32 @@ describe('renderer commentary projection', () => {
     expect(canonicalOnly.map(({ id, kind }) => [id, kind])).toEqual([
       ['model-safety-pause:canonical-session-event', 'error']
     ]);
+  });
+
+  it('shows compacting and safeguard recovery as session markers without exposing provider errors', () => {
+    const messages = commentaryMessagesForSession(runDetail('Review the authorized service.'), [
+      displayEvent('local-compaction', { type: 'context_compacted', agentPath: '/root' }, { source: 'system' }),
+      displayEvent('local-checkpoint', { type: 'research_checkpoint', reason: 'local' }, { source: 'system' }),
+      displayEvent('native-checkpoint', { type: 'research_checkpoint', reason: 'native' }, { source: 'system' }),
+      displayEvent('safeguard-retry', { type: 'model_retry', recoveryKind: 'safety_guardrail',
+        errorMessage: 'Sensitive provider diagnostic.' }, { source: 'system' }),
+      displayEvent('ordinary-retry', { type: 'model_retry', recoveryKind: 'transient' }, { source: 'system' }),
+      displayEvent('safeguard-pause', { type: 'model_retry', recoveryKind: 'safety_guardrail',
+        awaitingSteering: true }, { source: 'system' })
+    ], { includeInitialPrompt: false });
+
+    expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
+      ['marker', 'Context compacted'],
+      ['marker', 'Context compacted'],
+      ['marker', 'Cybersecurity safeguard encountered · Beale recovering'],
+      ['error', 'The model is waiting for a steering instruction after the provider flagged the request for possible cybersecurity risk. Clarify the authorized scope or revise the request, then send the steering message to continue.']
+    ]);
+    expect(JSON.stringify(messages)).not.toContain('Sensitive provider diagnostic.');
+    const markerHtml = renderToStaticMarkup(createElement(CommentaryMessageRow, {
+      message: messages[2]!, searchHighlightQuery: '', selected: false
+    }));
+    expect(markerHtml).toContain('main-commentary-session-marker is-safeguard_recovery');
+    expect(markerHtml).toContain('Cybersecurity safeguard encountered · Beale recovering');
   });
 });
 

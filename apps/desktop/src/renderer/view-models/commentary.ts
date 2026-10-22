@@ -15,12 +15,13 @@ import { appServerToolTraceSubtext } from './traceContent';
 import type { TraceDisplayEvent } from './traceDisplay';
 import { compactUserPath } from '../lib/paths';
 
-export type CommentaryMessageKind = 'user' | 'task' | 'commentary' | 'progress' | 'tool' | 'final_answer' | 'error';
+export type CommentaryMessageKind = 'user' | 'task' | 'commentary' | 'progress' | 'tool' | 'marker' | 'final_answer' | 'error';
 
 export interface CommentaryMessage {
   id: string;
   traceEventId: string | null;
   kind: CommentaryMessageKind;
+  markerType?: 'compaction' | 'safeguard_recovery';
   taskAction?: 'spawn' | 'followup';
   toolName?: string;
   toolCount?: number;
@@ -76,6 +77,8 @@ export function commentaryMessagesForSession(
   let messages = projectedEvents.flatMap((event) => {
     const safetyPause = modelSafetyPauseMessage(event, detail.run.model, hasStoredSafetyPause);
     if (safetyPause) return [safetyPause];
+    const marker = sessionEventMarker(event);
+    if (marker) return [marker];
     const activity = subagentActivityMessage(event);
     if (activity) return [activity];
     const toolUsage = toolUsageMessage(event, toolCallsByPrimaryEventId, useActiveToolTense);
@@ -96,6 +99,7 @@ export function commentaryMessagesForSession(
     message.kind === 'commentary' ||
     message.kind === 'progress' ||
     message.kind === 'tool' ||
+    message.kind === 'marker' ||
     message.kind === 'final_answer' ||
     message.kind === 'error'
   )) {
@@ -117,6 +121,28 @@ export function commentaryMessagesForSession(
     contentMarkdown: detail.run.promptMarkdown.trim(),
     createdAt: detail.run.createdAt
   }, ...messages];
+}
+
+function sessionEventMarker(event: TraceDisplayEvent): CommentaryMessage | null {
+  if (event.source !== 'system') return null;
+  const type = payloadString(event, 'type');
+  const markerType = type === 'context_compacted'
+    || type === 'research_checkpoint' && payloadString(event, 'reason') === 'native'
+    ? 'compaction'
+    : type === 'model_retry' && payloadString(event, 'recoveryKind') === 'safety_guardrail'
+      && event.payload.awaitingSteering !== true
+      ? 'safeguard_recovery' : null;
+  if (!markerType) return null;
+  return {
+    id: `session-marker:${event.id}`,
+    traceEventId: event.id,
+    kind: 'marker',
+    markerType,
+    contentMarkdown: markerType === 'compaction'
+      ? 'Context compacted'
+      : 'Cybersecurity safeguard encountered · Beale recovering',
+    createdAt: event.createdAt
+  };
 }
 
 function promoteCheckpointAfterAbort(

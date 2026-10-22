@@ -126,6 +126,24 @@ describe('run detail commentary projection', () => {
     ]);
   });
 
+  it('retains only the native compaction checkpoint reason needed for a session marker', () => {
+    const projected = projectRunDetailForRenderer(runDetail({ traceEvents: [
+      traceEvent('native', { source: 'system', type: 'model_message', payload: {
+        type: 'research_checkpoint', reason: 'native', agentPath: '/root', privateDetail: 'hidden'
+      } }),
+      traceEvent('local', { source: 'system', type: 'model_message', payload: {
+        type: 'context_compacted', agentPath: '/root', tokensBefore: 90000, tokensAfter: 30000
+      } })
+    ] }), 'commentary');
+    expect(projected.traceEvents[0]?.payload).toEqual({ type: 'research_checkpoint', reason: 'native', agentPath: '/root' });
+    expect(projected.traceEvents[1]?.payload).toEqual({ type: 'context_compacted', agentPath: '/root' });
+    const messages = commentaryMessagesForSession(projected,
+      buildTraceDisplayEventsForAgentPath(projected, null), { includeInitialPrompt: false });
+    expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
+      ['marker', 'Context compacted'], ['marker', 'Context compacted']
+    ]);
+  });
+
   it('retains breakout-room records while projecting commentary', () => {
     const detail = runDetail({
       breakoutRooms: [{ id: 'room_one', title: 'Parser challenge', status: 'active' }] as RunDetail['breakoutRooms'],

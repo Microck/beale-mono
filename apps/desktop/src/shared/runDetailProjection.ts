@@ -197,6 +197,9 @@ export function projectCommentaryTraceEvent(
   boundSubagentMessage = false
 ): TraceEventRecord {
   const payload = pickRecordValues(event.payload, COMMENTARY_EVENT_PAYLOAD_KEYS);
+  if (event.payload.type === 'research_checkpoint' && event.payload.reason === 'native') {
+    payload.reason = 'native';
+  }
   const metadata = recordValue(event.payload.metadata);
   if (metadata) payload.metadata = pickRecordValues(metadata, COMMENTARY_TRANSCRIPT_METADATA_KEYS);
   const usage = recordValue(event.payload.usage);
