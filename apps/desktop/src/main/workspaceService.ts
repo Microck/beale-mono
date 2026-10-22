@@ -10,7 +10,7 @@ import { WORKSPACE_PRIMARY_DIRECTORY_MISSING_MESSAGE } from '../shared/ipc';
 import { fleetBrowserViewerTargetId } from '../shared/fleet';
 import { findingRevisionContext } from './findingRevisionContext';
 import { AppServerReadTransportError, fetchBealeProviderUsageLimits, invokeAppServerOperation } from './bealeAppServerClient';
-import { decodeClaimBoardTransitionRequest, decodeFleetAppServerStatuses, decodeFleetPairingQrCode, type BealeProviderLimitId, type BealeProviderUsageLimits, type FleetSshTestInput, type FleetSshTestResult, type FleetState, type ResourcePriorArtPage, type ResourcePriorArtDetail, type ResourcePriorArtListInput } from '@beale/app-server-runtime/protocol';
+import { decodeBealeWorkspaceSurfaceMap, decodeClaimBoardTransitionRequest, decodeFleetAppServerStatuses, decodeFleetPairingQrCode, type BealeProviderLimitId, type BealeProviderUsageLimits, type FleetSshTestInput, type FleetSshTestResult, type FleetState, type ResourcePriorArtPage, type ResourcePriorArtDetail, type ResourcePriorArtListInput } from '@beale/app-server-runtime/protocol';
 import {
   WorkspaceDatabase,
   type ProjectSourceCoveragePathRecord,
@@ -1026,6 +1026,12 @@ export class WorkspaceService {
 
   public getFleetRemoteWorkspaceDetails(serverId: string, workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDetails> {
     return invokeAppServerOperation({ operation: 'fleet.remote_workspace_details', input: { serverId, workspaceId } });
+  }
+
+  public getWorkspaceSurfaceMap(workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceSurfaceMap> {
+    const runtime = this.getForegroundRuntime();
+    if (!runtime || runtime.db.getWorkspaceId() !== workspaceId) throw new Error('The workspace is not open.');
+    return invokeAppServerOperation({ operation: 'workspace.surface_map', input: { workspaceId } }).then(decodeBealeWorkspaceSurfaceMap);
   }
 
   public getFleetRemoteWorkspaceDocument(serverId: string, workspaceId: string, kind: 'runbook' | 'report', resourceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDocument> {
@@ -4020,6 +4026,11 @@ export class WorkspaceService {
             };
             void runtime.appServerEngine.extendRunWhenInactive(action.runId, instruction)
               .catch(reportContinuationFailure);
+            // The run remains terminal until the next attempt starts. A full
+            // workspace snapshot here can delay this acknowledgement and block
+            // the main process while the prior worker is closing.
+            return this.snapshotCache.get(runtime.workspacePath)?.snapshot
+              ?? this.snapshotForRuntime(runtime);
           } else {
             runtime.appServerEngine.extendRun(action.runId, instruction);
           }
@@ -7021,14 +7032,17 @@ function buildResearchGoalSuggestionGroundingContext(
     add(ref, `memory:${node.type}`, node.title, node.summary);
   }
   const activeClaims = [...(prepared.memory?.leads ?? []), ...(prepared.memory?.findings ?? [])]
-    .filter((claim) => claim.workflow !== 'closed' && claim.workflow !== 'published')
+    .filter((claim) => {
+      const status = claim.status === 'stale' ? claim.staleFromStatus ?? 'observed' : claim.status;
+      return status !== 'rejected' && status !== 'disclosed';
+    })
     .sort((left, right) => workflowClaimPriority(workflow, right) - workflowClaimPriority(workflow, left))
     .slice(0, 20);
   for (const claim of activeClaims) {
     const ref = `${claim.projection}:${claim.id}`;
     add(ref, `claim:${claim.classification}`, claim.title, claim.summary);
     if (isSecurityResearchProfile(profile) && workflow.id === 'chaining'
-      && claim.projection === 'finding' && claim.classification === 'security.primitive' && claim.evidence.length > 0) {
+      && claim.projection === 'finding' && claim.classification.startsWith('security.') && claim.evidence.length > 0) {
       requiredRefs.add(ref);
     }
     if (isSecurityResearchProfile(profile) && workflow.id === 'reporting' && isReportableSecurityFinding(claim)) {
@@ -7088,29 +7102,28 @@ function requireEligibleResearchGoalSuggestionGrounding(
 ): void {
   if (!isSecurityResearchProfile(profile)) return;
   if (workflow.id === 'chaining' && grounding.requiredRefs.size === 0) {
-    throw new Error('Chaining suggestions require at least one evidence-backed security.primitive finding.');
+    throw new Error('Chaining suggestions require at least one evidence-backed security finding.');
   }
   if (workflow.id === 'reporting' && grounding.requiredRefs.size === 0) {
-    throw new Error('Reporting suggestions require at least one verified security.chain composite finding with impact and proof evidence.');
+    throw new Error('Reporting suggestions require at least one verified security finding with impact and proof evidence.');
   }
 }
 
 function isReportableSecurityFinding(claim: AppServerFindingSummary): boolean {
   return claim.projection === 'finding'
-    && claim.classification === 'security.chain'
+    && claim.classification.startsWith('security.')
     && claim.maturity === 'verified'
     && Boolean(claim.impact.trim())
-    && claim.componentClaimIds.length > 0
     && claim.evidence.length > 0;
 }
 
 function workflowClaimPriority(workflow: ResearchProfileWorkflow, claim: AppServerFindingSummary): number {
   const typeWeight = workflow.id === 'chaining'
-    ? claim.classification === 'security.primitive' ? 100 : claim.projection === 'lead' ? 35 : 10
+    ? claim.projection === 'finding' && claim.classification.startsWith('security.') ? 100 : 10
     : workflow.id === 'reporting'
-      ? claim.classification === 'security.chain' ? 120 : claim.classification === 'security.primitive' ? 25 : 0
+      ? isReportableSecurityFinding(claim) ? 120 : claim.projection === 'finding' ? 25 : 0
       : claim.projection === 'lead' ? 40 : 30;
-  const maturityWeight = { proposed: 0, observed: 15, reproduced: 25, verified: 35, refuted: -50 }[claim.maturity];
+  const maturityWeight = { proposed: 0, observed: 15, reproduced: 25, verified: 35, reported: 40, refuted: -50 }[claim.maturity];
   return typeWeight + maturityWeight + claim.confidence * 10;
 }
 

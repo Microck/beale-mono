@@ -42,6 +42,8 @@ test("claim.get retrieves persisted evidence and audit context for the same ID b
   let claim = create({ sourceRevision: "git:example-component:revision-one", environmentFingerprint: "environment:example:one" });
   const lead = await read({ id: claim.id });
   assert.equal(lead.projection, "lead");
+  assert.equal("freshness" in lead.claim, false);
+  assert.equal("workflow" in lead.claim, false);
   assert.equal(lead.claim.originSessionId, "session-example");
   assert.deepEqual(lead.claim.authors, [{ provider: "example-provider", model: "example-model" }]);
   assert.equal(lead.transitions.items[0].actorId, "agent-example");
@@ -52,12 +54,17 @@ test("claim.get retrieves persisted evidence and audit context for the same ID b
     evidence: [{ kind: "publication", referenceId: "https://example.test/format", contentHash: "sha256:example",
       summary: "The documentation describes the example format.", metadata: { edition: "example-edition" } }],
   }, undefined, "reviewer-example");
-  claim = store.revise(claim.id, { expectedRevision: claim.revision, reason: "Clarified the assessment scope.", summary: "The assessment concerns documentation formatting." });
+  claim = store.revise(claim.id, { expectedRevision: claim.revision, reason: "Clarified the assessment scope.",
+    summary: "The assessment concerns documentation formatting.",
+    stepsToReproduce: "Open the example format and compare the rendered output with the documented rule." });
   const before = store.get(claim.id);
   const result = await read({ id: claim.id });
   const { evidence, transitions, duplicateClaims, ...overview } = before;
   assert.equal(result.projection, "finding");
   assert.deepEqual(result.claim, overview);
+  assert.equal(result.claim.stepsToReproduce, "Open the example format and compare the rendered output with the documented rule.");
+  assert.equal("freshness" in result.claim, false);
+  assert.equal("workflow" in result.claim, false);
   assert.deepEqual(result.evidence.items, evidence);
   assert.deepEqual(result.transitions.items, transitions);
   assert.deepEqual(result.duplicates.items, duplicateClaims);
@@ -145,34 +152,31 @@ test("claim.get retains duplicate identity and canonical parent links without ex
   }
 });
 
-test("lead and finding catalogs can read past the page limit and distinguish page cache revisions", async (t) => {
+test("finding catalogs can read past the page limit and distinguish page cache revisions", async (t) => {
   const { store, create, execute } = await fixture(t);
   for (let index = 0; index < 6; index += 1) create({ title: `Example catalog record ${index}` });
-  for (const toolName of ["lead.list", "finding.list"]) {
-    if (toolName === "finding.list") {
-      for (const claim of store.listLeads()) store.transition(claim.id, {
-        expectedRevision: claim.revision, toStatus: "observed", reason: "Example documentation review.",
-        evidence: [{ kind: "publication", referenceId: "https://example.test/catalog", summary: "Example catalog reference." }],
-      });
-    }
-    const key = toolName === "lead.list" ? "leads" : "findings";
-    const first = (await execute(toolName, { query: "catalog", limit: 2 })).output;
-    const unchanged = (await execute(toolName, { query: "catalog", limit: 2, afterRevision: first.revision })).output;
-    assert.equal(unchanged.unchanged, true);
-    assert.equal(unchanged.matched, 6);
-    assert.equal(unchanged.nextOffset, 2);
-    const ids = first[key].map((claim) => claim.id);
-    let offset = first.nextOffset;
-    while (offset !== null) {
-      const page = (await execute(toolName, { query: "catalog", limit: 2, offset, afterRevision: first.revision })).output;
-      assert.equal(page.unchanged, false, "a different page must not use the first page's cache token");
-      ids.push(...page[key].map((claim) => claim.id));
-      offset = page.nextOffset;
-    }
-    assert.deepEqual(ids, store.list().map((claim) => claim.id));
-    assert.equal(new Set(ids).size, 6);
-    assert.match(first.recall, /claim.get/);
+  for (const claim of store.listLeads()) store.transition(claim.id, {
+    expectedRevision: claim.revision, toStatus: "observed", reason: "Example documentation review.",
+    evidence: [{ kind: "publication", referenceId: "https://example.test/catalog", summary: "Example catalog reference." }],
+  });
+  const first = (await execute("finding.list", { query: "catalog", limit: 2 })).output;
+  assert.equal("freshness" in first.findings[0], false);
+  assert.equal("workflow" in first.findings[0], false);
+  const unchanged = (await execute("finding.list", { query: "catalog", limit: 2, afterRevision: first.revision })).output;
+  assert.equal(unchanged.unchanged, true);
+  assert.equal(unchanged.matched, 6);
+  assert.equal(unchanged.nextOffset, 2);
+  const ids = first.findings.map((claim) => claim.id);
+  let offset = first.nextOffset;
+  while (offset !== null) {
+    const page = (await execute("finding.list", { query: "catalog", limit: 2, offset, afterRevision: first.revision })).output;
+    assert.equal(page.unchanged, false, "a different page must not use the first page's cache token");
+    ids.push(...page.findings.map((claim) => claim.id));
+    offset = page.nextOffset;
   }
+  assert.deepEqual(ids, store.list().map((claim) => claim.id));
+  assert.equal(new Set(ids).size, 6);
+  assert.match(first.recall, /claim.get/);
 });
 
 test("claim.get stays in Claims with read-only permissions and validates page inputs", async (t) => {

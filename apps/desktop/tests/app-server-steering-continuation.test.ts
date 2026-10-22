@@ -45,6 +45,7 @@ describe('app-server steering continuation fallback', () => {
     const service = Object.create(WorkspaceService.prototype) as WorkspaceService;
     Object.assign(service, {
       workspacePath: 'example-workspace',
+      snapshotCache: new Map([['example-workspace', { snapshot: { accepted: true } }]]),
       requireRuntimeForRunId: () => ({
         workspacePath: 'example-workspace',
         db: {
@@ -58,8 +59,8 @@ describe('app-server steering continuation fallback', () => {
           }
         }
       }),
-      emitChange: () => undefined,
-      requireSnapshot: () => ({ accepted: true })
+      emitChange: () => { throw new Error('Follow-up acknowledgement rebuilt the workspace snapshot.'); },
+      snapshotForRuntime: () => { throw new Error('Follow-up acknowledgement rebuilt the workspace snapshot.'); }
     });
 
     const accepted = await Promise.race([
@@ -68,6 +69,106 @@ describe('app-server steering continuation fallback', () => {
     ]);
     expect(continuationRequested).toBe(true);
     expect(accepted).toEqual({ accepted: true });
+  });
+
+  it('delivers a waiting follow-up to a queued continuation launched at process close', async () => {
+    let resolveCompletion!: () => void;
+    const completion = new Promise<void>((resolve) => { resolveCompletion = resolve; });
+    const activeRuns = new Map<string, object>([['run-example', { prior: true }]]);
+    const steered: string[] = [];
+    let directLaunches = 0;
+    const engine = Object.create(AppServerRunEngine.prototype) as AppServerRunEngine;
+    Object.assign(engine, {
+      activeRuns,
+      completions: new Map([['run-example', completion]]),
+      disposed: false,
+      db: {
+        getRun: () => ({ status: 'blocked' }),
+        getRunDetail: () => ({ attempts: [{ id: 'attempt-example' }] })
+      },
+      recordContinuationAccepted: () => undefined,
+      stopAppServerSessionForRun: () => undefined,
+      steer: (_runId: string, instruction: string) => {
+        steered.push(instruction);
+        return { requestId: 'control-example', deliveryStatus: 'pending' };
+      },
+      extendRun: () => { directLaunches += 1; throw new Error('Duplicate launch'); }
+    });
+
+    const pending = engine.extendRunWhenInactive('run-example', 'Check the next selector.');
+    activeRuns.set('run-example', { queuedContinuation: true });
+    resolveCompletion();
+
+    await expect(pending).resolves.toBe(true);
+    expect(steered).toEqual(['Check the next selector.']);
+    expect(directLaunches).toBe(0);
+  });
+
+  it('steers an already-started continuation without waiting for it to finish', async () => {
+    const steered: string[] = [];
+    const engine = Object.create(AppServerRunEngine.prototype) as AppServerRunEngine;
+    Object.assign(engine, {
+      activeRuns: new Map([['run-example', {}]]),
+      completions: new Map([['run-example', new Promise<void>(() => undefined)]]),
+      disposed: false,
+      db: {
+        getRun: () => ({ status: 'active' }),
+        getRunDetail: () => ({ attempts: [{ id: 'attempt-example' }] })
+      },
+      recordContinuationAccepted: () => undefined,
+      steer: (_runId: string, instruction: string) => {
+        steered.push(instruction);
+        return { requestId: 'control-example', deliveryStatus: 'pending' };
+      }
+    });
+
+    await expect(engine.extendRunWhenInactive('run-example', 'Continue the active attempt.')).resolves.toBe(true);
+    expect(steered).toEqual(['Continue the active attempt.']);
+  });
+
+  it('releases a worker after a terminal disposition before waiting to continue', async () => {
+    let resolveCompletion!: () => void;
+    const completion = new Promise<void>((resolve) => { resolveCompletion = resolve; });
+    const priorActive = { continuationCleanupRequested: false };
+    let releaseRequested = false;
+    const engine = Object.create(AppServerRunEngine.prototype) as AppServerRunEngine;
+    Object.assign(engine, {
+      activeRuns: new Map([['run-example', priorActive]]),
+      completions: new Map([['run-example', completion]]),
+      disposed: false,
+      db: {
+        getRun: () => ({ status: 'blocked' }),
+        getRunDetail: () => ({ attempts: [{ id: 'attempt-example' }] })
+      },
+      recordContinuationAccepted: () => undefined,
+      stopAppServerSessionForRun: () => { releaseRequested = true; },
+      extendRun: () => ({ transportReady: Promise.resolve(true) })
+    });
+
+    const pending = engine.extendRunWhenInactive('run-example', 'Continue from the disposition.');
+    expect(priorActive.continuationCleanupRequested).toBe(true);
+    expect(releaseRequested).toBe(true);
+    (engine as unknown as { activeRuns: Map<string, object> }).activeRuns.delete('run-example');
+    resolveCompletion();
+    await expect(pending).resolves.toBe(true);
+  });
+
+  it('preserves a durable terminal disposition when follow-up cleanup stops its worker', () => {
+    let lifecycleNotified = false;
+    const engine = Object.create(AppServerRunEngine.prototype) as {
+      finishClosedProcess: (context: object, code: number, signal: null, active: object) => void;
+    };
+    Object.assign(engine, {
+      db: { getRun: () => ({ status: 'blocked' }) },
+      notifySessionLifecycleChanged: () => { lifecycleNotified = true; },
+      failRun: () => { throw new Error('Terminal disposition was overwritten.'); }
+    });
+
+    engine.finishClosedProcess(
+      { run: { id: 'run-example' } }, 1, null,
+      { continuationCleanupRequested: true, stopReason: null, lastProcessDiagnostic: null }
+    );
+    expect(lifecycleNotified).toBe(true);
   });
 
   it('requires a later completed root turn before treating accepted steering as consumed', () => {

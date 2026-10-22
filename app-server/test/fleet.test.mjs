@@ -245,6 +245,7 @@ test('remote workspace details use the shared workspace endpoint and reject malf
       workspace: { id: 'registry-example', workspaceId: 'workspace-example', name: 'ExampleCo Research', researchProfileId: 'security-research', researchKitId: 'general', runCount: 0 },
       scope: null, researchSubject: '', rules: [],
       memory: { schemaVersion: 4, workspaceId: 'workspace-example', nodes: [], leads: [], findings: [] },
+      surfaceMap: { schemaVersion: 1, workspaceId: 'workspace-example', surfaces: [], agents: [] },
       runbooks: [], reports: [],
       targets: []
     };

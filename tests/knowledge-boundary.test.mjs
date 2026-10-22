@@ -39,12 +39,12 @@ test("app-server exposes reversible canonical claim deduplication", async () => 
   try {
     const parent = claims.create({
       title: "Canonical parser boundary",
-      classification: "security.primitive",
+      classification: "security.vulnerability",
       rating: "medium",
     });
     const duplicate = claims.create({
       title: "Redundant parser boundary",
-      classification: "security.primitive",
+      classification: "security.vulnerability",
       rating: "medium",
     });
 
@@ -82,7 +82,7 @@ test("app-server exposes reversible canonical claim deduplication", async () => 
   }
 });
 
-test("Claims board moves record human overrides while agent transitions remain evidence-gated", async () => {
+test("Findings board moves record human overrides while agent transitions remain evidence-gated", async () => {
   const root = await mkdtemp(join(tmpdir(), "app-server-claim-board-boundary-"));
   const databasePath = join(root, "memory.sqlite");
   const artifactDirectoryPath = join(root, "artifacts");
@@ -95,19 +95,28 @@ test("Claims board moves record human overrides while agent transitions remain e
   const graph = new MemoryGraphStore({ databasePath, context });
   const claims = new ResearchClaimStore(graph);
   try {
-    const lead = claims.create({ title: "Example parser branch", classification: "security.primitive", rating: "medium" });
+    const lead = claims.create({ title: "Example parser branch", classification: "security.vulnerability", rating: "medium" });
     const input = { ...context, claimId: lead.id, expectedRevision: lead.revision, targetMaturity: "observed" };
     await assert.rejects(invokeAppServerProtocol("claim.board_transition", {
       args: [], input, storage: { databasePath, artifactDirectoryPath },
     }), /Finding not found/);
 
-    const observed = claims.transition(lead.id, {
+    let observed = claims.transition(lead.id, {
       expectedRevision: lead.revision,
       toStatus: "observed",
       reason: "A synthetic source review records the branch.",
       evidence: [{ kind: "code", referenceId: "src/example-parser.ts:12", summary: "The example branch is reachable." }],
     });
     assert.equal(observed.operatorOverride, false);
+    await assert.rejects(invokeAppServerProtocol("claim.board_transition", {
+      args: [], input: { ...input, expectedRevision: observed.revision, targetMaturity: "reproduced" },
+      storage: { databasePath, artifactDirectoryPath },
+    }), /steps to reproduce/);
+    observed = claims.revise(lead.id, {
+      expectedRevision: observed.revision,
+      reason: "Record a synthetic reproduction procedure.",
+      stepsToReproduce: "Run the example parser against a clean target and inspect the branch result.",
+    });
     assert.throws(() => claims.transition(lead.id, {
       expectedRevision: observed.revision,
       toStatus: "reproduced",
@@ -132,13 +141,21 @@ test("Claims board moves record human overrides while agent transitions remain e
     assert.equal(verified.operatorOverride, true);
     assert.equal(verified.evidence.length, observed.evidence.length);
 
+    const reported = await invokeAppServerProtocol("claim.board_transition", {
+      args: [], input: { ...input, expectedRevision: verified.revision, targetMaturity: "reported" },
+      storage: { databasePath, artifactDirectoryPath },
+    });
+    assert.equal(reported.status, "disclosed");
+    assert.equal(reported.maturity, "reported");
+    assert.equal(reported.operatorOverride, true);
+
     const refuted = await invokeAppServerProtocol("claim.board_transition", {
-      args: [], input: { ...input, expectedRevision: verified.revision, targetMaturity: "refuted" },
+      args: [], input: { ...input, expectedRevision: reported.revision, targetMaturity: "refuted" },
       storage: { databasePath, artifactDirectoryPath },
     });
     assert.equal(refuted.status, "rejected");
     assert.equal(refuted.maturity, "refuted");
-    assert.equal(refuted.revision, verified.revision + 1);
+    assert.equal(refuted.revision, reported.revision + 1);
     assert.equal(refuted.operatorOverride, true);
     const summary = await invokeAppServerProtocol("memory.summary", {
       args: [], input: context, storage: { databasePath, artifactDirectoryPath },

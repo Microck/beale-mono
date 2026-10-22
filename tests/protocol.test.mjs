@@ -59,8 +59,8 @@ test('research workspace operations require explicit revisions for canonical imp
   for (const input of [null, { workspaceId: '', action: 'status' }, { workspaceId: 'workspace-example', action: 'reset' }, { workspaceId: 'workspace-example', action: 'checkpoint' }, { workspaceId: 'workspace-example', action: 'repair-preview' }, { workspaceId: 'workspace-example', action: 'repair', fingerprint: 'a'.repeat(64) }, { workspaceId: 'workspace-example', action: 'import', path: 'claims/example.json' }, { workspaceId: 'workspace-example', action: 'import', path: 'claims/example.json', expectedRevision: 1.5 }]) assert.throws(() => decodeWorkspaceProjectRequest(input));
 });
 
-test('claim board transitions accept only versioned finding moves to visible columns', () => {
-  const input = { workspaceId: 'workspace-example', claimId: 'claim-example', expectedRevision: 2, targetMaturity: 'refuted' };
+test('finding board transitions accept versioned moves including reported', () => {
+  const input = { workspaceId: 'workspace-example', claimId: 'claim-example', expectedRevision: 2, targetMaturity: 'reported' };
   assert.deepEqual(decodeClaimBoardTransitionRequest(input), input);
   for (const invalid of [
     { ...input, workspaceId: '' },

@@ -723,8 +723,8 @@ test("research system prompt keeps workflow phases behind runbook feature tags w
   assert.match(prompt, /Split only for a genuinely unrelated objective/);
   assert.doesNotMatch(prompt, /4–12 purposeful cells|medium-sized runbooks/);
   assert.match(prompt, /Reuse or create the matching workflow runbook before executing the first claim-confirming experiment/);
-  assert.match(prompt, /Direct shell execution is for bounded source inspection/);
-  assert.match(prompt, /Execute every proof-of-concept.*through runbook\.run/);
+  assert.match(prompt, /Direct shell is for bounded inspection/);
+  assert.match(prompt, /Execute that work with runbook\.run/);
   assert.match(prompt, /Before implementing a candidate proof, call runbook\.prepare/);
   assert.match(prompt, /revision-checked runbook\.edit.*rerun the same cell/);
   assert.match(prompt, /Start a sibling runbook only for a genuinely unrelated objective/);
@@ -954,19 +954,19 @@ test("Pi Agent adds research guidance when the knowledge plugin is enabled", asy
   assert.doesNotMatch(systemPrompt, /Never use the \$HOME environment variable/);
   assert.match(systemPrompt, /Use durable memory as a concise research graph/);
   assert.match(systemPrompt, /Search claims, knowledge memories, and runbooks together with history\.search early/);
-  assert.match(systemPrompt, /Evidence is attached to knowledge or claim records/);
-  assert.match(systemPrompt, /Record suspected results with lead\.create/);
+  assert.match(systemPrompt, /Evidence is attached to knowledge or finding records/);
+  assert.match(systemPrompt, /Record a finding with finding\.create only after direct observation/);
   assert.match(systemPrompt, /security-sensitive operation or state transition whose unsafe reachability can produce impact/);
   assert.doesNotMatch(systemPrompt, /- flow-endpoint \(Flow Endpoint\)/);
   assert.match(systemPrompt, /relevant successful trajectories/);
   assert.doesNotMatch(systemPrompt, /specific, testable, currently unproven security proposition/);
 });
 
-test("Pi Agent recognizes lead.create as the canonical claim-creation tool", async () => {
+test("Pi Agent recognizes finding.create as the observed finding creation tool", async () => {
   const contexts = [];
   const tools = [
     ["finding.list", "finding_list"],
-    ["lead.create", "lead_create"],
+    ["finding.create", "finding_create"],
     ["finding.transition", "finding_transition"],
   ].map(([name, transportName]) => {
     const tool = createFixtureInspectTool([]);
@@ -990,7 +990,7 @@ test("Pi Agent recognizes lead.create as the canonical claim-creation tool", asy
   });
 
   assert.match(contexts[0].systemPrompt, /Use one canonical, evidence-gated research claim ledger/);
-  assert.match(contexts[0].systemPrompt, /Create only through lead\.create/);
+  assert.match(contexts[0].systemPrompt, /Create a finding only through finding\.create after direct observation/);
 });
 
 test("Pi Agent streams a tool request before long-running execution completes", async () => {

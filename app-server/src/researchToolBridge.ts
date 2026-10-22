@@ -12,6 +12,7 @@ import {
   createSurfaceTools,
   createReportTools,
   createResearchStorageLayout,
+  effectiveClaimClassifications,
   createResearchToolRegistry,
   createRunbookExecutionTool,
   createRunbookExecutor,
@@ -167,7 +168,7 @@ async function createResearchToolBridgeRuntime(
     if (memoryActive) {
       tools.push(...createMemoryGraphTools(memoryGraph));
       tools.push(...createFindingTools(findingStore, {
-        classifications: resolvedProfile.profile.claims.classifications.map((classification) => classification.id),
+        classifications: effectiveClaimClassifications(resolvedProfile.profile).map((classification) => classification.id),
         ...(input.workspaceReferences ? { referenceWorkspaces: input.workspaceReferences } : {})
       }));
     }
@@ -213,7 +214,7 @@ async function createResearchToolBridgeRuntime(
       close.unshift(() => reports.close());
       tools.push(...createReportTools(reports, {
         ...(resolvedProfile.profile.id === 'security-research'
-          ? { requireConfirmedChain: true, requireSubmissionPacket: true, claimStore: findingStore }
+          ? { requireVerifiedFinding: true, requireSubmissionPacket: true, claimStore: findingStore }
           : {})
       }));
     }

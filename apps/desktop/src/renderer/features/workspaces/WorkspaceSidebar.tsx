@@ -5,8 +5,6 @@ import type { WorkspaceRegistryEntry, WorkspaceRegistryState, ResearchSessionSum
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { promptSessionTitle, researchSessionsForWorkspace } from '../../view-models/workspaceDisplay';
-import type { SurfaceTrackingView } from '../../view-models/surfaceTracking';
-import { SurfaceTracking } from '../research/SurfaceTracking';
 
 const SIDEBAR_SESSION_LIMIT = 4;
 
@@ -17,7 +15,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   workspaceRegistry,
   workspaceRegistryLoading = false,
   selectedRunId,
-  surfaceTracking = null,
   workspaceCreationActive = false,
   newResearchActive = false,
   automationsActive = false,
@@ -27,7 +24,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onImportWorkspace,
   onOpenWorkspace,
   onOpenResearchSession,
-  onSelectSubagent,
   onArchiveSession = async () => undefined,
   onResizePointerDown,
   onStartNewResearch,
@@ -43,7 +39,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   workspaceRegistry: WorkspaceRegistryState | null;
   workspaceRegistryLoading?: boolean;
   selectedRunId: string | null;
-  surfaceTracking?: SurfaceTrackingView | null;
   workspaceCreationActive?: boolean;
   newResearchActive?: boolean;
   automationsActive?: boolean;
@@ -53,7 +48,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   onImportWorkspace: () => void;
   onOpenWorkspace: (workspace: WorkspaceRegistryEntry) => void;
   onOpenResearchSession: (workspace: WorkspaceRegistryEntry, session: ResearchSessionSummary) => void;
-  onSelectSubagent?: (path: string) => void;
   onArchiveSession?: (session: ResearchSessionSummary) => Promise<void>;
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onStartNewResearch: () => void;
@@ -78,14 +72,12 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const [workspaceAddMenuOpen, setWorkspaceAddMenuOpen] = useState(false);
   const [newResearchPickerOpen, setNewResearchPickerOpen] = useState(false);
-  const [previousSurfaceTracking, setPreviousSurfaceTracking] = useState<SurfaceTrackingView | null>(surfaceTracking);
   const workspaceAddMenuRef = useRef<HTMLDivElement | null>(null);
   const newResearchPickerRef = useRef<HTMLDivElement | null>(null);
   const newResearchButtonRef = useRef<HTMLButtonElement | null>(null);
   const firstWorkspaceOptionRef = useRef<HTMLButtonElement | null>(null);
   const normalizedSessionSearchQuery = sessionSearchQuery.trim();
   const filteringSessions = normalizedSessionSearchQuery.length > 0;
-  const visibleSurfaceTracking = surfaceTracking ?? previousSurfaceTracking;
   const workspaceRows = workspaces
     .map((workspace) => {
       const sessions = workspaceRegistry ? researchSessionsForWorkspace(workspaceRegistry, workspace) : [];
@@ -157,15 +149,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   useEffect(() => {
     if (snapshot || collapsed) setNewResearchPickerOpen(false);
   }, [snapshot, collapsed]);
-
-  useEffect(() => {
-    if (surfaceTracking) {
-      setPreviousSurfaceTracking(surfaceTracking);
-      return undefined;
-    }
-    const timeout = window.setTimeout(() => setPreviousSurfaceTracking(null), 320);
-    return () => window.clearTimeout(timeout);
-  }, [surfaceTracking]);
 
   return (
     <aside className="sidebar" aria-hidden={collapsed} inert={collapsed}>
@@ -423,15 +406,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
         </MainSideScrollRegion>
       </div>
       {error ? <div className="error-box">{error}</div> : null}
-      <div className={`sidebar-surface-slot${surfaceTracking ? ' is-visible' : ''}${visibleSurfaceTracking?.charts.some((chart) => chart.agents.length > 0) ? ' has-surface' : ''}`}
-        aria-hidden={!surfaceTracking} inert={!surfaceTracking}>
-        <div className="sidebar-surface-slot-inner">
-          {visibleSurfaceTracking ? <div className="sidebar-surface-scroll">
-            <SurfaceTracking charts={visibleSurfaceTracking.charts} unassignedAgents={visibleSurfaceTracking.unassignedAgents}
-              onSelectSubagent={onSelectSubagent} />
-          </div> : null}
-        </div>
-      </div>
       <div className="sidebar-resize-handle" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" onPointerDown={onResizePointerDown} />
     </aside>
   );

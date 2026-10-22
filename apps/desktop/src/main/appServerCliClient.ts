@@ -1250,12 +1250,10 @@ function validFindingSummary(value: unknown): boolean {
     && (value.memoryNodeId === null || nonEmptyText(value.memoryNodeId))
     && (value.projection === 'lead' || value.projection === 'finding')
     && ['informational', 'low', 'medium', 'high', 'critical'].includes(String(value.rating))
-    && ['proposed', 'observed', 'reproduced', 'verified', 'refuted'].includes(String(value.maturity))
-    && (value.freshness === 'current' || value.freshness === 'stale')
-    && ['open', 'active', 'reporting', 'published', 'closed'].includes(String(value.workflow))
+    && ['proposed', 'observed', 'reproduced', 'verified', 'reported', 'refuted'].includes(String(value.maturity))
     && nonEmptyText(value.classification)
-    && Array.isArray(value.componentClaimIds)
     && nonEmptyText(value.title)
+    && typeof value.stepsToReproduce === 'string'
     && (value.securityTracking === null || validFindingSecurityTracking(value.securityTracking))
     && nonEmptyText(value.status)
     && typeof value.operatorOverride === 'boolean'
@@ -1361,7 +1359,7 @@ function validResearchClaimDuplicateSummary(value: unknown): boolean {
   return isPlainRecord(value)
     && nonEmptyText(value.id)
     && (value.projection === 'lead' || value.projection === 'finding')
-    && ['proposed', 'observed', 'reproduced', 'verified', 'refuted'].includes(String(value.maturity))
+    && ['proposed', 'observed', 'reproduced', 'verified', 'reported', 'refuted'].includes(String(value.maturity))
     && ['informational', 'low', 'medium', 'high', 'critical'].includes(String(value.rating))
     && nonEmptyText(value.classification)
     && nonEmptyText(value.title)
@@ -1375,8 +1373,6 @@ function validFindingSecurityTracking(value: unknown): boolean {
   return ['not_assessed', 'unreachable', 'conditional', 'reachable'].includes(String(value.reachability.state))
     && typeof value.reachability.conditions === 'string'
     && Array.isArray(value.reachability.evidenceIds)
-    && ['unreviewed', 'remediate', 'mitigated', 'accepted', 'transferred'].includes(String(value.riskTreatment))
-    && Array.isArray(value.riskDecisions)
     && Array.isArray(value.cvssAssessments)
     && Array.isArray(value.affectedAssetIds)
     && Array.isArray(value.surfaceIds)
@@ -1384,7 +1380,6 @@ function validFindingSecurityTracking(value: unknown): boolean {
       && nonEmptyText(value.progressBlocker.reason)
       && (value.progressBlocker.actorId === undefined || nonEmptyText(value.progressBlocker.actorId))
       && nonEmptyText(value.progressBlocker.setAt)))
-    && Array.isArray(value.affectedVersions)
     && Array.isArray(value.externalReferences);
 }
 

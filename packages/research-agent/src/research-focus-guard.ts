@@ -84,7 +84,7 @@ const DEFAULT_SUSTAINED_RECALL_ONLY_TURNS = 4;
 const DEFAULT_STEERING_COOLDOWN_TURNS = 4;
 const DEFAULT_CHECKPOINT_ENTRIES = 8;
 const DEFAULT_CHECKPOINT_MAX_CHARS = 4_800;
-const DEFAULT_CONVERGENCE_EXPLORATION_CALLS = 50;
+const DEFAULT_CONVERGENCE_EXPLORATION_CALLS = 24;
 const DEFAULT_DURABLE_PROGRESS_ACTIVITY_CALLS = 8;
 const MAX_AUTHORITATIVE_USER_STEERING_MESSAGES = 8;
 const MAX_AUTHORITATIVE_USER_STEERING_CHARS = 16_000;
@@ -194,8 +194,8 @@ export class ResearchFocusGuard {
       return {
         block: true,
         reason: [
-          `Evidence checkpoint required after ${this.explorationCallsSinceConvergence} source-exploration calls.`,
-          "Rank at most three candidates. For each, state the next positive proof obligation and the evidence that would genuinely contradict or narrow a necessary link. Record the highest-value proof workflow in an existing or new cohesive runbook before resuming broad source exploration; keep setup, runtime, and cleanup in that runbook behind feature tags. Do not use the investigation overview as the execution controller, and do not retire a candidate merely because proof is incomplete.",
+          `Evidence checkpoint required after ${this.explorationCallsSinceConvergence} exploration or shell calls.`,
+          "Rank at most three candidates. For each, state the next positive proof obligation and the evidence that would genuinely contradict or narrow a necessary link. Record the highest-value proof workflow in an existing or new cohesive runbook before resuming broad exploration or shell work; keep setup, runtime, and cleanup in that runbook behind feature tags. Do not use the investigation overview as the execution controller, and do not retire a candidate merely because proof is incomplete.",
         ].join(" "),
       };
     }
@@ -435,7 +435,7 @@ export class ResearchFocusGuard {
       RESEARCH_FOCUS_STEERING_PREFIX,
       "",
       reason === "convergence_checkpoint"
-        ? `Broad source exploration is paused after ${this.explorationCallsSinceConvergence} calls so the investigation converts breadth into the highest-value positive or contrary evidence step.`
+        ? `Broad exploration and shell work are paused after ${this.explorationCallsSinceConvergence} calls so the investigation converts breadth into the highest-value positive or contrary evidence step.`
         : reason === "durable_progress_checkpoint"
           ? `Execution is paused after ${this.activityCallsSinceDurableProgress} evidence-producing activity calls because the new work has not changed canonical research state.`
         : reason === "duplicate_recall"
@@ -443,7 +443,7 @@ export class ResearchFocusGuard {
         : `The last ${this.consecutiveRecallOnlyTurns} tool-only turns produced no distinct target evidence.`,
       "",
       reason === "convergence_checkpoint"
-        ? "Rank no more than three candidates. For each, state current evidence, the next positive proof obligation, and what result would genuinely contradict or narrow a necessary link. Prefer support-seeking work when it can advance attacker influence, reachability, dangerous behavior, reproducibility, composition, or impact. Put the highest-value executable proof workflow in the matching existing or new cohesive runbook, with setup, runtime, and cleanup selected through feature tags. Do not use investigation records as the live execution controller or retire a candidate merely because proof remains incomplete. Further broad source reads remain blocked until the relevant runbook is created, extended, or executed."
+        ? "Rank no more than three candidates. For each, state current evidence, the next positive proof obligation, and what result would genuinely contradict or narrow a necessary link. Prefer support-seeking work when it can advance attacker influence, reachability, dangerous behavior, reproducibility, composition, or impact. Put the highest-value executable proof workflow in the matching existing or new cohesive runbook, with setup, runtime, and cleanup selected through feature tags. Do not use investigation records as the live execution controller or retire a candidate merely because proof remains incomplete. Further broad exploration and shell work remain blocked until the relevant runbook is created, extended, or executed."
         : reason === "durable_progress_checkpoint"
           ? "Convert the useful new facts, candidate, observation, negative result, changed proof obligation, or reusable execution step into canonical state now. Search for the matching memory, claim, runbook, or report, then revise it or create the missing record. Investigation records may summarize that state for cross-session history, but they do not clear this execution-progress checkpoint."
         : "Resume the research itself. Choose one concrete next move:",
@@ -594,7 +594,8 @@ function isSourceExplorationTool(toolName: string): boolean {
   return normalized === "repository_search"
     || normalized === "repository_history"
     || normalized === "file_read"
-    || normalized.startsWith("code_");
+    || normalized.startsWith("code_")
+    || normalized === "shell_run";
 }
 
 function isConvergenceResolutionTool(toolName: string): boolean {

@@ -3,7 +3,7 @@ import {
   formatMemoryTypeDescriptions,
   type MemoryTypeDescriptionsInput,
 } from "./memory-taxonomy.js";
-import type { ResearchProfile } from "./research-profile.js";
+import { DEFAULT_SECURITY_RESEARCH_PROFILE, effectiveClaimClassifications, type ResearchProfile } from "./research-profile.js";
 import { formatHarnessFeatureCatalog, formatResearchPluginCatalog, isHarnessFeatureId, MANAGED_TOOL_PLUGINS, INTROSPECTION_HARNESS_FEATURE_ID, GOALS_HARNESS_FEATURE_ID, type ResearchPluginCatalogEntry } from "./managed-tool-plugins.js";
 
 export interface CreateResearchSystemPromptOptions {
@@ -141,7 +141,7 @@ function buildResearchPromptSections(
     ...(profile?.agent.posture ?? [
       "Assume you can perform deep source analysis, build positive proofs, design discriminating experiments, use the available tools effectively, and pursue non-obvious attack paths; do not prematurely narrow broad research to confirming or rejecting the first plausible hypothesis.",
       "For each serious candidate, pursue the positive evidence path that could establish it while also identifying evidence that would genuinely contradict or narrow it. A missing proof is an open obligation, not a refutation.",
-      "Use knowledge memory for reusable context and the canonical claim ledger for leads and findings. A genuinely refuted path should redirect exploration within the relevant subsystem, not end it.",
+      "Use knowledge memory for reusable context and the canonical finding ledger for observed findings. A genuinely refuted path should redirect exploration within the relevant subsystem, not end it.",
     ]),
     `${SECTION_MARKER}boundary`,
     "Scope and authority:",
@@ -164,7 +164,7 @@ function buildResearchPromptSections(
       "Use repository.search for literal source discovery in configured repositories. Checkouts live at host-supplied repository or materialized-source paths outside workspaceRoot; select an exact root or unique label in multi-repository workspaces. Do not create a checkout inside the research workspace.",
       "Use workspace.search for workspace files and explicitly advertised same-Subject references. Select the reference workspaceId in both workspace.search and history.search; filter by category, extension, time, and raw or temporary inclusion, then follow nextOffset. Treat partial results as incomplete; keep raw shell searches narrow and bounded.",
       "In schema-v2 workspaces, canonical research records are files; use typed tools for structured reads and mutations. Schema-v1 file projections require an explicit request.",
-      "Security surface map: each tracked resource is its root surface. Use surface.list, surface.query, and surface.get when the task needs the map. Define child surfaces around distinct attacker-controlled entry paths, trust boundaries, privilege contexts, or security-relevant sinks and effects; a code area or ordinary correctness bug alone is not a security surface. For each surface, connect attacker control through reachable transformations and boundaries to a plausible unauthorized effect on an asset. Keep uncertain reachability and possible cross-surface chains explicit. Declare focus with surface.focus when entering or moving to another surface. First touch launches a foundation discoverer automatically; coordinate with it rather than duplicating its work. Surface coverage is established only when the threat-model-defined map and security-relevant sinks are investigated, questions and cross-surface connections are resolved, and no unblocked associated findings remain. Record harmless defects only when they inform a security path or close a hypothesis; do not promote them as security findings without evidence of a security consequence. A progress blocker is not a refutation and can be cleared when new evidence or a chain makes progress possible.",
+      "Security surface map: each tracked resource is its root surface. Use surface.list, surface.query, and surface.get when the task needs the map. Define child surfaces around distinct attacker-controlled entry paths, trust boundaries, privilege contexts, or security-relevant sinks and effects; a code area or ordinary correctness bug alone is not a security surface. For each surface, connect attacker control through reachable transformations and boundaries to a plausible unauthorized effect on an asset. Keep uncertain reachability and possible cross-surface chains explicit. Declare focus with surface.focus when entering or moving to another surface. First touch launches a foundation discoverer automatically; coordinate with it rather than duplicating its work. Surface coverage is established only when the threat-model-defined map and security-relevant sinks are investigated, questions and cross-surface connections are resolved, and no unblocked associated findings remain. Record harmless defects only when they inform a security path or close a hypothesis; do not promote them as security findings without evidence of a security consequence. Unknown reachability and unexplored chains remain open questions, not blocked findings.",
       ...(profile?.id === "security-research" ? [
         "",
         "Resource first touch:",
@@ -247,38 +247,40 @@ function buildResearchPromptSections(
       ...memoryTypeDescriptions,
       "",
       "Use durable memory as a concise research graph:",
-      ...(profile?.agent.memoryInstructions ?? [
+      ...(profile ? effectiveMemoryInstructions(profile) : [
         "Search claims, knowledge memories, and runbooks together with history.search early and as research crosses system boundaries. Favor security-sensitive code near dangerous sinks, established findings, historical precedent, and relevant successful trajectories.",
         "Apply the authoritative type descriptions above. Before saving, use history.search to find an existing memory with the same underlying fact or root cause and refine it instead of creating a differently worded duplicate.",
-        "Evidence is attached to knowledge or claims, not stored as its own memory type. Never represent a lead or finding as a memory node.",
+        "Evidence is attached to knowledge or findings, not stored as its own memory type. Never represent a finding as a memory node.",
       ]),
     ] : []),
     `${SECTION_MARKER}claims`,
     ...(hasClaimsPlugin ? [
       "Use one canonical, evidence-gated research claim ledger, separate from knowledge memory:",
-      `The active profile declares these classifications: ${profile?.claims.classifications.map((classification) => `${classification.id} (${classification.name}${classification.composite ? ", composite" : ""})`).join(", ") ?? "general.result"}.`,
-      "Search claims with history.search, then use claim.get for a lead or finding's evidence, provenance, transition reasons, and duplicate relationships. Catalogs are summaries; follow detail pages before drawing conclusions from missing evidence or history.",
+      `The active profile declares these classifications: ${profile ? effectiveClaimClassifications(profile).map((classification) => `${classification.id} (${classification.name})`).join(", ") : "general.result"}.`,
+      "Search findings with history.search, then use claim.get for evidence, provenance, transition reasons, and duplicate relationships. Catalogs are summaries; follow detail pages before drawing conclusions from missing evidence or history.",
       "A claim marked operatorOverride had its current status set by a human without agent transition prerequisites. Treat that status as an operator disposition, inspect its actual evidence, and never infer missing proof or verification from the status alone. Your finding.transition calls remain evidence-gated.",
-      "When history or list results expose duplicate claims, memories, or runbooks, coalesce the weaker or redundant record with history.mark_duplicate and keep the strongest record as the canonical parent. Use history.undo_duplicate to correct a mistaken match. Do not coalesce related components, distinct affected conditions, reusable variants, or claims that can compose into a chain.",
-      "Create only through lead.create. Direct observation promotes that same stable claim ID into the finding view through finding.transition; never copy it into a new finding or memory node.",
-      "Before lead.create, search and inspect plausible existing leads and findings for the same root cause and affected condition, regardless of title wording. If the new evidence supports one, use finding.transition at its current status to append evidence, then finding.revise to sharpen its title, summary, impact, rating, or classification as needed. If the issue is genuinely distinct, keep a separate claim and explain the difference when lead.create requests it; sharing a classification or severity never makes two findings duplicates.",
+      "When history or list results expose duplicate claims, memories, or runbooks, coalesce the weaker or redundant record with history.mark_duplicate and keep the strongest record as the canonical parent. Use history.undo_duplicate to correct a mistaken match. Keep distinct root causes separate; add connected exploit-path evidence to the relevant finding.",
+      "Create a finding only through finding.create after direct observation with durable evidence. Keep unobserved ideas in working context or surface questions rather than persisting them as findings.",
+      "Before finding.create, search and inspect plausible existing findings for the same root cause and affected condition, regardless of title wording. If new evidence supports one, use finding.transition at its current status to append evidence, then finding.revise to sharpen its title, summary, impact, rating, or classification as needed. If genuinely distinct, explain the difference when finding.create requests it; sharing a classification or severity never makes two findings duplicates.",
       "Append new evidence to an existing claim with finding.transition and its current status as toStatus. This preserves its maturity and identity while recording a new revision; never create a duplicate claim merely to retain same-maturity evidence.",
       "Advance observed behavior only with direct evidence, reproduced behavior only with the runId emitted by a successful runbook.run execution, and verified behavior only with durable evidence from an independent reviewer. Agent verification may use the same provider and model, but it must use a distinct reviewer subagent spawned with fork_turns=none; the authoring agent cannot verify its own claim.",
+      "Record concrete steps to reproduce before advancing a finding to reproduced or later. They are optional while the finding is only observed and should support independent verification and report writing.",
       "For reproduction-grade evidence, execute every active cell of the current runbook revision and supply sourceRevision and environmentFingerprint matching the claim. Partial runs remain diagnostic evidence. Before independent verification, inspect the immutable execution with runbook.get id/runId, then reference that qualifying runId with independent=true. The host records reviewer identity and binds the review to the current claim content; changed claims or notebook revisions require renewed evidence.",
-      "Represent composition with componentClaimIds on a composite claim. A security.primitive remains an isolated finding; a security.chain is a separate composite finding referencing its components.",
-      "Give every claim an informational, low, medium, high, or critical qualitative rating. Treat it as an explicitly untrusted prioritization estimate for presentation and mobile notifications; revise it as research changes, and never present it as CVSS, verified impact, or operator risk treatment.",
+      "Give every claim an informational, low, medium, high, or critical qualitative rating. Treat it as an explicitly untrusted prioritization estimate for presentation and mobile notifications; revise it as research changes, and never present it as CVSS or verified impact.",
       "Treat stale claims and contradictions as revalidation work. Preserve prior evidence and explain what changed instead of restarting discovery.",
+      "Set a finding progress blocker only when a concrete dependency prevents further authorized investigation or escalation after reasonable alternatives have been tried. State the blocked action, actual impediment, and what would unblock it. Missing evidence, an open attacker path or policy question, a completion-check gap, and an independent review marked needs-work are work to pursue, not reasons to mark a finding Blocked. A blocker preserves the observation and can be cleared when the dependency changes; it is not a refutation.",
       ...(profile?.id === "security-research" ? [
-        "Before describing a candidate as complete or advancing it to verified or report-ready work, call finding.completion_check. Resolve required gaps or state them explicitly; never invent reachability, affected versions, prior-art disposition, CVSS, controls, or independent verification.",
+        "Before describing a candidate as complete or advancing it to verified or report-ready work, call finding.completion_check. Treat its gaps as the next research or review steps; resolve them or state them explicitly. Never invent reachability, affected assets, prior-art disposition, CVSS, controls, or independent verification.",
       ] : []),
     ] : []),
     `${SECTION_MARKER}runbooks`,
     ...(hasRunbooksPlugin ? [
       "Use runbooks as durable executable research artifacts:",
       "Organize multi-stage work in a small set of cohesive workflow runbooks. Keep setup, runtime, and cleanup in the same runbook and use feature tags to activate the cells needed for a run. Split only for a genuinely unrelated objective, target, or authorization boundary; phase changes, prerequisites, target state, review, evidence interpretation, and cleanup are not reasons to spawn sibling runbooks. Let the procedure's natural size determine its cell count.",
+      "Before the first claim-confirming experiment, proof-of-concept, reproduction, exploit-path test, verifier, or evidence benchmark, search for a matching runbook and reuse it or call runbook.prepare. Execute that work with runbook.run and keep the procedure and results there as the research evolves. Direct shell is for bounded inspection, builds, and diagnostics that do not establish or validate a claim. Do not defer runbook creation until a finding is ready to advance.",
       ...(profile?.agent.runbookInstructions ?? [
         "Search runbooks with history.search before beginning proof work, then use runbook.list or runbook.get when the full catalog or procedure is needed. Reuse or create the matching workflow runbook before executing the first claim-confirming experiment. Keep it as the durable, human-visible execution path throughout proof development.",
-        "Direct shell execution is for bounded source inspection, builds, and diagnostics that do not execute or validate a claim. Execute every proof-of-concept, vulnerability reproduction, exploit-path test, verifier, claim-confirming experiment, or evidence benchmark through runbook.run; Auto-Review denies proofing outside a recorded runbook cell.",
+        "Use runbook.run for each proof iteration, including negative and failed attempts, so the evidence path stays visible and repeatable.",
         "Before implementing a candidate proof, call runbook.prepare with the workflow title, purpose, and language. It finds or creates the workflow and returns a stable investigations/ candidate path and entry cell ID; supply a custom path and entry command only when needed. Keep implementation in that candidate artifact. Use revision-checked runbook.edit when the entry command changes; rerun the same cell when only the candidate artifact changes. Set executor.timeoutSeconds on any host or Tart cell expected to exceed the 300-second default; the cell executor, not runbook.run, owns that runtime. For Tart VM proofing, build the executable on the host and select a tart-vm cell executor referencing its workspacePath or artifactId; select runAs root when the workspace defines root execution through passwordless sudo. runbook.run stages and invokes it in the named guest, so do not rewrite it as guest source or create a transport wrapper. The Guest Agent service UID is not the proof command's effective UID: honor the workspace's execution-capability probe instead of demanding that direct Guest Agent id return root. Append cells only when the procedure, prerequisite, interpretation, or cleanup genuinely changes. Failed run outputs preserve attempt history, so do not create lifecycle wrappers, duplicate runbooks, or one cell per tweak.",
         "Keep runbooks healthy and reproducible with prerequisites, exact bounded commands or code, an explicit supported language per code cell, expected evidence, interpretation, and cleanup. Label every cell with setup, runtime, or cleanup plus any narrower feature tags, and use runbook.configure to select active features. Use the successful runId from runbook.run for reproduction-grade finding promotion.",
         "If a run fails late, repair the cause and resume diagnostic work with runbook.run startCellId/endCellId using the cell IDs returned by runbook.get. Before promoting a claim to reproduced, replay the full active sequence with the exact source and environment identities to establish a complete reproducible run.",
@@ -297,6 +299,17 @@ function buildResearchPromptSections(
     }
   }
   return sections;
+}
+
+function effectiveMemoryInstructions(profile: ResearchProfile): readonly string[] {
+  if (profile.id !== "security-research") return profile.agent.memoryInstructions;
+  const current = profile.agent.memoryInstructions.filter((instruction) =>
+    !/(?:security\.primitive|security\.chain|componentClaimIds|chain components)/iu.test(instruction));
+  if (current.length === profile.agent.memoryInstructions.length) return current;
+  const replacements = DEFAULT_SECURITY_RESEARCH_PROFILE.agent.memoryInstructions.filter((instruction) =>
+    instruction.startsWith("When multiple findings represent")
+    || instruction.startsWith("Evidence is attached to knowledge or finding records"));
+  return [...new Set([...current, ...replacements])];
 }
 
 export function createResearchSystemPrompt(

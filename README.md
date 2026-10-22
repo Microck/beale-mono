@@ -62,7 +62,7 @@ Workspace memory is independently selectable in Desktop's Workspace Overview:
 - **Enabled** uses one canonical research system: concise knowledge memory, a stable claim ledger projected as Leads and Findings, reversible duplicate coalescing, durable runbooks, and one workspace-history search across those records.
 - **Disabled** removes memory behavior from new sessions while retaining stored data.
 
-Beale runs authorized security research. Security claims distinguish leads, isolated findings (`security.primitive`), and demonstrated exploit chains (`security.chain`). Legacy v1/v2/shadow memory selections migrate to Enabled, and legacy claim-shaped memory rows migrate non-destructively into the claim ledger.
+Beale runs authorized security research. Findings enter durable storage after direct observation under one security classification (`security.vulnerability`). Reachability, exploit paths, and impact stay with the finding as evidence develops. Legacy v1/v2/shadow memory selections migrate to Enabled, and legacy claim-shaped memory rows remain available for compatibility without exposing proposed leads as new findings.
 
 During development, Desktop discovers and launches the workspace app-server. `BEALE_APP_SERVER_COMMAND` and related environment variables override this for packaged builds and custom setups.
 

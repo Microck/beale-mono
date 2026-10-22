@@ -654,7 +654,6 @@ export interface AppServerFindingTransitionSummary {
 }
 
 export type AppServerFindingReachabilityState = 'not_assessed' | 'unreachable' | 'conditional' | 'reachable';
-export type AppServerFindingRiskTreatment = 'unreviewed' | 'remediate' | 'mitigated' | 'accepted' | 'transferred';
 
 export interface AppServerFindingSecurityTracking {
   reachability: {
@@ -666,14 +665,6 @@ export interface AppServerFindingSecurityTracking {
     sourceRevision: string | null;
     environmentFingerprint: string | null;
   };
-  riskTreatment: AppServerFindingRiskTreatment;
-  riskDecisions: Array<{
-    treatment: AppServerFindingRiskTreatment;
-    actorId: string;
-    rationale: string;
-    decidedAt: string;
-    expiresAt: string | null;
-  }>;
   cvssAssessments: Array<{
     version: '4.0' | '3.1';
     vector: string;
@@ -686,7 +677,6 @@ export interface AppServerFindingSecurityTracking {
   affectedAssetIds: string[];
   surfaceIds: string[];
   progressBlocker: { reason: string; actorId?: string; setAt: string } | null;
-  affectedVersions: Array<{ assetId: string | null; range: string; fixedVersion: string | null }>;
   externalReferences: Array<{ kind: string; identifier: string; url: string | null }>;
 }
 
@@ -702,7 +692,7 @@ export interface AppServerMemoryDuplicateSummary {
 export interface AppServerResearchClaimDuplicateSummary {
   id: string;
   projection: 'lead' | 'finding';
-  maturity: 'proposed' | 'observed' | 'reproduced' | 'verified' | 'refuted';
+  maturity: 'proposed' | 'observed' | 'reproduced' | 'verified' | 'reported' | 'refuted';
   rating: ResearchClaimRating;
   classification: string;
   title: string;
@@ -718,15 +708,13 @@ export interface AppServerFindingSummary {
   memoryNodeId: string | null;
   originSessionId: string | null;
   projection: 'lead' | 'finding';
-  maturity: 'proposed' | 'observed' | 'reproduced' | 'verified' | 'refuted';
-  freshness: 'current' | 'stale';
-  workflow: 'open' | 'active' | 'reporting' | 'published' | 'closed';
+  maturity: 'proposed' | 'observed' | 'reproduced' | 'verified' | 'reported' | 'refuted';
   rating: ResearchClaimRating;
   classification: string;
-  componentClaimIds: string[];
   title: string;
   summary: string;
   impact: string;
+  stepsToReproduce: string;
   securityTracking: AppServerFindingSecurityTracking | null;
   status: AppServerFindingStatus;
   operatorOverride: boolean;
@@ -2347,6 +2335,7 @@ export interface BealeApi {
   getFleetRemoteMachines(): Promise<import('@beale/app-server-runtime/protocol').FleetMachine[]>;
   getFleetRemoteCatalog(serverId: string): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteCatalog>;
   getFleetRemoteWorkspaceDetails(serverId: string, workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDetails>;
+  getWorkspaceSurfaceMap(workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceSurfaceMap>;
   getFleetRemoteWorkspaceDocument(serverId: string, workspaceId: string, kind: 'runbook' | 'report', resourceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDocument>;
   getFleetRemoteQuickChats(serverId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatList>;
   startFleetRemoteQuickChat(serverId: string, input: import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatStartInput): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerQuickChatStartResult>;

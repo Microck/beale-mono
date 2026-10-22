@@ -18,6 +18,7 @@ import {
   WorkspaceResourceDialog,
   WorkspaceUnderstandingView
 } from '../src/renderer/features/workspaces/WorkspaceUnderstandingView';
+import { workspaceCatalogMatchesQuery } from '../src/renderer/features/workspaces/WorkspaceTitleSearch';
 import { buildSessionTimelineProjection, buildWorkspaceTimeline } from '../src/renderer/view-models/workspaceTimeline';
 import { testResearchProfile } from './researchProfileFixture';
 
@@ -42,6 +43,8 @@ describe('workspace dashboard', () => {
     const wideContentStyles = styles.match(/\.wide-content-container\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceWorkbenchStyles = styles.match(/\.workbench:has\(\.main-session-grid\.workspace-context\)\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceGridStyles = styles.match(/\.main-session-grid\.workspace-context\s*\{([^}]*)\}/)?.[1] ?? '';
+    const findingDetailSurfaceStyles = styles.match(/\.main-session-grid\.workspace-context\.research-details-open\.finding-details-open\s*\{([^}]*)\}/)?.[1] ?? '';
+    const memoryDetailSurfaceStyles = styles.match(/\.main-session-grid\.workspace-context\.research-details-open\.memory-details-open\s*\{([^}]*)\}/)?.[1] ?? '';
     const dashboardStyles = styles.match(/\.workspace-dashboard\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignDashboardStyles = styles.match(/\.workspace-dashboard\.campaign-active\s*\{([^}]*)\}/)?.[1] ?? '';
     const tabsStyles = styles.match(/\.workspace-dashboard-tabs\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -58,7 +61,10 @@ describe('workspace dashboard', () => {
     const campaignListHeadingStyles = styles.match(/\.workspace-campaign-list-heading\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignBoardLaneStyles = styles.match(/\.campaign-board-lanes\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignBoardHeaderStyles = styles.match(/\.campaign-board-header\s*\{([^}]*)\}/)?.[1] ?? '';
+    const campaignBoardControlsRowStyles = styles.match(/\.campaign-board-controls-row\s*\{([^}]*)\}/)?.[1] ?? '';
+    const compactBoardTitleStyles = styles.match(/\.campaign-board-panel\.is-compact \.campaign-view-title\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignBoardFilterStyles = styles.match(/\.campaign-board-filters\s*\{([^}]*)\}/)?.[1] ?? '';
+    const campaignBoardRatingMenuStyles = styles.match(/\.campaign-board-rating-filter \.floating-text-picker-menu\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignBoardLaneListStyles = styles.match(/\.campaign-board-lane-list\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignBoardEmptyStyles = styles.match(/\.campaign-board-lane-list > \.campaign-board-empty\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignBoardCardStyles = styles.match(/\.campaign-board-card\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -132,6 +138,8 @@ describe('workspace dashboard', () => {
     expect(styles.indexOf('.wide-content-container {')).toBeGreaterThan(styles.indexOf('.workspace-dashboard {'));
     expect(workspaceWorkbenchStyles).toContain('background: var(--panel)');
     expect(workspaceGridStyles).toContain('background: var(--panel)');
+    expect(findingDetailSurfaceStyles).toContain('--research-side-surface: var(--panel)');
+    expect(memoryDetailSurfaceStyles).toContain('--research-side-surface: var(--panel)');
     expect(dashboardStyles).toContain('grid-template-rows: 50px minmax(0, 1fr)');
     expect(dashboardStyles).not.toContain('background:');
     expect(campaignDashboardStyles).toContain('grid-template-rows: 50px 58px minmax(0, 1fr)');
@@ -157,13 +165,20 @@ describe('workspace dashboard', () => {
     expect(campaignListHeadingStyles).toContain('border-bottom: 1px solid var(--panel-border)');
     expect(campaignListHeadingStyles).toContain('color: var(--muted)');
     expect(campaignBoardLaneStyles).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))');
-    expect(campaignBoardHeaderStyles).toContain('grid-template-columns: minmax(0, 1fr) auto');
-    expect(campaignBoardFilterStyles).toContain('justify-content: flex-end');
+    expect(campaignBoardHeaderStyles).toContain('display: flex');
+    expect(campaignBoardControlsRowStyles).toContain('display: flex');
+    expect(campaignBoardControlsRowStyles).toContain('flex-wrap: wrap');
+    expect(campaignBoardControlsRowStyles).toContain('margin-top: 2px');
+    expect(compactBoardTitleStyles).toContain('white-space: nowrap');
+    expect(campaignBoardFilterStyles).toContain('flex: 0 1 auto');
+    expect(campaignBoardFilterStyles).toContain('justify-content: flex-start');
+    expect(campaignBoardRatingMenuStyles).toContain('right: auto');
+    expect(campaignBoardRatingMenuStyles).toContain('left: 0');
     expect(campaignBoardLaneListStyles).toContain('overflow-y: auto');
     expect(campaignBoardLaneListStyles).toContain('height: 100%');
     expect(campaignBoardLaneListStyles).toContain('padding: 0 0 4px');
     expect(campaignBoardEmptyStyles).toContain('margin-left: 10px');
-    expect(campaignBoardEmptyStyles).toContain('padding-top: 0');
+    expect(campaignBoardEmptyStyles).toContain('padding-top: 8px');
     expect(campaignBoardCardStyles).toContain('width: 100%');
     expect(styles).toContain('.campaign-claim-card {');
     expect(INSET_SCROLLBAR_SELECTOR).toContain('.campaign-board-lane-list');
@@ -326,10 +341,13 @@ describe('workspace dashboard', () => {
     expect(html).toContain('<span>Campaign</span>');
     expect(html).toContain('<span>Settings</span>');
     expect(html).toContain('<span>Resources</span>');
+    expect(html).toContain('<span>Surfaces</span>');
     expect(html).toContain('<span>Rules</span>');
     expect(html).not.toContain('<span>Utilities</span>');
     expect(html).toContain('<span>Targets</span>');
     expect(html.indexOf('<span>Campaign</span>')).toBeLessThan(html.indexOf('<span>Resources</span>'));
+    expect(html.indexOf('<span>Resources</span>')).toBeLessThan(html.indexOf('<span>Surfaces</span>'));
+    expect(html.indexOf('<span>Surfaces</span>')).toBeLessThan(html.indexOf('<span>Rules</span>'));
     expect(html.indexOf('<span>Targets</span>')).toBeLessThan(html.indexOf('<span>Settings</span>'));
     expect(html.indexOf('<span>Settings</span>')).toBeLessThan(html.indexOf('<span>Apple Security Bounty</span>'));
     expect(html).toContain('lucide-settings');
@@ -340,7 +358,7 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('<span>HackerOne</span>');
     expect(html).not.toContain('<span>MSRC Windows</span>');
     expect(html).toContain('lucide-refresh-cw');
-    expect(html.match(/workspace-dashboard-tab-icon/g)).toHaveLength(6);
+    expect(html.match(/workspace-dashboard-tab-icon/g)).toHaveLength(7);
     expect(html).not.toContain('aria-label="Campaign views"');
     expect(html).toContain('aria-controls="workspace-dashboard-overview-panel" aria-selected="true"');
     expect(html).not.toContain('id="workspace-dashboard-campaign-activity-panel"');
@@ -441,7 +459,7 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('session-main-only');
   });
 
-  it('opens existing workspaces on Campaign Claims with Campaign sub-views and Settings last', () => {
+  it('opens existing workspaces on Campaign Findings with Campaign sub-views and Settings last', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       appServerMemory: memorySummary(),
@@ -455,16 +473,16 @@ describe('workspace dashboard', () => {
     expect(html).toContain('role="tablist" aria-label="Campaign views"');
     expect(html).toContain('class="workspace-campaign-subview-tabs research-side-view-tabs pill-view-tabs"');
     expect(html).not.toContain('<span>Highlights</span>');
-    expect(html).toContain('<span>Claims</span>');
+    expect(html).toContain('<span>Findings</span>');
     expect(html).not.toContain('<span>Activity</span>');
     expect(html).toContain('<span>Memories</span>');
     expect(html).toContain('<span>Runbooks</span>');
     expect(html).toContain('<span>Reports</span>');
     expect(html.match(/class="research-side-view-tab provider-settings-tab workspace-campaign-subview-tab(?: active)?"/g)).toHaveLength(4);
-    expect(html.indexOf('<span>Claims</span>')).toBeLessThan(html.indexOf('<span>Memories</span>'));
+    expect(html.indexOf('<span>Findings</span>')).toBeLessThan(html.indexOf('<span>Memories</span>'));
     expect(html).toContain('aria-controls="workspace-dashboard-campaign-board-panel" aria-selected="true"');
     expect(html).toContain('id="workspace-dashboard-campaign-board-panel"');
-    expect(html).toContain('id="workspace-campaign-board-heading">Parser Workspace Claims</h2>');
+    expect(html).toContain('id="workspace-campaign-board-heading">Parser Workspace Findings</h2>');
     expect(html).not.toContain('Research campaign');
     expect(html).not.toContain('The harness prioritizes uncovered or weakly supported territory');
     expect(html.indexOf('<span>Campaign</span>')).toBeLessThan(html.indexOf('<span>Resources</span>'));
@@ -480,9 +498,20 @@ describe('workspace dashboard', () => {
     }));
     expect(boardHtml).toContain('aria-controls="workspace-dashboard-campaign-board-panel" aria-selected="true"');
     expect(boardHtml).toContain('id="workspace-dashboard-campaign-board-panel"');
-    expect(boardHtml).toContain('id="workspace-campaign-board-heading">Parser Workspace Claims</h2>');
+    expect(boardHtml).toContain('id="workspace-campaign-board-heading">Parser Workspace Findings</h2>');
     expect(boardHtml).not.toContain('workspace-dashboard-campaign-claims-panel');
-    expect(boardHtml).toContain('<span>Claims</span>');
+    expect(boardHtml).toContain('<span>Findings</span>');
+
+    const compactBoardHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+      busy: false,
+      rightAreaExpanded: true,
+      appServerMemory: memorySummary(),
+      workspaceName: 'Parser Workspace',
+      runs: []
+    }));
+    expect(compactBoardHtml).toContain('campaign-board-lanes is-compact');
+    expect(compactBoardHtml).toContain('campaign-board-observed-heading');
+    expect(compactBoardHtml).not.toContain('campaign-board-reproduced-heading');
 
     const reportsHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
@@ -514,6 +543,49 @@ describe('workspace dashboard', () => {
     expect(runbooksHtml).toContain('class="main-side-scroll workspace-catalog-list workspace-runbook-scroll"');
     expect(runbooksHtml).toContain('class="memory-catalog-list runbook-catalog-list workspace-runbook-list"');
 
+  });
+
+  it('places expandable search beside the Memories, Runbooks, and Reports titles', () => {
+    for (const [view, label] of [
+      ['memory', 'memories'],
+      ['runbooks', 'runbooks'],
+      ['reports', 'reports']
+    ] as const) {
+      const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+        busy: false,
+        initialView: view,
+        appServerMemory: memorySummary(),
+        workspaceName: 'Example Workspace',
+        runs: []
+      }));
+
+      expect(html).toContain('class="workspace-catalog-title-row"');
+      expect(html).toContain(`aria-label="Search ${label}"`);
+      expect(html).toMatch(new RegExp(`<h2>Example Workspace ${label[0].toUpperCase()}${label.slice(1)}</h2>\\s*<div class="campaign-board-title-search"`));
+    }
+  });
+
+  it('places title search beside Resources, Rules, and Targets', () => {
+    for (const view of ['resources', 'rules', 'targets'] as const) {
+      const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
+        busy: false,
+        initialView: view,
+        appServerMemory: memorySummary(),
+        workspaceName: 'Example Workspace',
+        runs: []
+      }));
+      const label = view[0].toUpperCase() + view.slice(1);
+      expect(html).toContain(`<h2>Example Workspace ${label}</h2>`);
+      expect(html).toContain(`aria-label="Search ${view}"`);
+      expect(html).toContain('class="workspace-catalog-title-row"');
+    }
+  });
+
+  it('matches catalog search across text fields without case or surrounding whitespace sensitivity', () => {
+    expect(workspaceCatalogMatchesQuery('  EXAMPLE  ', ['example.test', 'Other'])).toBe(true);
+    expect(workspaceCatalogMatchesQuery('sample', [null, undefined, 'Sample runbook'])).toBe(true);
+    expect(workspaceCatalogMatchesQuery('missing', ['Sample runbook'])).toBe(false);
+    expect(workspaceCatalogMatchesQuery('   ', [])).toBe(true);
   });
 
   it('renders the shared refresh form for only the active Research Kit', () => {
@@ -1013,7 +1085,7 @@ describe('workspace dashboard', () => {
     expect(html).toContain('>Edit Repository</h2>');
     expect(html).toContain('value="https://github.com/example/parser.git"');
     expect(html).toContain('value="Parser"');
-    expect(html).toContain('>Cloned directory<input');
+    expect(html).toContain('<span>Cloned directory</span><input');
     expect(html).toContain('value="C:\\Users\\research\\repositories\\parser"');
     expect(html).toContain('<option value="out_of_scope" selected="">Out of scope</option>');
     expect(html).toContain('<option value="restricted" selected="">Restricted</option>');

@@ -1,8 +1,8 @@
-import { Fragment, memo, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
 import { browserContextLabel, browserSideViewId, DEFAULT_BROWSER_CONTEXT, isBrowserSideView } from '../../../shared/browserContexts';
 import type { BrowserContextSummary } from '../../../shared/browserContexts';
-import { ArrowLeft, BadgeCheck, BookOpen, Bot, ChevronDown, ChevronRight, Database, FileText, Globe2, Lightbulb, LoaderCircle, Plus, Search, X } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, BookOpen, Bot, ChevronDown, ChevronRight, Copy, Database, FileText, GitBranch, Globe2, History, Lightbulb, Link2, ListChecks, LoaderCircle, OctagonMinus, Plus, Search, X } from 'lucide-react';
 import type {
   AppServerFindingSummary,
   AppServerMemoryEdgeSummary,
@@ -26,7 +26,6 @@ import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { Modal } from '../../app/Modal';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
 import { ProviderIcon } from '../../app/ProviderIcon';
-import { ModelAuthors } from '../../app/ModelAuthors';
 import { useDevRenderProbe } from '../../devInstrumentation';
 import { formatCompactTimeSince, formatSessionDateTime, researchModelDisplayName, stateClass, traceLabel } from '../../lib/formatting';
 import { campaignClaimIsActive, campaignClaimRatingPresentation } from '../../view-models/campaignClaims';
@@ -49,12 +48,28 @@ import { RunbookView } from './RunbookView';
 import { ReportView } from './ReportView';
 import { BrowserSideView } from './BrowserSideView';
 import { FleetBrowserSideView } from './FleetBrowserSideView';
-import { renderInlineCodeText } from '../traces/traceMarkup';
+import { renderInlineCodeText, renderTraceProseText } from '../traces/traceMarkup';
 
 const EMPTY_SUBAGENT_OVERVIEW = { count: 0, activeCount: 0, completedCount: 0 };
 const EMPTY_MEMORY_NODES: AppServerMemoryNodeSummary[] = [];
 const EMPTY_CAMPAIGN_CLAIMS: readonly AppServerFindingSummary[] = [];
 const EMPTY_RUNBOOKS: readonly AppServerRunbookSummary[] = [];
+const FINDING_DETAIL_VIEWS = ['Breakdown', 'History', 'References', 'Duplicates'] as const;
+type FindingDetailView = typeof FINDING_DETAIL_VIEWS[number];
+const FINDING_DETAIL_VIEW_ICONS = {
+  Breakdown: ListChecks,
+  History,
+  References: Link2,
+  Duplicates: Copy
+};
+const MEMORY_DETAIL_VIEWS = ['Breakdown', 'References', 'Relationships', 'Duplicates'] as const;
+type MemoryDetailViewTab = typeof MEMORY_DETAIL_VIEWS[number];
+const MEMORY_DETAIL_VIEW_ICONS = {
+  Breakdown: ListChecks,
+  References: Link2,
+  Relationships: GitBranch,
+  Duplicates: Copy
+};
 
 export type MemoryLevelFilter = 'session' | 'workspace' | 'subject';
 export const DEFAULT_MEMORY_LEVEL_FILTER: MemoryLevelFilter = 'session';
@@ -97,7 +112,7 @@ export function campaignCatalogSectionVisibility(
 ): { memories: boolean; leads: boolean; findings: boolean } {
   return {
     memories: memoryType !== NO_CAMPAIGN_MEMORIES_FILTER,
-    leads: claimFilter === 'all' || claimFilter === 'leads',
+    leads: false,
     findings: claimFilter === 'all' || claimFilter === 'findings'
   };
 }
@@ -106,7 +121,7 @@ export function campaignEntryFilterSelection(
   target: CampaignEntryTarget
 ): { claimFilter: CampaignClaimFilter; memoryType: string; runbookFilter: CampaignRunbookFilter } | null {
   if (target === 'leads') {
-    return { claimFilter: 'leads', memoryType: NO_CAMPAIGN_MEMORIES_FILTER, runbookFilter: 'none' };
+    return { claimFilter: 'findings', memoryType: NO_CAMPAIGN_MEMORIES_FILTER, runbookFilter: 'none' };
   }
   if (target === 'findings') {
     return { claimFilter: 'findings', memoryType: NO_CAMPAIGN_MEMORIES_FILTER, runbookFilter: 'none' };
@@ -122,7 +137,7 @@ export function campaignEntryFilterSelection(
 
 export function campaignEntryScrollTargetSelector(target: CampaignEntryTarget): string | undefined {
   if (target === 'memories') return '[data-memory-type]';
-  if (target === 'leads') return '[data-campaign-projection="leads"]';
+  if (target === 'leads') return '[data-campaign-projection="findings"]';
   if (target === 'findings') return '[data-campaign-projection="findings"]';
   if (target === 'runbooks') return '[data-campaign-runbooks]';
   return undefined;
@@ -440,7 +455,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const nodes = memory?.nodes ?? [];
   const runbooks = memory?.runbooks ?? [];
   const reports = memory?.reports ?? [];
-  const leads = memory?.leads ?? [];
   const findings = memory?.findings ?? [];
   const memoryProfile = researchProfile?.memory;
   const memoryTypes = memoryProfile?.types ?? [];
@@ -495,17 +509,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => filterCampaignClaims(findings, { query: '', scope: 'session', sessionId: runId, workspaceId, subjectId }),
     [findings, runId, subjectId, workspaceId]
   );
-  const sessionLeads = useMemo(
-    () => filterCampaignClaims(leads, { query: '', scope: 'session', sessionId: runId, workspaceId, subjectId }),
-    [leads, runId, subjectId, workspaceId]
-  );
   const activeSessionFindings = useMemo(
     () => sessionFindings.filter(campaignClaimIsActive),
     [sessionFindings]
-  );
-  const activeSessionLeads = useMemo(
-    () => sessionLeads.filter(campaignClaimIsActive),
-    [sessionLeads]
   );
   const workspaceMemoryNodes = useMemo(
     () => filterMemoryCatalogNodes(nodes, {
@@ -544,17 +550,11 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => filterCampaignClaims(findings, { query: '', scope: 'workspace', sessionId: runId, workspaceId, subjectId }),
     [findings, runId, subjectId, workspaceId]
   );
-  const workspaceLeads = useMemo(
-    () => filterCampaignClaims(leads, { query: '', scope: 'workspace', sessionId: runId, workspaceId, subjectId }),
-    [leads, runId, subjectId, workspaceId]
-  );
   const workspaceReportRevisions = useMemo(
     () => workspaceReports.reduce((count, report) => count + report.revision, 0),
     [workspaceReports]
   );
-  const workspaceClaimCount = workspaceLeads.length + workspaceFindings.length;
-  const workspaceClaimSummary = claimProjectionSummaryText(workspaceLeads.length, workspaceFindings.length);
-  const sessionLeadRatingSummary = claimRatingSummaryText(activeSessionLeads);
+  const workspaceClaimCount = workspaceFindings.length;
   const sessionFindingRatingSummary = claimRatingSummaryText(activeSessionFindings);
   const workspaceRunbookSummaryMetrics = runbookSummaryMetricsText(workspaceRunbookMetrics);
   const sessionRunbookSummaryMetrics = runbookSummaryMetricsText(sessionRunbookMetrics);
@@ -610,14 +610,9 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => filterCampaignClaims(findings, { query, scope, sessionId: runId, workspaceId, subjectId }),
     [findings, query, runId, scope, subjectId, workspaceId]
   );
-  const filteredLeads = useMemo(
-    () => filterCampaignClaims(leads, { query, scope, sessionId: runId, workspaceId, subjectId }),
-    [leads, query, runId, scope, subjectId, workspaceId]
-  );
   const campaignSectionVisibility = campaignCatalogSectionVisibility(claimFilter, type);
   const visibleFilteredNodes = featureAvailability.memory && campaignSectionVisibility.memories ? filteredNodes : EMPTY_MEMORY_NODES;
   const visibleFilteredFindings = featureAvailability.memory && campaignSectionVisibility.findings ? filteredFindings : EMPTY_CAMPAIGN_CLAIMS;
-  const visibleFilteredLeads = featureAvailability.memory && campaignSectionVisibility.leads ? filteredLeads : EMPTY_CAMPAIGN_CLAIMS;
   const memoryTypeGroups = useMemo(
     () => memoryTypeGroupsByHeat(
       [...visibleFilteredNodes].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id)),
@@ -639,23 +634,18 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const groupedReports = useMemo(() => reportCatalogGroups(filteredReports), [filteredReports]);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const selectedNode = featureAvailability.memory && visibleSelectedNodeId ? nodeById.get(visibleSelectedNodeId) ?? null : null;
-  const claimById = useMemo(
-    () => new Map([...findings, ...leads].map((claim) => [claim.id, claim])),
-    [findings, leads]
-  );
+  const claimById = useMemo(() => new Map(findings.map((claim) => [claim.id, claim])), [findings]);
   const selectedClaim = featureAvailability.memory && visibleSelectedClaimId ? claimById.get(visibleSelectedClaimId) ?? null : null;
   const relationshipsByNodeId = useMemo(() => groupMemoryRelationships(memory?.edges ?? []), [memory?.edges]);
   const updateKey = [
     ...visibleFilteredFindings.map((claim) => `${claim.id}:${claim.updatedAt}:${claim.revision}`),
-    ...visibleFilteredLeads.map((claim) => `${claim.id}:${claim.updatedAt}:${claim.revision}`),
     memoryCatalogUpdateKey(visibleFilteredNodes),
     ...visibleFilteredRunbooks.map((runbook) => `${runbook.id}:${runbook.updatedAt}:${runbook.revision}`)
   ].join('|');
   const reportUpdateKey = filteredReports.map((report) => `${report.id}:${report.updatedAt}`).join('|');
-  const campaignRecordCount = (featureAvailability.memory ? nodes.length + findings.length + leads.length : 0)
+  const campaignRecordCount = (featureAvailability.memory ? nodes.length + findings.length : 0)
     + (featureAvailability.runbooks ? runbooks.length : 0);
-  const visibleCampaignRecordCount = visibleFilteredNodes.length + visibleFilteredFindings.length
-    + visibleFilteredLeads.length + visibleFilteredRunbooks.length;
+  const visibleCampaignRecordCount = visibleFilteredNodes.length + visibleFilteredFindings.length + visibleFilteredRunbooks.length;
   const hasSessionMetadata = Boolean(detail);
   const hasSessionResources = (featureAvailability.runbooks && sessionRunbooks > 0)
     || (featureAvailability.reports && sessionReports.length > 0)
@@ -849,8 +839,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               {featureAvailability.memory && workspaceClaimCount > 0 ? (
                 <button type="button" className="session-summary-item" onClick={() => openDetails('memory')}>
                   <FileText size={15} aria-hidden="true" />
-                  <span>{workspaceClaimCount} {workspaceClaimCount === 1 ? 'Claim' : 'Claims'}</span>
-                  <span className="session-summary-meta">{workspaceClaimSummary}</span>
+                  <span>{workspaceClaimCount} {workspaceClaimCount === 1 ? 'Finding' : 'Findings'}</span>
                   <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
                 </button>
               ) : null}
@@ -939,14 +928,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>
             ) : null}
-            {featureAvailability.memory && activeSessionLeads.length > 0 ? (
-              <button type="button" className="session-summary-item" onClick={() => openDetails('memory', 'leads')}>
-                <CampaignClaimProjectionIcon projection="lead" />
-                <span>{activeSessionLeads.length} {activeSessionLeads.length === 1 ? 'Lead' : 'Leads'}</span>
-                {sessionLeadRatingSummary ? <span className="session-summary-meta">{sessionLeadRatingSummary}</span> : null}
-                <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
-              </button>
-            ) : null}
             {featureAvailability.memory && activeSessionFindings.length > 0 ? (
               <button type="button" className="session-summary-item" onClick={() => openDetails('memory', 'findings')}>
                 <CampaignClaimProjectionIcon projection="finding" />
@@ -1004,18 +985,21 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             onBack={closeSubagentDetail}
           />
         ) : visibleSelectedRunbookId ? (
-          <ResearchSideNestedHeader label={campaignLabel} name={selectedRunbookName} onBack={onBackToRunbooks} />
+          <ResearchSideNestedHeader iconOnly label={campaignLabel} name={selectedRunbookName} onBack={onBackToRunbooks} />
         ) : visibleSelectedReportId ? (
-          <ResearchSideNestedHeader label={reportLabel} name={selectedReportName} onBack={onBackToReports} />
+          <ResearchSideNestedHeader iconOnly label={reportLabel} name={selectedReportName} onBack={onBackToReports} />
         ) : selectedNode ? (
           <ResearchSideNestedHeader
+            iconOnly
             label={campaignLabel}
             name={selectedNode.title}
             onBack={() => selectedMemoryNodeId === undefined ? setSelectedNodeId(null) : onBackToMemory?.()}
           />
         ) : selectedClaim ? (
           <ResearchSideNestedHeader
+            iconOnly
             label={campaignLabel}
+            name={selectedClaim.title}
             onBack={closeClaimDetail}
           />
         ) : (
@@ -1123,6 +1107,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               nodeCandidates={nodes}
               nodeById={nodeById}
               mutationBusy={historyMutationBusy}
+              providerModelCatalog={providerModelCatalog}
               relationships={relationshipsByNodeId.get(selectedNode.id) ?? []}
               researchProfile={researchProfile}
               sessionHeatPreferences={sessionHeatPreferences}
@@ -1138,7 +1123,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           >
             <CampaignClaimDetailView
               claim={selectedClaim}
-              claimCandidates={[...findings, ...leads]}
+              claimCandidates={findings}
               mutationBusy={historyMutationBusy}
               providerModelCatalog={providerModelCatalog}
               onMarkDuplicate={onMarkHistoryDuplicate ? (id, parentId, revision) => onMarkHistoryDuplicate('claim', id, parentId, revision) : undefined}
@@ -1163,18 +1148,17 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                       <FloatingTextPicker
                         className="memory-catalog-filter memory-catalog-claim-filter"
                         value={claimFilter}
-                        title="Claim filter"
-                        ariaLabel="Claim filter"
+                        title="Finding filter"
+                        ariaLabel="Finding filter"
                         options={[
-                          { value: 'all', label: 'All Claims' },
-                          { value: 'none', label: 'No Claims' },
-                          { value: 'leads', label: 'Leads' },
+                          { value: 'all', label: 'All Findings' },
+                          { value: 'none', label: 'No Findings' },
                           { value: 'findings', label: 'Findings' }
                         ]}
                         onChange={(value) => {
                           const nextClaimFilter = value as CampaignClaimFilter;
                           setClaimFilter(nextClaimFilter);
-                          if (nextClaimFilter === 'leads' || nextClaimFilter === 'findings') {
+                          if (nextClaimFilter === 'findings') {
                             setType(NO_CAMPAIGN_MEMORIES_FILTER);
                             setRunbookFilter('none');
                           }
@@ -1242,7 +1226,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               >
                 <CampaignClaimCatalogLists
                   findings={visibleFilteredFindings}
-                  leads={visibleFilteredLeads}
                   nowMs={catalogNowMs}
                   providerModelCatalog={providerModelCatalog}
                   selectedClaimId={visibleSelectedClaimId}
@@ -1416,7 +1399,6 @@ export function filterCampaignClaims(
         claim.classification,
         claim.status,
         claim.maturity,
-        claim.workflow,
         claim.rating,
         ...claim.evidence.map((evidence) => evidence.summary)
       ].join('\n').toLocaleLowerCase().includes(normalizedQuery);
@@ -1514,6 +1496,7 @@ function MemoryTypeSummaryRow({ memoryType }: { memoryType: SessionMemoryTypeSum
 }
 
 export function ResearchSideNestedHeader({
+  iconOnly = false,
   label,
   leading,
   name,
@@ -1522,6 +1505,7 @@ export function ResearchSideNestedHeader({
   stackedInlineIdentity = false,
   onBack
 }: {
+  iconOnly?: boolean;
   label: string;
   leading?: ReactNode;
   name?: string;
@@ -1531,10 +1515,16 @@ export function ResearchSideNestedHeader({
   onBack: () => void;
 }): JSX.Element {
   return (
-    <header className={`research-side-nested-header ${stackedInlineIdentity ? 'is-stacked-inline' : ''}`.trim()}>
-      <button type="button" onClick={onBack}>
-        <ArrowLeft size={15} aria-hidden="true" />
-        <span>Back to {label}</span>
+    <header className={`research-side-nested-header${iconOnly ? ' is-campaign-item' : ''}${stackedInlineIdentity ? ' is-stacked-inline' : ''}`}>
+      <button
+        aria-label={iconOnly ? `Back to ${label}` : undefined}
+        className={iconOnly ? 'is-icon-only' : undefined}
+        onClick={onBack}
+        title={iconOnly ? `Back to ${label}` : undefined}
+        type="button"
+      >
+        <ArrowLeft size={iconOnly ? 17 : 15} aria-hidden="true" />
+        {!iconOnly ? <span>Back to {label}</span> : null}
       </button>
       {leading}
       {name ? (
@@ -2097,7 +2087,7 @@ function runbookMetricLabels(metrics: RunbookMetricsPresentation): string[] {
     `Runbook ${metrics.latestStatus ? traceLabel(metrics.latestStatus) : 'Not Run'}`,
     `${metrics.contentRevisions} Revisions`,
     `${metrics.completedRuns} Runs`,
-    `${metrics.executedCells} Cells`
+    `${metrics.executedCells} Cell Executions`
   ];
 }
 
@@ -2109,13 +2099,6 @@ function runbookSummaryMetricsText(metrics: RunbookMetricsPresentation): string 
     metrics.completedRuns > 0
       ? `${metrics.completedRuns} ${metrics.completedRuns === 1 ? 'Run' : 'Runs'}`
       : null
-  ].filter((value): value is string => value !== null).join(', ');
-}
-
-function claimProjectionSummaryText(leadCount: number, findingCount: number): string {
-  return [
-    leadCount > 0 ? `${leadCount} ${leadCount === 1 ? 'Lead' : 'Leads'}` : null,
-    findingCount > 0 ? `${findingCount} ${findingCount === 1 ? 'Finding' : 'Findings'}` : null
   ].filter((value): value is string => value !== null).join(', ');
 }
 
@@ -2429,7 +2412,6 @@ function MemoryCatalogAuthors({
 
 export function CampaignClaimCatalogLists({
   findings,
-  leads,
   nowMs = Date.now(),
   previewLimit,
   providerModelCatalog = [],
@@ -2438,7 +2420,6 @@ export function CampaignClaimCatalogLists({
   onOpen
 }: {
   findings: readonly AppServerFindingSummary[];
-  leads: readonly AppServerFindingSummary[];
   nowMs?: number;
   previewLimit?: number;
   providerModelCatalog?: readonly ResearchProviderModelCatalog[];
@@ -2453,18 +2434,6 @@ export function CampaignClaimCatalogLists({
           claims={findings}
           emptyLabel={showEmptySections ? 'No workspace findings yet.' : undefined}
           label="Findings"
-          nowMs={nowMs}
-          previewLimit={previewLimit}
-          providerModelCatalog={providerModelCatalog}
-          selectedClaimId={selectedClaimId}
-          onOpen={onOpen}
-        />
-      ) : null}
-      {showEmptySections || leads.length > 0 ? (
-        <CampaignClaimCatalogSection
-          claims={leads}
-          emptyLabel={showEmptySections ? 'No workspace leads yet.' : undefined}
-          label="Leads"
           nowMs={nowMs}
           previewLimit={previewLimit}
           providerModelCatalog={providerModelCatalog}
@@ -2488,7 +2457,7 @@ export function CampaignClaimCatalogSection({
 }: {
   claims: readonly AppServerFindingSummary[];
   emptyLabel?: string;
-  label: 'Findings' | 'Leads';
+  label: 'Findings';
   nowMs?: number;
   previewLimit?: number;
   providerModelCatalog?: readonly ResearchProviderModelCatalog[];
@@ -2500,9 +2469,7 @@ export function CampaignClaimCatalogSection({
   const visibleClaims = claims.slice(0, boundedPreviewLimit);
   const overflowClaims = claims.slice(boundedPreviewLimit);
   const sectionLabel = claims.length === 1 ? singularizePresentationLabel(label) : label;
-  const unrefutedClaimCount = label === 'Findings'
-    ? claims.filter((claim) => claim.maturity !== 'refuted').length
-    : null;
+  const unrefutedClaimCount = claims.filter((claim) => claim.maturity !== 'refuted').length;
   const renderClaim = (claim: AppServerFindingSummary): JSX.Element => {
     const rating = campaignClaimRatingPresentation(claim);
     return (
@@ -2540,12 +2507,12 @@ export function CampaignClaimCatalogSection({
   return (
     <section
       className="memory-type-section campaign-claim-section"
-      aria-label={`${claims.length} ${sectionLabel}${unrefutedClaimCount === null ? '' : `, ${unrefutedClaimCount} unrefuted`}`}
+      aria-label={`${claims.length} ${sectionLabel}, ${unrefutedClaimCount} unrefuted`}
       data-campaign-projection={label.toLocaleLowerCase()}
     >
       <h3>
         {claims.length.toLocaleString()} {sectionLabel}
-        {unrefutedClaimCount === null ? null : ` (${unrefutedClaimCount.toLocaleString()} Unrefuted)`}
+        {` (${unrefutedClaimCount.toLocaleString()} Unrefuted)`}
       </h3>
       <div className="memory-type-items">
         <div className="workspace-claim-primary-items">{visibleClaims.map(renderClaim)}</div>
@@ -2663,6 +2630,7 @@ export function MemoryDetailView({
   nodeCandidates = [],
   nodeById,
   relationships,
+  providerModelCatalog = [],
   researchProfile = null,
   sessionHeatPreferences = EMPTY_SESSION_HEAT_PREFERENCES,
   mutationBusy = false,
@@ -2673,6 +2641,7 @@ export function MemoryDetailView({
   nodeCandidates?: readonly AppServerMemoryNodeSummary[];
   nodeById: Map<string, AppServerMemoryNodeSummary>;
   relationships: AppServerMemoryEdgeSummary[];
+  providerModelCatalog?: readonly ResearchProviderModelCatalog[];
   researchProfile?: ResearchProfile | null;
   sessionHeatPreferences?: SessionHeatPreferences;
   mutationBusy?: boolean;
@@ -2685,77 +2654,130 @@ export function MemoryDetailView({
     ?? (memoryProfile ? unknownProfileValueLabel('status', node.status) : traceLabel(node.status));
   const relationDefinitions = new Map(memoryProfile?.relations?.map((relation) => [relation.id, relation]) ?? []);
   const evidenceKindDefinitions = new Map(memoryProfile?.evidenceKinds.map((kind) => [kind.id, kind]) ?? []);
-  const workspaceNoun = researchProfile?.workspace.workspaceNoun ?? 'Workspace';
-  const subjectNoun = researchProfile?.workspace.subjectNoun ?? 'Subject';
-  const sessionLabel = researchProfile?.presentation.sessionLabel ?? 'Session';
+  const tabId = useId();
+  const [selectedView, setSelectedView] = useState<{ nodeId: string; view: MemoryDetailViewTab }>({ nodeId: node.id, view: 'Breakdown' });
+  const activeView = selectedView.nodeId === node.id ? selectedView.view : 'Breakdown';
   return (
-    <article className={`memory-detail type-${stateClass(node.type)}`}>
+    <article className={`memory-detail memory-node-detail type-${stateClass(node.type)}`}>
       <header className="memory-detail-heading">
-        <span className="memory-catalog-item-labels">
-          <MemoryTypeLabel
-            type={node.type}
-            definitions={memoryProfile?.types}
-            status={node.status}
-            profileId={researchProfile?.id}
-            sessionHeatPreferences={sessionHeatPreferences}
-          />
-          <span className="memory-catalog-status">{statusLabel}</span>
+        <span className="memory-detail-attribution">
+          <span>{statusLabel}{node.authors?.length ? ' by' : ''}</span>
+          {node.authors?.length ? <MemoryCatalogAuthors authors={node.authors} providerModelCatalog={providerModelCatalog} /> : null}
         </span>
         <time dateTime={node.updatedAt} title={formatSessionDateTime(node.updatedAt)}>{formatSessionDateTime(node.updatedAt)}</time>
-        <h3>{node.title}</h3>
-        <ModelAuthors authors={node.authors} />
       </header>
-      <div className="memory-catalog-content">
-        {node.summary ? <p className="memory-catalog-summary">{node.summary}</p> : null}
-        {node.body && node.body !== node.summary ? <p className="memory-catalog-body">{node.body}</p> : null}
-        <div className="memory-catalog-meta">
-          <span>Update {node.revision}</span>
-          <span>{node.evidenceRefs.length} refs</span>
-          <span>{relationships.length} links</span>
-        </div>
-        <dl className="memory-catalog-scope">
-          <div><dt>{subjectNoun}</dt><dd>{node.subjectName}</dd></div>
-          <div><dt>{pluralizePresentationLabel(workspaceNoun)}</dt><dd>{node.workspaces.map((workspace) => workspace.name).join(', ') || 'None'}</dd></div>
-          <div><dt>{pluralizePresentationLabel(sessionLabel)}</dt><dd>{node.sessionIds.join(', ') || 'None'}</dd></div>
-        </dl>
-        {node.assetIds.length > 0 ? <ChipGroup label="Assets" values={node.assetIds} /> : null}
-        {node.tags.length > 0 ? <ChipGroup label="Tags" values={node.tags} /> : null}
-        {node.evidenceRefs.length > 0 ? (
-          <section className="memory-catalog-subsection" aria-label="References">
-            <h4>References</h4>
-            <div className="memory-reference-list">
-              {node.evidenceRefs.map((reference) => (
-                <article key={reference.id}>
-                  <span>{evidenceKindDefinitions.get(reference.kind)?.name
-                    ?? (memoryProfile ? unknownProfileValueLabel('evidence kind', reference.kind) : traceLabel(reference.kind))}</span>
-                  <strong>{reference.summary || reference.path || reference.id}</strong>
-                  {reference.path ? <code>{reference.path}</code> : null}
-                </article>
-              ))}
+      <div className="campaign-claim-detail-tabs" role="tablist" aria-label="Memory detail views">
+        {MEMORY_DETAIL_VIEWS.map((view, index) => {
+          const ViewIcon = MEMORY_DETAIL_VIEW_ICONS[view];
+          return (
+            <button
+              key={view}
+              id={`${tabId}-${view}`}
+              type="button"
+              role="tab"
+              aria-selected={activeView === view}
+              aria-controls={`${tabId}-panel`}
+              tabIndex={activeView === view ? 0 : -1}
+              onClick={() => setSelectedView({ nodeId: node.id, view })}
+              onKeyDown={(event) => {
+                const nextIndex = event.key === 'ArrowRight' ? (index + 1) % MEMORY_DETAIL_VIEWS.length
+                  : event.key === 'ArrowLeft' ? (index - 1 + MEMORY_DETAIL_VIEWS.length) % MEMORY_DETAIL_VIEWS.length
+                    : event.key === 'Home' ? 0 : event.key === 'End' ? MEMORY_DETAIL_VIEWS.length - 1 : null;
+                if (nextIndex === null) return;
+                event.preventDefault();
+                setSelectedView({ nodeId: node.id, view: MEMORY_DETAIL_VIEWS[nextIndex] });
+                event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus();
+              }}
+            >
+              <ViewIcon aria-hidden="true" size={14} />
+              <span>{view}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="memory-catalog-content" id={`${tabId}-panel`} role="tabpanel" aria-labelledby={`${tabId}-${activeView}`}>
+        {activeView === 'Breakdown' ? <>
+          <div className="memory-catalog-item-labels">
+            <MemoryTypeLabel
+              type={node.type}
+              definitions={memoryProfile?.types}
+              status={node.status}
+              profileId={researchProfile?.id}
+              sessionHeatPreferences={sessionHeatPreferences}
+            />
+          </div>
+          <section className="memory-detail-breakdown" aria-label="Overview and details">
+            <div>
+              <strong>Overview</strong>
+              {node.summary.trim() ? <p className="memory-catalog-summary">{node.summary}</p> : <em>Unknown</em>}
+            </div>
+            <div>
+              <strong>Details</strong>
+              {node.body.trim() && node.body !== node.summary
+                ? <div className="memory-catalog-body">{renderTraceProseText(node.body, 'agent_output')}</div>
+                : <em>Not recorded</em>}
             </div>
           </section>
-        ) : null}
-        {relationships.length > 0 ? (
-          <section className="memory-catalog-subsection" aria-label="Relationships">
-            <h4>Relationships</h4>
-            <div className="memory-relationship-list">
-              {relationships.map((relationship) => {
-                const outbound = relationship.fromId === node.id;
-                const relatedId = outbound ? relationship.toId : relationship.fromId;
-                const relatedNode = nodeById.get(relatedId);
-                return (
-                  <article key={`${relationship.fromId}:${relationship.relation}:${relationship.toId}`}>
-                    <span>{outbound ? '→' : '←'} {relationDefinitions.get(relationship.relation)?.name
-                      ?? (memoryProfile ? unknownProfileValueLabel('relation', relationship.relation) : traceLabel(relationship.relation))}</span>
-                    <strong>{relatedNode?.title ?? relatedId}</strong>
-                    {relationship.note ? <p>{relationship.note}</p> : null}
+          <div className="memory-catalog-meta">
+            <span>Update {node.revision}</span>
+            <span>{node.evidenceRefs.length} refs</span>
+            <span>{relationships.length} links</span>
+            <span className="campaign-claim-identifier-tag">{node.id}</span>
+            <span className="campaign-claim-identifier-tag">{node.subjectId}</span>
+            {node.workspaces.map((workspace, index) => (
+              <span className="campaign-claim-identifier-tag" key={`workspace:${index}`}>{workspace.id}</span>
+            ))}
+            {node.sessionIds.map((sessionId, index) => (
+              <span className="campaign-claim-identifier-tag" key={`session:${index}`}>{sessionId}</span>
+            ))}
+            {node.tags.map((tag, index) => (
+              <span className="campaign-claim-identifier-tag" key={`tag:${index}`}>{tag}</span>
+            ))}
+            {node.assetIds.map((assetId, index) => (
+              <span className="campaign-claim-identifier-tag" key={`asset:${index}`}>{assetId}</span>
+            ))}
+          </div>
+        </> : null}
+        {activeView === 'References' ? <>
+          {node.evidenceRefs.length > 0 ? (
+            <section className="memory-catalog-subsection" aria-label="References">
+              <h4>References</h4>
+              <div className="memory-reference-list">
+                {node.evidenceRefs.map((reference) => (
+                  <article key={reference.id}>
+                    <span>{evidenceKindDefinitions.get(reference.kind)?.name
+                      ?? (memoryProfile ? unknownProfileValueLabel('evidence kind', reference.kind) : traceLabel(reference.kind))}</span>
+                    <strong>{reference.summary || reference.path || reference.id}</strong>
+                    {reference.path ? <code>{reference.path}</code> : null}
                   </article>
-                );
-              })}
-            </div>
-          </section>
-        ) : null}
-        <DuplicateManagementSection
+                ))}
+              </div>
+            </section>
+          ) : <p className="campaign-claim-detail-empty">No references recorded.</p>}
+        </> : null}
+        {activeView === 'Relationships' ? <>
+          {relationships.length > 0 ? (
+            <section className="memory-catalog-subsection" aria-label="Relationships">
+              <h4>Relationships</h4>
+              <div className="memory-relationship-list">
+                {relationships.map((relationship) => {
+                  const outbound = relationship.fromId === node.id;
+                  const relatedId = outbound ? relationship.toId : relationship.fromId;
+                  const relatedNode = nodeById.get(relatedId);
+                  return (
+                    <article key={`${relationship.fromId}:${relationship.relation}:${relationship.toId}`}>
+                      <span>{outbound ? '→' : '←'} {relationDefinitions.get(relationship.relation)?.name
+                        ?? (memoryProfile ? unknownProfileValueLabel('relation', relationship.relation) : traceLabel(relationship.relation))}</span>
+                      <strong>{relatedNode?.title ?? relatedId}</strong>
+                      {relationship.note ? <p>{relationship.note}</p> : null}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ) : <p className="campaign-claim-detail-empty">No relationships recorded.</p>}
+        </> : null}
+        {activeView === 'Duplicates' ? <DuplicateManagementSection
           recordId={node.id}
           recordLabel="memory"
           recordRevision={node.revision}
@@ -2773,7 +2795,8 @@ export function MemoryDetailView({
           mutationBusy={mutationBusy}
           onMarkDuplicate={onMarkDuplicate}
           onUndoDuplicate={onUndoDuplicate}
-        />
+          showEmptyState
+        /> : null}
       </div>
     </article>
   );
@@ -2781,7 +2804,6 @@ export function MemoryDetailView({
 
 export function CampaignClaimDetailView({
   claim,
-  nowMs = Date.now(),
   providerModelCatalog = [],
   claimCandidates = [],
   mutationBusy = false,
@@ -2789,18 +2811,21 @@ export function CampaignClaimDetailView({
   onUndoDuplicate
 }: {
   claim: AppServerFindingSummary;
-  nowMs?: number;
   providerModelCatalog?: readonly ResearchProviderModelCatalog[];
   claimCandidates?: readonly AppServerFindingSummary[];
   mutationBusy?: boolean;
   onMarkDuplicate?: (claimId: string, parentClaimId: string, expectedRevision: number) => void;
   onUndoDuplicate?: (claimId: string, expectedRevision: number) => void;
 }): JSX.Element {
-  const projectionLabel = claim.projection === 'finding' ? 'Finding' : 'Lead';
   const confidence = `${Math.round(Math.max(0, Math.min(1, claim.confidence)) * 100)}% confidence`;
+  const tabId = useId();
+  const [selectedView, setSelectedView] = useState<{ claimId: string; view: FindingDetailView }>({ claimId: claim.id, view: 'Breakdown' });
+  const activeView = selectedView.claimId === claim.id ? selectedView.view : 'Breakdown';
   const securityTracking = claim.securityTracking;
+  const reachabilityTitle = securityTracking?.reachability.state === 'reachable' ? 'Reachable'
+    : securityTracking?.reachability.state === 'unreachable' ? 'Unreachable'
+      : securityTracking?.reachability.state === 'conditional' ? 'Conditionally Reachable' : 'Reachability';
   const latestCvss = securityTracking?.cvssAssessments.at(-1) ?? null;
-  const latestRiskDecision = securityTracking?.riskDecisions.at(-1) ?? null;
   const duplicateParentCandidates = claimCandidates.filter((candidate) => (
     candidate.id !== claim.id
       && candidate.workspaceId === claim.workspaceId
@@ -2809,195 +2834,164 @@ export function CampaignClaimDetailView({
   return (
     <article className={`memory-detail campaign-claim-detail is-${claim.projection}`}>
       <header className="memory-detail-heading">
-        <h3>
-          <CampaignClaimProjectionIcon
-            className={`campaign-claim-title-icon campaign-claim-detail-title-icon maturity-${stateClass(claim.maturity)}`}
-            projection={claim.projection}
-          />
-          {claim.title}{' '}
-          <CatalogTime value={claim.updatedAt} nowMs={nowMs} />
-        </h3>
-        <span className="memory-catalog-item-labels campaign-claim-detail-label">
-          <span className={`campaign-claim-kind is-${claim.projection}`}>
-            {projectionLabel} {traceLabel(claim.maturity)}, {traceLabel(claim.rating)} {campaignClaimTypeLabel(claim.classification, projectionLabel)}
-          </span>
+        <span className="campaign-claim-detail-attribution">
+          <span>{traceLabel(claim.maturity)}{claim.authors.length > 0 ? ' by' : ''}</span>
+          {claim.authors.length > 0
+            ? <MemoryCatalogAuthors authors={claim.authors} providerModelCatalog={providerModelCatalog} />
+            : null}
         </span>
-        <MemoryCatalogAuthors authors={claim.authors} providerModelCatalog={providerModelCatalog} />
+        <time dateTime={claim.updatedAt} title={formatSessionDateTime(claim.updatedAt)}>{formatSessionDateTime(claim.updatedAt)}</time>
       </header>
-      <div className="memory-catalog-content">
-        <section className="campaign-claim-assessment" aria-label="Overview, impact, and reachability">
-          <div>
-            <strong>Overview</strong>
-            {claim.summary.trim() ? <p>{claim.summary}</p> : <em>Unknown</em>}
-          </div>
-          <div>
-            <strong>Impact</strong>
-            {claim.impact.trim() ? <p>{claim.impact}</p> : <em>Unknown</em>}
-          </div>
-          <div>
-            <strong>Reachability</strong>
-            {securityTracking?.reachability.conditions?.trim()
-              ? <p>{securityTracking.reachability.conditions}</p>
-              : <em>Unknown</em>}
-          </div>
+      <div className="campaign-claim-detail-tabs" role="tablist" aria-label="Finding detail views">
+        {FINDING_DETAIL_VIEWS.map((view, index) => {
+          const ViewIcon = FINDING_DETAIL_VIEW_ICONS[view];
+          return (
+            <button
+              key={view}
+              id={`${tabId}-${view}`}
+              type="button"
+              role="tab"
+              aria-selected={activeView === view}
+              aria-controls={`${tabId}-panel`}
+              tabIndex={activeView === view ? 0 : -1}
+              onClick={() => setSelectedView({ claimId: claim.id, view })}
+              onKeyDown={(event) => {
+                const nextIndex = event.key === 'ArrowRight' ? (index + 1) % FINDING_DETAIL_VIEWS.length
+                  : event.key === 'ArrowLeft' ? (index - 1 + FINDING_DETAIL_VIEWS.length) % FINDING_DETAIL_VIEWS.length
+                    : event.key === 'Home' ? 0 : event.key === 'End' ? FINDING_DETAIL_VIEWS.length - 1 : null;
+                if (nextIndex === null) return;
+                event.preventDefault();
+                setSelectedView({ claimId: claim.id, view: FINDING_DETAIL_VIEWS[nextIndex] });
+                event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus();
+              }}
+            >
+              <ViewIcon aria-hidden="true" size={14} />
+              <span>{view}</span>
+            </button>
+          );
+        })}
+      </div>
+      {securityTracking?.progressBlocker ? (
+        <section className="campaign-claim-blocker" aria-label="Blocked">
+          <h3><OctagonMinus aria-hidden="true" size={18} />Blocked</h3>
+          <p>{securityTracking.progressBlocker.reason}</p>
         </section>
-        <div className="memory-catalog-meta">
-          <span>Update {claim.revision}</span>
-          <span>{confidence}</span>
-          <span>{claim.evidence.length} refs</span>
-        </div>
-        <dl className="memory-catalog-scope campaign-claim-scope">
-          <ClaimDetailAttribute title="Class">
-            {claim.classification || 'Unclassified'}
-          </ClaimDetailAttribute>
-          <ClaimDetailAttribute title="Untrusted rating">
-            {traceLabel(claim.rating)}
-          </ClaimDetailAttribute>
-          <ClaimDetailAttribute title="Maturity">
-            {traceLabel(claim.maturity)}
-          </ClaimDetailAttribute>
-          <ClaimDetailAttribute title="Workflow">
-            {traceLabel(claim.workflow)}
-          </ClaimDetailAttribute>
-          <ClaimDetailAttribute title="Freshness">
-            {traceLabel(claim.freshness)}
-          </ClaimDetailAttribute>
-          {securityTracking ? (
-            <ClaimDetailAttribute title="Reachability">
-              {traceLabel(securityTracking.reachability.state)}
-            </ClaimDetailAttribute>
-          ) : null}
-          {securityTracking ? (
-            <ClaimDetailAttribute title="Risk treatment">
-              {traceLabel(securityTracking.riskTreatment)}
-            </ClaimDetailAttribute>
-          ) : null}
-          {securityTracking?.progressBlocker ? (
-            <ClaimDetailAttribute title="Progress">Blocked</ClaimDetailAttribute>
-          ) : null}
-          {latestCvss ? (
-            <ClaimDetailAttribute title="CVSS">
-              {latestCvss.score.toFixed(1)} · {latestCvss.nomenclature}
-            </ClaimDetailAttribute>
-          ) : null}
-          <ClaimDetailAttribute title="Claim">
-            {claim.id}
-          </ClaimDetailAttribute>
-          <ClaimDetailAttribute title="Workspace">
-            {claim.workspaceId}
-          </ClaimDetailAttribute>
-          <ClaimDetailAttribute title="Subject">
-            {claim.subjectId}
-          </ClaimDetailAttribute>
-          <ClaimDetailAttribute title="Origin">
-            {claim.originSessionId ?? 'None'}
-          </ClaimDetailAttribute>
-        </dl>
-        {claim.componentClaimIds.length > 0 ? <ChipGroup label="Components" values={claim.componentClaimIds} /> : null}
-        {securityTracking && securityTracking.affectedAssetIds.length > 0 ? <ChipGroup label="Affected assets" values={securityTracking.affectedAssetIds} /> : null}
-        {securityTracking && securityTracking.surfaceIds.length > 0 ? <ChipGroup label="Surfaces" values={securityTracking.surfaceIds} /> : null}
-        {securityTracking?.progressBlocker ? (
-          <p className="memory-catalog-body"><strong>Progress blocker:</strong> {securityTracking.progressBlocker.reason}</p>
-        ) : null}
-        {latestRiskDecision ? (
-          <p className="memory-catalog-body">
-            <strong>Risk decision:</strong> {latestRiskDecision.rationale}
-            {latestRiskDecision.expiresAt ? ` Expires ${formatSessionDateTime(latestRiskDecision.expiresAt)}.` : ''}
-          </p>
-        ) : null}
-        {claim.staleReason ? <p className="memory-catalog-body"><strong>Stale reason:</strong> {claim.staleReason}</p> : null}
-        {claim.operatorOverride ? (
-          <p className="memory-catalog-body"><strong>Human override:</strong> The current status was set on the Claims board without requiring the agent transition prerequisites. Review the recorded evidence before relying on it.</p>
-        ) : null}
-        {securityTracking && securityTracking.cvssAssessments.length > 0 ? (
-          <section className="memory-catalog-subsection" aria-label="CVSS assessments">
-            <h4>CVSS Assessments</h4>
-            <div className="memory-reference-list">
-              {[...securityTracking.cvssAssessments].reverse().map((assessment) => (
-                <article key={`${assessment.version}:${assessment.vector}:${assessment.assessedAt}`}>
-                  <span>{assessment.nomenclature} · {assessment.score.toFixed(1)}</span>
-                  <strong>CVSS {assessment.version}</strong>
-                  <code>{assessment.vector}</code>
-                </article>
-              ))}
+      ) : null}
+      <div className="memory-catalog-content" id={`${tabId}-panel`} role="tabpanel" aria-labelledby={`${tabId}-${activeView}`}>
+        {activeView === 'Breakdown' ? <>
+          <section className="campaign-claim-assessment" aria-label="Overview, impact, and reachability">
+            <div>
+              <strong>Overview</strong>
+              {claim.summary.trim() ? <p>{claim.summary}</p> : <em>Unknown</em>}
+            </div>
+            <div>
+              <div className="campaign-claim-impact-heading">
+                <strong>{traceLabel(claim.rating)} Impact</strong>
+                <FindingCvssMeter score={latestCvss?.score ?? null} version={latestCvss?.version ?? null} />
+              </div>
+              {claim.impact.trim() ? <p>{claim.impact}</p> : <em>Unknown</em>}
+            </div>
+            <div>
+              <strong>{reachabilityTitle}</strong>
+              {securityTracking?.reachability.conditions?.trim()
+                ? <p>{securityTracking.reachability.conditions}</p>
+                : <em>Unknown</em>}
+            </div>
+            <div className="campaign-claim-reproduction-steps">
+              <strong>Steps to Reproduce</strong>
+              {claim.stepsToReproduce.trim() ? <p>{claim.stepsToReproduce}</p> : <em>Not recorded</em>}
             </div>
           </section>
-        ) : null}
-        {securityTracking && securityTracking.affectedVersions.length > 0 ? (
-          <section className="memory-catalog-subsection" aria-label="Affected versions">
-            <h4>Affected Versions</h4>
-            <div className="memory-reference-list">
-              {securityTracking.affectedVersions.map((version) => (
-                <article key={`${version.assetId ?? 'claim'}:${version.range}:${version.fixedVersion ?? ''}`}>
-                  <span>{version.assetId ?? 'Finding'}</span>
-                  <strong>{version.range}</strong>
-                  {version.fixedVersion ? <code>Fixed in {version.fixedVersion}</code> : null}
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
-        {securityTracking && securityTracking.externalReferences.length > 0 ? (
-          <section className="memory-catalog-subsection" aria-label="External references">
-            <h4>External References</h4>
-            <div className="memory-reference-list">
-              {securityTracking.externalReferences.map((reference) => (
-                <article key={`${reference.kind}:${reference.identifier}`}>
-                  <span>{traceLabel(reference.kind)}</span>
-                  <strong>{reference.identifier}</strong>
-                  {reference.url ? <code>{reference.url}</code> : null}
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
-        {claim.evidence.length > 0 ? (
-          <section className="memory-catalog-subsection" aria-label="References">
-            <h4>References</h4>
-            <div className="memory-reference-list">
-              {claim.evidence.map((evidence) => (
-                <article key={evidence.id}>
-                  <span>{traceLabel(evidence.kind)}{evidence.independent ? ' · Independent' : ''}</span>
-                  <strong>{evidence.summary || evidence.referenceId || evidence.id}</strong>
-                  {evidence.referenceId ? <code>{evidence.referenceId}</code> : null}
-                </article>
-              ))}
-            </div>
-          </section>
-        ) : null}
-        {claim.transitions.length > 0 ? (
-          <section className="memory-catalog-subsection" aria-label="History">
-            <h4>History</h4>
-            <div className="memory-relationship-list">
+          {claim.staleReason ? <p className="memory-catalog-body"><strong>Stale reason:</strong> {claim.staleReason}</p> : null}
+          {claim.operatorOverride ? (
+            <p className="memory-catalog-body"><strong>Human override:</strong> The current status was set on the Findings board without requiring the agent transition prerequisites. Review the recorded evidence before relying on it.</p>
+          ) : null}
+          <div className="memory-catalog-meta">
+            <span>Update {claim.revision}</span>
+            <span>{confidence}</span>
+            <span>{claim.evidence.length} refs</span>
+            <span className="campaign-claim-identifier-tag">{claim.id}</span>
+            <span className="campaign-claim-identifier-tag">{claim.workspaceId}</span>
+            <span className="campaign-claim-identifier-tag">{claim.subjectId}</span>
+            <span className="campaign-claim-identifier-tag">{claim.originSessionId ?? 'No origin session'}</span>
+            {securityTracking?.affectedAssetIds.map((assetId, index) => (
+              <span className="campaign-claim-identifier-tag" key={`${assetId}:${index}`}>{assetId}</span>
+            ))}
+            {securityTracking?.surfaceIds.map((surfaceId, index) => (
+              <span className="campaign-claim-identifier-tag" key={`${surfaceId}:${index}`}>{surfaceId}</span>
+            ))}
+          </div>
+        </> : null}
+        {activeView === 'References' ? <>
+          {securityTracking && securityTracking.externalReferences.length > 0 ? (
+            <section className="memory-catalog-subsection campaign-claim-reference-section" aria-label="External references">
+              <h4>External References</h4>
+              <div className="campaign-claim-reference-list">
+                {securityTracking.externalReferences.map((reference) => (
+                  <article key={`${reference.kind}:${reference.identifier}`}>
+                    <span>{traceLabel(reference.kind)}</span>
+                    <p>{reference.identifier}</p>
+                    {reference.url ? <code>{reference.url}</code> : null}
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+          {claim.evidence.length > 0 ? (
+            <section className="memory-catalog-subsection campaign-claim-reference-section" aria-label="References">
+              <h4>References</h4>
+              <div className="campaign-claim-reference-list">
+                {claim.evidence.map((evidence) => (
+                  <article key={evidence.id}>
+                    <span>{traceLabel(evidence.kind)}{evidence.independent ? ' · Independent' : ''}</span>
+                    <p>{evidence.summary || evidence.referenceId || evidence.id}</p>
+                    {evidence.referenceId ? <code>{evidence.referenceId}</code> : null}
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+          {claim.evidence.length === 0 && !securityTracking?.externalReferences.length
+            ? <p className="campaign-claim-detail-empty">No references recorded.</p> : null}
+        </> : null}
+        {activeView === 'History' ? <>
+          {claim.transitions.length > 0 ? (
+            <section className="campaign-claim-history" aria-label="History">
               {[...claim.transitions].reverse().map((transition) => (
                 <article key={transition.id}>
-                  <span>{transition.fromStatus ? `${traceLabel(transition.fromStatus)} → ` : ''}{traceLabel(transition.toStatus)}{transition.operatorOverride ? ' · Human override' : ''}</span>
-                  <strong>{transition.reason || `Update ${transition.revision}`}</strong>
-                  <time dateTime={transition.createdAt}>{formatSessionDateTime(transition.createdAt)}</time>
+                  <div className="campaign-claim-history-heading">
+                    <strong>{transition.fromStatus ? `${traceLabel(transition.fromStatus)} → ` : ''}{traceLabel(transition.toStatus)}{transition.operatorOverride ? ' · Human override' : ''}</strong>
+                    <time dateTime={transition.createdAt}>{formatSessionDateTime(transition.createdAt)}</time>
+                  </div>
+                  <p>{transition.reason || `Update ${transition.revision}`}</p>
                 </article>
               ))}
-            </div>
-          </section>
+            </section>
+          ) : null}
+          {claim.transitions.length === 0 ? <p className="campaign-claim-detail-empty">No status transitions recorded.</p> : null}
+        </> : null}
+        {activeView === 'Duplicates' ? (
+          <DuplicateManagementSection
+            recordId={claim.id}
+            recordLabel="finding"
+            recordRevision={claim.revision}
+            duplicates={claim.duplicateClaims.map((duplicate) => ({
+              id: duplicate.id,
+              title: duplicate.title,
+              secondary: `${traceLabel(duplicate.projection)} · ${traceLabel(duplicate.maturity)}`,
+              revision: duplicate.revision
+            }))}
+            candidates={duplicateParentCandidates.map((candidate) => ({
+              id: candidate.id,
+              title: candidate.title,
+              secondary: candidate.projection === 'finding' ? 'Finding' : 'Lead'
+            }))}
+            mutationBusy={mutationBusy}
+            onMarkDuplicate={onMarkDuplicate}
+            onUndoDuplicate={onUndoDuplicate}
+            showEmptyState
+          />
         ) : null}
-        <DuplicateManagementSection
-          recordId={claim.id}
-          recordLabel="claim"
-          recordRevision={claim.revision}
-          duplicates={claim.duplicateClaims.map((duplicate) => ({
-            id: duplicate.id,
-            title: duplicate.title,
-            secondary: `${traceLabel(duplicate.projection)} · ${traceLabel(duplicate.maturity)}`,
-            revision: duplicate.revision
-          }))}
-          candidates={duplicateParentCandidates.map((candidate) => ({
-            id: candidate.id,
-            title: candidate.title,
-            secondary: candidate.projection === 'finding' ? 'Finding' : 'Lead'
-          }))}
-          mutationBusy={mutationBusy}
-          onMarkDuplicate={onMarkDuplicate}
-          onUndoDuplicate={onUndoDuplicate}
-        />
       </div>
     </article>
   );
@@ -3011,23 +3005,24 @@ function DuplicateManagementSection({
   candidates,
   mutationBusy,
   onMarkDuplicate,
-  onUndoDuplicate
+  onUndoDuplicate,
+  showEmptyState = false
 }: {
   recordId: string;
-  recordLabel: 'claim' | 'memory';
+  recordLabel: 'finding' | 'memory';
   recordRevision: number;
   duplicates: readonly { id: string; title: string; secondary: string; revision: number }[];
   candidates: readonly { id: string; title: string; secondary: string }[];
   mutationBusy: boolean;
   onMarkDuplicate?: (id: string, parentId: string, expectedRevision: number) => void;
   onUndoDuplicate?: (id: string, expectedRevision: number) => void;
+  showEmptyState?: boolean;
 }): JSX.Element | null {
   const [parentId, setParentId] = useState('');
   useEffect(() => setParentId(''), [recordId]);
-  if (duplicates.length === 0 && (!onMarkDuplicate || candidates.length === 0)) return null;
+  if (!showEmptyState && duplicates.length === 0 && (!onMarkDuplicate || candidates.length === 0)) return null;
   return (
     <section className="memory-catalog-subsection campaign-claim-duplicates" aria-label={`Duplicate ${recordLabel} management`}>
-      <h4>Duplicates</h4>
       {duplicates.length > 0 ? (
         <div className="campaign-claim-duplicate-list">
           {duplicates.map((duplicate) => (
@@ -3074,28 +3069,19 @@ function DuplicateManagementSection({
   );
 }
 
-function ClaimDetailAttribute({
-  children,
-  title
-}: {
-  children: ReactNode;
-  title: string;
-}): JSX.Element {
+function FindingCvssMeter({ score, version }: { score: number | null; version: string | null }): JSX.Element {
+  const rated = score !== null && Number.isFinite(score);
+  const displayedScore = rated ? Math.round(Math.max(0, Math.min(10, score)) * 10) / 10 : 0;
   return (
-    <div>
-      <dt>
-        <strong>{title}</strong>
-      </dt>
-      <dd>{children}</dd>
-    </div>
-  );
-}
-
-function ChipGroup({ label, values }: { label: string; values: string[] }): JSX.Element {
-  return (
-    <div className="memory-chip-group">
-      <span>{label}</span>
-      <div>{values.map((value) => <span key={value}>{value}</span>)}</div>
-    </div>
+    <span className="campaign-claim-cvss-meter" title={`CVSS ${version ?? '3.1'}`}>
+      <span>{rated ? displayedScore.toFixed(1) : 'Unrated'}</span>
+      <span className="campaign-claim-cvss-segments" aria-hidden="true">
+        {Array.from({ length: 10 }, (_, index) => (
+          <span className="campaign-claim-cvss-segment" key={index}>
+            <span style={{ width: `${Math.round(Math.max(0, Math.min(1, displayedScore - index)) * 100)}%` }} />
+          </span>
+        ))}
+      </span>
+    </span>
   );
 }

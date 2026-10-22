@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +21,8 @@ async function fixture(t) {
   const sourceRevision = "git:example-component:revision-one";
   const environmentFingerprint = "environment:example-target:build-one";
   const modelAuthor = { provider: "example-provider", model: "example-model" };
-  let claim = claims.create({ title: "Example state mismatch", summary: "Synthetic proof obligation.", classification: "security.primitive", sourceRevision, environmentFingerprint }, modelAuthor, "author-example");
+  let claim = claims.create({ title: "Example state mismatch", summary: "Synthetic proof obligation.", classification: "security.vulnerability", sourceRevision, environmentFingerprint,
+    stepsToReproduce: "Run the example setup, then execute the assertion against the sample target." }, modelAuthor, "author-example");
   claim = claims.transition(claim.id, { expectedRevision: claim.revision, toStatus: "observed", reason: "Example direct observation.",
     evidence: [{ kind: "code", referenceId: "src/example.ts:1", summary: "Example observation." }] }, modelAuthor, "author-example");
   const book = runbooks.create({ title: "Example proof", purpose: "Run setup and the assertion.", cells: [
@@ -75,6 +77,43 @@ test("verification resolves execution evidence and rejects self-review, missing 
   claim = f.claims.revise(claim.id, { expectedRevision: claim.revision, reason: "Changed the example conclusion.", summary: "A different example property requires review." }, undefined, "author-example");
   assert.equal(claim.evidence.at(-1).validated, false);
   assert.ok(f.claims.completionChecklist(claim.id, "verified").missingRequired.includes("independent_verification"));
+});
+
+test("legacy composite classifications and review bindings remain readable without component tracking", async (t) => {
+  const f = await fixture(t);
+  const component = f.claims.create({ title: "Example distinct weakness", classification: "security.vulnerability" });
+  const execution = await f.run();
+  let finding = f.reproduce(execution.runId);
+  finding = f.claims.transition(finding.id, {
+    expectedRevision: finding.revision, toStatus: "verified", reason: "Example independent review.",
+    evidence: [{ kind: "independent_verification", independent: true, referenceId: execution.runId, summary: "Example review." }],
+  }, f.modelAuthor, "reviewer-example", { freshSubagentContext: true });
+  const binding = `sha256:${createHash("sha256").update(JSON.stringify({
+    classification: "security.chain", componentClaimIds: [component.id],
+    environmentFingerprint: finding.environmentFingerprint, id: finding.id, impact: finding.impact,
+    reproductionRunbookId: finding.reproductionRunbookId, sourceRevision: finding.sourceRevision,
+    stepsToReproduce: finding.stepsToReproduce,
+    summary: finding.summary, title: finding.title,
+  })).digest("hex")}`;
+  f.database.prepare("UPDATE app_server_research_claims SET classification = 'security.chain' WHERE id = ?").run(finding.id);
+  f.database.prepare(`INSERT INTO app_server_claim_components
+    (claim_id, component_claim_id, position, created_at) VALUES (?, ?, 0, '2026-01-01T00:00:00Z')`).run(finding.id, component.id);
+  f.database.prepare("UPDATE app_server_claim_evidence SET claim_binding_hash = ? WHERE id = ?")
+    .run(binding, finding.evidence.at(-1).id);
+  const restored = f.claims.get(finding.id);
+  assert.equal(restored.classification, "security.vulnerability");
+  assert.equal(Object.hasOwn(restored, "componentClaimIds"), false);
+  assert.equal(restored.evidence.at(-1).validated, true);
+  const appended = f.claims.transition(finding.id, {
+    expectedRevision: restored.revision, toStatus: "verified", reason: "Added another direct observation.",
+    evidence: [{ kind: "code", referenceId: "src/example.ts:2", summary: "Additional example observation." }],
+  });
+  assert.equal(appended.evidence.find((item) => item.claimBindingHash === binding)?.validated, true);
+  assert.equal(f.database.prepare("SELECT classification FROM app_server_research_claims WHERE id = ?").get(finding.id).classification, "security.chain");
+  const revised = f.claims.revise(finding.id, {
+    expectedRevision: appended.revision, reason: "Clarified the example conclusion.", summary: "A clarified example conclusion.",
+  });
+  assert.equal(revised.evidence.find((item) => item.claimBindingHash === binding)?.validated, false);
 });
 
 test("reproduction rejects setup-only runs, changed environments, and obsolete notebook revisions", async (t) => {
@@ -133,13 +172,16 @@ test("reviewers cannot verify content they revised or change claim content durin
   const review = { toStatus: "verified", reason: "Example review.", evidence: [
     { kind: "independent_verification", independent: true, referenceId: run.runId, summary: "Example review." },
   ] };
-  assert.throws(() => f.claims.transition(claim.id, { ...review, expectedRevision: claim.revision, classification: "security.chain" },
+  assert.throws(() => f.claims.transition(claim.id, { ...review, expectedRevision: claim.revision, classification: "security.variant" },
     f.modelAuthor, "reviewer-example", { freshSubagentContext: true }), /existing claim content/);
   claim = f.claims.revise(claim.id, { expectedRevision: claim.revision, summary: "Revised example conclusion.", reason: "Example content revision." },
     f.modelAuthor, "reviewer-example");
   assert.throws(() => f.claims.transition(claim.id, { ...review, expectedRevision: claim.revision }, f.modelAuthor, "reviewer-example", { freshSubagentContext: true }), /independent reviewer/);
   claim = f.claims.transition(claim.id, { ...review, expectedRevision: claim.revision }, f.modelAuthor, "another-reviewer-example", { freshSubagentContext: true });
   assert.equal(claim.evidence.at(-1).validated, true);
+  claim = f.claims.revise(claim.id, { expectedRevision: claim.revision, reason: "Clarify the example reproduction procedure.",
+    stepsToReproduce: "Run the example setup, execute the assertion, then inspect the returned state." });
+  assert.equal(claim.evidence.at(-1).validated, false);
 });
 
 test("legacy execution and review records are preserved without inventing verification provenance", async (t) => {
@@ -194,7 +236,7 @@ test("provenance migrations preserve old rows and do not backfill invented execu
   let claims = new FindingStore(graph);
   let books = new RunbookStore(graph.databasePath, layout, graph.getContext());
   const databasePath = graph.databasePath;
-  const claim = claims.create({ title: "Example historical claim", classification: "security.primitive" }, undefined, "author-example");
+  const claim = claims.create({ title: "Example historical claim", classification: "security.vulnerability" }, undefined, "author-example");
   const book = books.create({ title: "Example historical procedure", purpose: "Preserve the existing record." }).runbook;
   books.close(); claims.close(); graph.close();
   const database = new DatabaseSync(databasePath);
@@ -208,7 +250,7 @@ test("provenance migrations preserve old rows and do not backfill invented execu
       database.exec(`ALTER TABLE app_server_runbook_executions DROP COLUMN ${column}`);
     }
     database.exec("ALTER TABLE app_server_claim_evidence DROP COLUMN claim_binding_hash");
-    database.exec("DELETE FROM schema_migrations WHERE (component = 'app_server_core' AND version = 18) OR (component = 'app_server_research_claims' AND version IN (7, 8))");
+    database.exec("DELETE FROM schema_migrations WHERE (component = 'app_server_core' AND version = 18) OR (component = 'app_server_research_claims' AND version IN (7, 8, 9))");
   } finally { database.close(); }
   try {
     graph = new MemoryGraphStore({ workspaceRoot: root, context });

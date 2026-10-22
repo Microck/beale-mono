@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, DragEvent, JSX } from 'react';
-import { BadgeCheck, Lightbulb, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, OctagonMinus, Search } from 'lucide-react';
 import type {
   AppServerFindingSummary,
   AppServerMemorySummary,
@@ -17,11 +17,16 @@ import type { CampaignClaimRatingValue } from '../../view-models/campaignClaims'
 import { researchModelDisplayName, traceLabel } from '../../lib/formatting';
 import { ProviderIcon } from '../../app/ProviderIcon';
 import { FloatingTextPicker } from '../../app/FloatingTextPicker';
+import { Modal } from '../../app/Modal';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { memoryTypeClassName, memoryTypeLabel, memoryTypeStyle } from '../research/MemoryTypeLabel';
 
-const CAMPAIGN_BOARD_MATURITIES: readonly ClaimBoardMaturity[] = ['refuted', 'observed', 'reproduced', 'verified'];
+const CAMPAIGN_BOARD_MATURITIES: readonly ClaimBoardMaturity[] = ['observed', 'reproduced', 'verified', 'reported'];
 type CampaignBoardMaturity = ClaimBoardMaturity;
+export function adjacentCampaignBoardMaturity(maturity: ClaimBoardMaturity, direction: -1 | 1): ClaimBoardMaturity | null {
+  const index = CAMPAIGN_BOARD_MATURITIES.indexOf(maturity);
+  return index < 0 ? null : CAMPAIGN_BOARD_MATURITIES[index + direction] ?? null;
+}
 type CampaignBoardRatingFilter = CampaignClaimRatingValue | 'all';
 const CAMPAIGN_BOARD_RATING_OPTIONS: Array<{ value: CampaignBoardRatingFilter; label: string }> = [
   { value: 'all', label: 'All Ratings' },
@@ -33,13 +38,21 @@ const CAMPAIGN_BOARD_RATING_OPTIONS: Array<{ value: CampaignBoardRatingFilter; l
   { value: 'critical', label: 'Critical' }
 ];
 export function CampaignBoardView({
+  compact = false,
+  focusedMaturity,
   memory,
+  openClaimId = null,
+  onFocusedMaturityChange,
   providerModelCatalog,
   workspaceName,
   onOpenClaim,
   onTransitionClaim
 }: {
+  compact?: boolean;
+  focusedMaturity?: ClaimBoardMaturity;
   memory: AppServerMemorySummary | null;
+  openClaimId?: string | null;
+  onFocusedMaturityChange?: (maturity: ClaimBoardMaturity) => void;
   providerModelCatalog: readonly ResearchProviderModelCatalog[];
   workspaceName: string;
   onOpenClaim: (claimId: string) => void;
@@ -47,13 +60,25 @@ export function CampaignBoardView({
 }): JSX.Element {
   const loading = memory === null || memory.loading === true;
   const [query, setQuery] = useState('');
-  const [classificationFilter, setClassificationFilter] = useState('all');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
   const [ratingFilter, setRatingFilter] = useState<CampaignBoardRatingFilter>('all');
+  const [authorFilter, setAuthorFilter] = useState('all');
   const [draggedClaimId, setDraggedClaimId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<ClaimBoardMaturity | null>(null);
   const [pendingClaimId, setPendingClaimId] = useState<string | null>(null);
   const [transitionError, setTransitionError] = useState<string | null>(null);
-  const classificationOptions = campaignBoardClassificationOptions(memory);
+  const [refutedOpen, setRefutedOpen] = useState(false);
+  const [localFocusedMaturity, setLocalFocusedMaturity] = useState<ClaimBoardMaturity>('observed');
+  const selectedMaturity = focusedMaturity && CAMPAIGN_BOARD_MATURITIES.includes(focusedMaturity)
+    ? focusedMaturity : localFocusedMaturity;
+  const focusMaturity = (maturity: ClaimBoardMaturity): void => {
+    setLocalFocusedMaturity(maturity);
+    onFocusedMaturityChange?.(maturity);
+  };
+  const visibleMaturities = compact ? [selectedMaturity] : CAMPAIGN_BOARD_MATURITIES;
+  const refutedFindings = campaignBoardFindings(memory, 'refuted');
+  const authorOptions = useMemo(() => campaignBoardAuthorOptions(memory, providerModelCatalog), [memory, providerModelCatalog]);
 
   const dragClaim = (event: DragEvent<HTMLButtonElement>, claim: AppServerFindingSummary): void => {
     if (pendingClaimId || !onTransitionClaim) {
@@ -75,59 +100,84 @@ export function CampaignBoardView({
   const draggedClaim = memory?.findings.find((claim) => claim.id === draggedClaimId) ?? null;
 
   useEffect(() => {
-    if (classificationFilter === 'all' || classificationOptions.some((option) => option.value === classificationFilter)) return;
-    setClassificationFilter('all');
-  }, [classificationFilter, classificationOptions]);
+    if (authorOptions.some((option) => option.value === authorFilter)) return;
+    setAuthorFilter('all');
+  }, [authorFilter, authorOptions]);
 
   return (
-    <section aria-labelledby="workspace-campaign-board-heading" className="workspace-dashboard-panel campaign-panel campaign-board-panel" id="workspace-dashboard-campaign-board-panel" role="tabpanel">
+    <section aria-labelledby="workspace-campaign-board-heading" className={`workspace-dashboard-panel campaign-panel campaign-board-panel${compact ? ' is-compact' : ''}`} id="workspace-dashboard-campaign-board-panel" role="tabpanel">
       <header className="campaign-header campaign-board-header">
         <div className="settings-form-heading campaign-view-heading">
-          <h2 className="campaign-view-title" id="workspace-campaign-board-heading">{workspaceName.trim() || 'Workspace'} Claims</h2>
-          <p>{onTransitionClaim
-            ? 'Drag findings between columns to change status.'
-            : 'Findings are grouped by maturity; proposed leads are excluded.'}</p>
-          {pendingClaimId ? <p className="campaign-board-transition-pending" role="status">Updating claim status…</p> : null}
-          {transitionError ? <p className="campaign-board-transition-error" role="alert">{transitionError}</p> : null}
-        </div>
-        <div className="campaign-board-filters" aria-label="Claims filters">
-          <label className="campaign-board-search">
-            <Search size={14} aria-hidden="true" />
-            <input
-              aria-label="Filter claims"
+          <h2 className="campaign-view-title" id="workspace-campaign-board-heading">{workspaceName.trim() || 'Workspace'} Findings</h2>
+          {!compact ? <div className={`campaign-board-title-search${searchOpen ? ' is-open' : ''}`} role="search">
+            <button
+              aria-label={searchOpen ? 'Close finding search' : 'Search findings'}
+              aria-expanded={searchOpen}
+              onClick={() => {
+                if (searchOpen) {
+                  setQuery('');
+                  setSearchOpen(false);
+                } else setSearchOpen(true);
+              }}
+              ref={searchButtonRef}
+              title={searchOpen ? 'Close finding search' : 'Search findings'}
+              type="button"
+            ><Search aria-hidden="true" size={16} /></button>
+            {searchOpen ? <input
+              aria-label="Filter findings"
+              autoFocus
               onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return;
+                setQuery('');
+                setSearchOpen(false);
+                searchButtonRef.current?.focus();
+              }}
               placeholder="Filter findings"
               type="search"
               value={query}
-            />
-          </label>
-          <FloatingTextPicker
-            ariaLabel="Finding class filter"
-            className="campaign-board-filter campaign-board-class-filter"
-            onChange={setClassificationFilter}
-            options={classificationOptions}
-            title="Filter findings by class"
-            value={classificationFilter}
-          />
-          <FloatingTextPicker
-            ariaLabel="Finding rating filter"
-            className="campaign-board-filter campaign-board-rating-filter"
-            onChange={(value) => setRatingFilter(value as CampaignBoardRatingFilter)}
-            options={CAMPAIGN_BOARD_RATING_OPTIONS}
-            title="Filter findings by preferred CVSS or fallback rating"
-            value={ratingFilter}
-          />
+            /> : null}
+          </div> : null}
         </div>
+        <div className="campaign-board-controls-row">
+          <div className="campaign-board-filters" aria-label="Findings filters">
+            <FloatingTextPicker
+              ariaLabel="Finding rating filter"
+              className="campaign-board-filter campaign-board-rating-filter"
+              onChange={(value) => setRatingFilter(value as CampaignBoardRatingFilter)}
+              options={CAMPAIGN_BOARD_RATING_OPTIONS}
+              title="Filter findings by preferred CVSS or fallback rating"
+              value={ratingFilter}
+            />
+            <FloatingTextPicker
+              ariaLabel="Finding author filter"
+              className="campaign-board-filter campaign-board-author-filter"
+              onChange={setAuthorFilter}
+              options={authorOptions}
+              title="Filter findings by model author"
+              value={authorFilter}
+            />
+          </div>
+          {!compact ? <button className="campaign-board-refuted-toggle" onClick={() => setRefutedOpen(true)} type="button">
+            {refutedFindings.length.toLocaleString()} refuted hidden
+          </button> : null}
+        </div>
+        {pendingClaimId ? <p className="campaign-board-transition-pending" role="status">Updating finding status…</p> : null}
+        {transitionError ? <p className="campaign-board-transition-error" role="alert">{transitionError}</p> : null}
       </header>
 
-      <div className="campaign-board-lanes" aria-busy={pendingClaimId !== null}>
-        {CAMPAIGN_BOARD_MATURITIES.map((maturity) => {
-          const findings = campaignBoardFindings(memory, maturity, { classification: classificationFilter, rating: ratingFilter, query });
+      <div className={`campaign-board-lanes${compact ? ' is-compact' : ''}`} aria-busy={pendingClaimId !== null}>
+        {visibleMaturities.map((maturity) => {
+          const findings = campaignBoardFindings(memory, maturity, { rating: ratingFilter, author: authorFilter, query });
+          const previousMaturity = compact ? adjacentCampaignBoardMaturity(maturity, -1) : null;
+          const nextMaturity = compact ? adjacentCampaignBoardMaturity(maturity, 1) : null;
           return (
             <section
               className={`campaign-board-lane maturity-${maturity}${dropTarget === maturity ? ' is-drop-target' : ''}`}
-              key={maturity}
+              key={compact ? 'compact' : maturity}
               aria-labelledby={`campaign-board-${maturity}-heading`}
+              onClickCapture={() => focusMaturity(maturity)}
+              onFocusCapture={() => focusMaturity(maturity)}
               onDragOver={(event) => {
                 if (!draggedClaim || draggedClaim.maturity === maturity || pendingClaimId) return;
                 event.preventDefault();
@@ -138,6 +188,7 @@ export function CampaignBoardView({
                 event.preventDefault();
                 clearDrag();
                 if (!draggedClaim || draggedClaim.maturity === maturity || !onTransitionClaim || pendingClaimId) return;
+                focusMaturity(maturity);
                 setPendingClaimId(draggedClaim.id);
                 setTransitionError(null);
                 void onTransitionClaim(draggedClaim, maturity)
@@ -145,11 +196,31 @@ export function CampaignBoardView({
                   .finally(() => setPendingClaimId(null));
               }}
             >
-              <h3 className="workspace-campaign-list-heading campaign-board-lane-heading" id={`campaign-board-${maturity}-heading`}>{traceLabel(maturity)} ({findings.length.toLocaleString()})</h3>
+              {compact ? <div className="campaign-board-lane-navigation">
+                <button
+                  aria-label="Previous findings lane"
+                  className="campaign-board-lane-direction"
+                  disabled={!previousMaturity}
+                  onClick={() => { if (previousMaturity) focusMaturity(previousMaturity); }}
+                  onDragEnter={() => { if (draggedClaim && previousMaturity) focusMaturity(previousMaturity); }}
+                  title={previousMaturity ? `Show ${traceLabel(previousMaturity)} findings` : 'First findings lane'}
+                  type="button"
+                ><ChevronLeft aria-hidden="true" size={17} /></button>
+                <h3 className="workspace-campaign-list-heading campaign-board-lane-heading" id={`campaign-board-${maturity}-heading`}>{traceLabel(maturity)} ({findings.length.toLocaleString()})</h3>
+                <button
+                  aria-label="Next findings lane"
+                  className="campaign-board-lane-direction"
+                  disabled={!nextMaturity}
+                  onClick={() => { if (nextMaturity) focusMaturity(nextMaturity); }}
+                  onDragEnter={() => { if (draggedClaim && nextMaturity) focusMaturity(nextMaturity); }}
+                  title={nextMaturity ? `Show ${traceLabel(nextMaturity)} findings` : 'Last findings lane'}
+                  type="button"
+                ><ChevronRight aria-hidden="true" size={17} /></button>
+              </div> : <h3 className="workspace-campaign-list-heading campaign-board-lane-heading" id={`campaign-board-${maturity}-heading`}>{traceLabel(maturity)} ({findings.length.toLocaleString()})</h3>}
               <MainSideScrollRegion
                 className="campaign-board-lane-scroll"
                 listClassName="campaign-board-lane-list"
-                updateKey={`${loading}:${classificationFilter}:${ratingFilter}:${query}:${findings.map(({ id, revision }) => `${id}:${revision}`).join('|')}`}
+                updateKey={`${loading}:${ratingFilter}:${authorFilter}:${query}:${findings.map(({ id, revision }) => `${id}:${revision}`).join('|')}`}
               >
                 {loading ? <p className="campaign-board-empty">Loading findings.</p> : findings.length === 0 ? (
                   <p className="campaign-board-empty">No {maturity} findings.</p>
@@ -159,6 +230,7 @@ export function CampaignBoardView({
                     className="campaign-board-card"
                     key={claim.id}
                     metadata={campaignBoardClaimMetadata(claim)}
+                    active={openClaimId === claim.id}
                     onOpenClaim={onOpenClaim}
                     onDragStart={onTransitionClaim ? (event) => dragClaim(event, claim) : undefined}
                     onDragEnd={clearDrag}
@@ -172,6 +244,18 @@ export function CampaignBoardView({
           );
         })}
       </div>
+      {refutedOpen ? <Modal onClose={() => setRefutedOpen(false)} title="Refuted findings">
+        <div className="campaign-board-refuted-list">
+          {refutedFindings.length ? refutedFindings.map((claim) => <CampaignClaimCard
+            claim={claim}
+            key={claim.id}
+            metadata={campaignBoardClaimMetadata(claim)}
+            active={openClaimId === claim.id}
+            onOpenClaim={(id) => { setRefutedOpen(false); onOpenClaim(id); }}
+            providerModelCatalog={providerModelCatalog}
+          />) : <p>No refuted findings.</p>}
+        </div>
+      </Modal> : null}
     </section>
   );
 }
@@ -230,33 +314,48 @@ export function campaignBoardClaimMetadata(claim: AppServerFindingSummary): stri
 export function campaignBoardFindings(
   memory: AppServerMemorySummary | null,
   maturity: CampaignBoardMaturity,
-  filters: { classification: string; rating: CampaignBoardRatingFilter; query?: string } = { classification: 'all', rating: 'all' }
+  filters: { rating: CampaignBoardRatingFilter; author?: string; query?: string } = { rating: 'all' }
 ): AppServerFindingSummary[] {
   const query = filters.query?.trim().toLocaleLowerCase() ?? '';
   return (memory?.findings ?? []).filter((claim) => claim.maturity === maturity
-    && (filters.classification === 'all' || claim.classification === filters.classification)
     && (filters.rating === 'all' || campaignClaimRatingPresentation(claim).value === filters.rating)
+    && (!filters.author || filters.author === 'all' || claim.authors.some((author) => campaignBoardAuthorKey(author) === filters.author))
     && (!query || [claim.id, claim.title, claim.summary, claim.impact, claim.classification, claim.status,
-      claim.maturity, claim.workflow, claim.rating, ...claim.evidence.map((evidence) => evidence.summary)]
+      claim.maturity, claim.rating, ...claim.evidence.map((evidence) => evidence.summary)]
       .join('\n').toLocaleLowerCase().includes(query)));
 }
 
-export function campaignBoardClassificationOptions(memory: AppServerMemorySummary | null): Array<{ value: string; label: string }> {
-  const classifications = [...new Set((memory?.findings ?? []).map((claim) => claim.classification).filter(Boolean))];
+function campaignBoardAuthorKey(author: AppServerFindingSummary['authors'][number]): string {
+  return JSON.stringify([author.provider, author.model]);
+}
+
+export function campaignBoardAuthorOptions(
+  memory: AppServerMemorySummary | null,
+  providerModelCatalog: readonly ResearchProviderModelCatalog[]
+): Array<{ value: string; label: string }> {
+  const authors = new Map<string, AppServerFindingSummary['authors'][number]>();
+  for (const finding of memory?.findings ?? []) {
+    if (!CAMPAIGN_BOARD_MATURITIES.some((maturity) => maturity === finding.maturity)) continue;
+    for (const author of finding.authors) if (author.model.trim()) authors.set(campaignBoardAuthorKey(author), author);
+  }
+  const models = [...authors].map(([value, author]) => ({
+    value,
+    name: researchModelDisplayName(author.provider, author.model, providerModelCatalog),
+    provider: author.provider
+  }));
+  const nameCounts = new Map<string, number>();
+  for (const model of models) nameCounts.set(model.name, (nameCounts.get(model.name) ?? 0) + 1);
   return [
-    { value: 'all', label: 'All Classes' },
-    ...classifications
-      .map((classification) => ({ value: classification, label: campaignBoardClassificationLabel(classification) }))
-      .sort((left, right) => left.label.localeCompare(right.label))
+    { value: 'all', label: 'All Authors' },
+    ...models.map((model) => ({
+      value: model.value,
+      label: nameCounts.get(model.name)! > 1 ? `${model.name} (${model.provider || 'Unknown provider'})` : model.name
+    })).sort((left, right) => left.label.localeCompare(right.label))
   ];
 }
 
-function campaignBoardClassificationLabel(classification: string): string {
-  const unqualified = classification.trim().split('.').filter(Boolean).at(-1) ?? classification;
-  return traceLabel(unqualified.replaceAll('-', '_'));
-}
-
 function CampaignClaimCard({
+  active = false,
   claim,
   className = '',
   metadata,
@@ -267,6 +366,7 @@ function CampaignClaimCard({
   dragDisabled = false,
   providerModelCatalog
 }: {
+  active?: boolean;
   claim: AppServerFindingSummary;
   className?: string;
   metadata: string;
@@ -279,7 +379,8 @@ function CampaignClaimCard({
 }): JSX.Element {
   return (
     <button
-      className={`campaign-claim-card${className ? ` ${className}` : ''}${dragging ? ' is-dragging' : ''}`}
+      aria-current={active ? 'true' : undefined}
+      className={`campaign-claim-card${className ? ` ${className}` : ''}${active ? ' is-active' : ''}${dragging ? ' is-dragging' : ''}`}
       draggable={Boolean(onDragStart) && !dragDisabled}
       onClick={() => onOpenClaim(claim.id)}
       onDragStart={onDragStart}
@@ -287,9 +388,12 @@ function CampaignClaimCard({
       type="button"
     >
       <strong className="campaign-claim-card-title">
-        {claim.projection === 'finding'
-          ? <BadgeCheck aria-hidden="true" className={`campaign-claim-title-icon maturity-${claim.maturity}`} size={15} />
-          : <Lightbulb aria-hidden="true" className={`campaign-claim-title-icon maturity-${claim.maturity}`} size={15} />}
+        {claim.securityTracking?.progressBlocker ? <span
+          className="campaign-board-blocked-marker"
+          title={`Blocked: ${claim.securityTracking.progressBlocker.reason}`}
+        >
+          <OctagonMinus aria-label="Blocked" className="campaign-board-blocked-icon" role="img" size={16} />
+        </span> : null}
         <span>{claim.title}</span>
       </strong>
       <span className="campaign-claim-card-footer">

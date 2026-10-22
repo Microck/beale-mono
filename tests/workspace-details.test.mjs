@@ -20,7 +20,8 @@ test('workspace details expose typed context without host storage paths', () => 
   }, memory, {
     runbooks: [{ id: 'runbook-example', title: 'Example runbook', purpose: 'Verify example.test.', updatedAt: '2026-01-01T00:00:00.000Z', artifactId: '/example/private-artifact' }],
     reports: [{ id: 'report-example', title: 'Example report', summary: 'Synthetic report.', status: 'complete', updatedAt: '2026-01-01T00:00:00.000Z', artifactId: '/example/private-report' }]
-  }, [{ id: 'local', name: 'Local', ready: true }]);
+  }, [{ id: 'local', name: 'Local', ready: true }],
+  { schemaVersion: 1, workspaceId: 'workspace-example', surfaces: [], agents: [] });
   assert.equal(decodeBealeAppServerWorkspaceDetails(details), details);
   assert.equal(details.scope.resources[0].value, 'example.test');
   assert.equal(details.scope.resources[1].value, null);

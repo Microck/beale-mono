@@ -177,7 +177,7 @@ test("reports import and retain bounded workspace packet and recording attachmen
   }
 });
 
-test("security report creation accepts a composite finding reviewed in the same session", async () => {
+test("security report creation accepts a verified finding reviewed in the same session", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "app-server-security-report-tools-"));
   const layout = ensureResearchStorageLayout(createResearchStorageLayout({ workspaceRoot }));
   const memoryGraph = new MemoryGraphStore({ workspaceRoot, context: {
@@ -190,45 +190,28 @@ test("security report creation accepts a composite finding reviewed in the same 
   await writeFile(packetPath, Buffer.from([0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0]));
   const store = new ReportStore(memoryGraph.databasePath, layout, memoryGraph.getContext(), { packetCandidateRoots: [workspaceRoot] });
   const registry = createResearchToolRegistry(createReportTools(store, {
-    requireConfirmedChain: true,
+    requireVerifiedFinding: true,
     requireSubmissionPacket: true,
     claimStore: claims,
   }));
   try {
-    const componentLead = claims.create({
-      title: "Attacker controls the redirect destination",
-      classification: "security.primitive",
-      evidence: [{ kind: "command", referenceId: "redirect-verifier", summary: "The verifier demonstrated destination control." }],
-    });
-    const component = claims.transition(componentLead.id, {
-      expectedRevision: componentLead.revision,
-      toStatus: "observed",
-      reason: "Direct verifier output established destination control.",
-    });
+    let finding = claims.createObserved({
+      title: "Unvalidated redirect reaches an authenticated callback",
+      summary: "An attacker-controlled destination receives the victim authorization result.",
+      impact: "The callback discloses the victim authorization result.",
+      classification: "security.vulnerability",
+      sourceRevision: "git:example-component:one",
+      environmentFingerprint: "environment:example-component:one",
+      evidence: [{ kind: "command", referenceId: "redirect-verifier", summary: "The complete callback path was observed." }],
+    }, undefined, "agent_author_example");
     const premature = await registry.execute({
       id: "premature_report",
       actionClass: "synthesize",
       toolName: "report.create",
-      input: { title: "Premature", summary: "Isolated finding only.", content: "# Premature", sourceFindingId: component.id, submissionPacketPath: packetPath },
+      input: { title: "Premature", summary: "Unverified finding.", content: "# Premature", sourceFindingId: finding.id, submissionPacketPath: packetPath },
     });
     assert.equal(premature.result.status, "error");
-    assert.match(premature.result.error.message, /security\.chain composite finding/);
-
-    let chain = claims.create({
-      title: "Unvalidated redirect reaches an authenticated callback",
-      summary: "An attacker-controlled destination receives the victim authorization result.",
-      impact: "The callback discloses the victim authorization result.",
-      classification: "security.chain",
-      componentClaimIds: [component.id],
-      sourceRevision: "git:example-component:one",
-      environmentFingerprint: "environment:example-component:one",
-      evidence: [{ kind: "command", referenceId: "redirect-chain-verifier", summary: "The complete callback path was observed." }],
-    }, undefined, "agent_author_example");
-    chain = claims.transition(chain.id, {
-      expectedRevision: chain.revision,
-      toStatus: "observed",
-      reason: "The complete callback path was directly observed.",
-    }, undefined, "agent_author_example");
+    assert.match(premature.result.error.message, /verified finding/);
     const runbook = runbooks.create({
       title: "Reproduce redirect callback chain",
       purpose: "Replay the complete redirect and callback path.",
@@ -236,55 +219,74 @@ test("security report creation accepts a composite finding reviewed in the same 
     }).runbook;
     const runId = "redirect_chain_run";
     recordRunbookExecution(runbooks, runbook.id, runId, {
-      sourceRevision: chain.sourceRevision, environmentFingerprint: chain.environmentFingerprint, actorId: "agent_author_example",
+      sourceRevision: finding.sourceRevision, environmentFingerprint: finding.environmentFingerprint, actorId: "agent_author_example",
     });
-    chain = claims.transition(chain.id, {
-      expectedRevision: chain.revision,
+    finding = claims.transition(finding.id, {
+      expectedRevision: finding.revision,
       toStatus: "reproduced",
       reason: "The reusable proof completed on a clean target.",
       reproductionRunbookId: runbook.id,
+      stepsToReproduce: "Run the example redirect verifier against a clean target, then observe the callback result.",
       evidence: [{ kind: "runbook_execution", referenceId: runId, summary: "Clean reproduction succeeded." }],
     }, undefined, "agent_author_example");
-    chain = claims.transition(chain.id, {
-      expectedRevision: chain.revision,
+    finding = claims.transition(finding.id, {
+      expectedRevision: finding.revision,
       toStatus: "verified",
-      reason: "A distinct reviewer reproduced and challenged the complete chain in the same session.",
+      reason: "A distinct reviewer reproduced and challenged the finding in the same session.",
       evidence: [{
         kind: "independent_verification", referenceId: runId,
         summary: "Independent replay held.", sessionId: "run_security", independent: true,
       }],
     }, undefined, "agent_reviewer_example", { freshSubagentContext: true });
+    const legacyDatabase = new DatabaseSync(memoryGraph.databasePath);
+    try {
+      legacyDatabase.prepare("UPDATE app_server_research_claims SET steps_to_reproduce = '' WHERE id = ?").run(finding.id);
+      const missingSteps = await registry.execute({
+        id: "verified_finding_without_steps",
+        actionClass: "synthesize",
+        toolName: "report.create",
+        input: { title: "Missing steps", summary: "Example result.", content: "# Missing steps",
+          sourceFindingId: finding.id, submissionPacketPath: packetPath },
+      });
+      assert.equal(missingSteps.result.status, "error");
+      assert.match(missingSteps.result.error.message, /steps to reproduce/);
+      assert.equal(store.list().length, 0);
+    } finally {
+      legacyDatabase.prepare("UPDATE app_server_research_claims SET steps_to_reproduce = ? WHERE id = ?")
+        .run(finding.stepsToReproduce, finding.id);
+      legacyDatabase.close();
+    }
     const missingPacket = await registry.execute({
-      id: "confirmed_chain_without_packet",
+      id: "verified_finding_without_packet",
       actionClass: "synthesize",
       toolName: "report.create",
-      input: { title: "Missing packet", summary: "Reportable chain.", content: "# Missing packet", sourceFindingId: chain.id },
+      input: { title: "Missing packet", summary: "Reportable finding.", content: "# Missing packet", sourceFindingId: finding.id },
     });
     assert.equal(missingPacket.result.status, "blocked");
     assert.match(JSON.stringify(missingPacket.result), /submissionPacketPath/);
-    chain = claims.revise(chain.id, { expectedRevision: chain.revision, summary: "Updated example conclusion requiring review.", reason: "Example clarification." },
+    finding = claims.revise(finding.id, { expectedRevision: finding.revision, summary: "Updated example conclusion requiring review.", reason: "Example clarification." },
       undefined, "agent_author_example");
     const invalidated = await registry.execute({
       id: "invalidated_report_example", actionClass: "synthesize", toolName: "report.create",
-      input: { title: "Example report", summary: "Example result.", content: "# Example report", sourceFindingId: chain.id, submissionPacketPath: packetPath },
+      input: { title: "Example report", summary: "Example result.", content: "# Example report", sourceFindingId: finding.id, submissionPacketPath: packetPath },
     });
     assert.equal(invalidated.result.status, "error");
     assert.match(invalidated.result.error.message, /current validated reproduction and independent review/);
     assert.equal(store.list().length, 0, "invalid evidence must be rejected before creating report artifacts");
-    chain = claims.transition(chain.id, { expectedRevision: chain.revision, toStatus: "verified", reason: "Reviewed the updated example conclusion.", evidence: [
+    finding = claims.transition(finding.id, { expectedRevision: finding.revision, toStatus: "verified", reason: "Reviewed the updated example conclusion.", evidence: [
       { kind: "independent_verification", referenceId: runId, summary: "Example renewed review.", independent: true },
     ] }, undefined, "agent_reviewer_example", { freshSubagentContext: true });
     const created = await registry.execute({
-      id: "confirmed_chain_report",
+      id: "verified_finding_report",
       actionClass: "synthesize",
       toolName: "report.create",
-      input: { title: "Verified chain", summary: "Reportable chain.", content: "# Verified chain", sourceFindingId: chain.id, submissionPacketPath: packetPath },
+      input: { title: "Verified finding", summary: "Reportable finding.", content: "# Verified finding", sourceFindingId: finding.id, submissionPacketPath: packetPath },
     });
     assert.equal(created.result.status, "complete");
     assert.equal(created.result.artifactRefs[0].kind, "report");
     assert.equal(created.result.artifactRefs[1].kind, "submission-packet");
     assert.equal(created.result.output.report.submissionPacket.filename, "submission.zip");
-    assert.equal(created.result.output.sourceFinding.id, chain.id);
+    assert.equal(created.result.output.sourceFinding.id, finding.id);
     assert.equal(created.result.output.sourceFinding.status, "report_ready");
     assert.equal(created.result.output.sourceFinding.transitions.at(-1).sessionId, "run_security");
   } finally {

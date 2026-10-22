@@ -12,6 +12,7 @@ import { MemoryTypeLabel } from '../src/renderer/features/research/MemoryTypeLab
 import {
   CampaignClaimDetailView,
   orderedCatalogMemoryTypes,
+  ResearchSideNestedHeader,
   ResearchSidePanel
 } from '../src/renderer/features/research/MemorySidePanel';
 import {
@@ -20,6 +21,7 @@ import {
   StartRunForm
 } from '../src/renderer/features/sessions/StartRunForm';
 import { AppearanceSettingsView } from '../src/renderer/features/settings/SettingsModal';
+import { formatSessionDateTime } from '../src/renderer/lib/formatting';
 import {
   memoryCatalogStatusSections,
   sessionMemoryActivitySummary,
@@ -29,6 +31,22 @@ import { researchGoalSuggestionCacheKey } from '../src/renderer/view-models/rese
 import { testResearchProfile } from './researchProfileFixture';
 
 describe('renderer research profile presentation', () => {
+  it('uses an accessible circular back button for campaign item details', () => {
+    const campaign = renderToStaticMarkup(createElement(ResearchSideNestedHeader, {
+      iconOnly: true, label: 'Campaign', name: 'Example finding title', onBack: () => undefined
+    }));
+    const subagent = renderToStaticMarkup(createElement(ResearchSideNestedHeader, {
+      label: 'Subagents', onBack: () => undefined
+    }));
+
+    expect(campaign).toContain('aria-label="Back to Campaign"');
+    expect(campaign).toContain('research-side-nested-header is-campaign-item');
+    expect(campaign).toContain('class="is-icon-only"');
+    expect(campaign).not.toContain('<span>Back to Campaign</span>');
+    expect(campaign).toContain('class="research-side-nested-name" title="Example finding title">Example finding title</span>');
+    expect(subagent).toContain('<span>Back to Subagents</span>');
+  });
+
   it('uses canonical session memory activity instead of the current trace projection', () => {
     expect(sessionMemoryActivitySummary([], 0, {
       memorySearches: 37,
@@ -220,14 +238,16 @@ describe('renderer research profile presentation', () => {
     expect(html).not.toContain('0 Guides');
   });
 
-  it('renders reversible duplicate management in canonical claim details', () => {
+  it('starts finding details on Breakdown with tabs below the status and timestamp', () => {
     const parent = claim('claim_parent', 'Canonical parser boundary');
+    parent.originSessionId = 'session_example';
+    parent.stepsToReproduce = '1. Run the example parser.\n2. Observe the retained state.';
     parent.duplicateClaims = [{
       id: 'claim_duplicate',
       projection: 'lead',
       maturity: 'observed',
       rating: 'high',
-      classification: 'security.primitive',
+      classification: 'security.vulnerability',
       title: 'Redundant parser boundary',
       status: 'observed',
       revision: 4,
@@ -242,14 +262,136 @@ describe('renderer research profile presentation', () => {
       onUndoDuplicate: () => undefined
     }));
 
-    expect(html).toContain('aria-label="Duplicate claim management"');
-    expect(html).toContain('Redundant parser boundary');
-    expect(html).toContain('>Undo</button>');
-    expect(html).toContain('Canonical allocator boundary');
-    expect(html).toContain('>Mark duplicate</button>');
-    expect(html).toContain('<dt><strong>Claim</strong></dt><dd>claim_parent</dd>');
-    expect(html.indexOf('<dt><strong>Claim</strong>')).toBeLessThan(html.indexOf('<dt><strong>Workspace</strong>'));
-    expect(html.lastIndexOf('<section')).toBe(html.indexOf('<section class="memory-catalog-subsection campaign-claim-duplicates"'));
+    expect(html).toContain('role="tablist" aria-label="Finding detail views"');
+    expect(html.match(/role="tab"/gu)).toHaveLength(4);
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain('lucide-list-checks');
+    expect(html).toContain('lucide-history');
+    expect(html).toContain('lucide-link2');
+    expect(html).toContain('lucide-copy');
+    expect(html).toContain('<span>Breakdown</span></button>');
+    expect(html).toContain('<span>History</span></button>');
+    expect(html).toContain('<span>References</span></button>');
+    expect(html).toContain('<span>Duplicates</span></button>');
+    expect(html.indexOf('<header class="memory-detail-heading">')).toBeLessThan(html.indexOf('aria-label="Finding detail views"'));
+    expect(html).toContain('role="tabpanel"');
+    expect(html).not.toContain('aria-label="Duplicate finding management"');
+    expect(html).not.toContain('Redundant parser boundary');
+    expect(html).toContain('<span class="campaign-claim-identifier-tag">claim_parent</span><span class="campaign-claim-identifier-tag">workspace_one</span><span class="campaign-claim-identifier-tag">subject_one</span><span class="campaign-claim-identifier-tag">session_example</span>');
+    expect(html).not.toContain('>Identifiers</h4>');
+    expect(html).toContain('<strong>Steps to Reproduce</strong><p>1. Run the example parser.\n2. Observe the retained state.</p>');
+    expect(html.indexOf('class="campaign-claim-reproduction-steps"')).toBeLessThan(html.indexOf('class="memory-catalog-meta"'));
+    expect(html).not.toContain('<dt><strong>Freshness</strong></dt>');
+    expect(html).not.toContain('<dt><strong>Workflow</strong></dt>');
+    expect(html).not.toContain('<dt><strong>Finding</strong></dt>');
+  });
+
+  it('shows a blocked finding notice immediately below the view tabs', () => {
+    const finding = claim('claim_example', 'Example parser boundary');
+    finding.securityTracking = {
+      reachability: {
+        state: 'not_assessed', conditions: '', evidenceIds: [], assessorId: null,
+        assessedAt: null, sourceRevision: null, environmentFingerprint: null
+      },
+      cvssAssessments: [], affectedAssetIds: [], surfaceIds: [],
+      progressBlocker: { reason: 'Authorized routes were tested and cannot reach this primitive; a new entry path is needed.', setAt: '2026-09-02T12:00:00.000Z' },
+      externalReferences: []
+    };
+    const html = renderToStaticMarkup(createElement(CampaignClaimDetailView, { claim: finding }));
+
+    expect(html).toContain('<section class="campaign-claim-blocker" aria-label="Blocked"><h3>');
+    expect(html).toContain('lucide-octagon-minus');
+    expect(html).toContain('Blocked</h3><p>Authorized routes were tested and cannot reach this primitive; a new entry path is needed.</p></section>');
+    expect(html.indexOf('aria-label="Finding detail views"')).toBeLessThan(html.indexOf('class="campaign-claim-blocker"'));
+    expect(html.indexOf('class="campaign-claim-blocker"')).toBeLessThan(html.indexOf('role="tabpanel"'));
+    expect(html).not.toContain('Progress blocker:');
+  });
+
+  it('shows finding status and model authors beside the detail timestamp without repeating the title', () => {
+    const finding = claim('claim_example', 'Example parser boundary');
+    finding.projection = 'finding';
+    finding.authors = [{ provider: 'openai', model: 'gpt-5.6' }];
+    const html = renderToStaticMarkup(createElement(CampaignClaimDetailView, {
+      claim: finding
+    }));
+    const header = html.match(/<header class="memory-detail-heading">([\s\S]*?)<\/header>/)?.[1] ?? '';
+
+    expect(header).toContain('campaign-claim-detail-attribution');
+    expect(header).toContain('>Observed by</span>');
+    expect(header).toContain('aria-label="Model authors"');
+    expect(header).toContain('memory-catalog-item-author-provider');
+    expect(header).toContain('gpt-5.6');
+    expect(header).toContain(`<time dateTime="${finding.updatedAt}" title="${formatSessionDateTime(finding.updatedAt)}">${formatSessionDateTime(finding.updatedAt)}</time>`);
+    expect(header).not.toContain('catalog-time-since');
+    expect(header).not.toContain('Example parser boundary');
+    expect(header).not.toContain('<h3>');
+    expect(header.indexOf('aria-label="Model authors"')).toBeLessThan(header.indexOf('<time'));
+  });
+
+  it('uses the rating and assessed reachability as breakdown headings without redundant rows', () => {
+    const finding = claim('claim_example', 'Example parser boundary');
+    finding.impact = 'An example request changes shared parser state.';
+    const render = () => renderToStaticMarkup(createElement(CampaignClaimDetailView, { claim: finding }));
+    const unassessed = render();
+    expect(unassessed).toContain('<strong>High Impact</strong>');
+    expect(unassessed).toContain('<strong>Reachability</strong>');
+    for (const label of ['Untrusted rating', 'Maturity', 'Reachability']) {
+      expect(unassessed).not.toContain(`<dt><strong>${label}</strong></dt>`);
+    }
+
+    for (const [state, heading] of [
+      ['reachable', 'Reachable'],
+      ['unreachable', 'Unreachable'],
+      ['conditional', 'Conditionally Reachable']
+    ] as const) {
+      finding.securityTracking = {
+        reachability: {
+          state, conditions: 'Example boundary condition.', evidenceIds: [], assessorId: null,
+          assessedAt: null, sourceRevision: null, environmentFingerprint: null
+        },
+        cvssAssessments: [], affectedAssetIds: [], surfaceIds: [], progressBlocker: null,
+        externalReferences: []
+      };
+      const html = render();
+      expect(html).toContain(`<strong>${heading}</strong><p>Example boundary condition.</p>`);
+      expect(html).not.toContain('<dt><strong>Reachability</strong></dt>');
+    }
+  });
+
+  it('shows an unrated CVSS meter and fills fractional segments for the latest assessment', () => {
+    const finding = claim('claim_example', 'Example parser boundary');
+    const render = () => renderToStaticMarkup(createElement(CampaignClaimDetailView, { claim: finding }));
+    const unrated = render();
+    expect(unrated).toContain('class="campaign-claim-cvss-meter" title="CVSS 3.1"><span>Unrated</span>');
+    expect(unrated).toContain('<strong>Steps to Reproduce</strong><em>Not recorded</em>');
+    expect(unrated.match(/class="campaign-claim-cvss-segment"/gu)).toHaveLength(10);
+    expect(unrated.match(/style="width:0%"/gu)).toHaveLength(10);
+
+    finding.securityTracking = {
+      reachability: {
+        state: 'not_assessed', conditions: '', evidenceIds: [], assessorId: null,
+        assessedAt: null, sourceRevision: null, environmentFingerprint: null
+      },
+      cvssAssessments: [{
+        version: '4.0', vector: 'CVSS:4.0/AV:N', score: 7.4, nomenclature: 'CVSS-B',
+        assessorId: 'reviewer-example', assessedAt: '2026-09-02T12:00:00.000Z', environmentFingerprint: null
+      }],
+      affectedAssetIds: ['asset_example_parser'], surfaceIds: ['surface_example_parser'], progressBlocker: null,
+      externalReferences: []
+    };
+    const rated = render();
+    expect(rated).toContain('class="campaign-claim-cvss-meter" title="CVSS 4.0"><span>7.4</span>');
+    expect(rated).not.toContain('<dt><strong>CVSS</strong></dt>');
+    expect(rated).toContain('<span class="campaign-claim-identifier-tag">claim_example</span><span class="campaign-claim-identifier-tag">workspace_one</span><span class="campaign-claim-identifier-tag">subject_one</span><span class="campaign-claim-identifier-tag">No origin session</span><span class="campaign-claim-identifier-tag">asset_example_parser</span><span class="campaign-claim-identifier-tag">surface_example_parser</span>');
+    expect(rated).not.toContain('>Surfaces</span>');
+    expect(rated).not.toContain('Affected assets');
+    expect(rated).not.toContain('Affected Versions');
+    expect(rated).not.toContain('CVSS Assessments');
+    expect(rated.indexOf('class="memory-catalog-meta"')).toBeGreaterThan(rated.indexOf('class="campaign-claim-reproduction-steps"'));
+    expect(rated.match(/class="campaign-claim-cvss-segment"/gu)).toHaveLength(10);
+    expect(rated.match(/style="width:100%"/gu)).toHaveLength(7);
+    expect(rated.match(/style="width:40%"/gu)).toHaveLength(1);
+    expect(rated.match(/style="width:0%"/gu)).toHaveLength(2);
   });
 
   it('renders product-wide attention colors in Appearance with a light and dark toggle', () => {
@@ -296,17 +438,16 @@ function claim(id: string, title: string): AppServerFindingSummary {
     originSessionId: null,
     projection: 'lead',
     maturity: 'observed',
-    freshness: 'current',
-    workflow: 'active',
     rating: 'high',
-    classification: 'security.primitive',
-    componentClaimIds: [],
+    classification: 'security.vulnerability',
+
     duplicateOfClaimId: null,
     duplicateMarkedAt: null,
     duplicateClaims: [],
     title,
     summary: 'A directly observed parser boundary.',
     impact: '',
+    stepsToReproduce: '',
     securityTracking: null,
     status: 'observed',
     operatorOverride: false,

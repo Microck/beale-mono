@@ -93,6 +93,7 @@ interface ActiveAppServerRun {
   transportReadySettled: boolean;
   resolveTransportReady: (connected: boolean) => void;
   finalized: boolean;
+  continuationCleanupRequested?: boolean;
   resolveCompletion: () => void;
   lastProcessDiagnostic: string | null;
 }
@@ -373,7 +374,7 @@ export class AppServerRunEngine {
       } : {}),
       fallbackPrompt: continuationFallbackPrompt,
     });
-    this.onChange({ workspaceRegistryChanged: true });
+    this.onChange({ sessionLifecycleChanged: true });
     return handle;
   }
 
@@ -384,7 +385,8 @@ export class AppServerRunEngine {
   ): Promise<boolean> {
     const completion = this.completions.get(runId);
     let continuationOptions = options;
-    if (this.activeRuns.has(runId)) {
+    const priorActive = this.activeRuns.get(runId);
+    if (priorActive) {
       if (!completion) {
         throw new Error(`app-server run ${runId} is still active without a completion boundary.`);
       }
@@ -393,9 +395,22 @@ export class AppServerRunEngine {
         this.recordContinuationAccepted(runId, attemptId, instruction);
         continuationOptions = { ...options, steeringAlreadyRecorded: true };
       }
+      const status = this.db.getRun(runId)?.status;
+      if (status === 'active') return this.steer(runId, instruction) !== null;
+      // A terminal disposition is already durable. Release a worker still
+      // finishing background work so the next attempt need not wait for it.
+      if (status === 'blocked' || status === 'completed' || status === 'failed' || status === 'stopped') {
+        priorActive.continuationCleanupRequested = true;
+        this.stopAppServerSessionForRun(priorActive);
+      }
       await completion;
     }
     if (this.disposed) return false;
+    // The prior process can launch a queued steering continuation as it closes.
+    // Deliver this follow-up to that new process rather than starting the run twice.
+    if (this.activeRuns.has(runId)) {
+      return this.steer(runId, instruction) !== null;
+    }
     return await this.extendRun(runId, instruction, continuationOptions).transportReady;
   }
 
@@ -2614,6 +2629,13 @@ export class AppServerRunEngine {
       stopReason: active.stopReason,
       diagnostic: active.lastProcessDiagnostic
     };
+    if (active.continuationCleanupRequested && !active.stopped) {
+      const status = this.db.getRun(context.run.id)?.status;
+      if (status === 'blocked' || status === 'completed' || status === 'failed' || status === 'stopped') {
+        this.notifySessionLifecycleChanged();
+        return;
+      }
+    }
     if (active.stopped) {
       const timeLimitReached = active.stopReason === 'time_limit';
       const safetyControlFailed = active.stopReason === 'safety_control';

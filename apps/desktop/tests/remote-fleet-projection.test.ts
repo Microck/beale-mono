@@ -35,16 +35,7 @@ test('remote workspaces and sessions use the standard sidebar hierarchy', () => 
     automations: false,
     collapsed: false,
     serverSelector: null,
-    surfaceTracking: {
-      charts: [{
-        rootId: 'asset-example', rootName: 'Example service', size: 70, segments: [],
-        agents: [{ path: '/root/scout', label: 'scout', surfaceId: 'asset-example',
-          surfaceDepth: 0, shadePercent: 67, x: 0, y: 0, radius: 3.5, countOnSurface: 1 }]
-      }],
-      unassignedAgents: []
-    },
     onSelect: () => undefined,
-    onSelectSubagent: () => undefined,
     onStartNewResearch: () => undefined,
     onOpenQuickChat: () => undefined,
     onResizePointerDown: () => undefined
@@ -54,7 +45,7 @@ test('remote workspaces and sessions use the standard sidebar hierarchy', () => 
   expect(html).toContain('ExampleCo Research');
   expect(html).toContain('Inspect example service');
   expect(html).toContain('Quick Chat');
-  expect(html).toContain('aria-label="Open scout subagent"');
+  expect(html).not.toContain('sidebar-surface-slot');
 });
 
 test('remote workspace details render the workspace dashboard from the shared details DTO', () => {
@@ -66,6 +57,7 @@ test('remote workspace details render the workspace dashboard from the shared de
     memory: { schemaVersion: 4, workspaceId: 'workspace-example', status: 'ready', nodeCount: 0, nodeTypeCounts: {}, nodes: [], leads: [], findings: [] },
     runbooks: [{ id: 'runbook-example', title: 'Example runbook', purpose: 'Verify example.test.', updatedAt: '2026-01-01T00:00:00.000Z' }],
     reports: [{ id: 'report-example', title: 'Example report', summary: 'Synthetic report.', status: 'complete', updatedAt: '2026-01-01T00:00:00.000Z' }],
+    surfaceMap: { schemaVersion: 1, workspaceId: 'workspace-example', surfaces: [], agents: [] },
     targets: [{ id: 'local', name: 'Local', ready: true }]
   };
   const html = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details }));
@@ -76,14 +68,15 @@ test('remote workspace details render the workspace dashboard from the shared de
   expect(html).not.toContain('Open Browser');
   expect(html).toContain('Campaign');
   expect(html).toContain('Resources');
+  expect(html).toContain('Surfaces');
   expect(html).toContain('Rules');
   expect(html).toContain('Targets');
   expect(html).toContain('Settings');
   expect(html).toContain('Runbooks');
   expect(html).toContain('Reports');
-  expect(html).toContain('ExampleCo Research Claims');
+  expect(html).toContain('ExampleCo Research Findings');
   expect(html).toContain('campaign-board-lanes');
-  expect(html).toContain('aria-label="Filter claims"');
+  expect(html).toContain('aria-label="Search findings"');
   expect(html).not.toContain('remote-workspace-details-panel');
   expect(html).not.toContain('New Research prompt');
 
@@ -98,6 +91,9 @@ test('remote workspace details render the workspace dashboard from the shared de
   expect(resources).toContain('example.test');
   expect(resources).not.toContain('Add resource type');
 
+  const surfaces = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details, initialView: 'surfaces' }));
+  expect(surfaces).toContain('aria-label="Workspace surfaces"');
+
   const targets = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details, initialView: 'targets' }));
   expect(targets).toContain('workspace-targets-panel');
   expect(targets).toContain('<h2>ExampleCo Research Targets</h2>');
@@ -109,9 +105,9 @@ test('remote workspace details render the workspace dashboard from the shared de
       summary: 'Observed on example.test.', status: 'confirmed', confidence: 0.8, tags: [],
       createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', revision: 1, duplicateMemories: [] }],
     findings: [{ id: 'claim-example', sessionIds: [], projection: 'finding', maturity: 'observed',
-      freshness: 'current', workflow: 'open', rating: 'low', classification: 'example.class',
-      componentClaimIds: [], duplicateClaims: [], title: 'Example claim', summary: 'Synthetic claim.',
-      impact: 'Example impact.', securityTracking: null, confidence: 0.7, evidenceCount: 0,
+      status: 'observed', staleFromStatus: null, rating: 'low', classification: 'example.class',
+      duplicateClaims: [], title: 'Example claim', summary: 'Synthetic claim.',
+      impact: 'Example impact.', stepsToReproduce: '', securityTracking: null, confidence: 0.7, evidenceCount: 0,
       createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', revision: 1 }]
   } };
   expect(renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details: populated }))).toContain('Example claim');

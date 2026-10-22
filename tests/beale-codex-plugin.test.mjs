@@ -47,8 +47,8 @@ test('Beale Codex MCP keeps discovery credentials internal and routes canonical 
   await client.call('beale_write_research', {
     workspaceId: 'workspace-example',
     sessionId: 'session-example',
-    toolName: 'lead.create',
-    toolInput: { title: 'Candidate', classification: 'security.vulnerability', rating: 'medium' }
+    toolName: 'finding.create',
+    toolInput: { title: 'Observed example', classification: 'security.vulnerability', rating: 'medium', evidence: [{ kind: 'code', referenceId: 'src/example.ts:9', summary: 'Observed example branch.' }] }
   });
   await client.call('beale_steer_session', {
     sessionId: 'session-example',

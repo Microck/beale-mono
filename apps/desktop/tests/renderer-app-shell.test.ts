@@ -48,6 +48,25 @@ describe('renderer app shell view model', () => {
     }));
     expect(sessionHeader).toContain('class="app-header-session-title app-header-session-overview-button"');
     expect(sessionHeader).toContain('aria-label="Open Session Overview for Inspect parser states"');
+    const focusedHeader = renderToStaticMarkup(createElement(AppHeaderTitle, {
+      workspaceName: 'Parser',
+      detail: { run: { id: 'run_current', title: 'Inspect parser states', promptMarkdown: '' } },
+      surfaceFocus: { name: 'Request parser', additionalCount: 2 },
+      onOpenSessionOverview: () => undefined
+    }));
+    expect(focusedHeader).toContain('aria-label="Parser, Inspect parser states, Request parser +2"');
+    expect(focusedHeader).toContain('title="Request parser +2"');
+    expect(focusedHeader).not.toContain('app-header-surface-separator');
+    expect(focusedHeader).toContain('class="app-header-surface-name">Request parser</span>');
+    expect(focusedHeader).toContain('class="app-header-surface-count">+2</span>');
+    expect(focusedHeader).toContain('aria-label="Open Session Overview for Inspect parser states"');
+    const singleSurfaceHeader = renderToStaticMarkup(createElement(AppHeaderTitle, {
+      workspaceName: 'Parser', detail: { run: { id: 'run_current', title: 'Inspect parser states', promptMarkdown: '' } },
+      surfaceFocus: { name: 'Request parser', additionalCount: 0 }
+    }));
+    expect(singleSurfaceHeader).toContain('title="Request parser"');
+    expect(singleSurfaceHeader).not.toContain('app-header-surface-count');
+    expect(newResearchHeader).not.toContain('app-header-surface-title');
     const mainTitle = 'class="app-header-workspace-title app-header-static-title"';
     for (const header of [workspaceHeader, newResearchHeader, sessionHeader]) {
       expect(header.indexOf('class="app-header-divider"')).toBeLessThan(header.indexOf(mainTitle));

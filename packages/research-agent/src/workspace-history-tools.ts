@@ -250,10 +250,11 @@ function searchWorkspaceHistory(
     for (const claim of selectedWorkspaceIds.length === 1 && selectedWorkspaceIds[0] === currentWorkspaceId
       ? options.claimStore.list()
       : options.claimStore.listSubjectReferences({ workspaceIds: selectedWorkspaceIds })) {
+      if (claim.projection !== "finding") continue;
       if (!selectedWorkspaceIdSet.has(claim.workspaceId)) continue;
       if (statuses.size && !statuses.has(claim.status)) continue;
       if (classifications.size && !classifications.has(claim.classification)) continue;
-      const searchText = `${claim.id}\n${claim.projection}\n${claim.maturity}\n${claim.status}\n${claim.rating}\n${claim.classification}\n${claim.title}\n${claim.summary}\n${claim.impact}\n${claim.componentClaimIds.join(" ")}\n${claim.evidence.map((evidence) => `${evidence.kind} ${evidence.referenceId ?? ""} ${evidence.summary}`).join("\n")}`;
+      const searchText = `${claim.id}\n${claim.projection}\n${claim.maturity}\n${claim.status}\n${claim.rating}\n${claim.classification}\n${claim.title}\n${claim.summary}\n${claim.impact}\n${claim.evidence.map((evidence) => `${evidence.kind} ${evidence.referenceId ?? ""} ${evidence.summary}`).join("\n")}`;
       if (query && !matchesQuery(searchText, query)) continue;
       candidates.push({
         key: `claim:${claim.id}`,
@@ -263,10 +264,10 @@ function searchWorkspaceHistory(
         searchText,
         summary: {
           detail: "summary", type: "claim", id: claim.id, projection: claim.projection,
-          maturity: claim.maturity, freshness: claim.freshness, workflow: claim.workflow,
+          maturity: claim.maturity,
           rating: claim.rating, classification: claim.classification, title: claim.title,
           summary: truncateText(claim.summary), impact: truncateText(claim.impact), status: claim.status,
-          confidence: claim.confidence, componentClaimIds: claim.componentClaimIds,
+          confidence: claim.confidence,
           evidenceCount: claim.evidence.length, duplicateCount: claim.duplicateClaims.length,
           independentEvidenceCount: claim.evidence.filter((evidence) => evidence.independent).length,
           ...(claim.evidence.length ? { evidenceRefs: claim.evidence.slice(0, MAX_EVIDENCE_REFS).map((evidence) => ({

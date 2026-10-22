@@ -147,12 +147,12 @@ test("surface coverage requires a complete threat-model map, investigated sinks,
         duplicate_of_claim_id TEXT, security_tracking_json TEXT
       )`);
       database.prepare(`INSERT INTO app_server_research_claims VALUES (?, ?, ?, ?, NULL, ?)`).run(
-        "claim-example", workspaceId, "observed", "security.primitive", JSON.stringify({ surfaceIds: [child.id], progressBlocker: null }),
+        "claim-example", workspaceId, "observed", "security.vulnerability", JSON.stringify({ surfaceIds: [child.id], progressBlocker: null }),
       );
       assert.deepEqual(state.surface.coverageState(child.id).unblockedFindingIds, ["claim-example"]);
       assert.equal(state.surface.coverageState(state.rootId).covered, false);
       database.prepare("UPDATE app_server_research_claims SET security_tracking_json = ? WHERE id = ?").run(
-        JSON.stringify({ surfaceIds: [child.id], progressBlocker: { reason: "Reachability requires a separate chain." } }), "claim-example",
+        JSON.stringify({ surfaceIds: [child.id], progressBlocker: { reason: "Authorized input routes were tested and cannot reach this sink; a new route is needed to advance the finding." } }), "claim-example",
       );
       state.surface.update(child.id, 3, {
         ...completeFoundation,

@@ -986,7 +986,7 @@ private struct WorkspaceClaimsView: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return ((catalog?.findings ?? []) + (catalog?.leads ?? [])).filter { claim in
             let matchesClassification = selectedClassification == "all" || claim.classification == selectedClassification
-            let matchesText = query.isEmpty || [claim.title, claim.summary, claim.impact, claim.classification, claim.maturity, claim.workflow]
+            let matchesText = query.isEmpty || [claim.title, claim.summary, claim.impact, claim.classification, claim.maturity, claim.status]
                 .joined(separator: "\n")
                 .localizedCaseInsensitiveContains(query)
             return matchesClassification && matchesText
@@ -1080,7 +1080,6 @@ private struct WorkspaceClaimRow: View {
                 Text(claim.classification.claimClassificationLabel)
                 Text(claim.maturity.capitalized)
                 Text(claim.rating.capitalized)
-                if claim.freshness == "stale" { Text("Stale").foregroundStyle(.orange) }
             }
             .font(.caption)
             .foregroundStyle(BealeTheme.muted)
@@ -1121,18 +1120,20 @@ private struct WorkspaceClaimDetailView: View {
                 if !claim.summary.isEmpty { Text(markdown: claim.summary).textSelection(.enabled) }
                 if !claim.impact.isEmpty { LabeledContent("Impact", value: claim.impact) }
             }
+            Section("Steps to Reproduce") {
+                if let steps = claim.stepsToReproduce, !steps.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(markdown: steps).textSelection(.enabled)
+                } else {
+                    Text("Not recorded").foregroundStyle(BealeTheme.muted)
+                }
+            }
             Section("State") {
                 LabeledContent("Classification", value: claim.classification.claimClassificationLabel)
                 LabeledContent("Untrusted rating", value: claim.rating.capitalized)
                 LabeledContent("Maturity", value: claim.maturity.capitalized)
-                LabeledContent("Freshness", value: claim.freshness.capitalized)
-                LabeledContent("Workflow", value: claim.workflow.capitalized)
                 LabeledContent("Evidence", value: String(claim.evidenceCount))
                 LabeledContent("Confidence", value: claim.confidence.formatted(.percent.precision(.fractionLength(0))))
                 LabeledContent("Revision", value: String(claim.revision))
-                if !claim.componentClaimIds.isEmpty {
-                    LabeledContent("Components", value: String(claim.componentClaimIds.count))
-                }
             }
             if !claim.duplicateClaims.isEmpty || !parentCandidates.isEmpty {
                 Section("Duplicates") {

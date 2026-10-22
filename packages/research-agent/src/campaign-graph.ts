@@ -94,16 +94,6 @@ export function buildCampaignGraph(input: BuildCampaignGraphInput): CampaignGrap
       evidenceCount: finding.evidence.length,
       updatedAt: finding.updatedAt,
     });
-    for (const componentClaimId of finding.componentClaimIds) {
-      const component = input.findings.find((candidate) => candidate.id === componentClaimId);
-      if (!component) continue;
-      graphEdges.push({
-        fromId: campaignNodeId(component.projection, component.id),
-        toId: campaignNodeId(kind, finding.id),
-        relation: "component_of",
-        contradictory: false,
-      });
-    }
     if (finding.reproductionRunbookId && runbookById.has(finding.reproductionRunbookId)) {
       graphEdges.push({
         fromId: campaignNodeId(kind, finding.id),

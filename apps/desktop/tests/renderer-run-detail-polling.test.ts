@@ -28,6 +28,9 @@ describe('renderer run-detail polling', () => {
     detail.run = { ...detail.run, status: 'completed' };
     expect(shouldPollRunDetail('paused', detail, 'full')).toBe(false);
     expect(shouldPollRunDetail('completed', detail, 'full')).toBe(false);
+    expect(shouldPollRunDetail('completed', detail, 'full', true)).toBe(true);
+    detail.run = { ...detail.run, status: 'active' };
+    expect(shouldPollRunDetail('completed', detail, 'full')).toBe(true);
   });
 
   it('primes a new session detail from its durable run record', () => {

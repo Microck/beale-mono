@@ -10,8 +10,7 @@ const GET_PARAMETERS = { type: "object", required: ["id"], properties: { id: { t
 const CREATE_PARAMETERS = { type: "object", required: ["title", "summary", "content"], properties: {
   title: { type: "string" }, summary: { type: "string", description: "A concise catalog description." },
   content: { type: "string", description: "The complete Markdown report." }, status: { type: "string", enum: [...REPORT_STATUSES] },
-  sourceFindingId: { type: "string", description: "The verified security.chain claim this report documents." },
-  sourceChainId: { type: "string", description: "Deprecated legacy alias for sourceFindingId." },
+  sourceFindingId: { type: "string", description: "The verified security finding this report documents." },
   submissionPacketPath: { type: "string", description: "Path to the completed submission.zip inside the active workspace. app-server imports it into durable report storage." },
 } };
 const REVISE_PARAMETERS = { type: "object", required: ["id", "expectedRevision", "content"], properties: {
@@ -21,7 +20,7 @@ const REVISE_PARAMETERS = { type: "object", required: ["id", "expectedRevision",
 } };
 
 export interface ReportToolPolicy {
-  requireConfirmedChain?: boolean;
+  requireVerifiedFinding?: boolean;
   requireSubmissionPacket?: boolean;
   claimStore?: Pick<ResearchClaimStore, "get" | "transition">;
 }
@@ -29,7 +28,7 @@ export interface ReportToolPolicy {
 export function createReportTools(store: ReportStore, policy: ReportToolPolicy = {}): ResearchExecutableTool[] {
   const requiredCreateFields = [
     ...CREATE_PARAMETERS.required,
-    ...(policy.requireConfirmedChain ? ["sourceFindingId"] : []),
+    ...(policy.requireVerifiedFinding ? ["sourceFindingId"] : []),
     ...(policy.requireSubmissionPacket ? ["submissionPacketPath"] : []),
   ];
   const createParameters = { ...CREATE_PARAMETERS, required: requiredCreateFields };
@@ -40,11 +39,11 @@ export function createReportTools(store: ReportStore, policy: ReportToolPolicy =
       ...(typeof input.limit === "number" ? { limit: input.limit } : {}),
     }) })),
     tool("report.get", "report_get", "Read the full Markdown content of one workspace report.", "read", GET_PARAMETERS, (input) => ({ output: store.get(requiredText(input.id, "id")) })),
-    tool("report.create", "report_create", policy.requireConfirmedChain
-      ? "Create a complete, revisioned Markdown report for a verified composite finding, attach its durable submission packet, and advance that same claim to report-ready. Leads and isolated unverified findings are not reportable."
+    tool("report.create", "report_create", policy.requireVerifiedFinding
+      ? "Create a complete, revisioned Markdown report for a verified security finding with recorded steps to reproduce, attach its durable submission packet, and advance that finding to report-ready. Unverified findings are not reportable."
       : "Create a complete, revisioned Markdown report when a result is ready to share. Reports are artifacts, not memories.", "write", createParameters, (input, context) => {
-      const sourceFinding = policy.requireConfirmedChain
-        ? requireReportableSecurityFinding(input.sourceFindingId ?? input.sourceChainId, policy.claimStore)
+      const sourceFinding = policy.requireVerifiedFinding
+        ? requireReportableSecurityFinding(input.sourceFindingId, policy.claimStore)
         : null;
       const created = store.create({
         title: requiredText(input.title, "title"), summary: requiredText(input.summary, "summary"), content: requiredText(input.content, "content"),
@@ -91,24 +90,21 @@ function requireReportableSecurityFinding(
   const finding = claimStore.get(sourceFindingId);
   if (!finding) throw new Error(`Report source finding is not recorded in this workspace: ${sourceFindingId}.`);
   requireCanonicalClaim(finding);
-  if (finding.projection !== "finding" || finding.classification !== "security.chain") {
-    throw new Error("Security reports require a security.chain composite finding; leads and isolated findings are not report-ready.");
+  if (finding.projection !== "finding" || (finding.classification !== "security" && !finding.classification.startsWith("security."))) {
+    throw new Error("Security reports require an observed security finding.");
   }
   if (finding.status !== "verified") {
-    throw new Error("Security reports require a verified composite finding that has passed independent review.");
+    throw new Error("Security reports require a verified finding that has passed independent review.");
   }
   const evidenceChecks = candidateCompletionChecklist(finding, "verified");
+  if (evidenceChecks.missingRequired.includes("steps_to_reproduce")) {
+    throw new Error("Security reports require steps to reproduce on the source finding.");
+  }
   if (evidenceChecks.missingRequired.some((key) => key === "reproduction" || key === "independent_verification")) {
     throw new Error("Security reports require current validated reproduction and independent review evidence before creating report artifacts.");
   }
-  if (!text(finding.impact) || finding.componentClaimIds.length === 0 || finding.evidence.length === 0) {
-    throw new Error("Security reports require impact, component findings, and proof evidence on the verified composite finding.");
-  }
-  for (const componentId of finding.componentClaimIds) {
-    const component = claimStore.get(componentId);
-    if (!component || component.duplicateOfClaimId || component.projection !== "finding" || component.maturity === "refuted") {
-      throw new Error(`Security report component is not an active evidence-backed finding: ${componentId}.`);
-    }
+  if (!text(finding.impact) || finding.evidence.length === 0) {
+    throw new Error("Security reports require impact and proof evidence on the verified finding.");
   }
   return finding;
 }

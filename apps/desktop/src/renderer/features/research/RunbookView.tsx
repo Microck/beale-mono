@@ -314,8 +314,10 @@ export const RunbookView = memo(function RunbookView({
               </div>
             ) : null}
           </div>
-        ) : (
+        ) : document ? (
           <div className="runbook-view-state">This runbook has no cells.</div>
+        ) : (
+          <div className="runbook-view-state is-error">Runbook content is unavailable.</div>
         )}
         {(runbook.duplicateRunbooks?.length ?? 0) > 0 || (onMarkDuplicate && runbookCandidates.some((candidate) => candidate.id !== runbook.id)) ? (
           <section className="memory-catalog-subsection campaign-claim-duplicates runbook-duplicates" aria-label="Duplicate runbook management">

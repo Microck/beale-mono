@@ -460,19 +460,19 @@ export const DEFAULT_SECURITY_RESEARCH_PROFILE: ResearchProfile = {
       "Search claims, knowledge memories, and runbooks together with history.search early and as research crosses system boundaries. Favor security-sensitive code near sinks and relevant successful trajectories; use established findings and cited historical precedent to avoid repeated coverage and identify adjacent unexplored paths.",
       "On the first Auto-Reviewed touch of each tracked resource or canonical repository revision, complete the emitted baseline: capture exact provenance and build identity; inspect advisories, vendor bulletins, release notes, security-content pages, fixed-version records, upstream and vendor source history or drops, and referenced fixes before treating a candidate as novel. For vendor-maintained components include official source releases and upstream project history. Record dated no-match queries and deferrals as explicitly as matches.",
       "Before saving, use history.search to find an existing memory with the same underlying fact or root cause and refine it instead of creating a differently worded duplicate.",
-      "When multiple leads or findings represent the same underlying claim, keep the strongest evidence-bearing record canonical and mark the weaker records as its duplicates. Preserve related primitives, variants, conditions, and chain components as distinct claims.",
-      "Evidence is attached to knowledge or claim records, not stored as its own memory type. Record suspected results with lead.create; promote that same stable claim to a finding through finding.transition when direct evidence is obtained, and append same-maturity evidence by transitioning it to its current status. Classify isolated security results as security.primitive and composite paths as security.chain.",
+      "When multiple findings represent the same underlying issue, keep the strongest evidence-bearing record canonical and mark weaker records as duplicates. Extend that finding with new reachability, exploit-path, and impact evidence; keep distinct root causes as separate findings.",
+      "Evidence is attached to knowledge or finding records, not stored as its own memory type. Record a finding with finding.create only after direct observation and durable evidence. Append new evidence by transitioning an existing finding to its current status.",
     ],
     runbookInstructions: [
       "Search and list existing workspace runbooks before recording a repeatable proof. Reuse or create the matching workflow runbook for reproduction-grade evidence, keep setup, runtime, and cleanup in it behind feature tags, and retain it as the human-visible execution path for the proof.",
-      "Direct shell execution may support bounded exploratory tests and vulnerability research. Use runbook.run for repeatable proof procedures and reproduction-grade evidence; a direct shell result alone does not supply a qualifying runbook runId.",
+      "Use direct shell for bounded inspection, builds, and non-claim diagnostics. Put exploratory security tests, proof iterations, and reproduction attempts into the matching runbook as soon as they test a candidate claim; runbook.run records failed and negative attempts as well as successes. A direct shell result alone does not supply a qualifying runbook runId.",
       "Before implementing a candidate proof, call runbook.prepare with the workflow title, purpose, and language. It finds or creates the workflow and returns a stable investigations/ candidate path and entry cell ID; supply a custom path and entry command only when needed. Keep iterative implementation in that candidate artifact. Use runbook.edit with the current revision when the entry command itself changes; rerun the same cell when only the candidate artifact changes. Set executor.timeoutSeconds on a host or Tart cell expected to exceed the 300-second default; runbook.run delegates runtime to that cell executor. For Tart VM proofing, build on the host and select a tart-vm cell executor that references the workspace-relative executable or durable artifact; select runAs root when the workspace defines root execution through passwordless sudo. runbook.run handles guest staging, invocation, evidence, and cleanup without a guest-side rewrite. Do not confuse the Guest Agent service UID with the effective UID of a root-mode proof command. Label every cell with setup, runtime, or cleanup plus any narrower feature tags, and select active tags with runbook.configure. Failed run output is the attempt history, so do not create lifecycle wrappers, duplicate runbooks, or one cell per tweak.",
       "Use successful runIds emitted by runbook.run as evidence for the phases they prove, and select the runbook that performs the canonical reproduction when setting reproductionRunbookId. Store concise facts in memory and claims; use workspace history search to recover prior work across sessions.",
     ],
     reportInstructions: [
       "List existing workspace reports before creating one.",
-      "Do not create a report from leads or unverified findings. First verify the component findings, then create a security.chain composite with demonstrated reachability and impact.",
-      "Create a report only for a verified security.chain finding that meets proof-of-vulnerability and independent-review requirements. Pass that claim as sourceFindingId to report.create; the tool rejects premature reports.",
+      "Do not create a report from unverified findings. Establish demonstrated reachability and impact on the finding being reported.",
+      "Create a report only for a verified security finding that meets proof-of-vulnerability and independent-review requirements. Pass that finding as sourceFindingId to report.create; the tool rejects premature reports.",
       "Write for a triager who has never worked on the affected subsystem. Use normal language first, define product-specific terms before relying on them, and avoid semantic cramming, unnecessary jargon, and overusing security vocabulary.",
       "Order security reports as: Impact summary; How the affected system works; Vulnerability chain; Impact and affected systems; Reproduction using the attached submission packet; Technical root cause; Remediation and regression coverage.",
       "The impact summary must state who can trigger the issue, the triggering action, the affected deployment or components, the demonstrated security outcome, and the strongest verified limitation before implementation details.",
@@ -517,20 +517,18 @@ export const DEFAULT_SECURITY_RESEARCH_PROFILE: ResearchProfile = {
   },
   claims: {
     classifications: [
-      { id: "security.vulnerability", name: "Vulnerability Lead", pluralName: "Vulnerability Leads", description: "A testable proposition about a security weakness before direct observation.", defaultProjection: "lead", order: 10, icon: "flask-conical" },
-      { id: "security.primitive", name: "Security Finding", pluralName: "Security Findings", description: "One independently identifiable security flaw or exploitation capability. Symptoms and call sites remain evidence of the same root-cause claim.", defaultProjection: "finding", order: 20, icon: "git-branch" },
-      { id: "security.chain", name: "Composite Finding", pluralName: "Composite Findings", description: "An end-to-end attacker path that composes one or more component findings into demonstrated security impact.", defaultProjection: "finding", composite: true, order: 30, icon: "link" },
+      { id: "security.vulnerability", name: "Security Finding", pluralName: "Security Findings", description: "One identifiable security weakness or exploitation path. Keep its observations, reachability, reproduction, and impact evidence on the same finding.", defaultProjection: "finding", order: 10, icon: "flask-conical" },
     ],
   },
   workflows: [
     {
       id: "discovery",
       name: "Discovery",
-      description: "Find new security primitives without presuming reachability or impact.",
+      description: "Find security weaknesses without presuming reachability or impact.",
       goalSuggestionCount: 4,
       default: true,
       goalSuggestionInstructions: [
-        "Pair an attacker-controlled entry path or trust boundary with a plausible security weakness or primitive without assuming a flaw exists.",
+        "Pair an attacker-controlled entry path or trust boundary with a plausible security weakness without assuming a flaw exists.",
         "Keep goals broad enough to map the security surface and its sinks; do not make a named hypothesis, verifier, reproduction, or impact determination the goal.",
       ],
       promptInstructions: [
@@ -542,21 +540,21 @@ export const DEFAULT_SECURITY_RESEARCH_PROFILE: ResearchProfile = {
     {
       id: "chaining",
       name: "Chaining",
-      description: "Upgrade recorded primitives toward a reportable exploit chain.",
+      description: "Extend recorded findings toward a reportable exploit path.",
       goalSuggestionCount: 4,
       goalSuggestionInstructions: [
-        "Upgrade existing recorded primitives toward strong reportable exploit chains with triage-ready proofs of concept.",
+        "Extend existing findings with reachability, exploitability, and impact evidence toward triage-ready proofs of concept.",
         "Permit bounded discovery needed to fill reachability, exploitability, or impact gaps.",
       ],
-      promptInstructions: ["Center confirmed existing primitives and investigate missing reachability, exploitability, or impact links."],
+      promptInstructions: ["Center existing findings and investigate missing reachability, exploitability, or impact links."],
       outputRequirements: ["A strong evidence-supported chain with a triage-ready proof of concept."],
     },
     {
       id: "reporting",
       name: "Reporting",
-      description: "Package an evidence-supported exploit chain for responsible reporting.",
+      description: "Package a verified security finding for responsible reporting.",
       goalSuggestionCount: 4,
-      goalSuggestionInstructions: ["Document evidence-supported exploit chains, their constituent bugs, and their security impact without overstating the evidence."],
+      goalSuggestionInstructions: ["Document a verified finding, its exploit path, and its security impact without overstating the evidence."],
       promptInstructions: ["Preserve material limitations and do not invent reachability, impact, or unsupported conclusions."],
       outputRequirements: ["A triage-ready report in the required reader-first section order, with submission.zip attached through report.create and containing the proof and necessary evidence."],
     },
@@ -622,6 +620,20 @@ export type BundledResearchProfileId = typeof BUNDLED_RESEARCH_PROFILE_IDS[numbe
 
 export function bundledResearchProfile(_profileId: BundledResearchProfileId): ResearchProfile {
   return DEFAULT_SECURITY_RESEARCH_PROFILE;
+}
+
+export function canonicalClaimClassificationId(id: string): string {
+  return id === "security.primitive" || id === "security.chain" ? "security.vulnerability" : id;
+}
+
+/** Hide retired security split classifications in stored profile snapshots without changing their provenance hash. */
+export function effectiveClaimClassifications(profile: ResearchProfile): readonly ResearchProfileClaimClassification[] {
+  if (profile.id !== "security-research") return profile.claims.classifications;
+  return [
+    DEFAULT_SECURITY_RESEARCH_PROFILE.claims.classifications[0]!,
+    ...profile.claims.classifications.filter((classification) =>
+      canonicalClaimClassificationId(classification.id) !== "security.vulnerability"),
+  ];
 }
 
 export function getDefaultResearchProfilePath(workspaceRoot: string = process.cwd()): string {

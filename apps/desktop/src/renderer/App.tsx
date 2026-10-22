@@ -83,7 +83,7 @@ import {
   ShellApprovalModal
 } from './features/sessions/ShellApprovalModal';
 import { subagentSummaries } from './view-models/subagents';
-import { surfaceTrackingView, type SurfaceTrackingView } from './view-models/surfaceTracking';
+import { surfaceFocusSummary, type SurfaceFocusSummary } from './view-models/surfaceFocus';
 import { SettingsSidebar, SettingsView, settingsSectionHeaderIcon, settingsSectionLabel, type SettingsSection } from './features/settings/SettingsModal';
 import { useInsetScrollbarActivation } from './hooks/useInsetScrollbarActivation';
 import { useWorkspaceActions, type WorkspaceActionOptions } from './hooks/useWorkspaceActions';
@@ -183,16 +183,16 @@ export function App(): JSX.Element {
   const [remoteCatalogError, setRemoteCatalogError] = useState<string | null>(null);
   const [remoteWorkspaceId, setRemoteWorkspaceId] = useState<string | null>(null);
   const [remoteSessionId, setRemoteSessionId] = useState<string | null>(null);
-  const [remoteSurfaceTracking, setRemoteSurfaceTracking] = useState<{
-    serverId: string; workspaceId: string; sessionId: string; view: SurfaceTrackingView;
+  const [remoteSurfaceFocus, setRemoteSurfaceFocus] = useState<{
+    serverId: string; workspaceId: string; sessionId: string; summary: SurfaceFocusSummary;
   } | null>(null);
   const [remoteSelectedSubagentPath, setRemoteSelectedSubagentPath] = useState<string | null>(null);
-  const onRemoteSurfaceTrackingChange = useCallback((serverId: string, workspaceId: string, sessionId: string, view: SurfaceTrackingView | null): void => {
-    setRemoteSurfaceTracking(view ? { serverId, workspaceId, sessionId, view } : null);
+  const onRemoteSurfaceFocusChange = useCallback((serverId: string, workspaceId: string, sessionId: string, summary: SurfaceFocusSummary | null): void => {
+    setRemoteSurfaceFocus(summary ? { serverId, workspaceId, sessionId, summary } : null);
   }, []);
   const [remoteResearchOpen, setRemoteResearchOpen] = useState(false);
   useEffect(() => {
-    setRemoteSurfaceTracking(null);
+    setRemoteSurfaceFocus(null);
     setRemoteSelectedSubagentPath(null);
   }, [selectedFleetServerId, remoteWorkspaceId, remoteSessionId]);
   useEffect(() => {
@@ -452,6 +452,7 @@ export function App(): JSX.Element {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [continuationPendingRunId, setContinuationPendingRunId] = useState<string | null>(null);
   const [shellApprovalDecisionInFlight, setShellApprovalDecisionInFlight] = useState<string | null>(null);
   const shellApprovalDecisionRef = useRef<string | null>(null);
   const { sidebarWidth, sidebarCollapsed, sidebarToggleProfile, toggleSidebar, beginSidebarResize } = useResizableSidebar();
@@ -482,10 +483,16 @@ export function App(): JSX.Element {
   const { runDetail, sessionSetupPending, clearRunDetail, primeRunDetail, loadOlderHistory } = useRunDetailPolling({
     selectedRunId,
     selectedRunState,
+    continuationPending: continuationPendingRunId === selectedRunId,
     projection: runDetailProjection,
     refreshKey: selectedRunRefreshKey,
     onError: handleRunDetailError
   });
+  useEffect(() => {
+    if (continuationPendingRunId && (selectedRunId !== continuationPendingRunId || runDetail?.run.id === continuationPendingRunId && runDetail.run.status === 'active')) {
+      setContinuationPendingRunId(null);
+    }
+  }, [continuationPendingRunId, runDetail?.run.id, runDetail?.run.status, selectedRunId]);
   useDevRenderProbe('app.shell', () => ({
     selectedRun: selectedRunId ? shortMetricId(selectedRunId) : 'none',
     workspaces: workspaceRegistry?.workspaces.length ?? 0,
@@ -1545,9 +1552,21 @@ export function App(): JSX.Element {
 
   const handleSteerInstruction = useCallback(
     (runId: string, instruction: string, modelSelection: ResearchModelSelection): void => {
-      handleSessionAction({ type: 'steer', runId, instruction, modelSelection });
+      if (runId === selectedRunId && (selectedRunState === 'blocked' || selectedRunState === 'completed'
+        || selectedRunState === 'failed' || selectedRunState === 'stopped')) {
+        setContinuationPendingRunId(runId);
+      }
+      setBusy(true);
+      setError(null);
+      void window.beale.steerRun({ type: 'steer', runId, instruction, modelSelection })
+        .then(applySnapshot)
+        .catch((caught: unknown) => {
+          setContinuationPendingRunId(null);
+          setError(errorMessage(caught));
+        })
+        .finally(() => setBusy(false));
     },
-    [handleSessionAction]
+    [applySnapshot, selectedRunId, selectedRunState]
   );
 
   const applyReportSessionAction = useCallback(async (action: SteeringAction): Promise<RunRecord | null> => {
@@ -1583,10 +1602,10 @@ export function App(): JSX.Element {
   const renderedRunDetail = activeRunDetail?.run.id === deferredActiveRunDetail?.run.id
     ? deferredActiveRunDetail
     : activeRunDetail;
-  const localSurfaceTracking = useMemo(() => (
+  const localSurfaceFocus = useMemo(() => (
     !newResearchOpen && !reportsOpen && !workspaceDraft && selectedRunId
       && activeRunDetail?.run.status === 'active' && renderedRunDetail?.run.id === selectedRunId
-      ? surfaceTrackingView(renderedRunDetail.traceEvents ?? [], 'active')
+      ? surfaceFocusSummary(renderedRunDetail.traceEvents ?? [], 'active')
       : null
   ), [newResearchOpen, reportsOpen, workspaceDraft, selectedRunId, activeRunDetail?.run.status, renderedRunDetail]);
   const activeResearchProfile = selectedRunId
@@ -2148,6 +2167,13 @@ export function App(): JSX.Element {
         activeRunDetail={selectedFleetServerId !== 'local' && remoteSession
           ? { run: { id: remoteSession.id, title: remoteSession.title, promptMarkdown: remoteSession.prompt } }
           : activeRunHeaderDetail}
+        surfaceFocus={selectedFleetServerId !== 'local'
+          ? remoteSurfaceFocus?.serverId === selectedFleetServerId
+            && remoteSurfaceFocus.workspaceId === remoteWorkspaceId
+            && remoteSurfaceFocus.sessionId === remoteSessionId
+            && !remoteResearchOpen && remoteRunStatus(remoteSession?.status ?? '') === 'active'
+            ? remoteSurfaceFocus.summary : null
+          : localSurfaceFocus}
         profilingEnabled={profilingState?.enabled ?? false}
         workspaceEditors={selectedFleetServerId === 'local' && headerResearchControlsAvailable ? workspaceEditors : null}
         onOpenProfiling={openProfiling}
@@ -2227,13 +2253,7 @@ export function App(): JSX.Element {
           catalog={remoteCatalog} serverName={selectedFleetServer?.name ?? 'Remote'}
           selectedWorkspaceId={remoteWorkspaceId} selectedSessionId={remoteSessionId}
           automations={automationsOpen} collapsed={sidebarCollapsed} serverSelector={serverSelector}
-          surfaceTracking={remoteSurfaceTracking?.serverId === selectedFleetServerId
-            && remoteSurfaceTracking.workspaceId === remoteWorkspaceId
-            && remoteSurfaceTracking.sessionId === remoteSessionId
-            && !remoteResearchOpen && !automationsOpen && remoteRunStatus(remoteSession?.status ?? '') === 'active'
-            ? remoteSurfaceTracking.view : null}
           onSelect={(workspaceId, sessionId) => { setRemoteWorkspaceId(workspaceId); setRemoteSessionId(sessionId); setRemoteResearchOpen(false); }}
-          onSelectSubagent={setRemoteSelectedSubagentPath}
           onStartNewResearch={(workspaceId) => { setRemoteWorkspaceId(workspaceId); setRemoteSessionId(null); setRemoteResearchOpen(true); }}
           onOpenQuickChat={openSelectedQuickChat}
           onResizePointerDown={beginSidebarResize}
@@ -2281,7 +2301,6 @@ export function App(): JSX.Element {
           workspaceRegistry={workspaceRegistry}
           workspaceRegistryLoading={startupPhase === 'shell' || startupPhase === 'registry'}
           selectedRunId={reportsOpen || automationsOpen || pluginsOpen ? null : selectedRunId}
-          surfaceTracking={localSurfaceTracking}
           workspaceCreationActive={workspaceDraft !== null}
           newResearchActive={newResearchOpen}
           automationsActive={automationsOpen}
@@ -2291,7 +2310,6 @@ export function App(): JSX.Element {
           onImportWorkspace={importWorkspace}
           onOpenWorkspace={openWorkspaceFromSidebar}
           onOpenResearchSession={openResearchSessionFromSidebar}
-          onSelectSubagent={selectSubagent}
           onArchiveSession={archiveResearchSession}
           onResizePointerDown={beginSidebarResize}
           onStartNewResearch={startNewResearch}
@@ -2391,7 +2409,7 @@ export function App(): JSX.Element {
                 catalog={remoteCatalog} workspaceId={remoteWorkspaceId} sessionId={remoteSessionId}
                 newResearchOpen={remoteResearchOpen} automations={automationsOpen} error={remoteCatalogError}
                 selectedSubagentPath={remoteSelectedSubagentPath} onBackToSubagents={() => setRemoteSelectedSubagentPath(null)}
-                onSurfaceTrackingChange={onRemoteSurfaceTrackingChange}
+                onSurfaceFocusChange={onRemoteSurfaceFocusChange}
                 onLaunched={(workspaceId, sessionId) => {
                   setRemoteWorkspaceId(workspaceId);
                   setRemoteSessionId(sessionId);

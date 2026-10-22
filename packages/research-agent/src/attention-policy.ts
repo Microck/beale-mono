@@ -7,13 +7,14 @@ export type ResearchAttentionHeat = "none" | "low" | "medium" | "high" | "critic
  * they do not decide notification urgency or shell color.
  */
 export function attentionHeatForClaim(claim: Pick<FindingSummary,
-  "projection" | "maturity" | "freshness" | "workflow">): ResearchAttentionHeat {
-  if (claim.workflow === "closed" || claim.workflow === "published") return "none";
-  if (claim.freshness === "stale") return claim.projection === "finding" ? "high" : "low";
+  "projection" | "maturity" | "status" | "staleFromStatus">): ResearchAttentionHeat {
+  const effectiveStatus = claim.status === "stale" ? claim.staleFromStatus ?? "observed" : claim.status;
+  if (effectiveStatus === "rejected" || effectiveStatus === "disclosed") return "none";
+  if (claim.status === "stale") return claim.projection === "finding" ? "high" : "low";
   if (claim.projection === "lead") return "low";
   if (claim.maturity === "observed") return "medium";
   if (claim.maturity === "reproduced") return "high";
-  if (claim.maturity === "verified") return claim.workflow === "reporting" ? "high" : "critical";
+  if (claim.maturity === "verified") return effectiveStatus === "report_ready" ? "high" : "critical";
   return "none";
 }
 

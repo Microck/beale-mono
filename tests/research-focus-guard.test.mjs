@@ -154,6 +154,67 @@ test("research focus guard converts broad exploration into a runbook proof path"
   assert.equal(guard.exportState().convergencePending, false);
 });
 
+test("research focus guard checkpoints repeated shell research until a runbook is prepared", () => {
+  const guard = new ResearchFocusGuard({ convergenceExplorationCalls: 3 });
+  for (let turn = 1; turn <= 3; turn += 1) {
+    const callId = `shell_${turn}`;
+    assert.equal(guard.beforeToolCall({
+      callId,
+      turn,
+      toolName: "shell_run",
+      input: { command: `inspect-example-${turn}` },
+      kind: "research",
+    }).block, false);
+    guard.afterToolCall({ callId, status: "complete", result: { output: `result-${turn}` } });
+  }
+
+  const blocked = guard.beforeToolCall({
+    callId: "shell_blocked",
+    turn: 4,
+    toolName: "shell_run",
+    input: { command: "inspect-example-4" },
+    kind: "research",
+  });
+  assert.equal(blocked.block, true);
+  assert.match(blocked.reason, /Evidence checkpoint required.*exploration or shell calls/);
+
+  assert.equal(guard.beforeToolCall({
+    callId: "prepare",
+    turn: 4,
+    toolName: "runbook_prepare",
+    input: { title: "Example proof", purpose: "Test the candidate.", language: "sh" },
+    kind: "research",
+  }).block, false);
+  guard.afterToolCall({ callId: "prepare", status: "complete", result: { id: "runbook-example" } });
+  assert.equal(guard.beforeToolCall({
+    callId: "shell_resumed",
+    turn: 5,
+    toolName: "shell_run",
+    input: { command: "build-example" },
+    kind: "research",
+  }).block, false);
+});
+
+test("shell research checkpoint remains pending after session resume", () => {
+  const objective = "Investigate a synthetic parser boundary.";
+  const options = { objective, convergenceExplorationCalls: 2 };
+  const guard = new ResearchFocusGuard(options);
+  for (let turn = 1; turn <= 2; turn += 1) {
+    const callId = `shell_${turn}`;
+    guard.beforeToolCall({ callId, turn, toolName: "shell_run", input: { command: `inspect-example-${turn}` }, kind: "research" });
+    guard.afterToolCall({ callId, status: "complete", result: { output: `result-${turn}` } });
+  }
+
+  const resumed = new ResearchFocusGuard({ ...options, initialState: guard.exportState() });
+  assert.equal(resumed.beforeToolCall({
+    callId: "next_shell",
+    turn: 3,
+    toolName: "shell_run",
+    input: { command: "inspect-example-3" },
+    kind: "research",
+  }).block, true);
+});
+
 test("research focus guard converts sustained evidence activity into canonical progress", () => {
   const guard = new ResearchFocusGuard({
     durableProgressEnabled: true,

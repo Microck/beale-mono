@@ -12,12 +12,16 @@ describe('resource detail views', () => {
   it('uses an inline editor for existing resources while preserving the creation dialog', () => {
     const editor = renderToStaticMarkup(createElement(WorkspaceResourceEditor, { ...callbacks, initialAsset: asset, kind: asset.kind, onRemove: async () => undefined }));
     expect(editor).toContain('Back to resources');
+    expect(editor).toContain('class="modal-form workspace-resource-form is-page"');
+    expect(editor).toContain('class="settings-form-squircle"');
+    expect(editor).toContain('class="settings-form-control-row workspace-resource-control-row"');
     expect(editor).toContain('Example documentation');
     expect(editor).toContain('Save changes');
     expect(editor).toContain('Remove');
     expect(editor).not.toContain('role="dialog"');
     const creation = renderToStaticMarkup(createElement(WorkspaceResourceDialog, { ...callbacks, initialAsset: null, kind: 'documentation' }));
     expect(creation).toContain('role="dialog"');
+    expect(creation).not.toContain('workspace-resource-form is-page');
     expect(creation).toContain('Add resource');
     expect(creation).not.toContain('Back to resources');
   });

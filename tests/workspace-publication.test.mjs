@@ -324,7 +324,7 @@ test('canonical snapshots isolate workspace records and imports preserve revisio
   try {
     const memory = graph.save({ type: 'invariant', title: 'Example parser boundary', summary: 'An example observation.', body: 'Original explanation.', status: 'suspected' });
     const foreign = other.save({ type: 'invariant', title: 'Other workspace knowledge', status: 'suspected' });
-    const claim = claims.create({ title: 'Example hypothesis', summary: 'A synthetic hypothesis.', classification: 'security.primitive', rating: 'medium' });
+    const claim = claims.create({ title: 'Example hypothesis', summary: 'A synthetic hypothesis.', classification: 'security.vulnerability', rating: 'medium' });
     const runbook = runbooks.create({ title: 'Example procedure', purpose: 'Repeat the example.', cells: [{ kind: 'code', source: 'echo example', features: ['runtime'], language: 'shell' }] }).runbook;
     const report = reports.create({ title: 'Example report', summary: 'Example summary.', content: '# Example report\n' }).report;
     const checkpoint = checkpointWorkspaceResearch(options, 'Canonical research checkpoint');

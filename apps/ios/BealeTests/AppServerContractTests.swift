@@ -398,9 +398,9 @@ final class AppServerContractTests: XCTestCase {
         func claim(id: String, sessionIDs: [String], maturity: String, rating: String) -> AppServerWorkspaceResearchClaim {
             AppServerWorkspaceResearchClaim(
                 id: id, sessionIds: sessionIDs, projection: "finding", maturity: maturity,
-                freshness: "current", workflow: "open", rating: rating,
-                classification: "example", componentClaimIds: [], duplicateClaims: [],
-                title: "Synthetic finding", summary: "", impact: "", confidence: 0,
+                status: "observed", staleFromStatus: nil, rating: rating,
+                classification: "example", duplicateClaims: [],
+                title: "Synthetic finding", summary: "", impact: "", stepsToReproduce: nil, confidence: 0,
                 evidenceCount: 0, createdAt: "2026-01-01T00:00:00.000Z",
                 updatedAt: "2026-01-01T00:00:00.000Z", revision: 1
             )
@@ -1192,8 +1192,8 @@ final class AppServerContractTests: XCTestCase {
                   "id": "memory-1",
                   "kind": "claim",
                   "sessionIds": ["session-1"],
-                  "type": "security.chain",
-                  "typeName": "Composite finding",
+                  "type": "security.vulnerability",
+                  "typeName": "Security finding",
                   "title": "Authenticated attack chain",
                   "summary": "The chain reaches a privileged sink.",
                   "status": "verified",
@@ -1212,7 +1212,7 @@ final class AppServerContractTests: XCTestCase {
         XCTAssertEqual(result.result.nodes.first?.heat, "critical")
         XCTAssertEqual(result.result.nodes.first?.rating, "high")
         XCTAssertEqual(result.result.nodes.first?.kind, "claim")
-        XCTAssertEqual(result.result.nodes.first?.typeName, "Composite finding")
+        XCTAssertEqual(result.result.nodes.first?.typeName, "Security finding")
         XCTAssertEqual(result.result.nodes.first?.notificationCheckpoint, "memory-1|1|critical|high")
         let raw = try XCTUnwrap(String(data: data, encoding: .utf8))
         XCTAssertFalse(raw.contains("databasePath"))
@@ -1230,7 +1230,7 @@ final class AppServerContractTests: XCTestCase {
                 id: "claim-\(status)-\(rating ?? "none")",
                 kind: kind,
                 sessionIds: ["session-1"],
-                type: "security.primitive",
+                type: "security.vulnerability",
                 typeName: "Finding",
                 title: "Authorization boundary",
                 summary: "A bounded summary.",
@@ -1297,10 +1297,9 @@ final class AppServerContractTests: XCTestCase {
                   "sessionIds": ["session-1"],
                   "projection": "lead",
                   "maturity": "proposed",
-                  "freshness": "current",
-                  "workflow": "open",
+                  "status": "hypothesis",
+                  "staleFromStatus": null,
                   "classification": "security.vulnerability",
-                  "componentClaimIds": [],
                   "duplicateClaims": [],
                   "title": "Authorization lead",
                   "summary": "A boundary may be bypassable.",
@@ -1317,16 +1316,15 @@ final class AppServerContractTests: XCTestCase {
                   "sessionIds": ["session-1"],
                   "projection": "finding",
                   "maturity": "observed",
-                  "freshness": "current",
-                  "workflow": "open",
-                  "classification": "security.primitive",
-                  "componentClaimIds": [],
+                  "status": "observed",
+                  "staleFromStatus": null,
+                  "classification": "security.vulnerability",
                   "duplicateClaims": [{
                     "id": "claim-duplicate",
                     "projection": "lead",
                     "maturity": "observed",
                     "rating": "high",
-                    "classification": "security.primitive",
+                    "classification": "security.vulnerability",
                     "title": "Duplicate authorization bypass",
                     "status": "observed",
                     "revision": 3,
@@ -1335,6 +1333,7 @@ final class AppServerContractTests: XCTestCase {
                   "title": "Observed authorization bypass",
                   "summary": "A test reached the privileged operation.",
                   "impact": "Privileged operation is reachable.",
+                  "stepsToReproduce": "Run the example verifier and inspect the privileged operation.",
                   "rating": "high",
                   "confidence": 0.8,
                   "evidenceCount": 1,
@@ -1353,8 +1352,9 @@ final class AppServerContractTests: XCTestCase {
         XCTAssertEqual(result.result.nodes.first?.confidence, 0.75)
         XCTAssertEqual(result.result.leads.first?.id, "claim-lead")
         XCTAssertEqual(result.result.leads.first?.rating, "low")
-        XCTAssertEqual(result.result.findings.first?.classification, "security.primitive")
+        XCTAssertEqual(result.result.findings.first?.classification, "security.vulnerability")
         XCTAssertEqual(result.result.findings.first?.rating, "high")
+        XCTAssertEqual(result.result.findings.first?.stepsToReproduce, "Run the example verifier and inspect the privileged operation.")
         XCTAssertEqual(result.result.findings.first?.duplicateClaims.first?.title, "Duplicate authorization bypass")
         let raw = try XCTUnwrap(String(data: data, encoding: .utf8))
         XCTAssertFalse(raw.contains("databasePath"))

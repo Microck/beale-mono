@@ -101,7 +101,7 @@ Beale uses app-server's user-global `~/.beale/memory.sqlite` database. Operation
 
 For active runs, Beale sends only logical session intent to the Beale app-server. The server resolves workspace identity, host paths, storage, provider policy, plugins, capture/continuation files, and canonical profile snapshots before hosting app-server in an isolated worker. Worker events and controls use direct messages; only the client-facing app-server WebSocket remains. Desktop authenticates with a per-session bearer token, consumes the shared event stream, and reads bounded canonical state through the same control plane. Canonical operations use the authenticated app-server operation endpoint rather than spawning app-server commands.
 
-app-server protocol v1 is the transport boundary, while contract v49 identifies the executing runtime build, current claim-ledger and memory-summary schemas, file-authority workspace synchronization, reversible derived-index release, and required capabilities. Beale validates the app-server descriptor and WebSocket hello. Session persistence and derived research queries, claims, campaign projection, knowledge and artifact operations, auxiliary model jobs and provider semantics, Agent Plugins, and source materialization are app-server-owned operations hosted by app-server.
+app-server protocol v1 is the transport boundary, while contract v54 identifies the executing runtime build, current finding and memory-summary schemas, live workspace surface maps, file-authority workspace synchronization, reversible derived-index release, and required capabilities. Beale validates the app-server descriptor and WebSocket hello. Session persistence and derived research queries, findings, campaign projection, knowledge and artifact operations, auxiliary model jobs and provider semantics, Agent Plugins, and source materialization are app-server-owned operations hosted by app-server.
 
 Beale is pre-alpha and uses append-only component-scoped migrations.
 
@@ -109,11 +109,11 @@ The sidebar Skills and MCP Servers views request hosted tool discovery and confi
 
 ### Research Profiles
 
-Agent Settings > Optional Features controls seven built-in harness features: Source, Provenance, Knowledge, Claims, Runbooks, Reporting, and Introspection. The Plugins view lists traditional Agent Plugins separately. Changes apply to new sessions and continuations; Quick Chat requires Introspection.
+Agent Settings > Optional Features controls seven built-in harness features: Source, Provenance, Knowledge, Findings, Runbooks, Reporting, and Introspection. The Plugins view lists traditional Agent Plugins separately. Changes apply to new sessions and continuations; Quick Chat requires Introspection.
 
 New Beale workspaces use the bundled Security research profile. Existing non-security workspaces are hidden from Beale; their workspace files and stored records remain in place.
 
-The Security profile classifies isolated findings as `security.primitive` and demonstrated composite paths as `security.chain`, while keeping reusable system knowledge separate. The agent chooses its research flow from the session prompt and evidence gathered during the run.
+The Security profile records security findings under one classification, `security.vulnerability`. Reachability, exploit paths, and impact are tracked as evidence on the finding, while reusable system knowledge stays separate. The agent chooses its research flow from the session prompt and evidence gathered during the run.
 
 Before each new run, Beale asks app-server to resolve and normalize the selected bundled profile, verifies its content hash, and stores the exact snapshot in that profile's database. The run references that snapshot, and continuations, capture import, historical rendering, and memory interpretation reuse it.
 

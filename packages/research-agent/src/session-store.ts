@@ -629,6 +629,42 @@ const APP_SERVER_SESSION_MIGRATIONS = [
       }
     },
   },
+  {
+    version: 8,
+    name: "record_session_running_intervals",
+    up(database: DatabaseSync): void {
+      database.exec(`
+        CREATE TABLE app_server_session_activity_events (
+          sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL REFERENCES app_server_sessions(id) ON DELETE CASCADE,
+          workspace_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          changed_at TEXT NOT NULL
+        );
+        CREATE INDEX app_server_session_activity_workspace
+          ON app_server_session_activity_events(workspace_id, session_id, sequence);
+        CREATE TRIGGER app_server_session_activity_insert AFTER INSERT ON app_server_sessions BEGIN
+          INSERT INTO app_server_session_activity_events(session_id, workspace_id, status, changed_at)
+          VALUES (NEW.id, NEW.workspace_id, NEW.status, NEW.created_at);
+        END;
+        CREATE TRIGGER app_server_session_activity_status AFTER UPDATE OF status ON app_server_sessions
+          WHEN OLD.status <> NEW.status BEGIN
+          INSERT INTO app_server_session_activity_events(session_id, workspace_id, status, changed_at)
+          VALUES (NEW.id, NEW.workspace_id, NEW.status, NEW.updated_at);
+        END;
+      `);
+    },
+  },
+  {
+    version: 9,
+    name: "stop_session_running_interval_capture",
+    up(database: DatabaseSync): void {
+      database.exec(`
+        DROP TRIGGER IF EXISTS app_server_session_activity_insert;
+        DROP TRIGGER IF EXISTS app_server_session_activity_status;
+      `);
+    },
+  },
 ] as const;
 
 export class AppServerSessionStore {

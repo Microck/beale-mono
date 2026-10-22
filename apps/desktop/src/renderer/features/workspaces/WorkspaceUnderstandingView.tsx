@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, JSX } from 'react';
-import { Binary, BookOpen, Boxes, Brain, Columns3, Download, FileText, GitBranch, Globe2, Info, Layers3, ListChecks, Plus, RefreshCw, Server, Settings, Trash2 } from 'lucide-react';
+import { Binary, BookOpen, Boxes, Brain, Columns3, Download, FileText, GitBranch, Globe2, Info, Layers3, ListChecks, Network, Plus, RefreshCw, Server, Settings, Trash2 } from 'lucide-react';
+import type { BealeWorkspaceSurfaceMap } from '@beale/app-server-runtime/protocol';
 import { isLiveResearchRunStatus, repositoryClonedDirectory } from '../../../shared/types';
 import { researchKitDefinition, researchKitLabel, researchKitResourceKey } from '../../../shared/researchKits';
 import type {
@@ -36,10 +37,12 @@ import { WorkspaceDirectoriesField } from './WorkspaceDirectoriesWidget';
 import { WorkspaceTargetsPanel } from './WorkspaceTargetsPanel';
 import { CampaignBoardView } from './CampaignGraphView';
 import { ResourcePriorArtView } from './ResourcePriorArtView';
+import { WorkspaceSurfaceMap } from './WorkspaceSurfaceMap';
+import { WorkspaceTitleSearch, workspaceCatalogMatchesQuery } from './WorkspaceTitleSearch';
 
 const WORKSPACE_ACTIVITY_DAY_COUNT = 365;
 const DAY_DURATION_MS = 24 * 60 * 60 * 1_000;
-const WORKSPACE_DASHBOARD_VIEWS = ['campaign', 'resources', 'rules', 'targets', 'overview', 'kit'] as const;
+const WORKSPACE_DASHBOARD_VIEWS = ['campaign', 'resources', 'surfaces', 'rules', 'targets', 'overview', 'kit'] as const;
 const WORKSPACE_CAMPAIGN_VIEWS = ['board', 'memory', 'runbooks', 'reports'] as const;
 
 type WorkspaceTopLevelView = typeof WORKSPACE_DASHBOARD_VIEWS[number];
@@ -51,6 +54,7 @@ const WORKSPACE_DASHBOARD_VIEW_ICONS: Record<WorkspaceTopLevelView, typeof Info>
   targets: Server,
   campaign: GitBranch,
   resources: Boxes,
+  surfaces: Network,
   kit: RefreshCw,
   rules: ListChecks
 };
@@ -202,6 +206,7 @@ export function WorkspaceUnderstandingView({
   onChangeResearchSubject = async () => undefined,
   onRemoveWorkspace = async () => undefined,
   onOpenClaim = () => undefined,
+  openClaimId = null,
   onTransitionClaim,
   onOpenMemory = () => undefined,
   onOpenRunbook = () => undefined,
@@ -209,8 +214,10 @@ export function WorkspaceUnderstandingView({
   onActiveViewChange,
   onViewSelectionChange,
   initialView = 'board',
+  rightAreaExpanded = false,
   readOnly = false,
   remoteTargets,
+  surfaceMap,
   researchProfileLabel,
   nowMs
 }: {
@@ -230,8 +237,10 @@ export function WorkspaceUnderstandingView({
   workspaceName: string;
   runs: RunRow[];
   initialView?: WorkspaceDashboardView;
+  rightAreaExpanded?: boolean;
   readOnly?: boolean;
   remoteTargets?: readonly { id: string; name: string; ready: boolean }[];
+  surfaceMap?: BealeWorkspaceSurfaceMap | null;
   researchProfileLabel?: string;
   onAddResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
@@ -245,6 +254,7 @@ export function WorkspaceUnderstandingView({
   onRemoveWorkspace?: () => Promise<void>;
   onOpenSession?: (runId: string) => void;
   onOpenClaim?: (claimId: string) => void;
+  openClaimId?: string | null;
   onTransitionClaim?: (claim: AppServerFindingSummary, targetMaturity: ClaimBoardMaturity) => Promise<void>;
   onOpenMemory?: (nodeId: string) => void;
   onOpenRunbook?: (runbookId: string) => void;
@@ -257,6 +267,7 @@ export function WorkspaceUnderstandingView({
   const [resourceEditState, setResourceEditState] = useState({ dirty: false, pending: false });
   const [pendingResourceNavigation, setPendingResourceNavigation] = useState<WorkspaceTopLevelView | null>(null);
   const [activeCampaignView, setActiveCampaignView] = useState<WorkspaceCampaignView>(() => workspaceCampaignView(initialView));
+  const [focusedBoardMaturity, setFocusedBoardMaturity] = useState<ClaimBoardMaturity>('observed');
   const [clockNowMs, setClockNowMs] = useState(() => Date.now());
   const researchKit = researchKitDefinition(researchKitId);
   const dashboardViews = researchKit.refresh && !readOnly
@@ -277,6 +288,22 @@ export function WorkspaceUnderstandingView({
   const memoryTypes = researchProfile?.memory.types ?? [];
   const campaignActive = activeView === 'campaign';
   const workspaceId = workspaceIdInput || appServerMemory?.contextWorkspaceId || '';
+  const [localSurfaceMap, setLocalSurfaceMap] = useState<BealeWorkspaceSurfaceMap | null>(null);
+  const [surfaceMapError, setSurfaceMapError] = useState<string | null>(null);
+  useEffect(() => {
+    if (activeView !== 'surfaces' || surfaceMap !== undefined || !workspaceId) return undefined;
+    let active = true;
+    const refresh = (): void => {
+      void window.beale.getWorkspaceSurfaceMap(workspaceId)
+        .then((value) => { if (active) { setLocalSurfaceMap(value); setSurfaceMapError(null); } })
+        .catch((caught: unknown) => { if (active) setSurfaceMapError(errorMessage(caught)); });
+    };
+    setLocalSurfaceMap(null);
+    setSurfaceMapError(null);
+    refresh();
+    const timer = window.setInterval(refresh, 5_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [activeView, surfaceMap, workspaceId]);
   const workspaceMemoryNodes = useMemo(
     () => campaignActive && activeCampaignView === 'memory'
       ? (appServerMemory?.nodes ?? [])
@@ -393,13 +420,24 @@ export function WorkspaceUnderstandingView({
         readOnly={readOnly}
       /> : null}
 
+      {activeView === 'surfaces' ? <WorkspaceSurfaceMap
+        map={surfaceMap === undefined ? localSurfaceMap : surfaceMap}
+        workspaceName={activeScope?.workspaceName || workspaceName}
+        loading={surfaceMap === undefined && localSurfaceMap === null && !surfaceMapError}
+        error={surfaceMapError}
+      /> : null}
+
       {pendingResourceNavigation ? <Modal title="Discard resource changes?" onClose={() => setPendingResourceNavigation(null)} footer={<>
         <button className="secondary-button" onClick={() => setPendingResourceNavigation(null)} type="button">Keep editing</button>
         <button className="primary-button" onClick={() => { setActiveView(pendingResourceNavigation); setPendingResourceNavigation(null); }} type="button">Discard changes</button>
       </>}><p>Your unsaved resource edits will be discarded.</p></Modal> : null}
 
       {campaignActive && activeCampaignView === 'board' ? <CampaignBoardView
+        compact={rightAreaExpanded}
+        focusedMaturity={focusedBoardMaturity}
         memory={appServerMemory}
+        openClaimId={openClaimId}
+        onFocusedMaturityChange={setFocusedBoardMaturity}
         providerModelCatalog={providerModelCatalog}
         workspaceName={activeScope?.workspaceName || workspaceName}
         onOpenClaim={onOpenClaim}
@@ -475,7 +513,7 @@ function workspaceCampaignView(initialView: WorkspaceDashboardView): WorkspaceCa
 
 function workspaceCampaignViewLabel(view: WorkspaceCampaignView): string {
   if (view === 'memory') return 'Memories';
-  if (view === 'board') return 'Claims';
+  if (view === 'board') return 'Findings';
   return view.charAt(0).toUpperCase() + view.slice(1);
 }
 
@@ -632,8 +670,10 @@ function WorkspaceRulesPanel({
   workspaceName: string;
 }): JSX.Element {
   const [draft, setDraft] = useState('');
+  const [query, setQuery] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const filteredRules = useMemo(() => rules.filter((rule) => workspaceCatalogMatchesQuery(query, [rule.text, rule.id])), [rules, query]);
   const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     const text = draft.trim();
@@ -658,7 +698,7 @@ function WorkspaceRulesPanel({
     >
       <div className="workspace-rules-layout settings-form">
         <header className="settings-form-heading">
-          <h2>{workspaceName} Rules</h2>
+          <div className="workspace-catalog-title-row"><h2>{workspaceName} Rules</h2><WorkspaceTitleSearch label="rules" query={query} onChange={setQuery} /></div>
           <p>{readOnly ? 'Operating constraints for research in this workspace.' : 'Append concise operating constraints for every research session in this workspace.'}</p>
         </header>
         <div className={`settings-form-squircle workspace-rules-surface${readOnly ? ' is-read-only' : ''}`}>
@@ -677,11 +717,11 @@ function WorkspaceRulesPanel({
             </button>
           </form> : null}
           {error ? <p className="workspace-rules-error" role="alert">{error}</p> : null}
-          {rules.length > 0 ? (
+          {filteredRules.length > 0 ? (
             <ol aria-label="Workspace rules" className="workspace-rule-list">
-              {rules.map((rule) => <li key={rule.id}>{rule.text}</li>)}
+              {filteredRules.map((rule) => <li key={rule.id}>{rule.text}</li>)}
             </ol>
-          ) : <p className="workspace-rules-empty">No workspace rules recorded.</p>}
+          ) : <p className="workspace-rules-empty">{query.trim() ? 'No rules match this search.' : 'No workspace rules recorded.'}</p>}
         </div>
       </div>
     </section>
@@ -1023,12 +1063,14 @@ function workspaceResearchProfileLabel(profile: ResearchProfile | null): string 
 function WorkspaceActivityForm({
   activity,
   metric,
+  search,
   showGrid = true,
   viewLabel,
   workspaceName
 }: {
   activity: WorkspaceHeatmapActivity;
   metric: WorkspaceHeatmapMetric;
+  search?: { query: string; onChange: (query: string) => void };
   showGrid?: boolean;
   viewLabel: string;
   workspaceName: string;
@@ -1037,7 +1079,10 @@ function WorkspaceActivityForm({
   return (
     <section className="settings-form workspace-activity-form" aria-label={`${workspaceName} ${viewLabel.toLowerCase()} yearly ${metricCopy.activityLabel}`}>
       <header className="settings-form-heading">
-        <h2>{workspaceName} {viewLabel}</h2>
+        {search ? <div className="workspace-catalog-title-row">
+          <h2>{workspaceName} {viewLabel}</h2>
+          <WorkspaceTitleSearch label={viewLabel.toLowerCase()} query={search.query} onChange={search.onChange} />
+        </div> : <h2>{workspaceName} {viewLabel}</h2>}
         <p>{workspaceHeatmapValueLabel(activity.total, metric)} over the past year.</p>
       </header>
       {showGrid ? <div className="workspace-activity-grid-scroll">
@@ -1132,10 +1177,13 @@ function WorkspaceMemoryPanel({
   sessionHeatPreferences: SessionHeatPreferences;
   workspaceName: string;
 }): JSX.Element {
+  const [query, setQuery] = useState('');
   const activity = useMemo(() => workspaceCreationActivity(nodes, nowMs), [nodes, nowMs]);
+  const filteredNodes = useMemo(() => nodes.filter((node) => workspaceCatalogMatchesQuery(query,
+    [node.id, node.title, node.summary, node.body, node.type, node.status, ...node.tags])), [nodes, query]);
   const groups = useMemo(
-    () => workspaceMemoryTypeGroups(nodes, memoryTypes, profileId, sessionHeatPreferences),
-    [memoryTypes, nodes, profileId, sessionHeatPreferences]
+    () => workspaceMemoryTypeGroups(filteredNodes, memoryTypes, profileId, sessionHeatPreferences),
+    [filteredNodes, memoryTypes, profileId, sessionHeatPreferences]
   );
   return (
     <section
@@ -1145,11 +1193,12 @@ function WorkspaceMemoryPanel({
       id="workspace-dashboard-campaign-memory-panel"
       role="tabpanel"
     >
-      <WorkspaceActivityForm activity={activity} metric="memories" viewLabel="Memories" workspaceName={workspaceName} />
+      <WorkspaceActivityForm activity={activity} metric="memories" viewLabel="Memories" workspaceName={workspaceName}
+        search={{ query, onChange: setQuery }} />
       <MainSideScrollRegion
         className="workspace-catalog-list workspace-memory-scroll"
         listClassName="memory-catalog-list workspace-memory-type-lists"
-        updateKey={`${loading}:${nodes.length}:${groups.length}`}
+        updateKey={`${loading}:${query}:${filteredNodes.length}:${groups.length}`}
       >
         {groups.map((group) => (
           <WorkspaceMemoryTypeSection
@@ -1159,8 +1208,8 @@ function WorkspaceMemoryPanel({
             onOpen={onOpen}
           />
         ))}
-        {nodes.length === 0 ? (
-          <p className="workspace-catalog-empty">{!enabled ? 'Memory is disabled for this workspace.' : loading ? 'Loading memory.' : 'No workspace memory yet.'}</p>
+        {filteredNodes.length === 0 ? (
+          <p className="workspace-catalog-empty">{query.trim() ? 'No memories match this search.' : !enabled ? 'Memory is disabled for this workspace.' : loading ? 'Loading memory.' : 'No workspace memory yet.'}</p>
         ) : null}
       </MainSideScrollRegion>
     </section>
@@ -1241,7 +1290,10 @@ function WorkspaceRunbooksPanel({
   onOpen: (runbookId: string) => void;
   workspaceName: string;
 }): JSX.Element {
+  const [query, setQuery] = useState('');
   const activity = useMemo(() => workspaceCreationActivity(runbooks, nowMs), [nowMs, runbooks]);
+  const filteredRunbooks = useMemo(() => runbooks.filter((runbook) => workspaceCatalogMatchesQuery(query,
+    [runbook.id, runbook.title, runbook.purpose])), [query, runbooks]);
   return (
     <section
       aria-label="Workspace runbooks"
@@ -1250,14 +1302,15 @@ function WorkspaceRunbooksPanel({
       id="workspace-dashboard-campaign-runbooks-panel"
       role="tabpanel"
     >
-      <WorkspaceActivityForm activity={activity} metric="runbooks" viewLabel="Runbooks" workspaceName={workspaceName} />
+      <WorkspaceActivityForm activity={activity} metric="runbooks" viewLabel="Runbooks" workspaceName={workspaceName}
+        search={{ query, onChange: setQuery }} />
       <MainSideScrollRegion
         className="workspace-catalog-list workspace-runbook-scroll"
         listClassName="memory-catalog-list runbook-catalog-list workspace-runbook-list"
-        updateKey={`${loading}:${runbooks.length}`}
+        updateKey={`${loading}:${query}:${filteredRunbooks.length}`}
       >
-        {runbooks.length > 0 ? <WorkspaceRunbookSection runbooks={runbooks} onOpen={onOpen} /> : (
-          <p className="workspace-catalog-empty">{loading ? 'Loading runbooks.' : 'No workspace runbooks yet.'}</p>
+        {filteredRunbooks.length > 0 ? <WorkspaceRunbookSection runbooks={filteredRunbooks} onOpen={onOpen} /> : (
+          <p className="workspace-catalog-empty">{query.trim() ? 'No runbooks match this search.' : loading ? 'Loading runbooks.' : 'No workspace runbooks yet.'}</p>
         )}
       </MainSideScrollRegion>
     </section>
@@ -1325,7 +1378,10 @@ function WorkspaceReportsPanel({
   onOpen: (report: AppServerReportSummary) => void;
   workspaceName: string;
 }): JSX.Element {
+  const [query, setQuery] = useState('');
   const activity = useMemo(() => workspaceCreationActivity(reports, nowMs), [nowMs, reports]);
+  const filteredReports = useMemo(() => reports.filter((report) => workspaceCatalogMatchesQuery(query,
+    [report.id, report.title, report.summary, report.status, report.triageStatus])), [query, reports]);
   return (
     <section
       aria-label="Workspace reports"
@@ -1333,14 +1389,15 @@ function WorkspaceReportsPanel({
       id="workspace-dashboard-campaign-reports-panel"
       role="tabpanel"
     >
-      <WorkspaceActivityForm activity={activity} metric="reports" viewLabel="Reports" workspaceName={workspaceName} />
+      <WorkspaceActivityForm activity={activity} metric="reports" viewLabel="Reports" workspaceName={workspaceName}
+        search={{ query, onChange: setQuery }} />
       <MainSideScrollRegion
         className="workspace-catalog-list workspace-report-scroll"
         listClassName="memory-catalog-list runbook-catalog-list report-catalog-list workspace-report-list"
-        updateKey={`${loading}:${reports.length}`}
+        updateKey={`${loading}:${query}:${filteredReports.length}`}
       >
-        {reports.length > 0 ? <WorkspaceReportSection reports={reports} nowMs={nowMs} onOpen={onOpen} /> : (
-          <p className="workspace-catalog-empty">{loading ? 'Loading reports.' : 'No workspace reports yet.'}</p>
+        {filteredReports.length > 0 ? <WorkspaceReportSection reports={filteredReports} nowMs={nowMs} onOpen={onOpen} /> : (
+          <p className="workspace-catalog-empty">{query.trim() ? 'No reports match this search.' : loading ? 'Loading reports.' : 'No workspace reports yet.'}</p>
         )}
       </MainSideScrollRegion>
     </section>
@@ -1574,6 +1631,13 @@ export function workspaceResearchSurfaceKinds(items: readonly WorkspaceResearchS
   return WORKSPACE_ASSET_KINDS.filter((kind) => representedKinds.has(kind));
 }
 
+function workspaceResourceMatchesQuery(item: WorkspaceResearchSurfaceItem, query: string): boolean {
+  return workspaceCatalogMatchesQuery(query, [
+    item.label, item.asset.value, item.asset.id, workspaceAssetKindLabel(item.asset.kind),
+    item.asset.direction === 'in_scope' ? 'In scope' : 'Out of scope'
+  ]);
+}
+
 function WorkspaceResearchSurface({
   onEditStateChange,
   workspaceId,
@@ -1610,6 +1674,8 @@ function WorkspaceResearchSurface({
     [items, nowMs]
   );
   const representedKinds = useMemo(() => workspaceResearchSurfaceKinds(items), [items]);
+  const [query, setQuery] = useState('');
+  const matchingItems = useMemo(() => items.filter((item) => workspaceResourceMatchesQuery(item, query)), [items, query]);
   const [activeKind, setActiveKind] = useState<ScopeAssetKind | null>(() => representedKinds[0] ?? null);
   const [selectedResource, setSelectedResource] = useState<{ kind: ScopeAssetKind; value: string; direction: ScopeAssetInput['direction'] } | null>(null);
   const selectedItem = selectedResource ? items.find((item) => item.asset.kind === selectedResource.kind && item.asset.value === selectedResource.value && item.asset.direction === selectedResource.direction) : null;
@@ -1619,7 +1685,13 @@ function WorkspaceResearchSurface({
   const [cloningAssetIds, setCloningAssetIds] = useState<Set<string>>(() => new Set());
   const [cloneErrors, setCloneErrors] = useState<Map<string, string>>(() => new Map());
   const kindPickerRef = useRef<HTMLDivElement>(null);
-  const visibleItems = activeKind ? items.filter((item) => item.asset.kind === activeKind) : [];
+  const visibleItems = activeKind ? matchingItems.filter((item) => item.asset.kind === activeKind) : [];
+  const updateQuery = (nextQuery: string): void => {
+    setQuery(nextQuery);
+    if (!nextQuery.trim()) return;
+    const matchingKinds = workspaceResearchSurfaceKinds(items.filter((item) => workspaceResourceMatchesQuery(item, nextQuery)));
+    if (!activeKind || !matchingKinds.includes(activeKind)) setActiveKind(matchingKinds[0] ?? activeKind);
+  };
   const missingKinds = WORKSPACE_ASSET_KINDS.filter((kind) => !representedKinds.includes(kind));
   const surfaceScrollRef = useRef<HTMLDivElement>(null);
   const surfaceListRef = useRef<HTMLDivElement>(null);
@@ -1640,7 +1712,7 @@ function WorkspaceResearchSurface({
     const observer = new ResizeObserver(updateScrollFades);
     observer.observe(list);
     return () => observer.disconnect();
-  }, [activeKind, visibleItems.length, updateScrollFades]);
+  }, [activeKind, query, visibleItems.length, updateScrollFades]);
 
   useEffect(() => {
     if (activeKind && representedKinds.includes(activeKind)) return;
@@ -1717,7 +1789,8 @@ function WorkspaceResearchSurface({
       id="workspace-dashboard-resources-panel"
       role="tabpanel"
     >
-      <WorkspaceActivityForm activity={resourceActivity} metric="resources" showGrid={false} viewLabel="Resources" workspaceName={workspaceName} />
+      <WorkspaceActivityForm activity={resourceActivity} metric="resources" showGrid={false} viewLabel="Resources" workspaceName={workspaceName}
+        search={{ query, onChange: updateQuery }} />
       <div className="workspace-resource-tabs-bar">
         <div className="research-side-view-tabs workspace-resource-tabs" role="tablist" aria-label="Workspace resource types">
           {representedKinds.map((kind) => (
@@ -1833,7 +1906,7 @@ function WorkspaceResearchSurface({
         </div>
       ) : (
         <div className="workspace-surface-empty">
-          {items.length > 0 ? 'No resources of this type recorded.' : 'No workspace resources recorded.'}
+          {query.trim() ? 'No resources match this search.' : items.length > 0 ? 'No resources of this type recorded.' : 'No workspace resources recorded.'}
         </div>
       )}
       {dialogState ? (
@@ -2013,15 +2086,16 @@ export function WorkspaceResourceEditor({
           </button>
         </>
   );
+  const pageLayout = presentation === 'page';
   const form = (
-    <form className="modal-form workspace-resource-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-        <fieldset disabled={pendingAction !== null}>
-        <label>
-          Resource type
+    <form className={`modal-form workspace-resource-form${pageLayout ? ' is-page' : ''}`} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <fieldset className={pageLayout ? 'settings-form-squircle' : undefined} disabled={pendingAction !== null}>
+        <label className={pageLayout ? 'settings-form-control-row workspace-resource-control-row' : undefined}>
+          <span>Resource type</span>
           <input disabled readOnly value={workspaceAssetKindLabel(kind)} />
         </label>
-        <label>
-          Reference
+        <label className={pageLayout ? 'settings-form-control-row workspace-resource-control-row' : undefined}>
+          <span>Reference</span>
           <input
             autoFocus
             onChange={(event) => setValue(event.target.value)}
@@ -2030,13 +2104,13 @@ export function WorkspaceResourceEditor({
             value={value}
           />
         </label>
-        <label>
-          Display name
+        <label className={pageLayout ? 'settings-form-control-row workspace-resource-control-row' : undefined}>
+          <span>Display name</span>
           <input onChange={(event) => setDisplayName(event.target.value)} placeholder="Optional" value={displayName} />
         </label>
         {kind === 'repo' ? (
-          <label>
-            Cloned directory
+          <label className={pageLayout ? 'settings-form-control-row workspace-resource-control-row' : undefined}>
+            <span>Cloned directory</span>
             <input
               onChange={(event) => setClonedDirectory(event.target.value)}
               placeholder="Optional local checkout directory"
@@ -2044,16 +2118,16 @@ export function WorkspaceResourceEditor({
             />
           </label>
         ) : null}
-        <div className="workspace-resource-form-row">
-          <label>
-            Scope
+        <div className={`workspace-resource-form-row${pageLayout ? ' is-page' : ''}`}>
+          <label className={pageLayout ? 'settings-form-control-row workspace-resource-control-row' : undefined}>
+            <span>Scope</span>
             <select onChange={(event) => setDirection(event.target.value as ScopeAssetInput['direction'])} value={direction}>
               <option value="in_scope">In scope</option>
               <option value="out_of_scope">Out of scope</option>
             </select>
           </label>
-          <label>
-            Sensitivity
+          <label className={pageLayout ? 'settings-form-control-row workspace-resource-control-row' : undefined}>
+            <span>Sensitivity</span>
             <select onChange={(event) => setSensitivity(event.target.value)} value={sensitivity}>
               <option value="public">Public</option>
               <option value="internal">Internal</option>

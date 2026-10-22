@@ -364,15 +364,15 @@ struct AppServerWorkspaceResearchClaim: Decodable, Identifiable, Sendable {
     let sessionIds: [String]
     let projection: String
     let maturity: String
-    let freshness: String
-    let workflow: String
+    let status: String
+    let staleFromStatus: String?
     let rating: String
     let classification: String
-    let componentClaimIds: [String]
     let duplicateClaims: [AppServerWorkspaceResearchClaimDuplicate]
     let title: String
     let summary: String
     let impact: String
+    let stepsToReproduce: String?
     let confidence: Double
     let evidenceCount: Int
     let createdAt: String

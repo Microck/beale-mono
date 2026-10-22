@@ -331,7 +331,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   return (
     <div
       ref={containerRef}
-      className={`main-session-grid${workspaceSideView ? ' workspace-context' : ''}${visibleResearchDetails || (viewState === 'session' && connectedDeviceCaptureExpanded) ? ' research-details-open' : ''}${workspaceSideView && !visibleResearchDetails ? ' workspace-main-only' : ''}${(viewState === 'new-research' && !visibleResearchDetails) || (viewState === 'session' && selectedRunId !== null && !sessionHasContent) ? ' session-main-only' : ''}`}
+      className={`main-session-grid${workspaceSideView ? ' workspace-context' : ''}${visibleResearchDetails || (viewState === 'session' && connectedDeviceCaptureExpanded) ? ' research-details-open' : ''}${workspaceView && visibleResearchDetails && selectedWorkspaceClaimId ? ' finding-details-open' : ''}${workspaceView && visibleResearchDetails && selectedWorkspaceMemoryId ? ' memory-details-open' : ''}${workspaceSideView && !visibleResearchDetails ? ' workspace-main-only' : ''}${(viewState === 'new-research' && !visibleResearchDetails) || (viewState === 'session' && selectedRunId !== null && !sessionHasContent) ? ' session-main-only' : ''}`}
       data-session-view-state={viewState}
       style={{
         '--research-side-panel-width': `${panelWidth}px`,
@@ -358,6 +358,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           providerModelCatalog={providerModelCatalog}
           workspaceName={workspaceName}
           initialView={initialWorkspaceView}
+          rightAreaExpanded={researchDetailsOpen}
           runs={runs}
           onAddResource={onAddWorkspaceResource}
           onChangeResource={onChangeWorkspaceResource}
@@ -373,6 +374,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onActiveViewChange={onWorkspaceViewChange}
           onViewSelectionChange={onWorkspaceViewSelectionChange}
           onOpenClaim={openWorkspaceClaim}
+          openClaimId={researchDetailsOpen ? selectedWorkspaceClaimId : null}
           onTransitionClaim={onTransitionClaim}
           onOpenMemory={openWorkspaceMemory}
           onOpenRunbook={openWorkspaceRunbook}

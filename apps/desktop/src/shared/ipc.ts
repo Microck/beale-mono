@@ -155,6 +155,7 @@ export const IPC_CHANNELS = {
   startQuickChat: 'beale:start-quick-chat',
   exportWorkspaceBackup: 'beale:export-workspace-backup',
   getRunDetail: 'beale:get-run-detail',
+  getWorkspaceSurfaceMap: 'beale:get-workspace-surface-map',
   getRunHistoryPage: 'beale:get-run-history-page',
   getRunDetailVersion: 'beale:get-run-detail-version',
   getRunDetailUpdate: 'beale:get-run-detail-update',

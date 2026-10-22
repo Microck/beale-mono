@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { layoutCampaignGraph } from '../src/renderer/view-models/campaignGraph';
 import { campaignClaimRatingPresentation } from '../src/renderer/view-models/campaignClaims';
-import { CampaignBoardView, campaignBoardClaimMetadata, campaignBoardFindings } from '../src/renderer/features/workspaces/CampaignGraphView';
+import { CampaignBoardView, adjacentCampaignBoardMaturity, campaignBoardAuthorOptions, campaignBoardClaimMetadata, campaignBoardFindings } from '../src/renderer/features/workspaces/CampaignGraphView';
 import { findingRevisionContext } from '../src/main/findingRevisionContext';
 import type { AppServerFindingSummary, AppServerMemorySummary, WorkspaceScopeVersion } from '@shared/types';
 
@@ -50,7 +50,7 @@ describe('campaign graph projection', () => {
       projection: 'finding',
       maturity: 'reproduced',
       rating: 'low',
-      classification: 'security.primitive',
+      classification: 'security.vulnerability',
       securityTracking: {
         cvssAssessments: [{ score: 8.2 }]
       }
@@ -60,7 +60,6 @@ describe('campaign graph projection', () => {
     expect(campaignBoardClaimMetadata(claim)).toBe('High (CVSS 8.2)');
     expect(campaignBoardClaimMetadata(claim)).not.toContain('Primitive');
     expect(campaignBoardFindings({ findings: [claim] } as AppServerMemorySummary, 'reproduced', {
-      classification: 'all',
       rating: 'high'
     })).toEqual([claim]);
   });
@@ -68,7 +67,7 @@ describe('campaign graph projection', () => {
   it('falls back to the untrusted rating when a Board claim has no CVSS assessment', () => {
     const claim = {
       rating: 'medium',
-      classification: 'security.chain',
+      classification: 'security.vulnerability',
       securityTracking: null
     } as AppServerFindingSummary;
 
@@ -76,7 +75,7 @@ describe('campaign graph projection', () => {
     expect(campaignBoardClaimMetadata(claim)).not.toContain('Chain');
   });
 
-  it('places the live text filter before Classes on the Board', () => {
+  it('places author filtering beside rating beneath the Findings title', () => {
     const html = renderToStaticMarkup(createElement(CampaignBoardView, {
       memory: null,
       providerModelCatalog: [],
@@ -84,17 +83,54 @@ describe('campaign graph projection', () => {
       onOpenClaim: () => undefined
     }));
 
-    expect(html).toContain('type="search"');
-    expect(html.indexOf('aria-label="Filter claims"')).toBeLessThan(html.indexOf('aria-label="Finding class filter"'));
+    expect(html).toContain('Example Workspace Findings');
+    expect(html).toMatch(/Example Workspace Findings<\/h2><div class="campaign-board-title-search" role="search"><button aria-label="Search findings"/u);
+    expect(html).toMatch(/<\/button><\/div><\/div><div class="campaign-board-controls-row"><div class="campaign-board-filters"/u);
+    expect(html).not.toContain('Findings are grouped by maturity.');
+    expect(html).not.toContain('aria-label="Finding class filter"');
+    expect(html).not.toContain('aria-label="Filter findings"');
+    expect(html.indexOf('aria-label="Finding rating filter"')).toBeLessThan(html.indexOf('aria-label="Finding author filter"'));
+    expect(html).toContain('All Authors');
+    expect(html.indexOf('aria-label="Finding rating filter"')).toBeLessThan(html.indexOf('0 refuted hidden'));
+    expect(html).toContain('campaign-board-reported-heading');
+    expect(html).not.toContain('campaign-board-refuted-heading');
     expect(html.match(/class="main-side-scroll campaign-board-lane-scroll"/gu)).toHaveLength(4);
     expect(html.match(/class="campaign-board-lane-list"/gu)).toHaveLength(4);
     expect(html.match(/class="workspace-campaign-list-heading campaign-board-lane-heading"/gu)).toHaveLength(4);
   });
 
+  it('shows one focused lane with adjacent navigation when the right area is expanded', () => {
+    const props = { memory: null, providerModelCatalog: [], workspaceName: 'Example Workspace', onOpenClaim: () => undefined };
+    const compact = renderToStaticMarkup(createElement(CampaignBoardView, { ...props, compact: true }));
+    const verified = renderToStaticMarkup(createElement(CampaignBoardView, { ...props, compact: true, focusedMaturity: 'verified' }));
+
+    expect(compact).toContain('campaign-board-lanes is-compact');
+    expect(compact).toContain('campaign-board-panel is-compact');
+    expect(compact).toContain('campaign-board-controls-row');
+    expect(compact).not.toContain('Use the arrows to switch findings lanes.');
+    expect(compact).not.toContain('aria-label="Filter findings"');
+    expect(compact).not.toContain('aria-label="Search findings"');
+    expect(compact).not.toContain('refuted hidden');
+    expect(compact).not.toContain('aria-label="Finding class filter"');
+    expect(compact).toContain('aria-label="Finding rating filter"');
+    expect(compact).toContain('aria-label="Finding author filter"');
+    expect(compact).toContain('campaign-board-observed-heading');
+    expect(compact).not.toContain('campaign-board-reproduced-heading');
+    expect(compact.match(/class="workspace-campaign-list-heading campaign-board-lane-heading"/gu)).toHaveLength(1);
+    expect(compact).toContain('aria-label="Previous findings lane"');
+    expect(compact).toContain('aria-label="Next findings lane"');
+    expect(verified).toContain('campaign-board-verified-heading');
+    expect(verified).not.toContain('campaign-board-observed-heading');
+    expect(adjacentCampaignBoardMaturity('observed', -1)).toBeNull();
+    expect(adjacentCampaignBoardMaturity('observed', 1)).toBe('reproduced');
+    expect(adjacentCampaignBoardMaturity('verified', 1)).toBe('reported');
+    expect(adjacentCampaignBoardMaturity('reported', 1)).toBeNull();
+  });
+
   it('makes finding cards draggable when a canonical board transition is available', () => {
     const finding = {
       id: 'finding-example-parser', projection: 'finding', maturity: 'observed',
-      title: 'Example parser boundary', rating: 'medium', classification: 'security.primitive',
+      title: 'Example parser boundary', rating: 'medium', classification: 'security.vulnerability',
       authors: [], evidence: [], securityTracking: null, revision: 2
     } as unknown as AppServerFindingSummary;
     const props = {
@@ -109,38 +145,113 @@ describe('campaign graph projection', () => {
     }));
     expect(readOnly).toContain('draggable="false"');
     expect(editable).toContain('draggable="true"');
-    expect(editable).toContain('Drag findings between columns to change status.');
+    expect(editable).not.toContain('Drag findings between columns to change status.');
   });
 
-  it('filters Board findings by text alongside class and rating', () => {
+  it('marks only the finding open in the detail panel as active', () => {
+    const finding = {
+      id: 'finding-example-parser', projection: 'finding', maturity: 'observed',
+      title: 'Example parser boundary', rating: 'medium', classification: 'security.vulnerability',
+      authors: [], evidence: [], securityTracking: null, revision: 1
+    } as unknown as AppServerFindingSummary;
+    const props = {
+      memory: { findings: [finding, { ...finding, id: 'finding-example-chain', title: 'Example chain' }] } as AppServerMemorySummary,
+      providerModelCatalog: [], workspaceName: 'Example Workspace', onOpenClaim: () => undefined
+    };
+    const open = renderToStaticMarkup(createElement(CampaignBoardView, { ...props, openClaimId: finding.id }));
+    const closed = renderToStaticMarkup(createElement(CampaignBoardView, { ...props, openClaimId: null }));
+
+    expect(open.match(/class="campaign-claim-card campaign-board-card is-active"/gu)).toHaveLength(1);
+    expect(open).toMatch(/aria-current="true" class="campaign-claim-card campaign-board-card is-active"[^>]*>.*?Example parser boundary/su);
+    expect(closed).not.toContain('is-active');
+    expect(closed).not.toContain('aria-current="true"');
+  });
+
+  it('counts refuted findings outside the board lanes', () => {
+    const refuted = {
+      id: 'finding-example-refuted', projection: 'finding', maturity: 'refuted',
+      title: 'Example disproved path', rating: 'low', classification: 'security.vulnerability',
+      authors: [], evidence: [], securityTracking: null, revision: 2
+    } as unknown as AppServerFindingSummary;
+    const html = renderToStaticMarkup(createElement(CampaignBoardView, {
+      memory: { findings: [refuted] } as AppServerMemorySummary,
+      providerModelCatalog: [], workspaceName: 'Example Workspace', onOpenClaim: () => undefined
+    }));
+    expect(html).toContain('1 refuted hidden');
+    expect(html).not.toContain('Example disproved path');
+    expect(html).not.toContain('campaign-board-refuted-heading');
+  });
+
+  it('shows a stop sign only for blocked board findings', () => {
+    const finding = {
+      id: 'finding-example-blocked', projection: 'finding', maturity: 'observed',
+      title: 'Example blocked path', rating: 'medium', classification: 'security.vulnerability',
+      authors: [], evidence: [], revision: 1, securityTracking: null
+    } as unknown as AppServerFindingSummary;
+    const render = (claim: AppServerFindingSummary) => renderToStaticMarkup(createElement(CampaignBoardView, {
+      memory: { findings: [claim] } as AppServerMemorySummary,
+      providerModelCatalog: [], workspaceName: 'Example Workspace', onOpenClaim: () => undefined
+    }));
+    const unblocked = render(finding);
+    const blocked = render({
+      ...finding,
+      securityTracking: { cvssAssessments: [], progressBlocker: { reason: 'Authorized routes cannot reach this sink; a new path is required.', setAt: '2026-01-01T00:00:00Z' } }
+    } as unknown as AppServerFindingSummary);
+
+    expect(unblocked).not.toContain('lucide-badge-check');
+    expect(unblocked).not.toContain('lucide-octagon-minus');
+    expect(blocked).toContain('lucide-octagon-minus');
+    expect(blocked).toContain('aria-label="Blocked"');
+    expect(blocked).toContain('Blocked: Authorized routes cannot reach this sink; a new path is required.');
+  });
+
+  it('filters Board findings by text and rating', () => {
     const parserClaim = {
       id: 'finding-example-parser',
       maturity: 'reproduced',
       rating: 'high',
-      classification: 'security.primitive',
+      classification: 'security.vulnerability',
       title: 'Example parser boundary',
       summary: 'Unexpected payload handling',
       impact: 'Synthetic impact',
       status: 'reproduced',
-      workflow: 'active',
       evidence: [{ summary: 'Example proof note' }],
       securityTracking: null
     } as AppServerFindingSummary;
-    const chainClaim = {
+    const otherClaim = {
       ...parserClaim,
-      id: 'finding-example-chain',
-      classification: 'security.chain',
-      title: 'Example chain finding',
+      id: 'finding-example-other',
+      classification: 'security.vulnerability',
+      title: 'Example separate finding',
       summary: 'Separate finding',
       evidence: []
     };
-    const memory = { findings: [parserClaim, chainClaim] } as AppServerMemorySummary;
+    const memory = { findings: [parserClaim, otherClaim] } as AppServerMemorySummary;
 
-    expect(campaignBoardFindings(memory, 'reproduced', { classification: 'all', rating: 'all', query: '  PARSER  ' })).toEqual([parserClaim]);
-    expect(campaignBoardFindings(memory, 'reproduced', { classification: 'security.primitive', rating: 'high', query: 'proof note' })).toEqual([parserClaim]);
-    expect(campaignBoardFindings(memory, 'reproduced', { classification: 'security.chain', rating: 'all', query: 'parser' })).toEqual([]);
-    expect(campaignBoardFindings(memory, 'reproduced', { classification: 'all', rating: 'all', query: 'missing' })).toEqual([]);
-    expect(campaignBoardFindings(memory, 'reproduced', { classification: 'all', rating: 'all', query: '  ' })).toEqual([parserClaim, chainClaim]);
+    expect(campaignBoardFindings(memory, 'reproduced', { rating: 'all', query: '  PARSER  ' })).toEqual([parserClaim]);
+    expect(campaignBoardFindings(memory, 'reproduced', { rating: 'high', query: 'proof note' })).toEqual([parserClaim]);
+    expect(campaignBoardFindings(memory, 'reproduced', { rating: 'all', query: 'security.vulnerability' })).toEqual([parserClaim, otherClaim]);
+    expect(campaignBoardFindings(memory, 'reproduced', { rating: 'all', query: 'missing' })).toEqual([]);
+    expect(campaignBoardFindings(memory, 'reproduced', { rating: 'all', query: '  ' })).toEqual([parserClaim, otherClaim]);
+  });
+
+  it('lists model authors once and filters findings by provider and model', () => {
+    const firstAuthor = { provider: 'provider-one', model: 'shared-model' };
+    const secondAuthor = { provider: 'provider-two', model: 'shared-model' };
+    const first = { id: 'finding-one', maturity: 'observed', rating: 'medium', authors: [firstAuthor, secondAuthor] } as AppServerFindingSummary;
+    const second = { id: 'finding-two', maturity: 'observed', rating: 'high', authors: [secondAuthor] } as AppServerFindingSummary;
+    const refuted = { id: 'finding-refuted', maturity: 'refuted', rating: 'low', authors: [{ provider: 'provider-three', model: 'refuted-model' }] } as AppServerFindingSummary;
+    const memory = { findings: [first, second, refuted] } as AppServerMemorySummary;
+    const options = campaignBoardAuthorOptions(memory, []);
+
+    expect(options).toEqual([
+      { value: 'all', label: 'All Authors' },
+      { value: JSON.stringify(['provider-one', 'shared-model']), label: 'shared-model (provider-one)' },
+      { value: JSON.stringify(['provider-two', 'shared-model']), label: 'shared-model (provider-two)' }
+    ]);
+    expect(campaignBoardFindings(memory, 'observed', { rating: 'all', author: options[1]!.value })).toEqual([first]);
+    expect(campaignBoardFindings(memory, 'observed', { rating: 'high', author: options[2]!.value })).toEqual([second]);
+    expect(campaignBoardFindings(memory, 'observed', { rating: 'all' })).toEqual([first, second]);
   });
 });
 

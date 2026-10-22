@@ -5,6 +5,7 @@ import type { RunRecord } from '@shared/types';
 import { displaySessionTitle } from '../../shared/sessionTitle';
 import { useDevRenderProbe } from '../devInstrumentation';
 import { displayWorkspaceHeaderName } from '../view-models/appHeader';
+import type { SurfaceFocusSummary } from '../view-models/surfaceFocus';
 
 export type AppHeaderViewIcon =
   | 'automations'
@@ -27,11 +28,13 @@ export const AppHeaderTitle = memo(function AppHeaderTitle({
   workspaceName,
   workspaceViewTitle,
   detail,
+  surfaceFocus,
   onOpenSessionOverview
 }: {
   workspaceName: string;
   workspaceViewTitle?: string | null;
   detail: AppHeaderRun | null;
+  surfaceFocus?: SurfaceFocusSummary | null;
   onOpenSessionOverview?: () => void;
 }): JSX.Element {
   const workspaceLabel = displayWorkspaceHeaderName(workspaceName);
@@ -39,10 +42,14 @@ export const AppHeaderTitle = memo(function AppHeaderTitle({
   const sessionTitle = !workspaceViewLabel && detail
     ? displaySessionTitle(detail.run.title, detail.run.promptMarkdown)
     : null;
+  const surfaceLabel = sessionTitle && surfaceFocus
+    ? `${surfaceFocus.name}${surfaceFocus.additionalCount > 0 ? ` +${surfaceFocus.additionalCount}` : ''}`
+    : null;
   const headerSegments = [
     workspaceLabel,
     ...(workspaceViewLabel ? [workspaceViewLabel] : []),
-    ...(sessionTitle ? [sessionTitle] : [])
+    ...(sessionTitle ? [sessionTitle] : []),
+    ...(surfaceLabel ? [surfaceLabel] : [])
   ];
   useDevRenderProbe('appHeaderTitle', () => ({
     workspace: workspaceLabel,
@@ -79,6 +86,12 @@ export const AppHeaderTitle = memo(function AppHeaderTitle({
                 <span>{sessionTitle}</span>
               </span>
             )}
+            {surfaceLabel ? (
+              <span className="app-header-surface-title" title={surfaceLabel}>
+                <span className="app-header-surface-name">{surfaceFocus!.name}</span>
+                {surfaceFocus!.additionalCount > 0 ? <span className="app-header-surface-count">+{surfaceFocus!.additionalCount}</span> : null}
+              </span>
+            ) : null}
           </>
         ) : null}
       </div>

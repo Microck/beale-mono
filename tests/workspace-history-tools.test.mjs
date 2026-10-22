@@ -42,7 +42,7 @@ test("workspace history search unifies canonical claims, memories, and runbooks 
     let parent = claims.create({
       title: "Parser frame length controls allocation",
       summary: "An unchecked frame length reaches the parser allocator.",
-      classification: "security.primitive",
+      classification: "security.vulnerability",
       rating: "high",
     });
     parent = claims.transition(parent.id, {
@@ -54,7 +54,7 @@ test("workspace history search unifies canonical claims, memories, and runbooks 
     const duplicate = claims.create({
       title: "Unchecked parser allocation length",
       summary: "The same frame length reaches the same allocation.",
-      classification: "security.primitive",
+      classification: "security.vulnerability",
       rating: "high",
     });
     claims.markDuplicate(duplicate.id, {
@@ -89,6 +89,8 @@ test("workspace history search unifies canonical claims, memories, and runbooks 
     assert.equal(all.result.output.results.some((result) => result.id === duplicate.id), false);
     assert.equal(all.result.output.results.some((result) => result.id === parent.id && result.duplicateCount === 1), true);
     assert.equal(all.result.output.results.find((result) => result.id === parent.id)?.projection, "finding");
+    assert.equal("freshness" in all.result.output.results.find((result) => result.id === parent.id), false);
+    assert.equal("workflow" in all.result.output.results.find((result) => result.id === parent.id), false);
     assert.equal(all.result.output.results.find((result) => result.id === parent.id)?.evidenceRefs[0].referenceId, "artifact_parser_trace");
 
     const selected = await registry.execute({
@@ -141,10 +143,10 @@ test("workspace history search unifies canonical claims, memories, and runbooks 
     );
     try {
       referenceMemory.save({ type: "invariant", title: "Reference-only parser note", summary: "Prior workspace parser research." });
-      const referenceClaim = referenceClaims.create({
+      const referenceClaim = referenceClaims.createObserved({
         title: "Reference-only parser claim",
         summary: "Full same-Subject claim detail remains readable without switching workspaces.",
-        classification: "security.primitive",
+        classification: "security.vulnerability",
         rating: "medium",
         evidence: [{ kind: "code", referenceId: "artifact-reference-parser", summary: "Synthetic prior-workspace evidence." }],
       });
@@ -156,7 +158,7 @@ test("workspace history search unifies canonical claims, memories, and runbooks 
       legacyMemory.save({ type: "invariant", title: "Reference-only parser legacy note", summary: "Unregistered stale workspace research." });
       legacyClaims.create({
         title: "Reference-only parser legacy claim",
-        classification: "security.primitive",
+        classification: "security.vulnerability",
         rating: "medium",
       });
       legacyRunbooks.create({

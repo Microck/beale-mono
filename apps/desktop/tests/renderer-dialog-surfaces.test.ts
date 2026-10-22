@@ -848,7 +848,7 @@ describe('renderer dialog surfaces', () => {
     expect(html).not.toContain('research-goal-choice-loading');
   });
 
-  it('renders memory record details in a bottom sheet', () => {
+  it('shows memory status and tabs without repeating the title in the detail content', () => {
     const node: AppServerMemoryNodeSummary = {
       id: 'primitive_one',
       sessionIds: ['run_one'],
@@ -858,7 +858,7 @@ describe('renderer dialog surfaces', () => {
       type: 'primitive',
       title: 'Unchecked parser length',
       summary: 'The captured source multiplies a length before checking bounds.',
-      body: 'Detailed parser analysis.',
+      body: '## Detailed parser analysis\n\n- Check the boundary\n- Trace `length` before allocation',
       status: 'suspected',
       confidence: 0.8,
       assetIds: ['src/parser.c'],
@@ -888,18 +888,33 @@ describe('renderer dialog surfaces', () => {
         onUndoDuplicate: () => undefined
       })
     );
+    const header = html.match(/<header class="memory-detail-heading">([\s\S]*?)<\/header>/u)?.[1] ?? '';
 
     expect(html).not.toContain('bottom-sheet-panel');
-    expect(html).toContain('Unchecked parser length');
-    expect(html).toContain('Detailed parser analysis.');
-    expect(html).toContain('Authored by');
+    expect(header).not.toContain(node.title);
+    expect(header).toContain(`<time dateTime="${node.updatedAt}"`);
+    expect(html).toContain('<section class="memory-detail-breakdown" aria-label="Overview and details"><div><strong>Overview</strong><p class="memory-catalog-summary">The captured source multiplies a length before checking bounds.</p></div><div><strong>Details</strong>');
+    expect(html).toContain('<h2>Detailed parser analysis</h2>');
+    expect(html).toContain('<li>Check the boundary</li>');
+    expect(html).toContain('<code class="main-trace-inline-code">length</code>');
+    expect(html).toContain('>Suspected by</span>');
+    expect(html).toContain('aria-label="Model authors"');
     expect(html).toContain('claude-sonnet-4-5');
+    expect(html).toContain('role="tablist" aria-label="Memory detail views"');
+    expect(html.match(/role="tab"/gu)).toHaveLength(4);
+    expect(html).toContain('<span>Breakdown</span></button>');
+    expect(html).toContain('<span>References</span></button>');
+    expect(html).toContain('<span>Relationships</span></button>');
+    expect(html).toContain('<span>Duplicates</span></button>');
     expect(html).toContain('class="memory-type-label memory-type-primitive"');
     expect(html).toContain('class="memory-type-dot memory-type-primitive" aria-hidden="true"');
-    expect(html).toContain('aria-label="Duplicate memory management"');
-    expect(html).toContain('Repeated parser length');
-    expect(html).toContain('Other parser boundary');
-    expect(html.lastIndexOf('<section')).toBe(html.indexOf('<section class="memory-catalog-subsection campaign-claim-duplicates"'));
+    expect(html).toContain('<div class="memory-catalog-meta"><span>Update 2</span><span>0 refs</span><span>0 links</span><span class="campaign-claim-identifier-tag">primitive_one</span><span class="campaign-claim-identifier-tag">subject_parser</span><span class="campaign-claim-identifier-tag">workspace_one</span><span class="campaign-claim-identifier-tag">run_one</span><span class="campaign-claim-identifier-tag">parser</span><span class="campaign-claim-identifier-tag">src/parser.c</span></div>');
+    expect(html).not.toContain('>Tags</span>');
+    expect(html).not.toContain('class="memory-catalog-scope"');
+    expect(html).not.toContain('class="memory-chip-group"');
+    expect(html).not.toContain('aria-label="Duplicate memory management"');
+    expect(html).not.toContain('Repeated parser length');
+    expect(html).not.toContain('Other parser boundary');
   });
 
 });

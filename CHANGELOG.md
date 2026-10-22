@@ -6,7 +6,8 @@
 
 #### Added
 
-- Active sessions show a compact radial surface-focus map beneath the scrolling left sidebar list, including while a browser is open. A divider appears when a mapped surface is available; the main agent's focused surface, or the first focused subagent surface, appears with its asset and parent path beside the closely spaced thin-ring diagram. Agent dots animate between focused layers, and selecting a subagent dot opens its details in the expanded right sidebar.
+- Findings now store Steps to Reproduce and show them in Breakdown. Reproduced and later transitions, including Findings board moves, require steps; older records remain readable with an empty value. Claim migration 9 and control contract v58 require rebuilt Beale and app-server clients.
+- Workspace Surfaces now shows a live security surface hierarchy with coverage shading, active agent positions, a branch-preserving filter, and an option to show untouched surfaces. Control contract v51 requires rebuilt Beale and app-server clients.
 - Finding details now show an evidence-maturity-preserving progress blocker and associated surface IDs. The updated Fleet claim projection requires rebuilt Beale and app-server clients.
 - Fleet App Server details show a scannable pairing QR code for the local or a saved app server. Closing the preview clears the image from the view.
 - The sidebar app-server selector shows green, red, or orange connection status dots and has an Add an App Server action that opens the Fleet form. A client-neutral Fleet status read checks remote peers without exposing their credentials. Control contract timestamp updated; rebuild Desktop and app-server together.
@@ -31,6 +32,11 @@
 
 #### Removed
 
+- Removed affected version tracking from findings, completion checks, tools, and client projections. Existing stored version fields are ignored; affected asset IDs remain in finding detail tags. Contract v57 requires rebuilt Beale and app-server clients.
+- Removed the derived finding Workflow field from tools, projections, and client views; attention and suggestion selection now use status directly. Workspace catalogs carry the canonical status, including stale provenance. Contract v56 requires rebuilt Beale and app-server clients.
+- Removed the derived `current`/`stale` freshness field from finding tools and client projections. Explicit stale status and its recorded reason remain available for known invalidation. Contract v55 requires rebuilt Beale and app-server clients.
+- Removed the primitive/chain finding split and component tracking from current tools, reports, and client projections. Legacy classes read as `security.vulnerability`; historical component rows remain available only to validate prior independent-review evidence. Contract v54 requires rebuilt Beale and app-server clients.
+- Removed risk treatment and risk-decision tracking from findings, completion checks, and client contracts. Stored legacy values are ignored; contract v53 requires rebuilt Beale and app-server clients.
 - Removed Appearance background choices and transparency controls. Beale now uses the Gradient window surface for every theme, including when an older background preference is stored.
 - Removed the rounded-square background pulse from active research sessions.
 - Removed the bottom panel, its workspace Terminal, and the header toggle. Desktop no longer bundles the terminal emulator or native PTY dependency.
@@ -51,6 +57,36 @@
 
 #### Changed
 
+- Research runbook guidance now applies across profiles before claim-confirming tests, and the evidence checkpoint includes shell activity so extended sessions cannot bypass the runbook path through direct commands. Runbook catalog metrics now identify cumulative cell executions, and the detail view distinguishes unavailable content from an empty runbook.
+- The Resource details editor now uses the workspace form layout with aligned field rows, a rounded field surface, and separate actions.
+- Workspace Rules now displays each rule in its own rounded surface with a small gap between entries.
+- Memory Breakdown tags now use the same font size as Finding Breakdown tags.
+- Memory Breakdown now separates Overview and Markdown Details into bordered rows with titles.
+- Memory Breakdown now includes memory, subject, workspace, session, custom tags, and assets in one tag row without separate scope or asset sections.
+- Finding Breakdown now shows surface IDs in the bottom tag row without a separate Surfaces label.
+- Memory References, Relationships, and Duplicates now use flat detail rows with separators, matching Finding details.
+- Memory Breakdown renders longer body text as Markdown, including lists and code, using the existing safe prose renderer.
+- Memory details now show status, model authors, and update time below the back header, with Breakdown, References, Relationships, and Duplicates tabs.
+- The Findings board now filters by model author beside Ratings, with All Authors selected by default.
+- The Findings board no longer has a Classes dropdown; rating and title search remain available.
+- Workspace Resources, Surfaces, Targets, and Rules now use title-adjacent catalog search; the separate Surfaces filter input is removed.
+- Workspace Memories, Runbooks, and Reports now open title-adjacent search inputs that filter their catalogs.
+- Workspace Surfaces now uses the shared workspace heading style and names the workspace in its title, including while the map loads.
+- Finding Duplicates now uses flat rows and separators while keeping duplicate actions alongside each entry.
+- Finding References now uses flat rows with separators for evidence and external reference lists.
+- Finding History now uses flat transition rows with the state and timestamp above the reason.
+- Finding blocker guidance now reserves Blocked for concrete dependencies that stop further authorized progress; missing stage-gate evidence and review needs-work results remain open work.
+- Blocked findings now show a highlighted blocker notice below the detail tabs across all finding views.
+- Finding impact headings now show the latest CVSS score, or Unrated, beside a ten-segment meter with fractional fill.
+- Finding breakdown headings now show the untrusted impact rating and assessed reachability; redundant rating, maturity, and reachability rows are removed.
+- Finding details now separate the assessment, status history, references, and duplicate management into four pill tabs below the status and timestamp row.
+- Finding details now show status and model authors beside a right-aligned update timestamp without repeating the title below the back header.
+- Campaign item details show their title beside a circular back button styled like the active workspace tab.
+- The Findings board highlights the finding open in the right detail panel and expands its title search icon into a filter input.
+- Expanded finding details use the workspace content background in the right panel.
+- The Findings board places controls beneath the title without descriptive copy. It shows one remembered lane with previous and next controls while the right detail area is expanded, then restores all lanes and controls when the area closes.
+- Workspace Claims is now Findings. The board shows Observed, Reproduced, Verified, and Reported, with refuted findings available in a dialog. Control contract v52 requires rebuilt Beale and app-server clients.
+- Active session headers show the primary surface after the session name, followed by a count of other distinct surfaces under active investigation. The bottom sidebar surface tracker has been removed.
 - New Research displays category suggestions as each arrives and retains earlier suggestions if a later one fails. Retry resumes a partial list. The updated Desktop and app-server control contract requires both clients to rebuild.
 - Workspace Research Kit, Targets, and Rules forms now use the same text sizes as the other workspace settings forms.
 - Workspace Resources tiles now use the workspace settings text size, regular-weight names, and smaller status tags.
@@ -187,6 +223,10 @@
 
 #### Fixed
 
+- Resource tiles keep their content height as the list grows, allowing vertical scrolling instead of compressing rows.
+- Expanded Memory details now use the workspace content background in the right sidebar.
+- The Findings Ratings menu now opens within the board instead of being clipped at its left edge.
+- Ended-session follow-ups acknowledge without rebuilding the workspace snapshot, refresh live detail during preparation, release a lingering worker after terminal disposition, and avoid duplicate launches when a queued continuation starts at process close.
 - Embedded browser agent input now verifies browser focus and serializes input across contexts, preventing editing commands such as select-all from affecting Beale content. Browser guests suppress application menu shortcuts.
 - Embedded browser guests stay mounted when the right sidebar closes or the selected session changes, and multiple sessions can hold CDP connections to one context without disconnecting each other.
 - A recovered Desktop renderer restores its selected session after reload when that session remains in the workspace snapshot.
@@ -1404,6 +1444,9 @@
 
 #### Changed
 
+- Security report creation now advances one verified finding with current reproduction, independent review, impact, and proof evidence. Historical review bindings from retired composite records remain valid until their reviewed content changes.
+- The Findings feature now creates only observed records with durable direct evidence through `finding.create`; model-facing lead creation and listing are removed. Existing proposed records remain in storage for compatibility and are excluded from normal finding catalogs and campaign context. Reported maps to disclosed findings; human board transitions retain their override audit trail.
+- Session storage schema v9 stops recording replay interval events; existing historical rows remain in the database. The surface map projects current first-touch state and active agent positions.
 - Only Goal mode exposes `session.disposition`; its model input is now achieved, continue, or waiting on a concrete external change. Ordinary sessions store their final response without a model-authored disposition, while existing disposition records remain readable.
 - Research goal suggestions now use one short model response per goal, compact security and surface context, and per-goal retries. Generated goals persist incrementally; version 3 caches replace the earlier bulk candidate pool and its strict grounding and similarity filters.
 - Surface mapping guidance and the automatic foundation scout now prioritize attacker paths, trust boundaries, security-relevant sinks, and plausible unauthorized effects; harmless defects do not count as security findings or coverage by themselves.

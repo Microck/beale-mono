@@ -9,7 +9,7 @@ import { FleetBrowserSideView } from '../research/FleetBrowserSideView';
 import { SubagentDetailPanel } from '../research/MemorySidePanel';
 import { buildTraceDisplayEventsForAgentPath } from '../../view-models/traceDisplay';
 import { subagentSummaries } from '../../view-models/subagents';
-import { surfaceTrackingView, type SurfaceTrackingView } from '../../view-models/surfaceTracking';
+import { surfaceFocusSummary, type SurfaceFocusSummary } from '../../view-models/surfaceFocus';
 import { mergeRemoteSessionHistory, remoteRunDetail, remoteRunStatus, remoteSessionHistoryPage, remoteWorkspaceRegistry } from './remoteFleetProjection';
 import type { RemoteSessionHistoryPage } from './remoteFleetProjection';
 import { RemoteWorkspaceDetails } from './RemoteWorkspaceDetails';
@@ -22,7 +22,7 @@ interface RemoteGoalState {
   errors: ResearchGoalSuggestionStateByPhase<string | null>;
 }
 
-export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, selectedSessionId, automations, collapsed, serverSelector, surfaceTracking, onSelect, onSelectSubagent, onStartNewResearch, onOpenQuickChat, onResizePointerDown }: {
+export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, selectedSessionId, automations, collapsed, serverSelector, onSelect, onStartNewResearch, onOpenQuickChat, onResizePointerDown }: {
   catalog: FleetRemoteCatalog | null;
   serverName: string;
   selectedWorkspaceId: string | null;
@@ -30,9 +30,7 @@ export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, s
   automations: boolean;
   collapsed: boolean;
   serverSelector: ReactNode;
-  surfaceTracking?: SurfaceTrackingView | null;
   onSelect: (workspaceId: string, sessionId: string | null) => void;
-  onSelectSubagent?: (path: string) => void;
   onStartNewResearch: (workspaceId: string) => void;
   onOpenQuickChat: () => void;
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -48,7 +46,6 @@ export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, s
     workspaceRegistry={registry}
     workspaceRegistryLoading={!catalog}
     selectedRunId={selectedSessionId}
-    surfaceTracking={surfaceTracking}
     selectedWorkspaceId={selectedWorkspaceId}
     snapshot={null}
     automationsActive={automations}
@@ -57,7 +54,6 @@ export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, s
     onImportWorkspace={() => undefined}
     onOpenWorkspace={(workspace) => onSelect(workspace.workspaceId, null)}
     onOpenResearchSession={(workspace, session) => onSelect(workspace.workspaceId, session.runId)}
-    onSelectSubagent={onSelectSubagent}
     onResizePointerDown={onResizePointerDown}
     onStartNewResearch={() => selectedWorkspaceId && onStartNewResearch(selectedWorkspaceId)}
     onStartNewResearchForWorkspace={(workspace) => onStartNewResearch(workspace.workspaceId)}
@@ -65,7 +61,7 @@ export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, s
   />;
 }
 
-export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceId, sessionId, newResearchOpen, automations, error, selectedSubagentPath = null, onBackToSubagents = () => undefined, onLaunched, onSurfaceTrackingChange }: {
+export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceId, sessionId, newResearchOpen, automations, error, selectedSubagentPath = null, onBackToSubagents = () => undefined, onLaunched, onSurfaceFocusChange }: {
   serverId: string;
   serverName: string;
   catalog: FleetRemoteCatalog | null;
@@ -77,7 +73,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   selectedSubagentPath?: string | null;
   onBackToSubagents?: () => void;
   onLaunched: (workspaceId: string, sessionId: string) => void;
-  onSurfaceTrackingChange?: (serverId: string, workspaceId: string, sessionId: string, view: SurfaceTrackingView | null) => void;
+  onSurfaceFocusChange?: (serverId: string, workspaceId: string, sessionId: string, summary: SurfaceFocusSummary | null) => void;
 }): JSX.Element {
   const [detail, setDetail] = useState<unknown>(null);
   const [workspaceDetails, setWorkspaceDetails] = useState<BealeAppServerWorkspaceDetails | null>(null);
@@ -180,11 +176,11 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   }, [runDetail, runStatus, selectedSubagentPath]);
   const selectedSubagentEvents = useMemo(() => runDetail && selectedSubagentPath
     ? buildTraceDisplayEventsForAgentPath(runDetail, selectedSubagentPath) : [], [runDetail, selectedSubagentPath]);
-  const surfaceTracking = useMemo(() => sessionId && runDetail?.run.id === sessionId && runStatus === 'active'
-    ? surfaceTrackingView(runDetail.traceEvents ?? [], runStatus) : null, [runDetail, runStatus, sessionId]);
+  const surfaceFocus = useMemo(() => sessionId && runDetail?.run.id === sessionId && runStatus === 'active'
+    ? surfaceFocusSummary(runDetail.traceEvents ?? [], runStatus) : null, [runDetail, runStatus, sessionId]);
   useEffect(() => {
-    if (workspaceId && sessionId) onSurfaceTrackingChange?.(serverId, workspaceId, sessionId, surfaceTracking);
-  }, [onSurfaceTrackingChange, serverId, workspaceId, sessionId, surfaceTracking]);
+    if (workspaceId && sessionId) onSurfaceFocusChange?.(serverId, workspaceId, sessionId, surfaceFocus);
+  }, [onSurfaceFocusChange, serverId, workspaceId, sessionId, surfaceFocus]);
   const loadGoalSuggestions = (phase: string, refresh = false): void => {
     if (!workspaceId || !refresh && visibleGoalState.loading[phase]) return;
     const key = suggestionKey;

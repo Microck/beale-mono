@@ -20,12 +20,14 @@ const VERY_LARGE_RUN_DETAIL_POLL_MS = 2_000;
 export function useRunDetailPolling({
   selectedRunId,
   selectedRunState,
+  continuationPending,
   projection,
   refreshKey,
   onError
 }: {
   selectedRunId: string | null;
   selectedRunState: RunStatus | null;
+  continuationPending?: boolean;
   projection: RunDetailProjection;
   refreshKey: string | null;
   onError: (message: string) => void;
@@ -141,7 +143,7 @@ export function useRunDetailPolling({
     let pollTimer: number | null = null;
     const scheduleNextPoll = (): void => {
       const needsEnrichment = runDetailNeedsEnrichment(detailRef.current, projection);
-      if (disposed || !shouldPollRunDetail(selectedRunState, detailRef.current, projection)) return;
+      if (disposed || !shouldPollRunDetail(selectedRunState, detailRef.current, projection, continuationPending)) return;
       if (pollTimer !== null) window.clearTimeout(pollTimer);
       pollTimer = window.setTimeout(
         refreshRunDetail,
@@ -247,7 +249,7 @@ export function useRunDetailPolling({
       if (pollTimer !== null) window.clearTimeout(pollTimer);
       window.beale.cancelRunDetailRequests(selectedRunId);
     };
-  }, [clearRunDetail, onError, projection, refreshKey, selectedRunId, selectedRunState]);
+  }, [clearRunDetail, continuationPending, onError, projection, refreshKey, selectedRunId, selectedRunState]);
 
   return {
     runDetail,
@@ -311,15 +313,17 @@ export function runDetailNeedsEnrichment(
 export function shouldPollRunDetail(
   snapshotStatus: RunStatus | null,
   detail: RunDetail | null,
-  projection: RunDetailProjection
+  projection: RunDetailProjection,
+  continuationPending = false
 ): boolean {
   if (runDetailNeedsEnrichment(detail, projection)) return true;
+  if (continuationPending || detail?.run.status === 'active') return true;
   if (snapshotStatus === 'active') return true;
   // A recovering app-server session passes through paused before it resumes.
   // The workspace snapshot may still say paused after the canonical session
   // resumes, so keep checking until a terminal detail is observed.
   return snapshotStatus === 'paused'
-    && (detail === null || detail.run.status === 'paused' || detail.run.status === 'active');
+    && (detail === null || detail.run.status === 'paused');
 }
 
 export function shouldReportRunDetailError(detail: RunDetail | null, selectedRunId: string): boolean {

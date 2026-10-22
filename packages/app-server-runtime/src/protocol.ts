@@ -48,7 +48,7 @@ export interface ResourcePriorArtGetInput extends Omit<ResourcePriorArtListInput
 
 export const APP_SERVER_PROTOCOL_NAME = "app-server" as const;
 export const APP_SERVER_PROTOCOL_VERSION = 1 as const;
-export const APP_SERVER_CONTRACT_VERSION = 49 as const;
+export const APP_SERVER_CONTRACT_VERSION = 58 as const;
 export const APP_SERVER_RUNTIME_VERSION = "0.1.0" as const;
 export const APP_SERVER_PROTOCOL_WEBSOCKET_PATH = "/v1/session" as const;
 export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as const;
@@ -56,7 +56,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-20T16:00:00.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-21T23:03:22.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -71,6 +71,7 @@ export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.remote-browser-relay.v1",
   "workspace.research-project.v3",
   "workspace.details.v1",
+  "workspace.surface-map.v1",
   "quick-chat.v1",
   "session.typed-launch.v3",
   "session.openai-fast-mode.v1",
@@ -396,6 +397,43 @@ export interface BealeAppServerWorkspaceDetails {
   runbooks: Array<{ id: string; title: string; purpose: string; updatedAt: string }>;
   reports: Array<{ id: string; title: string; summary: string; status: "complete" | "stale"; updatedAt: string }>;
   targets: Array<{ id: string; name: string; ready: boolean }>;
+  surfaceMap: BealeWorkspaceSurfaceMap;
+}
+
+export interface BealeWorkspaceSurfaceMap {
+  schemaVersion: 1;
+  workspaceId: string;
+  surfaces: Array<{
+    id: string; resourceId: string; parentId: string | null; name: string; description: string;
+    firstTouchedAt: string | null; foundation: {
+      coverage: { mappingComplete: boolean; sinksInvestigated: boolean; openQuestions: string[]; unexploredConnections: string[] };
+    } | null;
+    coverageState: { covered: boolean; unmetRequirements: string[]; unblockedFindingIds: string[] };
+  }>;
+  agents: Array<{ sessionId: string; sessionTitle: string; agentId: string; surfaceId: string }>;
+}
+
+export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSurfaceMap {
+  const strings = (items: unknown): items is string[] => Array.isArray(items) && items.every((item) => typeof item === 'string');
+  const validFoundation = (foundation: unknown): boolean => foundation === null || isRecord(foundation)
+    && isRecord(foundation.coverage) && typeof foundation.coverage.mappingComplete === 'boolean'
+    && typeof foundation.coverage.sinksInvestigated === 'boolean'
+    && strings(foundation.coverage.openQuestions) && strings(foundation.coverage.unexploredConnections);
+  if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.workspaceId !== 'string'
+    || !Array.isArray(value.surfaces) || !value.surfaces.every((surface) => isRecord(surface)
+      && typeof surface.id === 'string' && typeof surface.resourceId === 'string'
+      && (surface.parentId === null || typeof surface.parentId === 'string')
+      && typeof surface.name === 'string' && typeof surface.description === 'string'
+      && (surface.firstTouchedAt === null || typeof surface.firstTouchedAt === 'string')
+      && validFoundation(surface.foundation)
+      && isRecord(surface.coverageState) && typeof surface.coverageState.covered === 'boolean'
+      && strings(surface.coverageState.unmetRequirements) && strings(surface.coverageState.unblockedFindingIds))
+    || !Array.isArray(value.agents) || !value.agents.every((event) => isRecord(event)
+      && typeof event.sessionId === 'string' && typeof event.sessionTitle === 'string'
+      && typeof event.agentId === 'string' && typeof event.surfaceId === 'string')) {
+    throw new Error('The app-server returned an invalid workspace surface map.');
+  }
+  return value as unknown as BealeWorkspaceSurfaceMap;
 }
 
 export function decodeBealeAppServerWorkspaceDetails(value: unknown): BealeAppServerWorkspaceDetails {
@@ -421,6 +459,7 @@ export function decodeBealeAppServerWorkspaceDetails(value: unknown): BealeAppSe
     || !value.reports.every((report) => isRecord(report) && typeof report.id === "string"
       && typeof report.title === "string" && typeof report.summary === "string"
       && (report.status === "complete" || report.status === "stale") && typeof report.updatedAt === "string")
+    || !isRecord(value.surfaceMap) || decodeBealeWorkspaceSurfaceMap(value.surfaceMap).workspaceId !== value.workspace.workspaceId
     || !Array.isArray(value.targets)
     || !value.targets.every((target) => isRecord(target) && typeof target.id === "string"
       && typeof target.name === "string" && typeof target.ready === "boolean")) {
@@ -550,15 +589,15 @@ export interface BealeWorkspaceResearchClaim {
   sessionIds: string[];
   projection: "lead" | "finding";
   maturity: string;
-  freshness: string;
-  workflow: string;
+  status: string;
+  staleFromStatus: string | null;
   rating: ResearchClaimRating;
   classification: string;
-  componentClaimIds: string[];
   duplicateClaims: BealeWorkspaceResearchClaimDuplicate[];
   title: string;
   summary: string;
   impact: string;
+  stepsToReproduce: string;
   securityTracking: BealeWorkspaceClaimSecurityTracking | null;
   confidence: number;
   evidenceCount: number;
@@ -573,7 +612,6 @@ export interface BealeWorkspaceClaimSecurityTracking {
     conditions: string;
     assessedAt: string | null;
   };
-  riskTreatment: "unreviewed" | "remediate" | "mitigated" | "accepted" | "transferred";
   cvssAssessments: Array<{
     version: "4.0" | "3.1";
     vector: string;
@@ -584,7 +622,6 @@ export interface BealeWorkspaceClaimSecurityTracking {
   affectedAssetIds: string[];
   surfaceIds?: string[];
   progressBlocker?: { reason: string; setAt: string } | null;
-  affectedVersions: Array<{ assetId: string | null; range: string; fixedVersion: string | null }>;
   externalReferences: Array<{ kind: string; identifier: string; url: string | null }>;
 }
 
@@ -638,7 +675,7 @@ export const APP_SERVER_PROTOCOL_OPERATIONS = [
   "protocol.describe", "session.create", "session.begin_attempt", "session.append_event", "session.append_event_receipt",
   "session.transition", "session.recover_interrupted", "session.import_capture", "session.get", "session.get_update", "session.events", "session.event_details",
   "session.collaboration", "session.captures", "session.capture", "session.list", "session.list_summaries",
-  "memory.summary", "memory.notification_feed", "history.mark_duplicate", "history.undo_duplicate", "claim.mark_duplicate", "claim.undo_duplicate", "claim.board_transition", "workspace.state", "registry.state",
+  "memory.summary", "memory.notification_feed", "history.mark_duplicate", "history.undo_duplicate", "claim.mark_duplicate", "claim.undo_duplicate", "claim.board_transition", "workspace.state", "workspace.surface_map", "registry.state",
   "runbook.get", "report.list", "report.get", "report.revise_content", "report.update_triage_status", "report.replace_packet", "report.replace_recording",
   "artifact.resolve", "provider.complete", "provider.describe", "model_job.resolve",
   "suggestion.generate", "suggestion.select", "suggestion.steering", "prompt.expand",
@@ -866,7 +903,7 @@ export interface FleetState {
   lastMachineByWorkspace: Record<string, string>;
 }
 
-export const CLAIM_BOARD_MATURITIES = ["refuted", "observed", "reproduced", "verified"] as const;
+export const CLAIM_BOARD_MATURITIES = ["refuted", "observed", "reproduced", "verified", "reported"] as const;
 export type ClaimBoardMaturity = (typeof CLAIM_BOARD_MATURITIES)[number];
 
 export interface ClaimBoardTransitionRequest {
@@ -883,7 +920,7 @@ export function decodeClaimBoardTransitionRequest(value: unknown): ClaimBoardTra
   if (typeof input.claimId !== "string" || !input.claimId.trim()) throw new Error("claimId is required.");
   if (!Number.isSafeInteger(input.expectedRevision) || Number(input.expectedRevision) < 1) throw new Error("expectedRevision must be a positive integer.");
   if (typeof input.targetMaturity !== "string" || !(CLAIM_BOARD_MATURITIES as readonly string[]).includes(input.targetMaturity)) {
-    throw new Error("targetMaturity must name a Claims board column.");
+    throw new Error("targetMaturity must name a Findings board state.");
   }
   return {
     workspaceId: input.workspaceId,

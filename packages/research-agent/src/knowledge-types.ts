@@ -99,9 +99,7 @@ export type FindingStatus =
   | "rejected";
 
 export type ResearchClaimProjection = "lead" | "finding";
-export type ResearchClaimMaturity = "proposed" | "observed" | "reproduced" | "verified" | "refuted";
-export type ResearchClaimFreshness = "current" | "stale";
-export type ResearchClaimWorkflow = "open" | "active" | "reporting" | "published" | "closed";
+export type ResearchClaimMaturity = "proposed" | "observed" | "reproduced" | "verified" | "reported" | "refuted";
 export type ResearchClaimRating = "informational" | "low" | "medium" | "high" | "critical";
 
 export type FindingEvidenceKind =
@@ -149,7 +147,6 @@ export interface FindingTransitionSummary {
 }
 
 export type FindingReachabilityState = "not_assessed" | "unreachable" | "conditional" | "reachable";
-export type FindingRiskTreatment = "unreviewed" | "remediate" | "mitigated" | "accepted" | "transferred";
 export type FindingCvssVersion = "4.0" | "3.1";
 export type FindingCvssNomenclature = "CVSS-B" | "CVSS-BT" | "CVSS-BE" | "CVSS-BTE" | "CVSS:3.1";
 
@@ -163,14 +160,6 @@ export interface FindingReachabilityAssessment {
   environmentFingerprint: string | null;
 }
 
-export interface FindingRiskDecision {
-  treatment: FindingRiskTreatment;
-  actorId: string;
-  rationale: string;
-  decidedAt: string;
-  expiresAt: string | null;
-}
-
 export interface FindingCvssAssessment {
   version: FindingCvssVersion;
   vector: string;
@@ -181,12 +170,6 @@ export interface FindingCvssAssessment {
   environmentFingerprint: string | null;
 }
 
-export interface FindingAffectedVersion {
-  assetId: string | null;
-  range: string;
-  fixedVersion: string | null;
-}
-
 export interface FindingExternalReference {
   kind: string;
   identifier: string;
@@ -195,14 +178,11 @@ export interface FindingExternalReference {
 
 export interface FindingSecurityTracking {
   reachability: FindingReachabilityAssessment;
-  riskTreatment: FindingRiskTreatment;
-  riskDecisions: FindingRiskDecision[];
   cvssAssessments: FindingCvssAssessment[];
   affectedAssetIds: string[];
   surfaceIds: string[];
   /** A research obstacle, not a refutation or a change in evidence maturity. */
   progressBlocker: { reason: string; actorId: string; setAt: string } | null;
-  affectedVersions: FindingAffectedVersion[];
   externalReferences: FindingExternalReference[];
 }
 
@@ -236,18 +216,16 @@ export interface FindingSummary {
   originSessionId: string | null;
   projection: ResearchClaimProjection;
   maturity: ResearchClaimMaturity;
-  freshness: ResearchClaimFreshness;
-  workflow: ResearchClaimWorkflow;
   /** Untrusted qualitative estimate supplied by a research agent; not an evidence-backed risk assessment. */
   rating: ResearchClaimRating;
   classification: string;
-  componentClaimIds: string[];
   duplicateOfClaimId: string | null;
   duplicateMarkedAt: string | null;
   duplicateClaims: ResearchClaimDuplicateSummary[];
   title: string;
   summary: string;
   impact: string;
+  stepsToReproduce: string;
   securityTracking: FindingSecurityTracking | null;
   status: FindingStatus;
   /** Current status was set by a human without agent transition prerequisites. */

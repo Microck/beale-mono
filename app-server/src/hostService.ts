@@ -9,6 +9,7 @@ import {
   APP_SERVER_SESSION_LAUNCH_VERSION,
   type BealeAppServerCanonicalResult,
   type BealeAppServerWorkspaceDetails,
+  type BealeWorkspaceSurfaceMap,
   type BealeAppServerQuickChatList,
   type BealeAppServerQuickChatStartInput,
   type BealeAppServerProviderCatalog,
@@ -31,6 +32,7 @@ import { getProviderModelCatalog, readWorkspaceProject, readWorkspaceResearchCac
 import { applyFeaturePromptOverrides, bundledPluginsRequiredByResearchKit, decodeResearchPluginCatalog, researchKitsRequiringBundledPlugin, validateResearchSystemPromptTemplate, verifyBrokerModelAccess } from '@beale/research-agent';
 import { runWorkspaceCheckpoint, workspaceOperationKey } from './workspaceCheckpoints.js';
 import { projectWorkspaceDetails } from './workspaceDetails.js';
+import { readWorkspaceSurfaceMap } from './surfaceMap.js';
 import {
   AppServerHostRegistry,
   type AppServerHostRegistryOptions,
@@ -487,6 +489,10 @@ export class AppServerHostService {
     }
     if (workspace?.memoryBackend === 'disabled' && request.operation.startsWith('claim.')) {
       throw new Error(`Workspace ${workspace.workspaceId} has memory disabled.`);
+    }
+    if (request.operation === 'workspace.surface_map') {
+      if (!workspace) throw new Error('A registered workspace is required.');
+      return this.workspaceSurfaceMap(workspace.workspaceId);
     }
     const storageProfileId = workspace?.researchProfileId ?? request.profileId;
     if (request.operation === 'workspace.project') {
@@ -1360,7 +1366,14 @@ export class AppServerHostService {
       ])
     ];
     const { workspacePath: _workspacePath, workspaceDirectories: _workspaceDirectories, memoryBackend: _memoryBackend, ...summary } = workspace;
-    return projectWorkspaceDetails(summary, state, memory, memorySummary, availableTargets.filter((target) => allowed.has(target.id)));
+    return projectWorkspaceDetails(summary, state, memory, memorySummary,
+      availableTargets.filter((target) => allowed.has(target.id)), this.workspaceSurfaceMap(workspace.workspaceId));
+  }
+
+  public workspaceSurfaceMap(workspaceIdentifier: string): BealeWorkspaceSurfaceMap {
+    const workspace = this.requireWorkspace(workspaceIdentifier);
+    const storage = this.registry.storageForProfile(workspace.researchProfileId);
+    return readWorkspaceSurfaceMap(storage.databasePath, workspace.workspaceId);
   }
 
   public async workspaceMemoryNotifications(
@@ -1804,17 +1817,17 @@ function pathFreeWorkspaceClaim(value: unknown): BealeWorkspaceMemoryCatalog['fi
     ))]),
     projection,
     maturity: nonEmpty(claim.maturity) ?? 'proposed',
-    freshness: nonEmpty(claim.freshness) ?? 'current',
-    workflow: nonEmpty(claim.workflow) ?? 'open',
+    status: nonEmpty(claim.status) ?? 'hypothesis',
+    staleFromStatus: nonEmpty(claim.staleFromStatus),
     rating: researchClaimRating(claim.rating),
     classification,
-    componentClaimIds: stringArray(claim.componentClaimIds),
     duplicateClaims: Array.isArray(claim.duplicateClaims)
       ? claim.duplicateClaims.flatMap(pathFreeWorkspaceClaimDuplicate)
       : [],
     title,
     summary: typeof claim.summary === 'string' ? claim.summary : '',
     impact: typeof claim.impact === 'string' ? claim.impact : '',
+    stepsToReproduce: typeof claim.stepsToReproduce === 'string' ? claim.stepsToReproduce : '',
     securityTracking: pathFreeClaimSecurityTracking(claim.securityTracking),
     confidence: typeof claim.confidence === 'number' && Number.isFinite(claim.confidence)
       ? Math.max(0, Math.min(1, claim.confidence)) : 0,
@@ -1867,9 +1880,6 @@ function pathFreeClaimSecurityTracking(value: unknown): BealeWorkspaceClaimSecur
   const state = ['not_assessed', 'unreachable', 'conditional', 'reachable'].includes(String(reachability.state))
     ? reachability.state as BealeWorkspaceClaimSecurityTracking['reachability']['state']
     : 'not_assessed';
-  const riskTreatment = ['unreviewed', 'remediate', 'mitigated', 'accepted', 'transferred'].includes(String(tracking.riskTreatment))
-    ? tracking.riskTreatment as BealeWorkspaceClaimSecurityTracking['riskTreatment']
-    : 'unreviewed';
   const cvssAssessments = Array.isArray(tracking.cvssAssessments) ? tracking.cvssAssessments.flatMap((entry) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
     const assessment = entry as Record<string, unknown>;
@@ -1884,12 +1894,6 @@ function pathFreeClaimSecurityTracking(value: unknown): BealeWorkspaceClaimSecur
     if (!version || !nomenclature || !vector || !assessedAt || typeof assessment.score !== 'number' || !Number.isFinite(assessment.score)) return [];
     return [{ version, vector, score: Math.max(0, Math.min(10, assessment.score)), nomenclature, assessedAt }];
   }) : [];
-  const affectedVersions = Array.isArray(tracking.affectedVersions) ? tracking.affectedVersions.flatMap((entry) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
-    const version = entry as Record<string, unknown>;
-    const range = nonEmpty(version.range);
-    return range ? [{ assetId: nonEmpty(version.assetId), range, fixedVersion: nonEmpty(version.fixedVersion) }] : [];
-  }) : [];
   const externalReferences = Array.isArray(tracking.externalReferences) ? tracking.externalReferences.flatMap((entry) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
     const reference = entry as Record<string, unknown>;
@@ -1903,7 +1907,6 @@ function pathFreeClaimSecurityTracking(value: unknown): BealeWorkspaceClaimSecur
       conditions: typeof reachability.conditions === 'string' ? reachability.conditions : '',
       assessedAt: nonEmpty(reachability.assessedAt)
     },
-    riskTreatment,
     cvssAssessments,
     affectedAssetIds: stringArray(tracking.affectedAssetIds),
     surfaceIds: stringArray(tracking.surfaceIds),
@@ -1911,7 +1914,6 @@ function pathFreeClaimSecurityTracking(value: unknown): BealeWorkspaceClaimSecur
       ? { reason: nonEmpty((tracking.progressBlocker as Record<string, unknown>).reason) ?? '',
           setAt: nonEmpty((tracking.progressBlocker as Record<string, unknown>).setAt) ?? new Date(0).toISOString() }
       : null,
-    affectedVersions,
     externalReferences
   };
 }

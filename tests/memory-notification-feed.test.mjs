@@ -61,7 +61,7 @@ test("memory notification feed includes only path-free heat-bearing nodes", asyn
     const lead = claims.create({
       title: "Parser state confusion",
       summary: "Shared parser state crosses requests.",
-      classification: "security.primitive",
+      classification: "security.vulnerability",
       rating: "high",
       evidence: [{ kind: "code", referenceId: "src/parser.c:42", summary: "Shared state crosses the request boundary." }],
     });
@@ -84,7 +84,7 @@ test("memory notification feed includes only path-free heat-bearing nodes", asyn
       id: finding.id,
       kind: "claim",
       sessionIds: ["session-test"],
-      type: "security.primitive",
+      type: "security.vulnerability",
       typeName: "Security Finding",
       title: "Parser state confusion",
       summary: "Shared parser state crosses requests.",

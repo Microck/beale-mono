@@ -28,7 +28,7 @@ const EVIDENCE_SCHEMA = {
 };
 const SECURITY_TRACKING_SCHEMA = {
   type: "object",
-  description: "Evidence-backed security tracking. Risk acceptance is intentionally operator-controlled and is not model-writable.",
+  description: "Evidence-backed security tracking for reachability, affected assets, surfaces, and external references.",
   properties: {
     reachability: {
       type: "object",
@@ -56,15 +56,7 @@ const SECURITY_TRACKING_SCHEMA = {
     },
     affectedAssetIds: { type: "array", items: { type: "string" } },
     surfaceIds: { type: "array", items: { type: "string" }, description: "Surface IDs this finding affects. Used for surface coverage accounting." },
-    progressBlocker: { type: ["object", "null"], description: "Temporary or lasting reason an observed or reproduced finding cannot advance. Null clears the blocker without refuting the finding.", properties: { reason: { type: "string" } }, required: ["reason"] },
-    affectedVersions: {
-      type: "array",
-      items: {
-        type: "object",
-        required: ["range"],
-        properties: { assetId: { type: "string" }, range: { type: "string" }, fixedVersion: { type: "string" } },
-      },
-    },
+    progressBlocker: { type: ["object", "null"], description: "Use only when a concrete dependency currently prevents further authorized investigation or escalation despite reasonable attempts. The reason must name the blocked action, the actual impediment, and what change would unblock it. Missing proof, an unanswered reachability or policy question, a completion-check gap, or a reviewer needs-work result is unfinished work, not a blocker. Null clears the blocker without refuting the finding.", properties: { reason: { type: "string", description: "Describe the action that cannot proceed, the concrete impediment after attempted alternatives, and the condition that would unblock it; do not restate a stage-gate requirement." } }, required: ["reason"] },
     externalReferences: {
       type: "array",
       items: {
@@ -125,30 +117,19 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
   const context = store.getContext();
   const readableWorkspaces = readableWorkspaceCatalog(context.workspaceId, context.workspaceName, defaults.referenceWorkspaces);
   return [
-    findingTool("claim.get", "claim_get", "Read one lead or finding by its stable claim ID, including evidence references, provenance, transition reasons, and duplicate relationships. workspaceId may select a host-verified same-Subject workspace and remains read-only. Results page each collection; use section and nextOffset with expectedReadRevision to read more without repeating the overview.", "read", {
+    findingTool("claim.get", "claim_get", "Read one finding by its stable ID, including evidence references, provenance, transition reasons, and duplicate relationships. workspaceId may select a host-verified same-Subject workspace and remains read-only. Results page each collection; use section and nextOffset with expectedReadRevision to read more without repeating the overview.", "read", {
       type: "object",
       required: ["id"],
       properties: {
-        id: { type: "string", description: "Claim ID from history.search, lead.list, or finding.list; also accepts a retained duplicate ID." },
-        workspaceId: { type: "string", enum: readableWorkspaces.map((workspace) => workspace.workspaceId), description: "Workspace owning the claim. Omit for the current workspace; another advertised same-Subject workspace is read-only." },
+        id: { type: "string", description: "Finding ID from history.search or finding.list; also accepts a retained duplicate ID." },
+        workspaceId: { type: "string", enum: readableWorkspaces.map((workspace) => workspace.workspaceId), description: "Workspace owning the finding. Omit for the current workspace; another advertised same-Subject workspace is read-only." },
         section: { type: "string", enum: CLAIM_DETAIL_SECTIONS, description: "Defaults to all: overview plus the first page of each collection. Select one section for focused follow-up reads." },
         offset: { type: "integer", minimum: 0, description: "Collection offset, default 0. Follow a section's nextOffset; offsets above zero require expectedReadRevision." },
         limit: { type: "integer", minimum: 1, maximum: 50, description: "Rows per collection, default 10. Reduce for large evidence metadata or transition reasons." },
-        expectedReadRevision: { type: "string", description: "readRevision returned by claim.get, covering the claim and its related duplicate rows. If it changed, restart at offset 0; numeric revision remains the version used for edits." },
+        expectedReadRevision: { type: "string", description: "readRevision returned by claim.get, covering the finding and its related duplicate rows. If it changed, restart at offset 0; numeric revision remains the version used for edits." },
       },
     }, (input) => readClaimDetail(store, input, readableWorkspaces)),
-    findingTool("lead.list", "lead_list", "Browse a paged catalog of proposed or refuted leads; use history.search for search and claim.get for evidence, provenance, and transition history. Leads keep the same claim ID when promoted to findings.", "read", {
-      type: "object",
-      properties: {
-        query: { type: "string" },
-        statuses: { type: "array", items: { type: "string", enum: FINDING_STATUSES } },
-        classifications: { type: "array", items: { type: "string" } },
-        limit: { type: "number", minimum: 1, maximum: 100 },
-        offset: { type: "integer", minimum: 0, description: "Use nextOffset to continue this filtered catalog." },
-        afterRevision: { type: "string" },
-      },
-    }, (input) => projectClaimCatalog(store, input, "leads")),
-    findingTool("finding.list", "finding_list", "Browse a paged catalog of evidence-backed findings; use history.search for search and claim.get for evidence, provenance, and transition history. Findings are promoted views of canonical claims.", "read", {
+    findingTool("finding.list", "finding_list", "Browse a paged catalog of evidence-backed findings; use history.search for search and claim.get for evidence, provenance, and transition history.", "read", {
       type: "object",
       properties: {
         query: { type: "string" },
@@ -159,7 +140,7 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
         afterRevision: { type: "string" },
       },
     }, (input) => projectClaimCatalog(store, input, "findings")),
-    findingTool("finding.completion_check", "finding_completion_check", "Evaluate a security candidate against the evidence-backed completion checklist for observed, reproduced, verified, or report-ready work. This is read-only and reports every required or recommended gap.", "read", {
+    findingTool("finding.completion_check", "finding_completion_check", "Evaluate a security candidate against the evidence-backed completion checklist for observed, reproduced, verified, or report-ready work. This is read-only and reports every required or recommended gap; gaps are next work, not progress blockers by themselves.", "read", {
       type: "object",
       required: ["id"],
       properties: {
@@ -170,19 +151,20 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
       requiredString(input.id, "id"),
       optionalCompletionTarget(input.targetStatus) ?? "verified",
     )),
-    findingTool("lead.create", "lead_create", "Record one new research lead after searching for the same underlying claim. Likely matches block creation until their details are inspected; append evidence with finding.transition and refine with finding.revise when they describe the same issue. Distinct affected conditions may be recorded separately after reviewing the suggested matches. This creates a proposed claim without asserting observation. The qualitative rating is an untrusted estimate for prioritization and notifications, not an evidence-backed severity assessment.", "write", {
+    findingTool("finding.create", "finding_create", "Record a new finding only after direct observation with durable evidence. Search for the same issue first; likely matches block creation until inspected. Append evidence to an existing finding with finding.transition. The qualitative rating is an untrusted prioritization estimate.", "write", {
       type: "object",
-      required: ["title", "classification", "rating"],
+      required: ["title", "classification", "rating", "evidence"],
       properties: {
         title: { type: "string" }, classification: { type: "string", ...(defaults.classifications?.length ? { enum: [...defaults.classifications] } : {}), description: "A classification declared by the active research profile." },
         summary: { type: "string" }, impact: { type: "string" },
+        stepsToReproduce: { type: "string", description: "Concrete reproduction steps. Optional while observed; required from reproduced onward." },
         rating: { type: "string", enum: RESEARCH_CLAIM_RATINGS, description: "Untrusted qualitative estimate: informational, low, medium, high, or critical." },
         confidence: { type: "number", minimum: 0, maximum: 1 },
         sourceRevision: { type: "string", description: "Exact component identity. Use kind:resource-id:value (for example git:webkit:abc123) when automatic same-resource invalidation is desired." },
         environmentFingerprint: { type: "string", description: "Exact target identity. Use environment:resource-id:value when automatic same-target invalidation is desired." },
-        evidence: { type: "array", items: EVIDENCE_SCHEMA },
-        distinctFromClaimIds: { type: "array", items: { type: "string" }, description: "IDs of every suggested matching claim inspected with claim.get and found to describe a different root cause or affected condition." },
-        distinctReason: { type: "string", description: "Concrete reason the new lead is distinct from the inspected matches; required when distinctFromClaimIds is supplied." },
+        evidence: { type: "array", minItems: 1, items: EVIDENCE_SCHEMA, description: "At least one direct observation with a durable referenceId or contentHash is required." },
+        distinctFromClaimIds: { type: "array", items: { type: "string" }, description: "IDs of every suggested matching finding inspected with claim.get and found to describe a different root cause or affected condition." },
+        distinctReason: { type: "string", description: "Concrete reason the new finding is distinct from inspected matches; required when distinctFromClaimIds is supplied." },
       },
     }, (input, context) => {
       const draft = {
@@ -191,6 +173,7 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
         rating: requiredResearchClaimRating(input.rating),
         ...(string(input.summary) ? { summary: string(input.summary)! } : {}),
         ...(string(input.impact) ? { impact: string(input.impact)! } : {}),
+        ...(input.stepsToReproduce !== undefined ? { stepsToReproduce: requiredString(input.stepsToReproduce, "stepsToReproduce") } : {}),
         ...(typeof input.confidence === "number" ? { confidence: input.confidence } : {}),
         ...(string(input.sourceRevision) ? { sourceRevision: string(input.sourceRevision)! } : {}),
         ...(string(input.environmentFingerprint) ? { environmentFingerprint: string(input.environmentFingerprint)! } : {}),
@@ -202,23 +185,23 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
           ? new Set(input.distinctFromClaimIds.map((id) => requiredString(id, "distinctFromClaimIds[]")))
           : new Set<string>();
         if (!matches.every((match) => reviewed.has(match.id)) || !string(input.distinctReason)) {
-          throw new Error(`Potential existing claims: ${matches.map((match) => `${match.id} (${match.reason}; revision ${match.revision}; ${match.title})`).join("; ")}. Inspect each with claim.get. If it is the same issue, append evidence using finding.transition and refine it using finding.revise. If distinct, retry with all matching IDs in distinctFromClaimIds and a concrete distinctReason.`);
+          throw new Error(`Potential existing findings: ${matches.map((match) => `${match.id} (${match.reason}; revision ${match.revision}; ${match.title})`).join("; ")}. Inspect each with claim.get. If it is the same issue, append evidence using finding.transition and refine it using finding.revise. If distinct, retry with all matching IDs in distinctFromClaimIds and a concrete distinctReason.`);
         }
       }
-      return store.create({
+      return store.createObserved({
         ...draft,
-        ...(matches.length > 0 ? { creationReason: `Research lead created as distinct from ${matches.map((match) => match.id).join(", ")}: ${requiredString(input.distinctReason, "distinctReason")}` } : {}),
-      }, context?.modelAuthor, context?.agentId);
+        ...(matches.length > 0 ? { creationReason: `Observed finding created as distinct from ${matches.map((match) => match.id).join(", ")}: ${requiredString(input.distinctReason, "distinctReason")}` } : {}),
+      }, context?.modelAuthor, context?.agentId, defaults.surfaceStore?.current(context?.agentId ?? "root")?.id);
     }),
-    findingTool("finding.revise", "finding_revise", "Revise a canonical claim and its security tracking without changing evidence maturity. The qualitative rating remains an untrusted prioritization estimate. Reachability must cite existing finding evidence. CVSS stores the version, vector, assessed score, and nomenclature together. Risk treatment is operator-controlled and cannot be changed by this tool.", "write", {
+    findingTool("finding.revise", "finding_revise", "Revise a canonical finding and its security tracking without changing evidence maturity. The qualitative rating remains an untrusted prioritization estimate. Reachability must cite existing finding evidence. CVSS stores the version, vector, assessed score, and nomenclature together.", "write", {
       type: "object",
       required: ["id", "expectedRevision", "reason"],
       properties: {
         id: { type: "string" }, expectedRevision: { type: "number" }, reason: { type: "string" },
         title: { type: "string" }, summary: { type: "string" }, impact: { type: "string" },
+        stepsToReproduce: { type: "string", description: "Concrete reproduction steps. Required from reproduced onward." },
         rating: { type: "string", enum: RESEARCH_CLAIM_RATINGS, description: "Untrusted qualitative estimate for prioritization and notifications." },
         confidence: { type: "number", minimum: 0, maximum: 1 }, classification: { type: "string" },
-        componentClaimIds: { type: "array", items: { type: "string" } },
         securityTracking: SECURITY_TRACKING_SCHEMA,
       },
     }, (input, context) => store.revise(requiredString(input.id, "id"), {
@@ -227,13 +210,13 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
       ...(input.title !== undefined ? { title: requiredString(input.title, "title") } : {}),
       ...(input.summary !== undefined ? { summary: string(input.summary) ?? "" } : {}),
       ...(input.impact !== undefined ? { impact: string(input.impact) ?? "" } : {}),
+      ...(input.stepsToReproduce !== undefined ? { stepsToReproduce: string(input.stepsToReproduce) ?? "" } : {}),
       ...(input.rating !== undefined ? { rating: requiredResearchClaimRating(input.rating) } : {}),
       ...(typeof input.confidence === "number" ? { confidence: input.confidence } : {}),
       ...(input.classification !== undefined ? { classification: requiredClassification(input.classification, defaults.classifications) } : {}),
-      ...(Array.isArray(input.componentClaimIds) ? { componentClaimIds: input.componentClaimIds.map((id) => requiredString(id, "componentClaimIds[]")) } : {}),
       ...(input.securityTracking !== undefined ? { securityTracking: parseSecurityTrackingUpdate(input.securityTracking) } : {}),
     }, context?.modelAuthor, context?.agentId)),
-    findingTool("finding.transition", "finding_transition", "Update a canonical claim through its evidence-gated lifecycle, or append new evidence by using its current status as toStatus. Same-status evidence appends retain the claim ID and maturity while creating an immutable revision. Direct observation promotes a lead to the finding view without changing its ID. Reproduction requires a successful runbook; verification must be independent; reporting and disclosure require matching durable references.", "write", {
+    findingTool("finding.transition", "finding_transition", "Update a finding through its evidence-gated lifecycle, or append evidence using its current status as toStatus. Reproduced and later findings require concrete steps to reproduce; reproduction requires a successful runbook; verification must be independent; reporting and disclosure require matching durable references.", "write", {
       type: "object",
       required: ["id", "expectedRevision", "toStatus", "reason"],
       properties: {
@@ -241,9 +224,9 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
         evidence: { type: "array", items: EVIDENCE_SCHEMA },
         sourceRevision: { type: "string", description: "New verified component identity for a non-stale transition; ignored when marking stale so the prior baseline is preserved. Use kind:resource-id:value (for example git:webkit:abc123) for same-resource invalidation." },
         environmentFingerprint: { type: "string", description: "New verified target identity for a non-stale transition; ignored when marking stale so the prior baseline is preserved. Use environment:resource-id:value for same-target invalidation." },
-        reproductionRunbookId: { type: "string" }, reportId: { type: "string" }, disclosureReference: { type: "string" },
+        reproductionRunbookId: { type: "string" }, stepsToReproduce: { type: "string", description: "Concrete reproduction steps. Required when advancing to reproduced or later; may be supplied with the transition." },
+        reportId: { type: "string" }, disclosureReference: { type: "string" },
         classification: { type: "string" },
-        componentClaimIds: { type: "array", items: { type: "string" }, description: "Ordered component claim IDs for a composite classification such as security.chain." },
       },
     }, (input, context) => store.transition(requiredString(input.id, "id"), {
       expectedRevision: requiredInteger(input.expectedRevision, "expectedRevision"),
@@ -253,10 +236,10 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
       ...(string(input.sourceRevision) ? { sourceRevision: string(input.sourceRevision)! } : {}),
       ...(string(input.environmentFingerprint) ? { environmentFingerprint: string(input.environmentFingerprint)! } : {}),
       ...(input.reproductionRunbookId !== undefined ? { reproductionRunbookId: string(input.reproductionRunbookId) } : {}),
+      ...(input.stepsToReproduce !== undefined ? { stepsToReproduce: string(input.stepsToReproduce) ?? "" } : {}),
       ...(input.reportId !== undefined ? { reportId: string(input.reportId) } : {}),
       ...(input.disclosureReference !== undefined ? { disclosureReference: string(input.disclosureReference) } : {}),
       ...(input.classification !== undefined ? { classification: requiredClassification(input.classification, defaults.classifications) } : {}),
-      ...(Array.isArray(input.componentClaimIds) ? { componentClaimIds: input.componentClaimIds.map((id) => requiredString(id, "componentClaimIds[]")) } : {}),
       ...(defaults.surfaceStore?.current(context?.agentId ?? "root")?.id
         ? { surfaceId: defaults.surfaceStore.current(context?.agentId ?? "root")!.id } : {}),
     }, context?.modelAuthor, context?.agentId, { freshSubagentContext: context?.freshSubagentContext === true })),
@@ -345,11 +328,8 @@ function projectClaimCatalog(store: ResearchClaimStore, input: Record<string, un
       id: finding.id,
       projection: finding.projection,
       maturity: finding.maturity,
-      freshness: finding.freshness,
-      workflow: finding.workflow,
       rating: finding.rating,
       classification: finding.classification,
-      componentClaimIds: finding.componentClaimIds,
       title: finding.title,
       summary: finding.summary,
       impact: finding.impact,
@@ -395,6 +375,7 @@ function findingTool(name: string, transportName: string, description: string, s
 }
 function parseSecurityTrackingUpdate(value: unknown): FindingSecurityTrackingUpdate {
   const input = requiredRecord(value, "securityTracking");
+  if (Object.hasOwn(input, "affectedVersions")) throw new Error("Affected version tracking is no longer supported.");
   const reachability = input.reachability === undefined ? undefined : requiredRecord(input.reachability, "securityTracking.reachability");
   const cvss = input.cvssAssessment === undefined ? undefined : requiredRecord(input.cvssAssessment, "securityTracking.cvssAssessment");
   return {
@@ -421,16 +402,6 @@ function parseSecurityTrackingUpdate(value: unknown): FindingSecurityTrackingUpd
     ...(Array.isArray(input.affectedAssetIds) ? { affectedAssetIds: input.affectedAssetIds.map((id) => requiredString(id, "securityTracking.affectedAssetIds[]")) } : {}),
     ...(Array.isArray(input.surfaceIds) ? { surfaceIds: input.surfaceIds.map((id) => requiredString(id, "securityTracking.surfaceIds[]")) } : {}),
     ...(input.progressBlocker !== undefined ? { progressBlocker: input.progressBlocker === null ? null : { reason: requiredString(requiredRecord(input.progressBlocker, "securityTracking.progressBlocker").reason, "securityTracking.progressBlocker.reason") } } : {}),
-    ...(Array.isArray(input.affectedVersions) ? {
-      affectedVersions: input.affectedVersions.map((value) => {
-        const version = requiredRecord(value, "securityTracking.affectedVersions[]");
-        return {
-          assetId: string(version.assetId),
-          range: requiredString(version.range, "securityTracking.affectedVersions[].range"),
-          fixedVersion: string(version.fixedVersion),
-        };
-      }),
-    } : {}),
     ...(Array.isArray(input.externalReferences) ? {
       externalReferences: input.externalReferences.map((value) => {
         const reference = requiredRecord(value, "securityTracking.externalReferences[]");

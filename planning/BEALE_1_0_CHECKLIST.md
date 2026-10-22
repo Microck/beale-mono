@@ -1,0 +1,77 @@
+# Beale 1.0 readiness checklist
+
+Reviewed 2026-10-21 against commit `cc170df`. Beale has substantial research functionality; the next milestone should concentrate on installation, reliable session control, recoverable data, and a repeatable release gate. The Desktop integration gate currently fails.
+
+This checklist separates observed defects and repository gaps from release acceptance exercises. An unchecked exercise is not a claim that the feature is broken. Scope is Desktop, app-server, and the research runtime; iOS needs an explicit release ownership decision.
+
+## Validation baseline
+
+Local checks used Node 24.13.0 and installed dependencies. The pnpm commands stalled before execution and were stopped; the corresponding installed TypeScript, Node test runner, Vitest, and electron-vite commands were run directly. Tests requiring local sockets were rerun outside the restricted sandbox. Sandbox bind failures are excluded from the product findings below.
+
+| Check | Result |
+| --- | --- |
+| Runtime and app-server TypeScript build | Passed |
+| Desktop TypeScript check | Passed |
+| Desktop production bundle | Passed; installer not exercised |
+| Runtime fast tests | 514 passed, 1 platform skip |
+| App-server tests | 145 passed, 1 platform skip |
+| Desktop fast tests | 739 passed, 1 skipped live-provider test |
+| Runtime integration tests | 3 passed |
+| Desktop integration tests | 68 passed, 3 failed, 1 unhandled rejection; all failures reproduced independently |
+| Fleet test outside configured test globs | 1 passed independently |
+
+This is a repository and local test review, not a packaged GUI, Windows, iOS, real-provider, or real-VM acceptance run. Existing migration, publication, evidence-provenance, credential, restart, and protocol tests provide a useful foundation.
+
+## P0 Restore a reliable release gate
+
+- [ ] **Resolve the immediate-stop integration failure.** `stops a newly started canonical session without querying full session aggregates from live events` times out waiting for Desktop to report `stopped` after the first Stop request. Trace launch acceptance, pending stop delivery, host termination, and Desktop reconciliation before changing the timeout. **Done when:** immediate Stop and Stop after continuation reach the same terminal state in the host, Desktop, attempts, and registry, both in isolation and in the full suite. [Test](../apps/desktop/tests/app-server-session-boundary.test.ts), [run engine](../apps/desktop/src/main/appServerRunEngine.ts).
+
+- [ ] **Handle failures in background workspace-summary completion.** The integration run reports an unhandled rejection through `finishWorkspaceMemorySummaryLoad` → `emitRuntimeChange` → registry access when app-server is unavailable. The promise uses `.then(success, failure)` without handling exceptions thrown by either completion callback. **Done when:** a disconnect during completion and closing/switching a workspace produce a recoverable state with no unhandled rejection or stale update. [Implementation](../apps/desktop/src/main/workspaceService.ts).
+
+- [ ] **Preserve the actionable end of Git checkout errors.** The source-materializer regression reproduces independently: repeated warnings survive, but the final `Filename too long` diagnostic does not. The runtime retains the last 1,600 characters; Desktop's response formatter then keeps the first 500. **Done when:** bounded, redacted errors retain the terminal cause and cleanup information through the full transport. [Failing test](../apps/desktop/tests/source-materializer.test.ts), [runtime error capture](../packages/research-agent/src/source-materializer.ts), [Desktop response formatter](../apps/desktop/src/main/bealeAppServerClient.ts).
+
+- [ ] **Update the disabled-plugin integration contract.** The isolated test expects `args: []`, while the implementation always emits `--plugin-catalog` and an empty catalog after disabling the last plugin. Runtime tests already expect that catalog behavior. **Done when:** the Desktop test verifies the empty catalog and absence of enabled tools/skills while retaining the required launch arguments. [Desktop test](../apps/desktop/tests/agent-plugin-registry.test.ts), [runtime tests](../tests/managed-tool-plugins.test.mjs), [implementation](../packages/research-agent/src/agent-plugin-registry.ts).
+
+- [ ] **Include every intended test in the gate and automate it.** `packages/research-agent/tests/fleet-tools.test.mjs` falls outside the root runtime globs and has no package test script. No checked-in `.github` workflow was found. **Done when:** a clean frozen-lockfile install runs both test tiers, Desktop typechecking, and the production build on every supported release OS; the Fleet privacy-boundary test is included. Reconcile any external CI with the documented commands. [Root scripts](../package.json), [Desktop scripts](../apps/desktop/package.json), [omitted test](../packages/research-agent/tests/fleet-tools.test.mjs).
+
+## P0 Make installation and recovery dependable
+
+- [ ] **Produce an installable application with a bundled app-server.** The current Desktop build creates `out/` bundles; no installer configuration or release scripts are checked in. `defaultAppServerLaunch` requires a discovered monorepo and looks for development Electron or Node runtimes. **Done when:** a fresh supported machine can install and launch Desktop and its matching app-server without a checkout, pnpm, developer environment variables, or a globally installed Node. Include worker entry points, plugins, harness features, parser assets, and required runtime dependencies. [Desktop package](../apps/desktop/package.json), [build configuration](../apps/desktop/electron.vite.config.ts), [launcher](../apps/desktop/src/main/bealeAppServerClient.ts).
+
+- [ ] **Finish the distribution process for each supported platform.** Establish artifact identity, signing/notarization where applicable, version metadata, and a clean-machine installation check. Development Electron branding is not evidence that a distributable installer works. **Done when:** the exact downloadable artifacts launch, survive reinstall, and uninstall without unintentionally deleting research. [Branding script](../apps/desktop/scripts/brand-electron.mjs), [app-server package](../app-server/package.json).
+
+- [ ] **Define and exercise compatible upgrades.** Contract checks and restart prompts exist, but the restart controller relaunches the current binary; it does not install an update. Manual installation is sufficient for 1.0 if documented. **Done when:** upgrading Desktop and app-server together preserves active research, older/newer client mismatches have a working recovery path, and a failed upgrade preserves data. State downgrade restrictions explicitly; migrations reject newer unknown schemas. [Restart controller](../apps/desktop/src/main/desktopRestartPrompt.ts), [compatibility handling](../apps/desktop/src/main/bealeAppServerClient.ts), [migration runner](../packages/research-agent/src/database-migrations.ts).
+
+- [ ] **Provide a complete backup and tested restore procedure.** The existing workspace archive explicitly sets `databaseIncluded: false`, and no renderer call site for its export method was found. Workspace files alone do not retain all operational session/registry state; schema-v1 workspaces also remain database-authoritative. **Done when:** an app-server-owned backup or documented stopped-writer procedure restores a synthetic workspace, its global database state, evidence, sessions, and registry into a clean test profile. Explain credential reauthentication, external repository exclusions, and schema-v1/v2 differences. [Backup implementation](../apps/desktop/src/main/workspaceService.ts), [persistence contract](../app-server/README.md).
+
+- [ ] **Rehearse migration and interrupted-publication recovery.** Transactional migrations and interrupted-publication recovery already have tests. Extend release verification to an upgrade fixture containing multiple workspaces, legacy claims/runbooks, and retained sessions; exercise disk-full/read-only failures and interrupted writes. **Done when:** canonical evidence remains intact, recovery is actionable, and the app does not report success for an incomplete publication. [Migration tests](../tests/database-migrations.test.mjs), [publication tests](../tests/workspace-publication.test.mjs), [checkpoint tests](../app-server/test/workspace-checkpoints.test.mjs).
+
+## P1 Prove the complete researcher workflow
+
+- [ ] **Run a packaged first-use acceptance scenario.** Start from an empty test profile: connect one provider, create a synthetic authorized workspace, add a source, start research, inspect evidence, execute a runbook, generate a report, close/reopen, and continue the same session. Include cancel/retry during setup. **Done when:** a new user completes the sequence without terminal repair, hidden prerequisites, or an unexplained blank/loading state. [Workspace service](../apps/desktop/src/main/workspaceService.ts), [startup tests](../apps/desktop/tests/renderer-startup.test.ts).
+
+- [ ] **Verify real-provider behavior for the advertised support matrix.** Synthetic suites do not establish that current authentication and provider APIs work. Test each provider/authentication mode advertised for 1.0, including expired credentials, rate limits, tool calls, streaming, cancellation, and continuation. Use explicitly supplied test credentials. **Done when:** each supported combination has a recorded result; unverified combinations are labeled experimental. [Provider settings tests](../apps/desktop/tests/provider-settings.test.ts), [opt-in OpenAI test](../apps/desktop/tests/openai-live.test.ts).
+
+- [ ] **Exercise recovery and Stop across process boundaries.** Kill the renderer, worker, and app-server separately; interrupt a provider stream; stop during a shell command and runbook cell; reconnect a remote client. Verify child-process cleanup and continuation without duplicated side effects. **Done when:** state converges, Stop remains usable, and recovery preserves canonical history. [Recovery tests](../app-server/test/session-recovery.test.mjs), [supervisor tests](../app-server/test/restart-supervisor.test.mjs), [shell execution](../packages/research-agent/src/shell-tool.ts).
+
+- [ ] **Validate evidence integrity through the user-facing workflow.** Exercise claim promotion, invalidated verification after edits, duplicate reversal, direct-file synchronization, and report export with a synthetic investigation. Include the operator-override path in the Claims board. **Done when:** the UI and exported report distinguish observations, supported findings, stale evidence, and operator overrides consistently. [Claim provenance tests](../tests/claim-evidence-provenance.test.mjs), [claim tests](../tests/findings.test.mjs), [publication tests](../tests/workspace-publication.test.mjs).
+
+- [ ] **Test Electron boundaries in a running packaged app.** Current security tests partly assert source strings. Verify navigation/popup denial, renderer IPC access, browser guest isolation, sensitive credential exclusion, and context deletion behavior at runtime. **Done when:** synthetic hostile page content cannot reach privileged workbench APIs, and browsing data follows the documented context lifecycle. Preserve the explicit host-privilege execution posture. [Security tests](../apps/desktop/tests/electron-security-boundary.test.ts), [window setup](../apps/desktop/src/main/index.ts), [browser tests](../apps/desktop/tests/in-agent-browser.test.ts).
+
+- [ ] **Soak-test sustained and scheduled research.** Use a large synthetic history, concurrent sessions/subagents, repeated schedules, sleep/wake, network loss, and reopening old transcripts. Check existing time/cost/tool limits and schedule overlap/recovery behavior. Measure memory, database/file growth, event-loop responsiveness, and stop latency against explicit acceptance budgets. **Done when:** growth and latency remain explainable and bounded under the chosen supported workload. [Session storage tests](../tests/session-store.test.mjs), [host tests](../app-server/test/app-server.test.mjs), [Desktop session tests](../apps/desktop/tests/app-server-session-boundary.test.ts).
+
+- [ ] **Complete keyboard and failure-state acceptance.** Exercise primary navigation, dialogs, research input, Stop, claims, runbooks, and provider settings using the keyboard, display scaling, and supported themes. Check unavailable providers, missing sources, disconnected hosts, and permission errors. **Done when:** focus stays visible, controls remain reachable, and each failure offers an actionable retry or explanation. [Renderer](../apps/desktop/src/renderer), [renderer recovery tests](../apps/desktop/tests/renderer-recovery.test.ts).
+
+## P1 Set an accurate release contract
+
+- [ ] **Resolve iOS ownership and the supported platform matrix.** Repository instructions reserve `apps/ios` for a separate repository, while this checkout tracks a Swift app, Xcode project, tests, and detailed build instructions. **Done when:** one repository is clearly authoritative, stale copies are addressed deliberately, and the release states supported operating systems, architectures, clients, and optional Fleet integrations. [Repository instructions](../AGENTS.md), [iOS directory](../apps/ios), [root overview](../README.md).
+
+- [ ] **Align onboarding and architecture documentation with shipped behavior.** Root/Desktop READMEs still say pre-alpha; parts of their ownership descriptions attribute persistence/policy to Electron despite app-server ownership. Replace those statements when readiness is established, and document installation, provider setup, Local host privileges, operator-managed isolation, remote access, backup/restore, and troubleshooting. **Done when:** instructions succeed from the released artifact and match tested boundaries. [Root README](../README.md), [Desktop README](../apps/desktop/README.md), [app-server README](../app-server/README.md).
+
+- [ ] **Resolve distribution metadata and prepare support information.** Root/Desktop documentation says MIT while app-server and runtime package manifests say `UNLICENSED`. Choose consistent intended metadata and include third-party notices. Expose a useful build/contract identity and document how to collect bounded diagnostics without credentials or research content. Review the dependency lockfile, patch, and native-build allowlist as part of the release. **Done when:** the release artifact identifies its components and users can submit an actionable, sanitized bug report. [Package manifests](../packages/research-agent/package.json), [workspace policy](../pnpm-workspace.yaml), [redaction tests](../apps/desktop/tests/redaction.test.ts), [changelog](../CHANGELOG.md).
+
+## Suggested completion order
+
+Fix the red integration gate and wire the omitted test into CI first. Then make a clean-machine installer, exercise upgrade and restore, and run the packaged acceptance matrix. Freeze feature additions while those checks run. Broader providers, Research Kits, client features, and large internal refactors can follow 1.0 unless needed to resolve a demonstrated blocker.
+
+Ship when the supported scope is explicit, the release gate is green, the exact packaged artifacts pass acceptance, and an upgrade/restore rehearsal preserves synthetic research and its evidence.

@@ -73,6 +73,7 @@ import {
   createToolActionAuthorizer,
   BUNDLED_RESEARCH_PROFILE_IDS,
   DEFAULT_SECURITY_RESEARCH_PROFILE,
+  effectiveClaimClassifications,
   DEFAULT_SHELL_REVIEW_MODELS,
   createResearchWorkspaceContext,
   createModelWorkspaceContext,
@@ -3972,7 +3973,7 @@ async function createRuntimeConfig(args: {
   const findingStore = new FindingStore(memoryGraph);
   const findingTools = memoryActive
     ? createFindingTools(findingStore, {
-        classifications: resolvedResearchProfile.profile.claims.classifications.map((classification) => classification.id),
+        classifications: effectiveClaimClassifications(resolvedResearchProfile.profile).map((classification) => classification.id),
         surfaceStore,
         ...(args.workspaceReferences ? {
           referenceWorkspaces: args.workspaceReferences.map(({ workspaceId, workspaceName }) => ({ workspaceId, workspaceName })),
@@ -4039,7 +4040,7 @@ async function createRuntimeConfig(args: {
     reportStore = reports;
     const reportTools = createReportTools(reports, {
       ...(resolvedResearchProfile.profile.id === "security-research"
-        ? { requireConfirmedChain: true, requireSubmissionPacket: true, claimStore: findingStore }
+        ? { requireVerifiedFinding: true, requireSubmissionPacket: true, claimStore: findingStore }
         : {}),
     });
     executableTools.push(...reportTools);

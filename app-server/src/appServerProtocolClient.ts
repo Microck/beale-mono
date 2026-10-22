@@ -14,6 +14,7 @@ import {
   completeAuxiliaryText,
   createResearchStorageLayout,
   extractSourceRepositoryUrls,
+  effectiveClaimClassifications,
   getAppServerMemorySummary,
   listAppServerReportSummaries,
   getAuthStatus,
@@ -317,8 +318,9 @@ async function knowledgeOperation(operation: AppServerProtocolOperation, options
       try {
         const claim = claims.get(request.claimId);
         if (!claim || claim.projection !== 'finding') throw new Error('Finding not found in this workspace.');
-        if (claim.maturity === request.targetMaturity) throw new Error('Finding is already in this Claims column.');
-        const toStatus = request.targetMaturity === 'refuted' ? 'rejected' : request.targetMaturity;
+        if (claim.maturity === request.targetMaturity) throw new Error('Finding is already in this Findings board state.');
+        const toStatus = request.targetMaturity === 'refuted' ? 'rejected'
+          : request.targetMaturity === 'reported' ? 'disclosed' : request.targetMaturity;
         return claims.transitionByHuman(request.claimId, request.expectedRevision, toStatus);
       } finally {
         claims.close();
@@ -699,7 +701,7 @@ async function memoryNotificationFeed(layout: ReturnType<typeof createResearchSt
   const claimNotifications = [...summary.leads, ...summary.findings].flatMap((claim) => {
     const heat = attentionHeatForClaim(claim);
     if (heat === 'none') return [];
-    const definition = researchProfile.profile.claims.classifications.find((candidate) => candidate.id === claim.classification);
+    const definition = effectiveClaimClassifications(researchProfile.profile).find((candidate) => candidate.id === claim.classification);
     return [{
       id: claim.id,
       kind: 'claim' as const,

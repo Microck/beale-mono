@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { AppServerRunbookDocument, AppServerRunbookSummary } from '../src/shared/types';
+import { RunbookCatalogItem } from '../src/renderer/features/research/MemorySidePanel';
 import { RunbookView, runbookViewUpdateKey } from '../src/renderer/features/research/RunbookView';
 
 const summary: AppServerRunbookSummary = {
@@ -95,6 +96,29 @@ const document: AppServerRunbookDocument = {
 };
 
 describe('RunbookView', () => {
+  it('labels the catalog total as historical cell executions', () => {
+    const html = renderToStaticMarkup(createElement(RunbookCatalogItem, {
+      runbook: summary,
+      selected: false,
+      onOpen: () => undefined
+    }));
+    expect(html).toContain('5 Cell Executions');
+  });
+
+  it('distinguishes missing content from a runbook with no current cells after past executions', () => {
+    const props = { runbook: summary, loading: false, error: null, onBackToMain: () => undefined };
+    const unavailable = renderToStaticMarkup(createElement(RunbookView, { ...props, document: null }));
+    expect(unavailable).toContain('Runbook content is unavailable.');
+    expect(unavailable).not.toContain('This runbook has no cells.');
+
+    const empty = renderToStaticMarkup(createElement(RunbookView, {
+      ...props,
+      document: { ...document, cells: [] }
+    }));
+    expect(empty).toContain('This runbook has no cells.');
+    expect(empty).toContain('5 cells executed');
+  });
+
   it('renders all cells, formatted Markdown, highlighted code, outputs, and Back navigation', () => {
     const html = renderToStaticMarkup(createElement(RunbookView, {
       runbook: summary,

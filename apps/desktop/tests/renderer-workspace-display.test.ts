@@ -133,61 +133,6 @@ describe('renderer workspace display view models', () => {
     expect(html).not.toContain('Research Workspaces');
   });
 
-  it('pins live surface focus below the scrolling session list', () => {
-    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
-      busy: false,
-      collapsed: false,
-      error: null,
-      workspaceRegistry: null,
-      selectedRunId: 'run-example',
-      surfaceTracking: { charts: [], unassignedAgents: [{ path: '/root', label: 'Main agent', shadePercent: 100 }] },
-      snapshot: null,
-      onAddWorkspace: () => undefined,
-      onImportWorkspace: () => undefined,
-      onOpenWorkspace: () => undefined,
-      onOpenResearchSession: () => undefined,
-      onResizePointerDown: () => undefined,
-      onStartNewResearch: () => undefined,
-      onStartNewResearchForWorkspace: () => undefined
-    }));
-    expect(html.indexOf('sidebar-list-scroll-region')).toBeLessThan(html.indexOf('sidebar-surface-slot is-visible'));
-    expect(html).not.toContain('sidebar-surface-slot is-visible has-surface');
-    expect(html).toContain('aria-label="Active surface focus"');
-    expect(html).toContain('Main agent: no surface focus recorded');
-    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
-    expect(styles).toMatch(/\.sidebar-surface-slot\s*\{[^}]*grid-template-rows: 0fr/su);
-    expect(styles).toMatch(/\.sidebar-surface-slot\.is-visible\s*\{[^}]*grid-template-rows: 1fr/su);
-    expect(styles).toMatch(/\.sidebar-surface-slot\.has-surface::before\s*\{[^}]*inset: 0 -6px auto -12px;[^}]*background: var\(--panel-border\)/su);
-    expect(styles).toMatch(/\.sidebar-surface-scroll\s*\{[^}]*max-height: min\(38vh, 320px\);[^}]*overflow: auto/su);
-  });
-
-  it('adds the surface divider only when an agent has a mapped surface', () => {
-    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
-      busy: false,
-      collapsed: false,
-      error: null,
-      workspaceRegistry: null,
-      selectedRunId: 'run-example',
-      surfaceTracking: {
-        charts: [{
-          rootId: 'asset-example', rootName: 'Example service', size: 42, segments: [],
-          agents: [{ path: '/root', label: 'Main agent', surfaceId: 'asset-example',
-            surfaceDepth: 0, shadePercent: 100, x: 0, y: 0, radius: 3.5, countOnSurface: 1 }]
-        }],
-        unassignedAgents: []
-      },
-      snapshot: null,
-      onAddWorkspace: () => undefined,
-      onImportWorkspace: () => undefined,
-      onOpenWorkspace: () => undefined,
-      onOpenResearchSession: () => undefined,
-      onResizePointerDown: () => undefined,
-      onStartNewResearch: () => undefined,
-      onStartNewResearchForWorkspace: () => undefined
-    }));
-    expect(html).toContain('sidebar-surface-slot is-visible has-surface');
-  });
-
   it('offers create and import actions from the workspace add menu', () => {
     const sidebarSource = readFileSync(new URL('../src/renderer/features/workspaces/WorkspaceSidebar.tsx', import.meta.url), 'utf8');
     const appSource = readFileSync(new URL('../src/renderer/App.tsx', import.meta.url), 'utf8');

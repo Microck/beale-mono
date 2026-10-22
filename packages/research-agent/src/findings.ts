@@ -5,13 +5,10 @@ import { openResearchDatabase } from "./database.js";
 import type {
   FindingEvidenceKind,
   FindingEvidenceSummary,
-  FindingAffectedVersion,
   FindingCvssAssessment,
   FindingExternalReference,
   FindingReachabilityAssessment,
   FindingReachabilityState,
-  FindingRiskDecision,
-  FindingRiskTreatment,
   FindingSecurityTracking,
   FindingStatus,
   FindingSummary,
@@ -22,6 +19,7 @@ import type {
 } from "./knowledge-types.js";
 import type { MemoryGraphStore, MemoryNode } from "./memory-graph.js";
 import type { ModelAuthor } from "./model-authorship.js";
+import { canonicalClaimClassificationId } from "./research-profile.js";
 
 const DIRECT_OBSERVATION_KINDS = new Set<FindingEvidenceKind>(["code", "artifact", "command", "url", "calculation", "proof", "publication"]);
 const TERMINAL_FINDING_STATUSES = new Set<FindingStatus>(["disclosed", "rejected"]);
@@ -53,13 +51,13 @@ export interface FindingEvidenceInput {
 }
 
 export interface CreateFindingInput {
-  /** Optional legacy source. New leads are canonical and do not require a memory node. */
+  /** Optional source for compatibility with migrated memory-backed records. */
   memoryNodeId?: string;
   classification?: string;
-  componentClaimIds?: string[];
   title: string;
   summary?: string;
   impact?: string;
+  stepsToReproduce?: string;
   rating?: ResearchClaimRating;
   confidence?: number;
   sourceRevision?: string | null;
@@ -67,8 +65,6 @@ export interface CreateFindingInput {
   evidence?: FindingEvidenceInput[];
   creationReason?: string;
 }
-
-export type CreateLeadInput = CreateFindingInput;
 
 export interface ClaimCreationMatch {
   id: string;
@@ -85,10 +81,10 @@ export interface TransitionFindingInput {
   sourceRevision?: string | null;
   environmentFingerprint?: string | null;
   reproductionRunbookId?: string | null;
+  stepsToReproduce?: string;
   reportId?: string | null;
   disclosureReference?: string | null;
   classification?: string;
-  componentClaimIds?: string[];
   /** Host-supplied current focus; not evidence of reachability. */
   surfaceId?: string;
 }
@@ -99,10 +95,10 @@ export interface ReviseResearchClaimInput {
   title?: string;
   summary?: string;
   impact?: string;
+  stepsToReproduce?: string;
   rating?: ResearchClaimRating;
   confidence?: number;
   classification?: string;
-  componentClaimIds?: string[];
   securityTracking?: FindingSecurityTrackingUpdate;
 }
 
@@ -126,17 +122,10 @@ export interface FindingSecurityTrackingUpdate {
     sourceRevision?: string | null;
     environmentFingerprint?: string | null;
   };
-  riskTreatment?: FindingRiskTreatment;
-  riskDecision?: {
-    rationale: string;
-    decidedAt?: string;
-    expiresAt?: string | null;
-  };
   cvssAssessment?: Omit<FindingCvssAssessment, "assessorId"> & { assessorId?: string };
   affectedAssetIds?: string[];
   surfaceIds?: string[];
   progressBlocker?: { reason: string } | null;
-  affectedVersions?: FindingAffectedVersion[];
   externalReferences?: FindingExternalReference[];
 }
 
@@ -193,7 +182,7 @@ export class ResearchClaimStore {
     return this.memoryGraph.getContext();
   }
 
-  /** Preflight for model-authored leads; matching a classification alone is never a duplicate. */
+  /** Preflight for new findings; matching a classification alone is never a duplicate. */
   public findCreationMatches(input: CreateFindingInput): ClaimCreationMatch[] {
     const workspaceId = this.memoryGraph.getContext().workspaceId;
     const classification = claimClassification(input.classification ?? legacyClaimClassification(undefined));
@@ -210,9 +199,9 @@ export class ResearchClaimStore {
       const referenceRows = this.database.prepare(`SELECT DISTINCT claim.id
         FROM app_server_research_claims claim
         JOIN app_server_claim_evidence evidence ON evidence.claim_id = claim.id
-        WHERE claim.workspace_id = ? AND claim.classification = ? AND claim.duplicate_of_claim_id IS NULL
+        WHERE claim.workspace_id = ? AND claim.duplicate_of_claim_id IS NULL
           AND evidence.reference_id IN (${references.map(() => "?").join(",")})`)
-        .all(workspaceId, classification, ...references) as SqlRow[];
+        .all(workspaceId, ...references) as SqlRow[];
       for (const row of referenceRows) sharedReferences.add(requiredSqlText(row.id));
     }
     const matches: ClaimCreationMatch[] = [];
@@ -221,7 +210,7 @@ export class ResearchClaimStore {
       const titleOverlap = claimTokenOverlap(title, candidateTitle);
       const sharedTitleTokens = title.filter((token) => candidateTitle.includes(token)).length;
       const candidateSummary = claimMatchTokens(typeof row.summary === "string" ? row.summary : "");
-      const sameClassification = row.classification === classification;
+      const sameClassification = claimClassification(row.classification) === classification;
       const reason = title.length > 0 && title.join(" ") === candidateTitle.join(" ")
         ? "matching title"
         : sameClassification && sharedTitleTokens >= 3 && titleOverlap >= 0.8
@@ -237,7 +226,18 @@ export class ResearchClaimStore {
     return matches;
   }
 
+  /** Legacy import path for historical hypothesis records. Model tools create observed findings. */
   public create(input: CreateFindingInput, author?: ModelAuthor, actorId?: string): FindingSummary {
+    return this.createWithStatus(input, "hypothesis", author, actorId);
+  }
+
+  public createObserved(input: CreateFindingInput, author?: ModelAuthor, actorId?: string, surfaceId?: string): FindingSummary {
+    return this.createWithStatus(input, "observed", author, actorId, surfaceId);
+  }
+
+  private createWithStatus(
+    input: CreateFindingInput, status: "hypothesis" | "observed", author?: ModelAuthor, actorId?: string, surfaceId?: string,
+  ): FindingSummary {
     const context = this.memoryGraph.getContext();
     const memory = input.memoryNodeId ? this.requireWorkspaceMemory(input.memoryNodeId) : null;
     const existing = memory ? this.database.prepare(
@@ -248,29 +248,34 @@ export class ResearchClaimStore {
     const now = new Date().toISOString();
     const id = memory ? stableFindingId(context.workspaceId, memory.id) : `claim_${randomUUID()}`;
     const evidence = normalizeEvidenceInputs(input.evidence ?? [], context.sessionId ?? null, actorId ?? null);
+    if (status === "observed" && !evidence.some((item) =>
+      DIRECT_OBSERVATION_KINDS.has(item.kind) && Boolean(item.referenceId || item.contentHash))) {
+      throw new Error("Observed findings require direct code, artifact, command, URL, calculation, proof, or publication evidence.");
+    }
     const classification = claimClassification(input.classification ?? legacyClaimClassification(memory?.type));
-    const componentClaimIds = uniqueStrings(input.componentClaimIds ?? []);
-    const securityTracking = securityClassification(classification) ? emptyFindingSecurityTracking() : null;
-    this.validateComponents(id, componentClaimIds);
+    const securityTracking = securityClassification(classification)
+      ? { ...emptyFindingSecurityTracking(), surfaceIds: surfaceId ? [surfaceId] : [] } : null;
     this.database.exec("BEGIN IMMEDIATE");
     try {
       this.database.prepare(`INSERT INTO app_server_research_claims (
         id, workspace_id, subject_id, legacy_memory_node_id, origin_session_id, classification,
-        title, summary, impact, rating, status, stale_from_status, confidence,
+        title, summary, impact, steps_to_reproduce, rating, status, stale_from_status, confidence,
         source_revision, environment_fingerprint, reproduction_runbook_id,
         report_id, disclosure_reference, stale_reason, security_tracking_json,
         created_at, updated_at, revision
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'hypothesis', NULL, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, 1)`).run(
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, 1)`).run(
         id,
         context.workspaceId,
         context.subjectId ?? `subject_workspace:${context.workspaceId}`,
         memory?.id ?? null,
         context.sessionId ?? null,
         classification,
-        requiredText(input.title, "Lead title"),
+        requiredText(input.title, status === "observed" ? "Finding title" : "Lead title"),
         normalizedText(input.summary) ?? memory?.summary ?? "",
         normalizedText(input.impact) ?? "",
+        normalizedText(input.stepsToReproduce) ?? "",
         researchClaimRating(input.rating),
+        status,
         confidence(input.confidence ?? memory?.confidence ?? 0.5),
         nullableText(input.sourceRevision),
         nullableText(input.environmentFingerprint),
@@ -279,8 +284,8 @@ export class ResearchClaimStore {
         now,
       );
       const evidenceIds = this.insertEvidence(id, evidence, now);
-      this.replaceComponents(id, componentClaimIds, now);
-      this.insertTransition(id, 1, null, "hypothesis", normalizedText(input.creationReason) ?? "Research lead created.", actorId ?? null, evidenceIds, now);
+      this.insertTransition(id, 1, null, status, normalizedText(input.creationReason)
+        ?? (status === "observed" ? "Observed finding created." : "Research lead created."), actorId ?? null, evidenceIds, now);
       this.insertAuthor(id, 1, author, now);
       this.database.exec("COMMIT");
     } catch (error) {
@@ -324,6 +329,7 @@ export class ResearchClaimStore {
       sourceRevision: input.sourceRevision === undefined || input.toStatus === "stale" ? current.sourceRevision : nullableText(input.sourceRevision),
       environmentFingerprint: input.environmentFingerprint === undefined || input.toStatus === "stale" ? current.environmentFingerprint : nullableText(input.environmentFingerprint),
       reproductionRunbookId: input.reproductionRunbookId === undefined ? current.reproductionRunbookId : nullableText(input.reproductionRunbookId),
+      stepsToReproduce: input.stepsToReproduce === undefined ? current.stepsToReproduce : normalizedText(input.stepsToReproduce) ?? "",
     };
     const classification = claimClassification(input.classification ?? current.classification);
     const securityTracking = securityClassification(classification)
@@ -335,10 +341,7 @@ export class ResearchClaimStore {
             ? current.securityTracking?.progressBlocker ?? null
             : null }
       : null;
-    const componentClaimIds = input.componentClaimIds === undefined
-      ? current.componentClaimIds
-      : uniqueStrings(input.componentClaimIds);
-    const reviewed = { ...effective, classification, componentClaimIds };
+    const reviewed = { ...effective, classification };
     if (newEvidence.some((item) => item.independent) && claimVerificationHash(reviewed) !== claimVerificationHash(current)) {
       throw new Error("Independent review must address the existing claim content; record content changes separately before review.");
     }
@@ -348,9 +351,6 @@ export class ResearchClaimStore {
     const accumulated = [...current.evidence, ...newEvidence.map((item, index) => ({
       id: `pending_${index}`, ...item, createdAt: now,
     }))];
-    this.validateComponents(id, componentClaimIds);
-    validateCompositeClaim(classification, input.toStatus, componentClaimIds);
-
     const nextRevision = current.revision + 1;
     this.database.exec("BEGIN IMMEDIATE");
     try {
@@ -361,11 +361,11 @@ export class ResearchClaimStore {
         : null;
       const result = this.database.prepare(`UPDATE app_server_research_claims SET
         status = ?, stale_from_status = ?, classification = ?, source_revision = ?, environment_fingerprint = ?,
-        reproduction_runbook_id = ?, report_id = ?, disclosure_reference = ?, stale_reason = ?, security_tracking_json = ?,
+        reproduction_runbook_id = ?, steps_to_reproduce = ?, report_id = ?, disclosure_reference = ?, stale_reason = ?, security_tracking_json = ?,
         updated_at = ?, revision = ? WHERE id = ? AND revision = ?`).run(
         input.toStatus,
         staleFromStatus,
-        classification,
+        input.classification === undefined ? storedFindingClassification(this.database, id) : classification,
         input.toStatus === "stale" || input.sourceRevision === undefined
           ? current.sourceRevision
           : nullableText(input.sourceRevision),
@@ -373,6 +373,7 @@ export class ResearchClaimStore {
           ? current.environmentFingerprint
           : nullableText(input.environmentFingerprint),
         input.reproductionRunbookId === undefined ? current.reproductionRunbookId : nullableText(input.reproductionRunbookId),
+        effective.stepsToReproduce,
         input.reportId === undefined ? current.reportId : nullableText(input.reportId),
         input.disclosureReference === undefined ? current.disclosureReference : nullableText(input.disclosureReference),
         input.toStatus === "stale" ? requiredText(input.reason, "Staleness reason") : null,
@@ -383,7 +384,6 @@ export class ResearchClaimStore {
         current.revision,
       );
       if (Number(result.changes) !== 1) throw new Error(`Research claim revision conflict for ${id}.`);
-      this.replaceComponents(id, componentClaimIds, now);
       this.insertTransition(id, nextRevision, current.status, input.toStatus, requiredText(input.reason, "Transition reason"), actorId ?? null, evidenceIds, now);
       this.insertAuthor(id, nextRevision, author, now);
       this.database.exec("COMMIT");
@@ -394,10 +394,10 @@ export class ResearchClaimStore {
     return this.get(id)!;
   }
 
-  /** Trusted host Claims board action; model-facing tools never call this path. */
+  /** Trusted host Findings board action; model-facing tools never call this path. */
   public transitionByHuman(id: string, expectedRevision: number, toStatus: FindingStatus): FindingSummary {
-    if (!["observed", "reproduced", "verified", "rejected"].includes(toStatus)) {
-      throw new Error(`Claims board cannot move a finding to ${toStatus}.`);
+    if (!["observed", "reproduced", "verified", "disclosed", "rejected"].includes(toStatus)) {
+      throw new Error(`Findings board cannot move a finding to ${toStatus}.`);
     }
     const current = this.get(id);
     if (!current || current.projection !== "finding") throw new Error("Finding not found in this workspace.");
@@ -405,15 +405,18 @@ export class ResearchClaimStore {
     if (current.revision !== expectedRevision) {
       throw new Error(`Research claim revision conflict for ${id}: expected ${expectedRevision}, found ${current.revision}.`);
     }
-    if (current.status === toStatus && current.freshness === "current") {
-      throw new Error("Finding is already in this Claims column.");
+    if (current.status === toStatus && current.status !== "stale") {
+      throw new Error("Finding is already in this Findings board state.");
     }
     if (current.workspaceId !== this.memoryGraph.getContext().workspaceId) {
       throw new Error("Finding is outside the active workspace.");
     }
+    if (["reproduced", "verified", "disclosed"].includes(toStatus) && !current.stepsToReproduce.trim()) {
+      throw new Error("Reproduced or later findings require steps to reproduce.");
+    }
     const now = new Date().toISOString();
     const nextRevision = current.revision + 1;
-    const reason = `Human operator moved this finding to ${toStatus} on the Claims board. Normal agent transition prerequisites were not required; inspect evidence before relying on this status.`;
+    const reason = `Human operator moved this finding to ${toStatus} on the Findings board. Normal agent transition prerequisites were not required; inspect evidence before relying on this status.`;
     this.database.exec("BEGIN IMMEDIATE");
     try {
       const result = this.database.prepare(`UPDATE app_server_research_claims SET
@@ -634,9 +637,11 @@ export class ResearchClaimStore {
       throw new Error(`Research claim revision conflict for ${id}: expected ${input.expectedRevision}, found ${current.revision}.`);
     }
     const classification = claimClassification(input.classification ?? current.classification);
-    const componentClaimIds = input.componentClaimIds === undefined ? current.componentClaimIds : uniqueStrings(input.componentClaimIds);
-    this.validateComponents(id, componentClaimIds);
-    validateCompositeClaim(classification, current.status, componentClaimIds);
+    if (input.stepsToReproduce !== undefined
+      && ["reproduced", "verified", "report_ready", "disclosed"].includes(current.status)
+      && !normalizedText(input.stepsToReproduce)) {
+      throw new Error("Reproduced or later findings require steps to reproduce.");
+    }
     const nextRevision = current.revision + 1;
     const now = new Date().toISOString();
     const securityTracking = revisedFindingSecurityTracking(
@@ -650,14 +655,15 @@ export class ResearchClaimStore {
     this.database.exec("BEGIN IMMEDIATE");
     try {
       const result = this.database.prepare(`UPDATE app_server_research_claims SET
-        title = ?, summary = ?, impact = ?, rating = ?, confidence = ?, classification = ?, security_tracking_json = ?, updated_at = ?, revision = ?
+        title = ?, summary = ?, impact = ?, steps_to_reproduce = ?, rating = ?, confidence = ?, classification = ?, security_tracking_json = ?, updated_at = ?, revision = ?
         WHERE id = ? AND revision = ?`).run(
         input.title === undefined ? current.title : requiredText(input.title, "Claim title"),
         input.summary === undefined ? current.summary : normalizedText(input.summary) ?? "",
         input.impact === undefined ? current.impact : normalizedText(input.impact) ?? "",
+        input.stepsToReproduce === undefined ? current.stepsToReproduce : normalizedText(input.stepsToReproduce) ?? "",
         input.rating === undefined ? current.rating : researchClaimRating(input.rating),
         input.confidence === undefined ? current.confidence : confidence(input.confidence),
-        classification,
+        input.classification === undefined ? storedFindingClassification(this.database, id) : classification,
         stableJson(securityTracking),
         now,
         nextRevision,
@@ -665,7 +671,6 @@ export class ResearchClaimStore {
         current.revision,
       );
       if (Number(result.changes) !== 1) throw new Error(`Research claim revision conflict for ${id}.`);
-      this.replaceComponents(id, componentClaimIds, now);
       this.insertTransition(id, nextRevision, current.status, current.status, requiredText(input.reason, "Revision reason"), actorId ?? null, [], now);
       this.insertAuthor(id, nextRevision, author, now);
       this.database.exec("COMMIT");
@@ -778,29 +783,6 @@ export class ResearchClaimStore {
       .run(findingId, revision, author.provider.trim(), author.model.trim(), now);
   }
 
-  private validateComponents(id: string, componentIds: readonly string[]): void {
-    if (componentIds.includes(id)) throw new Error("A research claim cannot compose itself.");
-    const context = this.memoryGraph.getContext();
-    for (const componentId of componentIds) {
-      const row = this.database.prepare(
-        "SELECT workspace_id, duplicate_of_claim_id FROM app_server_research_claims WHERE id = ?",
-      ).get(componentId) as { workspace_id?: unknown; duplicate_of_claim_id?: unknown } | undefined;
-      if (!row || row.workspace_id !== context.workspaceId) {
-        throw new Error(`Component research claim is unavailable in this workspace: ${componentId}.`);
-      }
-      if (typeof row.duplicate_of_claim_id === "string" && row.duplicate_of_claim_id.length > 0) {
-        throw new Error(`Component research claim ${componentId} is a duplicate; use canonical parent ${row.duplicate_of_claim_id}.`);
-      }
-    }
-  }
-
-  private replaceComponents(id: string, componentIds: readonly string[], now: string): void {
-    this.database.prepare("DELETE FROM app_server_claim_components WHERE claim_id = ?").run(id);
-    const insert = this.database.prepare(
-      "INSERT INTO app_server_claim_components(claim_id, component_claim_id, position, created_at) VALUES (?, ?, ?, ?)",
-    );
-    componentIds.forEach((componentId, index) => insert.run(id, componentId, index, now));
-  }
 }
 
 /** @deprecated Use ResearchClaimStore. */
@@ -1113,6 +1095,14 @@ export function initializeFindingSchema(database: DatabaseSync): void {
         db.exec("ALTER TABLE app_server_claim_transitions ADD COLUMN operator_override INTEGER NOT NULL DEFAULT 0 CHECK (operator_override IN (0,1));");
       }
     },
+  }, {
+    version: 9,
+    name: "finding_steps_to_reproduce",
+    up(db) {
+      if (!tableHasColumn(db, "app_server_research_claims", "steps_to_reproduce")) {
+        db.exec("ALTER TABLE app_server_research_claims ADD COLUMN steps_to_reproduce TEXT NOT NULL DEFAULT '';");
+      }
+    },
   }]);
 }
 
@@ -1129,7 +1119,6 @@ export function readFindings(database: DatabaseSync, workspaceId: string, findin
   const evidence = groupedEvidence(database, new Set(rows.map((row) => requiredSqlText(row.id))), options.evidence, options.compactEvidence);
   const transitions = groupedTransitions(database, new Set(rows.map((row) => requiredSqlText(row.id))), options.transitions, options.compactEvidence);
   const authors = groupedAuthors(database, new Set(rows.map((row) => requiredSqlText(row.id))));
-  const components = groupedComponents(database, new Set(rows.map((row) => requiredSqlText(row.id))));
   const duplicates = groupedDuplicateClaims(database, workspaceId, new Set(rows.map((row) => requiredSqlText(row.id))), options.duplicates);
   return rows.map((row) => {
     const id = requiredSqlText(row.id);
@@ -1145,13 +1134,13 @@ export function readFindings(database: DatabaseSync, workspaceId: string, findin
     ...claimProjection(status, staleFromStatus, requiredSqlNumber(row.evidence_count)),
     rating: researchClaimRating(row.rating),
     classification,
-    componentClaimIds: components.get(id) ?? [],
     duplicateOfClaimId: optionalSqlText(row.duplicate_of_claim_id),
     duplicateMarkedAt: optionalSqlText(row.duplicate_marked_at),
     duplicateClaims: duplicates.get(id) ?? [],
     title: requiredSqlText(row.title),
     summary: requiredSqlText(row.summary),
     impact: requiredSqlText(row.impact),
+    stepsToReproduce: requiredSqlText(row.steps_to_reproduce),
     securityTracking: findingSecurityTracking(row.security_tracking_json, classification),
     status,
     operatorOverride: row.status_operator_override === 1,
@@ -1415,6 +1404,9 @@ function validateTransitionEvidence(
     throw new Error("Observed findings require direct code, artifact, command, URL, calculation, proof, or publication evidence.");
   }
   if (["reproduced", "verified", "report_ready", "disclosed"].includes(input.toStatus)) {
+    if (!current.stepsToReproduce.trim()) {
+      throw new Error("Reproduced or later findings require steps to reproduce.");
+    }
     const runbookId = nullableText(input.reproductionRunbookId) ?? current.reproductionRunbookId;
     const execution = evidence.find((item) => validReproductionEvidence(database, current, item));
     if (!runbookId || !execution) {
@@ -1459,9 +1451,6 @@ export function candidateCompletionChecklist(
   const hasNegativeControl = claim.evidence.some((evidence) => evidenceControl(evidence) === "negative");
   const priorArtReferences = tracking?.externalReferences.filter((reference) =>
     /(?:cve|ghsa|osv|advis|bulletin|prior[_ -]?art|security[_ -]?history)/i.test(reference.kind)) ?? [];
-  const composite = claim.classification === "security.chain"
-    || claim.classification.endsWith(".chain")
-    || claim.classification.endsWith(".composite");
   const item = (
     key: string,
     label: string,
@@ -1483,18 +1472,14 @@ export function candidateCompletionChecklist(
     item("environment", "Environment fingerprint", Boolean(claim.environmentFingerprint), targetRank >= 2, "The reproduction environment is fingerprinted.", "Record the runtime or verifier environment used for reproduction."),
     item("impact", "Assessed impact", Boolean(claim.impact.trim()), targetRank >= 2, "Impact is recorded.", "Record demonstrated impact separately from plausible downstream impact."),
     item("reproduction", "Reproduction runbook", hasReproduction, targetRank >= 2, "A reproduction runbook and execution evidence are linked.", "Link a successful runbook execution and reproductionRunbookId."),
+    item("steps_to_reproduce", "Steps to reproduce", Boolean(claim.stepsToReproduce.trim()), targetRank >= 2, "Reproduction steps are recorded for verification and reporting.", "Record concrete steps another researcher can follow to reproduce the finding."),
     item("positive_control", "Positive control", hasPositiveControl, false, "Evidence identifies a positive control.", "Recommended: mark evidence metadata.control=positive for the triggering case."),
     item("negative_control", "Negative control", hasNegativeControl, false, "Evidence identifies a negative control.", "Recommended: mark evidence metadata.control=negative for the nearest non-triggering case."),
     item("reachability", "Reachability assessment", Boolean(tracking && tracking.reachability.state !== "not_assessed"), targetRank >= 3, tracking ? `Reachability is ${tracking.reachability.state}.` : "Reachability is assessed.", "Record reachable, conditional, or unreachable with evidence and conditions."),
     item("affected_assets", "Affected assets", Boolean(tracking?.affectedAssetIds.length), targetRank >= 3, "Affected assets are identified.", "Identify the affected shipping components or assets."),
-    item("affected_versions", "Affected versions", Boolean(tracking?.affectedVersions.length), targetRank >= 3, "Affected or fixed version ranges are recorded.", "Record the assessed affected range and fixed version when known."),
     item("cvss", "Assessed CVSS", Boolean(tracking?.cvssAssessments.length), targetRank >= 3, "A versioned CVSS assessment is recorded.", "Record an assessed CVSS vector, score, version, and nomenclature."),
     item("prior_art", "Prior-art disposition", priorArtReferences.length > 0, targetRank >= 3, "A public prior-art match or explicit no-match search is recorded.", "Record matched advisories or a prior_art_search external reference documenting the no-match query and date."),
     item("independent_verification", "Independent verification", hasIndependentVerification, targetRank >= 3, "Independent evidence is linked.", "Link durable evidence from a distinct reviewer subagent spawned without inherited history; it may use the same provider and model."),
-    composite
-      ? item("components", "Composite components", claim.componentClaimIds.length > 0, targetRank >= 3, "Component claims are linked.", "Link every component claim used by the composite finding.")
-      : { key: "components", label: "Composite components", required: false, status: "not_applicable", detail: "This is not a composite claim." },
-    item("risk_treatment", "Risk treatment", Boolean(tracking && tracking.riskTreatment !== "unreviewed"), false, tracking ? `Operator risk treatment is ${tracking.riskTreatment}.` : "Risk treatment is recorded.", "Operator-controlled; leave unreviewed until a human records a disposition."),
   ];
   const required = items.filter((candidate) => candidate.required);
   const missingRequired = required.filter((candidate) => candidate.status !== "complete").map((candidate) => candidate.key);
@@ -1828,36 +1813,13 @@ export function migrateLegacyMemoryClaims(database: DatabaseSync, workspaceId: s
     throw error;
   }
 
-  if (!tableExists(database, "memory_edges")) return;
-  const componentRows = database.prepare(`
-    SELECT parent.id AS claim_id, component.id AS component_claim_id
-    FROM app_server_research_claims parent
-    JOIN memory_nodes parent_memory ON parent_memory.id = parent.legacy_memory_node_id
-    JOIN memory_edges edge ON edge.from_id = parent_memory.id OR edge.to_id = parent_memory.id
-    JOIN memory_nodes component_memory ON component_memory.id = CASE
-      WHEN edge.from_id = parent_memory.id THEN edge.to_id ELSE edge.from_id END
-    JOIN app_server_research_claims component ON component.legacy_memory_node_id = component_memory.id
-    WHERE parent.workspace_id = ? AND parent_memory.type = 'chain'
-      AND component.workspace_id = parent.workspace_id AND component_memory.type = 'primitive'
-    ORDER BY parent.id, component.id
-  `).all(workspaceId) as SqlRow[];
-  const positions = new Map<string, number>();
-  const insertComponent = database.prepare(
-    "INSERT OR IGNORE INTO app_server_claim_components(claim_id, component_claim_id, position, created_at) VALUES (?, ?, ?, ?)",
-  );
-  for (const row of componentRows) {
-    const claimId = requiredSqlText(row.claim_id);
-    const position = positions.get(claimId) ?? 0;
-    insertComponent.run(claimId, requiredSqlText(row.component_claim_id), position, new Date().toISOString());
-    positions.set(claimId, position + 1);
-  }
 }
 
 function claimProjection(
   status: FindingStatus,
   staleFromStatus: FindingStatus | null,
   evidenceCount: number,
-): Pick<FindingSummary, "projection" | "maturity" | "freshness" | "workflow"> {
+): Pick<FindingSummary, "projection" | "maturity"> {
   const effective = status === "stale" ? staleFromStatus ?? "observed" : status;
   const projection = effective === "hypothesis" || (effective === "rejected" && evidenceCount === 0)
     ? "lead" as const
@@ -1868,19 +1830,12 @@ function claimProjection(
       ? "observed" as const
       : effective === "reproduced"
         ? "reproduced" as const
+        : effective === "disclosed"
+          ? "reported" as const
         : effective === "rejected"
           ? "refuted" as const
           : "verified" as const;
-  const workflow = effective === "report_ready"
-    ? "reporting" as const
-    : effective === "disclosed"
-      ? "published" as const
-      : effective === "rejected"
-        ? "closed" as const
-        : projection === "lead"
-          ? "open" as const
-          : "active" as const;
-  return { projection, maturity, freshness: status === "stale" ? "stale" : "current", workflow };
+  return { projection, maturity };
 }
 
 function legacyMemoryClaimStatus(type: string, status: string): { status: FindingStatus; staleFromStatus: FindingStatus | null; staleReason: string | null } {
@@ -1898,8 +1853,7 @@ function legacyMemoryClaimStatus(type: string, status: string): { status: Findin
 
 function legacyClaimClassification(type: string | undefined): string {
   if (type === "hypothesis") return "security.vulnerability";
-  if (type === "primitive") return "security.primitive";
-  if (type === "chain") return "security.chain";
+  if (type === "primitive" || type === "chain") return "security.vulnerability";
   if (type === "conjecture") return "mathematics.conjecture";
   if (type === "theorem") return "mathematics.theorem";
   if (type === "counterexample") return "mathematics.counterexample";
@@ -1912,13 +1866,6 @@ function legacyEvidenceKind(value: unknown): FindingEvidenceKind {
     return normalized as FindingEvidenceKind;
   }
   return "artifact";
-}
-
-function validateCompositeClaim(classification: string, status: FindingStatus, componentClaimIds: readonly string[]): void {
-  const composite = classification === "security.chain" || classification.endsWith(".chain") || classification.endsWith(".composite");
-  if (composite && ["verified", "report_ready", "disclosed"].includes(status) && componentClaimIds.length === 0) {
-    throw new Error("A verified composite finding requires at least one component finding.");
-  }
 }
 
 function securityClassification(classification: string): boolean {
@@ -1936,13 +1883,10 @@ function emptyFindingSecurityTracking(): FindingSecurityTracking {
       sourceRevision: null,
       environmentFingerprint: null,
     },
-    riskTreatment: "unreviewed",
-    riskDecisions: [],
     cvssAssessments: [],
     affectedAssetIds: [],
     surfaceIds: [],
     progressBlocker: null,
-    affectedVersions: [],
     externalReferences: [],
   };
 }
@@ -1953,20 +1897,12 @@ function findingSecurityTracking(value: unknown, classification: string): Findin
   if (parsed === null) return emptyFindingSecurityTracking();
   if (!isRecord(parsed)) throw new Error("Stored security finding tracking must be an object.");
   const empty = emptyFindingSecurityTracking();
-  const riskTreatment = findingRiskTreatment(parsed.riskTreatment ?? empty.riskTreatment);
-  const riskDecisions = storedArray(parsed.riskDecisions, storedRiskDecision);
-  if (riskTreatment === "accepted" && riskDecisions.at(-1)?.treatment !== "accepted") {
-    throw new Error("Accepted risk requires a matching audited risk decision.");
-  }
   return {
     reachability: storedReachability(parsed.reachability ?? empty.reachability),
-    riskTreatment,
-    riskDecisions,
     cvssAssessments: storedArray(parsed.cvssAssessments, storedCvssAssessment),
     affectedAssetIds: uniqueTrackingStrings(storedStringArray(parsed.affectedAssetIds), "Affected asset id"),
     surfaceIds: uniqueTrackingStrings(storedStringArray(parsed.surfaceIds), "Surface id"),
     progressBlocker: storedProgressBlocker(parsed.progressBlocker),
-    affectedVersions: storedArray(parsed.affectedVersions, storedAffectedVersion),
     externalReferences: storedArray(parsed.externalReferences, storedExternalReference),
   };
 }
@@ -1990,24 +1926,6 @@ function revisedFindingSecurityTracking(
   const reachability = update.reachability
     ? revisedReachability(current, update.reachability, resolvedActorId, now)
     : base.reachability;
-  const riskTreatment = update.riskTreatment ?? base.riskTreatment;
-  let riskDecisions = base.riskDecisions;
-  if (update.riskTreatment !== undefined && update.riskTreatment !== base.riskTreatment && !update.riskDecision) {
-    throw new Error("Changing risk treatment requires an audited risk decision.");
-  }
-  if (update.riskDecision) {
-    if (riskTreatment === "accepted" && author) {
-      throw new Error("Risk acceptance must be recorded by a human operator, not a model-authored revision.");
-    }
-    const decision = storedRiskDecision({
-      treatment: riskTreatment,
-      actorId: resolvedActorId,
-      rationale: requiredText(update.riskDecision.rationale, "Risk decision rationale"),
-      decidedAt: isoTimestamp(update.riskDecision.decidedAt ?? now, "Risk decision timestamp"),
-      expiresAt: nullableIsoTimestamp(update.riskDecision.expiresAt, "Risk decision expiry"),
-    });
-    riskDecisions = [...base.riskDecisions, decision];
-  }
   const cvssAssessments = update.cvssAssessment
     ? uniqueRecords([...base.cvssAssessments, revisedCvssAssessment(update.cvssAssessment, resolvedActorId, now)])
     : base.cvssAssessments;
@@ -2016,8 +1934,6 @@ function revisedFindingSecurityTracking(
   }
   return {
     reachability,
-    riskTreatment,
-    riskDecisions,
     cvssAssessments,
     affectedAssetIds: update.affectedAssetIds === undefined
       ? base.affectedAssetIds
@@ -2030,9 +1946,6 @@ function revisedFindingSecurityTracking(
       : update.progressBlocker === null
         ? null
         : { reason: requiredText(update.progressBlocker.reason, "Progress blocker reason"), actorId: resolvedActorId, setAt: now },
-    affectedVersions: update.affectedVersions === undefined
-      ? base.affectedVersions
-      : uniqueRecords(update.affectedVersions.map(storedAffectedVersion)),
     externalReferences: update.externalReferences === undefined
       ? base.externalReferences
       : uniqueRecords(update.externalReferences.map(storedExternalReference)),
@@ -2104,22 +2017,6 @@ function storedReachability(value: unknown): FindingReachabilityAssessment {
   };
 }
 
-function storedRiskDecision(value: unknown): FindingRiskDecision {
-  if (!isRecord(value)) throw new Error("Stored risk decision must be an object.");
-  const decidedAt = isoTimestamp(value.decidedAt, "Risk decision timestamp");
-  const expiresAt = nullableIsoTimestamp(value.expiresAt, "Risk decision expiry");
-  if (expiresAt && Date.parse(expiresAt) <= Date.parse(decidedAt)) {
-    throw new Error("Risk decision expiry must be later than its decision timestamp.");
-  }
-  return {
-    treatment: findingRiskTreatment(value.treatment),
-    actorId: requiredText(value.actorId, "Risk decision actor"),
-    rationale: requiredText(value.rationale, "Risk decision rationale"),
-    decidedAt,
-    expiresAt,
-  };
-}
-
 function storedCvssAssessment(value: unknown): FindingCvssAssessment {
   if (!isRecord(value)) throw new Error("Stored CVSS assessment must be an object.");
   const version = value.version === "4.0" || value.version === "3.1" ? value.version : null;
@@ -2164,15 +2061,6 @@ function validateCvssVector(version: "4.0" | "3.1", vector: string): void {
   }
 }
 
-function storedAffectedVersion(value: unknown): FindingAffectedVersion {
-  if (!isRecord(value)) throw new Error("Affected version must be an object.");
-  return {
-    assetId: nullableText(value.assetId),
-    range: requiredText(value.range, "Affected version range"),
-    fixedVersion: nullableText(value.fixedVersion),
-  };
-}
-
 function storedExternalReference(value: unknown): FindingExternalReference {
   if (!isRecord(value)) throw new Error("External reference must be an object.");
   const kind = requiredText(value.kind, "External reference kind");
@@ -2187,11 +2075,6 @@ function findingReachabilityState(value: unknown): FindingReachabilityState {
   throw new Error(`Invalid reachability state: ${String(value)}.`);
 }
 
-function findingRiskTreatment(value: unknown): FindingRiskTreatment {
-  if (value === "unreviewed" || value === "remediate" || value === "mitigated" || value === "accepted" || value === "transferred") return value;
-  throw new Error(`Invalid risk treatment: ${String(value)}.`);
-}
-
 function findingCvssNomenclature(value: unknown): FindingCvssAssessment["nomenclature"] {
   if (value === "CVSS-B" || value === "CVSS-BT" || value === "CVSS-BE" || value === "CVSS-BTE" || value === "CVSS:3.1") return value;
   throw new Error(`Invalid CVSS nomenclature: ${String(value)}.`);
@@ -2201,10 +2084,6 @@ function isoTimestamp(value: unknown, label: string): string {
   const timestamp = requiredText(value, label);
   if (!Number.isFinite(Date.parse(timestamp))) throw new Error(`${label} must be an ISO timestamp.`);
   return timestamp;
-}
-
-function nullableIsoTimestamp(value: unknown, label: string): string | null {
-  return value === null || value === undefined ? null : isoTimestamp(value, label);
 }
 
 function parseJsonValue(value: unknown): unknown {
@@ -2256,7 +2135,8 @@ function validIndependentEvidence(database: DatabaseSync, claim: FindingSummary,
   if (!evidence.independent || !["independent_verification", "human_review", "proof"].includes(evidence.kind)
     || !evidence.actorId || !evidence.sessionId || !evidence.referenceId
     || evidence.metadata.verificationContext === "unqualified"
-    || evidence.claimBindingHash !== claimVerificationHash(claim)
+    || (evidence.claimBindingHash !== claimVerificationHash(claim)
+      && evidence.claimBindingHash !== legacyClaimVerificationHash(database, claim))
     || !successfulRunbookExecutionExists(database, claim, evidence.referenceId)) return false;
   const authors = database.prepare(`SELECT actor_id, session_id FROM app_server_claim_transitions
     WHERE claim_id = ? AND (claim_revision = 1
@@ -2271,10 +2151,29 @@ function validIndependentEvidence(database: DatabaseSync, claim: FindingSummary,
 function claimVerificationHash(claim: FindingSummary): string {
   return `sha256:${createHash("sha256").update(stableJson({
     id: claim.id, title: claim.title, summary: claim.summary, impact: claim.impact,
-    classification: claim.classification, componentClaimIds: claim.componentClaimIds,
+    ...(claim.stepsToReproduce ? { stepsToReproduce: claim.stepsToReproduce } : {}),
+    classification: claim.classification,
     sourceRevision: claim.sourceRevision, environmentFingerprint: claim.environmentFingerprint,
     reproductionRunbookId: claim.reproductionRunbookId,
   })).digest("hex")}`;
+}
+
+function legacyClaimVerificationHash(database: DatabaseSync, claim: FindingSummary): string {
+  const classification = storedFindingClassification(database, claim.id);
+  const componentClaimIds = groupedComponents(database, new Set([claim.id])).get(claim.id) ?? [];
+  return `sha256:${createHash("sha256").update(stableJson({
+    id: claim.id, title: claim.title, summary: claim.summary, impact: claim.impact,
+    ...(claim.stepsToReproduce ? { stepsToReproduce: claim.stepsToReproduce } : {}),
+    classification, componentClaimIds,
+    sourceRevision: claim.sourceRevision, environmentFingerprint: claim.environmentFingerprint,
+    reproductionRunbookId: claim.reproductionRunbookId,
+  })).digest("hex")}`;
+}
+
+function storedFindingClassification(database: DatabaseSync, id: string): string {
+  const row = database.prepare("SELECT classification FROM app_server_research_claims WHERE id = ?")
+    .get(id) as { classification?: unknown } | undefined;
+  return requiredSqlText(row?.classification);
 }
 
 function successfulRunbookExecutionExists(
@@ -2360,10 +2259,10 @@ function claimClassification(value: unknown): string {
   if (!classification || !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/u.test(classification)) {
     throw new Error("Research claim classification must be a lowercase stable identifier.");
   }
-  return classification;
+  return canonicalClaimClassificationId(classification);
 }
 function uniqueStrings(values: readonly string[]): string[] {
-  return [...new Set(values.map((value) => requiredText(value, "Component claim id")))];
+  return [...new Set(values.map((value) => requiredText(value, "Identifier")))];
 }
 
 export function findingIsTerminal(status: FindingStatus): boolean {

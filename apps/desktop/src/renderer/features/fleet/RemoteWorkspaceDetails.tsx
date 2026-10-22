@@ -30,29 +30,30 @@ function remoteScope(details: BealeAppServerWorkspaceDetails): WorkspaceScopeVer
 }
 
 function remoteClaim(claim: BealeWorkspaceResearchClaim, workspaceId: string): AppServerFindingSummary {
-  const maturity = ['proposed', 'observed', 'reproduced', 'verified', 'refuted'].includes(claim.maturity)
+  const maturity = ['proposed', 'observed', 'reproduced', 'verified', 'reported', 'refuted'].includes(claim.maturity)
     ? claim.maturity as AppServerFindingSummary['maturity'] : 'proposed';
+  const status = ['hypothesis', 'observed', 'reproduced', 'verified', 'report_ready', 'disclosed', 'stale', 'rejected'].includes(claim.status)
+    ? claim.status as AppServerFindingSummary['status'] : 'hypothesis';
   return {
     id: claim.id, workspaceId, subjectId: '', memoryNodeId: null, originSessionId: null,
-    projection: claim.projection, maturity, freshness: claim.freshness === 'stale' ? 'stale' : 'current',
-    workflow: ['open', 'active', 'reporting', 'published', 'closed'].includes(claim.workflow)
-      ? claim.workflow as AppServerFindingSummary['workflow'] : 'open',
-    rating: claim.rating, classification: claim.classification, componentClaimIds: claim.componentClaimIds,
+    projection: claim.projection, maturity,
+    rating: claim.rating, classification: claim.classification,
     title: claim.title, summary: claim.summary, impact: claim.impact,
+    stepsToReproduce: claim.stepsToReproduce,
     securityTracking: claim.securityTracking ? {
       ...claim.securityTracking,
       surfaceIds: claim.securityTracking.surfaceIds ?? [],
       progressBlocker: claim.securityTracking.progressBlocker ?? null,
       reachability: { ...claim.securityTracking.reachability, evidenceIds: [], assessorId: null,
         sourceRevision: null, environmentFingerprint: null },
-      riskDecisions: [],
       cvssAssessments: claim.securityTracking.cvssAssessments.map((assessment) => ({
         ...assessment, assessorId: '', environmentFingerprint: null
       }))
-    } : null, status: maturity === 'proposed' ? 'hypothesis'
-      : maturity === 'refuted' ? 'rejected' : maturity,
+    } : null, status,
     operatorOverride: false,
-    staleFromStatus: null, confidence: claim.confidence, sourceRevision: null,
+    staleFromStatus: claim.staleFromStatus && ['hypothesis', 'observed', 'reproduced', 'verified', 'report_ready', 'disclosed', 'stale', 'rejected'].includes(claim.staleFromStatus)
+      ? claim.staleFromStatus as AppServerFindingSummary['staleFromStatus'] : null,
+    confidence: claim.confidence, sourceRevision: null,
     environmentFingerprint: null, reproductionRunbookId: null, reportId: null,
     disclosureReference: null, staleReason: null, duplicateOfClaimId: null,
     duplicateMarkedAt: null, duplicateClaims: [], evidence: [], transitions: [], authors: [],
@@ -131,12 +132,14 @@ export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board
   }, [serverId, details.workspace.workspaceId, documentKey]);
   const visibleDocument = documentState?.key === documentKey ? documentState : null;
   const documentLoading = Boolean(documentKey && (!visibleDocument || !visibleDocument.value && !visibleDocument.error));
-  return <div className={`main-session-grid workspace-context${selected ? ' research-details-open' : ' workspace-main-only'}`} data-session-view-state="workspace">
+  return <div className={`main-session-grid workspace-context${selected ? ' research-details-open' : ' workspace-main-only'}${selected?.kind === 'claim' ? ' finding-details-open' : ''}`} data-session-view-state="workspace">
     <WorkspaceUnderstandingView
       busy={false}
       initialView={initialView}
+      rightAreaExpanded={selected !== null}
       readOnly
       remoteTargets={details.targets}
+      surfaceMap={details.surfaceMap}
       appServerMemory={memory}
       activeScope={scope}
       workspaceRules={details.rules.map((rule) => ({
@@ -150,6 +153,7 @@ export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board
       workspaceName={workspaceName}
       runs={[]}
       onOpenClaim={(id) => open('claim', id)}
+      openClaimId={selected?.kind === 'claim' ? selected.id : null}
       onOpenMemory={(id) => open('memory', id)}
       onOpenRunbook={(id) => open('runbook', id)}
       onOpenReport={(report) => open('report', report.id)}

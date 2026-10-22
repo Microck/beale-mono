@@ -5,6 +5,7 @@ import type { HostEnvironment, WorkspaceEditorCatalog, WorkspaceEditorId, Worksp
 import { useDevRenderProbe } from '../devInstrumentation';
 import { AppHeaderTitle, StaticAppHeaderTitle } from './AppHeaderTitle';
 import type { AppHeaderRun, AppHeaderViewIcon } from './AppHeaderTitle';
+import type { SurfaceFocusSummary } from '../view-models/surfaceFocus';
 import { viewMenuShortcut, zoomPercentLabel } from './menuActions';
 
 type OpenMenu = 'file' | 'view' | 'window' | null;
@@ -39,6 +40,7 @@ export const TopBar = memo(function TopBar({
   workspaceName,
   workspaceViewTitle,
   activeRunDetail,
+  surfaceFocus,
   profilingEnabled,
   workspaceEditors,
   onOpenProfiling,
@@ -65,6 +67,7 @@ export const TopBar = memo(function TopBar({
   workspaceName: string;
   workspaceViewTitle?: string | null;
   activeRunDetail: AppHeaderRun | null;
+  surfaceFocus?: SurfaceFocusSummary | null;
   profilingEnabled: boolean;
   workspaceEditors: WorkspaceEditorCatalog | null;
   onOpenProfiling: () => void;
@@ -378,6 +381,7 @@ export const TopBar = memo(function TopBar({
           workspaceName={workspaceName}
           workspaceViewTitle={workspaceViewTitle}
           detail={activeRunDetail}
+          surfaceFocus={surfaceFocus}
           onOpenSessionOverview={onOpenSessionOverview}
         />
       ) : staticContextTitle ? (

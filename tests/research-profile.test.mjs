@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   DEFAULT_SECURITY_RESEARCH_PROFILE,
+  effectiveClaimClassifications,
   createDeterministicAgentExecutor,
   createResearchSystemPrompt,
   defaultResearchSystemPromptTemplate,
@@ -85,6 +86,9 @@ test("default prompt uses plain guidance lines and bullets only for feature and 
   assert.match(prompt, /Define child surfaces around distinct attacker-controlled entry paths, trust boundaries, privilege contexts, or security-relevant sinks and effects/);
   assert.match(prompt, /connect attacker control through reachable transformations and boundaries to a plausible unauthorized effect/);
   assert.match(prompt, /do not promote them as security findings without evidence of a security consequence/);
+  assert.match(prompt, /Unknown reachability and unexplored chains remain open questions, not blocked findings/);
+  assert.match(prompt, /an independent review marked needs-work are work to pursue, not reasons to mark a finding Blocked/);
+  assert.match(prompt, /Treat its gaps as the next research or review steps/);
   assert.match(prompt, /Use one canonical, evidence-gated research claim ledger[^\n]*\nThe active profile declares/);
 });
 
@@ -188,7 +192,7 @@ test("discovery guidance treats existing findings as prior art while allowing re
   });
   assert.match(prompt, /When the user asks to find a vulnerability, a severity, or a bug class, pursue a distinct new candidate/);
   assert.match(prompt, /Work on an existing claim when the user directly asks for that claim or asks to continue, reproduce, verify, or report existing work/);
-  assert.match(prompt, /Before lead\.create, search and inspect plausible existing leads and findings for the same root cause and affected condition/);
+  assert.match(prompt, /Before finding\.create, search and inspect plausible existing findings for the same root cause and affected condition/);
   assert.match(prompt, /sharing a classification or severity never makes two findings duplicates/);
 });
 
@@ -243,7 +247,28 @@ test("the bundled Security profile separates claim classifications from knowledg
     ["invariant", "mitigation", "sink", "trajectory"],
   );
   assert.deepEqual(security.claims.classifications.map((classification) => classification.id),
-    ["security.vulnerability", "security.primitive", "security.chain"]);
+    ["security.vulnerability"]);
+});
+
+test("stored security profiles hide retired split classifications from active guidance", () => {
+  const stored = normalizeResearchProfile({
+    ...DEFAULT_SECURITY_RESEARCH_PROFILE,
+    agent: { ...DEFAULT_SECURITY_RESEARCH_PROFILE.agent, memoryInstructions: [
+      ...DEFAULT_SECURITY_RESEARCH_PROFILE.agent.memoryInstructions,
+      "Represent composition with componentClaimIds on security.chain and security.primitive findings.",
+    ] },
+    claims: { classifications: [
+      ...DEFAULT_SECURITY_RESEARCH_PROFILE.claims.classifications,
+      { id: "security.primitive", name: "Legacy isolated", pluralName: "Legacy isolated", description: "Legacy classification.", defaultProjection: "finding", order: 20 },
+      { id: "security.chain", name: "Legacy composite", pluralName: "Legacy composite", description: "Legacy classification.", defaultProjection: "finding", composite: true, order: 30 },
+    ] },
+  });
+  const originalHash = researchProfileHash(stored);
+  assert.deepEqual(effectiveClaimClassifications(stored).map((classification) => classification.id), ["security.vulnerability"]);
+  assert.equal(researchProfileHash(stored), originalHash);
+  const prompt = createResearchSystemPrompt({ hasTools: true, pluginCatalog: pluginCatalog("beale-knowledge", "beale-claims"), researchProfile: stored, promptTemplate: "{{boundary}}\n{{memory}}\n{{claims}}" });
+  assert.match(prompt, /security\.vulnerability/);
+  assert.doesNotMatch(prompt, /security\.primitive|security\.chain|componentClaimIds/);
 });
 
 test("memory, claims, and runbook prompt sections follow enabled optional features", () => {
@@ -298,7 +323,8 @@ test("retired bundled memory types stay out of model-facing catalogs", () => {
   assert.match(securityPrompt, /prefer the known-good unprivileged mode/);
   assert.match(securityPrompt, /update its environment runbook/);
   assert.match(securityPrompt, /matching workflow runbook for reproduction-grade evidence/);
-  assert.match(securityPrompt, /Direct shell execution may support bounded exploratory tests/);
+  assert.match(securityPrompt, /Put exploratory security tests, proof iterations, and reproduction attempts into the matching runbook/);
+  assert.match(securityPrompt, /Do not defer runbook creation until a finding is ready to advance/);
   assert.match(securityPrompt, /setup, runtime, and cleanup.*feature tags/);
   assert.match(securityPrompt, /successful runIds.*phases they prove/);
   assert.match(securityPrompt, /workspace history search to recover prior work across sessions/);

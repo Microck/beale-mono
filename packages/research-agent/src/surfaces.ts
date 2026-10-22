@@ -26,6 +26,23 @@ export interface SurfaceCoverageState {
   unblockedFindingIds: string[];
 }
 
+export function assessSurfaceCoverage(
+  foundation: SurfaceFoundation | null,
+  unblockedFindingIds: string[],
+  incompleteChildren: boolean,
+): SurfaceCoverageState {
+  const coverage = foundation?.coverage;
+  const unmetRequirements: string[] = [];
+  if (!foundation) unmetRequirements.push("foundation");
+  if (!coverage?.mappingComplete) unmetRequirements.push("surface_map");
+  if (!coverage?.sinksInvestigated) unmetRequirements.push("sinks");
+  if (coverage?.openQuestions?.length) unmetRequirements.push("open_questions");
+  if (coverage?.unexploredConnections?.length) unmetRequirements.push("surface_connections");
+  if (unblockedFindingIds.length) unmetRequirements.push("unblocked_findings");
+  if (incompleteChildren) unmetRequirements.push("child_surfaces");
+  return { covered: unmetRequirements.length === 0, unmetRequirements, unblockedFindingIds };
+}
+
 export interface SurfaceFoundationScout {
   status: "running" | "queued" | "unavailable";
   agentPath: string | null;
@@ -329,19 +346,11 @@ export class SurfaceStore {
 
   public coverageState(id: string): SurfaceCoverageState {
     const surface = this.require(id);
-    const coverage = surface.foundation?.coverage;
-    const unmetRequirements: string[] = [];
-    if (!surface.foundation) unmetRequirements.push("foundation");
-    if (!coverage?.mappingComplete) unmetRequirements.push("surface_map");
-    if (!coverage?.sinksInvestigated) unmetRequirements.push("sinks");
-    if (coverage?.openQuestions.length) unmetRequirements.push("open_questions");
-    if (coverage?.unexploredConnections.length) unmetRequirements.push("surface_connections");
     const unblockedFindingIds = this.#unblockedFindingIds(surface);
-    if (unblockedFindingIds.length) unmetRequirements.push("unblocked_findings");
     const children = this.#database.prepare("SELECT id FROM app_server_surfaces WHERE workspace_id = ? AND parent_id = ?")
       .all(this.#workspaceId, id) as { id: string }[];
-    if (children.some((child) => !this.coverageState(child.id).covered)) unmetRequirements.push("child_surfaces");
-    return { covered: unmetRequirements.length === 0, unmetRequirements, unblockedFindingIds };
+    return assessSurfaceCoverage(surface.foundation, unblockedFindingIds,
+      children.some((child) => !this.coverageState(child.id).covered));
   }
 
   #unblockedFindingIds(surface: ResearchSurface): string[] {

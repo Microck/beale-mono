@@ -1,5 +1,5 @@
 import { isAbsolute, win32 } from 'node:path';
-import type { BealeAppServerWorkspaceDetails, BealeAppServerWorkspaceSummary, BealeWorkspaceMemoryCatalog } from '@beale/app-server-runtime/protocol';
+import type { BealeAppServerWorkspaceDetails, BealeAppServerWorkspaceSummary, BealeWorkspaceMemoryCatalog, BealeWorkspaceSurfaceMap } from '@beale/app-server-runtime/protocol';
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -14,7 +14,8 @@ export function projectWorkspaceDetails(
   state: unknown,
   memory: BealeWorkspaceMemoryCatalog,
   memorySummary: unknown,
-  targets: BealeAppServerWorkspaceDetails['targets']
+  targets: BealeAppServerWorkspaceDetails['targets'],
+  surfaceMap: BealeWorkspaceSurfaceMap
 ): BealeAppServerWorkspaceDetails {
   const source = record(state);
   if (!source) throw new Error('Workspace state is unavailable.');
@@ -69,6 +70,7 @@ export function projectWorkspaceDetails(
           status: report.status === 'stale' ? 'stale' as const : 'complete' as const, updatedAt: string(report.updatedAt) }]
         : [];
     }) : [],
-    targets
+    targets,
+    surfaceMap
   };
 }

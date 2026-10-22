@@ -20,9 +20,9 @@ export const MANAGED_TOOL_PLUGINS = [
     tools: ["memory.get", "memory.save", "memory.correct", "memory.link", "history.search", "history.mark_duplicate", "history.undo_duplicate", "storage.list", "local.inspection", "resource.catalog"],
   },
   {
-    id: "beale-claims", name: "Claims",
-    description: "Use for leads, findings, their evidence, and canonical claim revisions.",
-    tools: ["claim.get", "lead.list", "lead.create", "finding.list", "finding.revise", "finding.transition", "finding.completion_check"],
+    id: "beale-claims", name: "Findings",
+    description: "Use for observed findings, their evidence, and revisions.",
+    tools: ["claim.get", "finding.list", "finding.create", "finding.revise", "finding.transition", "finding.completion_check"],
   },
   {
     id: "beale-runbooks", name: "Runbooks",
