@@ -953,6 +953,7 @@ export class AppServerHostService {
           }
         },
         shellSafetyMode: request.launch.shellSafetyMode?.trim() || 'auto_review',
+        guardianEnabled: request.launch.guardianEnabled !== false,
         ...(remoteShell ? { remoteShell: { sshArgs: remoteShell.sshArgs, guestPlatform: remoteShell.guestPlatform, guestCwd: remoteShell.guestCwd } } : {}),
         ...(selectedTargetIds.length > 1 ? { selectedTargets: { ids: selectedTargetIds,
           remoteShells: Object.fromEntries(Object.entries(remoteShells).map(([id, shell]) => [id,
@@ -2100,6 +2101,7 @@ function restartLaunchDescriptor(
         ...(resolved.daybreakBlue ? { daybreakBlue: true } : {})
       },
       shellSafetyMode: request.launch.shellSafetyMode?.trim() || 'auto_review',
+      guardianEnabled: request.launch.guardianEnabled !== false,
       ...(request.launch.devHarnessFeedback ? { devHarnessFeedback: true } : {}),
       ...(request.launch.workflowId ? { workflowId: request.launch.workflowId } : {}),
       researchProfileId: request.launch.researchProfileId?.trim() || resolved.profileId,

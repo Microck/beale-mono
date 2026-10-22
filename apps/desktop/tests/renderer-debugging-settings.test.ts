@@ -40,6 +40,7 @@ describe('renderer debugging settings', () => {
     expect(html).toContain('<h2 id="permissions-settings-heading">Permissions</h2>');
     expect(html).toContain('<strong>Session Permissions</strong>');
     expect(html).toContain('aria-label="Session Permissions"');
+    expect(html).toMatch(/<input[^>]+aria-label="Guardian"[^>]+checked=""/u);
     expect(html).not.toContain('Default Permissions');
   });
 
@@ -58,7 +59,8 @@ describe('renderer debugging settings', () => {
   it('persists permissions and gates Danger Mode', () => {
     expect(DEFAULT_PERMISSION_SETTINGS).toEqual({
       dangerModeEnabled: false,
-      defaultShellSafetyMode: 'auto_review'
+      defaultShellSafetyMode: 'auto_review',
+      guardianEnabled: true
     });
     expect(normalizePermissionSettings({
       dangerModeEnabled: false,
@@ -70,7 +72,7 @@ describe('renderer debugging settings', () => {
       getItem: (key: string) => values.get(key) ?? null,
       setItem: (key: string, value: string) => values.set(key, value)
     };
-    const enabledSettings = { dangerModeEnabled: true, defaultShellSafetyMode: 'danger' as const };
+    const enabledSettings = { dangerModeEnabled: true, defaultShellSafetyMode: 'danger' as const, guardianEnabled: false };
     writePermissionSettings(storage, enabledSettings);
 
     expect(values.has(PERMISSION_SETTINGS_STORAGE_KEY)).toBe(true);

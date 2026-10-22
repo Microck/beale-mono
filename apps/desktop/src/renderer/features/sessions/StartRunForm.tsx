@@ -165,6 +165,7 @@ interface StartRunFormProps {
   openAiStatus: OpenAiAccountStatus | null;
   defaultProviderId: ResearchModelProviderId | null | undefined;
   defaultShellSafetyMode?: ShellSafetyMode;
+  guardianEnabled?: boolean;
   providerModelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> | undefined;
   providerPolicyRiskAcknowledgements?: ProviderSettings['cyberPolicyRiskAcknowledgements'];
   researchProviderStatuses: ResearchProviderStatus[];
@@ -239,7 +240,7 @@ export function StartRunForm(props: StartRunFormProps): JSX.Element {
   const launchRun = async (input: StartRunInput): Promise<void> => {
     let latestRun: RunRecord | undefined;
     await runAction(async () => {
-      const next = await window.beale.startRun(input);
+      const next = await window.beale.startRun({ ...input, guardianEnabled: props.guardianEnabled !== false });
       latestRun = next.runs[0]?.run;
       return next;
     });

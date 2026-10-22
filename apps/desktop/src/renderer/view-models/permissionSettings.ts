@@ -8,12 +8,14 @@ import {
 export interface PermissionSettings {
   dangerModeEnabled: boolean;
   defaultShellSafetyMode: ShellSafetyMode;
+  guardianEnabled: boolean;
 }
 
 export const PERMISSION_SETTINGS_STORAGE_KEY = 'beale.permissionSettings';
 export const DEFAULT_PERMISSION_SETTINGS: PermissionSettings = Object.freeze({
   dangerModeEnabled: false,
-  defaultShellSafetyMode: DEFAULT_SHELL_SAFETY_MODE
+  defaultShellSafetyMode: DEFAULT_SHELL_SAFETY_MODE,
+  guardianEnabled: true
 });
 
 export function normalizePermissionSettings(value: unknown): PermissionSettings {
@@ -23,6 +25,7 @@ export function normalizePermissionSettings(value: unknown): PermissionSettings 
   const requestedDefault = normalizeShellSafetyMode(record.defaultShellSafetyMode);
   return {
     dangerModeEnabled,
+    guardianEnabled: record.guardianEnabled !== false,
     defaultShellSafetyMode: requestedDefault === 'danger' && !dangerModeEnabled
       ? DEFAULT_SHELL_SAFETY_MODE
       : requestedDefault
@@ -51,6 +54,10 @@ export function writePermissionSettings(
 
 export function withDangerModeEnabled(settings: PermissionSettings, enabled: boolean): PermissionSettings {
   return normalizePermissionSettings({ ...settings, dangerModeEnabled: enabled });
+}
+
+export function withGuardianEnabled(settings: PermissionSettings, enabled: boolean): PermissionSettings {
+  return normalizePermissionSettings({ ...settings, guardianEnabled: enabled });
 }
 
 export function withDefaultShellSafetyMode(

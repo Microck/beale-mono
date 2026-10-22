@@ -6,6 +6,8 @@
 
 #### Added
 
+- Security surfaces can retain a progress blocker after accessible research is exhausted; the surface map shows blocked work and its reason. The updated control contract requires rebuilt Beale and app-server clients.
+- Guardian now uses the lead model to decide commands denied by Auto-Review, with complete direct-script inspection, path environment context, and actionable denials. The Permission agent setting is enabled by default for new local and Fleet sessions and can restore human overrides when disabled. Rebuild Beale and app-server together.
 - Findings now store Steps to Reproduce and show them in Breakdown. Reproduced and later transitions, including Findings board moves, require steps; older records remain readable with an empty value. Claim migration 9 and control contract v58 require rebuilt Beale and app-server clients.
 - Workspace Surfaces now shows a live security surface hierarchy with coverage shading, active agent positions, a branch-preserving filter, and an option to show untouched surfaces. Control contract v51 requires rebuilt Beale and app-server clients.
 - Finding details now show an evidence-maturity-preserving progress blocker and associated surface IDs. The updated Fleet claim projection requires rebuilt Beale and app-server clients.
@@ -237,6 +239,7 @@
 
 #### Fixed
 
+- Session duration now sums persisted active periods across pauses and continuations, excluding idle time between them. Existing session records without periods use their attempt timestamps as a compatibility fallback.
 - The expanded research sidebar keeps its add-view menu within the sidebar when the tab row approaches either edge.
 - Workspace Targets scrolls vertically when its list exceeds the available view height.
 - Workspace Settings right-aligns research-directory paths within the form and truncates long values without horizontal overflow.

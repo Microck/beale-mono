@@ -278,6 +278,18 @@ test("the typed session launch carries OpenAI Fast mode and Daybreak Blue", () =
   );
 });
 
+test("Guardian launch preference accepts only a boolean", () => {
+  const request = { launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
+    launch: { workspaceId: "workspace-example", promptMarkdown: "Inspect example.test.", guardianEnabled: false } };
+  assert.deepEqual(decodeAppServerSessionLaunchRequest(request), request);
+  assert.throws(() => decodeAppServerSessionLaunchRequest({
+    ...request, launch: { ...request.launch, guardianEnabled: "false" },
+  }), /guardianEnabled must be a boolean/);
+  assert.deepEqual(decodeFleetRemoteResearchInput({
+    promptMarkdown: "Inspect example.test.", targetIds: ["local"], guardianEnabled: false,
+  }, "workspace-example").guardianEnabled, false);
+});
+
 test("a connected primary can request a browser relay for its local session", () => {
   const request = { launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
     launch: { workspaceId: 'workspace-example', promptMarkdown: 'Inspect the example scope.', machineId: 'local', browserRelay: true } };

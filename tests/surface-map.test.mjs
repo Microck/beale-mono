@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { AppServerSessionStore, ResearchResourceCatalog, SurfaceStore } from '../packages/research-agent/dist/index.js';
 import { readWorkspaceSurfaceMap } from '../app-server/dist/surfaceMap.js';
+import { decodeBealeWorkspaceSurfaceMap } from '../packages/app-server-runtime/dist/protocol.js';
 
 test('surface map projects eligible hierarchy, touch state, coverage, and active agent focus', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-surface-map-example-'));
@@ -40,6 +41,17 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).parentId, root.id);
     assert.ok(map.surfaces.every((surface) => surface.firstTouchedAt));
     assert.equal(map.surfaces.every((surface) => surface.coverageState.covered), true);
+    assert.equal(map.surfaces.every((surface) => surface.progressBlocker === null), true);
+    const reason = 'Public routes were tested without a session; an authorized account is required for authenticated requests. Provide a test account to resume.';
+    surfaces.update(child.id, surfaces.get(child.id).revision, { ...foundation,
+      coverage: { ...foundation.coverage, gaps: 'Authenticated request paths remain untested.' } },
+    undefined, undefined, { reason }, '/root/scout');
+    const blocked = decodeBealeWorkspaceSurfaceMap(readWorkspaceSurfaceMap(databasePath, workspaceId));
+    assert.equal(blocked.surfaces.find((surface) => surface.id === child.id).progressBlocker.reason, reason);
+    assert.deepEqual(blocked.surfaces.find((surface) => surface.id === child.id).coverageState.unmetRequirements, ['blocked']);
+    assert.deepEqual(blocked.surfaces.find((surface) => surface.id === root.id).coverageState.unmetRequirements, ['child_surfaces']);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, progressBlocker: { reason } } : surface) }), /invalid workspace surface map/);
     assert.deepEqual(new Set(map.agents.map((agent) => agent.agentId)), new Set(['root', '/root/scout']));
     assert.equal(map.agents[0].sessionTitle, 'Map service');
     const database = new DatabaseSync(databasePath, { readOnly: true });

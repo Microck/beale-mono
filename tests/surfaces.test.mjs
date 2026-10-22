@@ -110,6 +110,7 @@ test("surface tools expose simple query and track focus without duplicate touch"
       /do not count general code browsing as security coverage/);
     assert.match(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.plausibleImpacts.description,
       /ordinary malfunction alone is not security impact/);
+    assert.match(tools["surface.update"].parameters.properties.progressBlocker.properties.reason.description, /pre-auth testing/);
     const action = (name, input) => ({ id: `action-${name}`, toolName: name, actionClass: "recall", input });
     const entered = await tools["surface.focus"].execute(action("surface.focus", { surfaceId: state.rootId }), { agentId: "agent-example" });
     assert.equal(entered.output.firstTouch, true);
@@ -119,6 +120,39 @@ test("surface tools expose simple query and track focus without duplicate touch"
     assert.equal(query.output.surfaces[0].id, state.rootId);
     const missing = await tools["surface.get"].execute(action("surface.get", { surfaceId: "surface-missing" }));
     assert.equal(missing.status, "error");
+  } finally { state.close(); }
+});
+
+test("a surface blocker records a concrete dependency after first touch and remains visible until cleared", async () => {
+  const state = fixture();
+  try {
+    const child = state.surface.create(state.rootId, "Authenticated endpoint", "Session boundary.");
+    const reason = "Mapped public routes and tested pre-auth inputs; an authorized account is required to test the authenticated endpoint. Provide a test account to resume.";
+    assert.throws(() => state.surface.update(child.id, child.revision, foundation, undefined, undefined, { reason }), /Focus and investigate/);
+    state.surface.focus("agent-example", child.id);
+    assert.throws(() => state.surface.update(child.id, child.revision, completeFoundation, undefined, undefined, { reason }), /coverage.gaps/);
+    const tools = Object.fromEntries(createSurfaceTools(state.surface).map((tool) => [tool.descriptor.name, tool]));
+    const action = (input) => ({ id: "action-surface-update", toolName: "surface.update", actionClass: "recall", input });
+    const invalid = await tools["surface.update"].execute(action({ surfaceId: child.id, expectedRevision: child.revision,
+      foundation, progressBlocker: "missing account" }), { agentId: "agent-example" });
+    assert.equal(invalid.status, "error");
+    assert.match(invalid.error.message, /progressBlocker must be an object/);
+    const set = await tools["surface.update"].execute(action({ surfaceId: child.id, expectedRevision: child.revision,
+      foundation, progressBlocker: { reason } }), { agentId: "agent-example" });
+    assert.equal(set.status, "complete");
+    assert.equal(set.output.progressBlocker.reason, reason);
+    assert.equal(Object.hasOwn(set.output.foundation, "progressBlocker"), false);
+    assert.equal(set.output.progressBlocker.actorId, "agent-example");
+    assert.ok(Number.isFinite(Date.parse(set.output.progressBlocker.setAt)));
+    assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements.includes("blocked"), true);
+    assert.equal(state.surface.list().surfaces.find((item) => item.id === child.id).progressBlocker.reason, reason);
+    assert.equal(state.surface.query("authorized account").surfaces[0].id, child.id);
+    assert.throws(() => state.surface.update(child.id, set.output.revision, completeFoundation), /coverage.gaps/);
+    const updated = state.surface.update(child.id, set.output.revision, foundation);
+    assert.equal(updated.progressBlocker.reason, reason);
+    const cleared = state.surface.update(child.id, updated.revision, completeFoundation, undefined, undefined, null);
+    assert.equal(cleared.progressBlocker, null);
+    assert.equal(state.surface.coverageState(child.id).covered, true);
   } finally { state.close(); }
 });
 
@@ -278,10 +312,12 @@ test("surface foundations, first touch, and movement survive workspace publicati
   try {
     const child = surfaces.create(resources.list()[0].id, "Parser", "Parser boundary");
     surfaces.focus("agent-example", child.id);
-    surfaces.update(child.id, child.revision, foundation);
+    surfaces.update(child.id, child.revision, foundation, undefined, undefined,
+      { reason: "Public parser paths were reviewed; an authorized account is required to test the session path. Provide a test account to resume." }, "agent-example");
     publishWorkspaceResearch(options);
     const published = JSON.parse(readFileSync(join(workspaceRoot, "references", "resources.json"), "utf8"));
     assert.equal(published.surfaces.length, 1);
+    assert.match(JSON.parse(published.surfaces[0].foundation_json).progressBlocker.reason, /authorized account/);
     assert.equal(published.surfaceTouches.length, 1);
     assert.equal(published.surfaceFocusEvents.length, 1);
     surfaces.close(); resources.close(); memory.close();
@@ -291,6 +327,7 @@ test("surface foundations, first touch, and movement survive workspace publicati
     const restored = new SurfaceStore({ databasePath, workspaceId, sessionId: "session-later", resources: restoredResources });
     try {
       assert.equal(restored.get(child.id).foundation.threatModel.attackerControl, foundation.threatModel.attackerControl);
+      assert.match(restored.get(child.id).progressBlocker.reason, /authorized account/);
       assert.equal(restored.focus("agent-later", child.id).firstTouch, false);
     } finally { restored.close(); restoredResources.close(); }
   } finally { rmSync(directory, { recursive: true, force: true }); }

@@ -152,6 +152,7 @@ export function SettingsView({
   suggestionPreferences,
   dangerModeEnabled,
   defaultShellSafetyMode,
+  guardianEnabled,
   researchProfiles,
   researchProfilesLoading,
   openAiStatus,
@@ -181,6 +182,7 @@ export function SettingsView({
   onChangeSuggestionPreference,
   onChangeDangerModeEnabled,
   onChangeDefaultShellSafetyMode,
+  onChangeGuardianEnabled,
   onRefreshOpenAi,
   onStartOpenAiOAuth,
   onStartResearchProviderOAuth,
@@ -216,6 +218,7 @@ export function SettingsView({
   suggestionPreferences: SuggestionPreferences;
   dangerModeEnabled: boolean;
   defaultShellSafetyMode: ShellSafetyMode;
+  guardianEnabled: boolean;
   openAiStatus: OpenAiAccountStatus | null;
   openAiOAuthResult: OpenAiOAuthStartResult | null;
   researchProviderOAuthResults: Partial<Record<ResearchProviderId, ResearchProviderOAuthStartResult>>;
@@ -243,6 +246,7 @@ export function SettingsView({
   onChangeSuggestionPreference: (key: SuggestionPreferenceKey, enabled: boolean) => void;
   onChangeDangerModeEnabled: (enabled: boolean) => void;
   onChangeDefaultShellSafetyMode: (mode: ShellSafetyMode) => void;
+  onChangeGuardianEnabled: (enabled: boolean) => void;
   onRefreshOpenAi: () => Promise<void>;
   onStartOpenAiOAuth: () => Promise<void>;
   onStartResearchProviderOAuth: (providerId: ResearchProviderId) => Promise<void>;
@@ -307,11 +311,13 @@ export function SettingsView({
             suggestionPreferences={suggestionPreferences}
             dangerModeEnabled={dangerModeEnabled}
             defaultShellSafetyMode={defaultShellSafetyMode}
+            guardianEnabled={guardianEnabled}
             onChangeTracesEnabled={onChangeTracesEnabled}
             onChangeProfilingEnabled={onChangeProfilingEnabled}
             onChangeSuggestionPreference={onChangeSuggestionPreference}
             onChangeDangerModeEnabled={onChangeDangerModeEnabled}
             onChangeDefaultShellSafetyMode={onChangeDefaultShellSafetyMode}
+            onChangeGuardianEnabled={onChangeGuardianEnabled}
           />
         ) : activeSection === 'appearance' ? (
           <AppearanceSettingsView
@@ -1507,24 +1513,28 @@ export function GeneralSettingsView({
   suggestionPreferences = DEFAULT_SUGGESTION_PREFERENCES,
   dangerModeEnabled,
   defaultShellSafetyMode,
+  guardianEnabled = true,
   onChangeTracesEnabled,
   onChangeProfilingEnabled = () => undefined,
   onChangeSuggestionPreference = () => undefined,
   onChangeDangerModeEnabled,
-  onChangeDefaultShellSafetyMode
+  onChangeDefaultShellSafetyMode,
+  onChangeGuardianEnabled = () => undefined
 }: {
   tracesEnabled: boolean;
   profilingEnabled?: boolean;
   suggestionPreferences?: SuggestionPreferences;
   dangerModeEnabled: boolean;
   defaultShellSafetyMode: ShellSafetyMode;
+  guardianEnabled?: boolean;
   onChangeTracesEnabled: (enabled: boolean) => void;
   onChangeProfilingEnabled?: (enabled: boolean) => void;
   onChangeSuggestionPreference?: (key: SuggestionPreferenceKey, enabled: boolean) => void;
   onChangeDangerModeEnabled: (enabled: boolean) => void;
   onChangeDefaultShellSafetyMode: (mode: ShellSafetyMode) => void;
+  onChangeGuardianEnabled?: (enabled: boolean) => void;
 }): JSX.Element {
-  const permissionOptions = permissionModeOptions({ dangerModeEnabled, defaultShellSafetyMode });
+  const permissionOptions = permissionModeOptions({ dangerModeEnabled, defaultShellSafetyMode, guardianEnabled });
   return (
     <div className="settings-page general-settings-page">
       <section className="settings-form debugging-settings-form">
@@ -1602,6 +1612,18 @@ export function GeneralSettingsView({
         </header>
         <fieldset className="settings-form-squircle permissions-settings" aria-labelledby="permissions-settings-heading">
           <div className="settings-form-control-list">
+            <label className="settings-form-control-row">
+              <span className="settings-form-control-copy">
+                <strong>Guardian</strong>
+                <small>Let the lead model review commands denied by Auto-Review and approve them once when safe. A denial returns its reason to the session agent.</small>
+              </span>
+              <input
+                aria-label="Guardian"
+                type="checkbox"
+                checked={guardianEnabled}
+                onChange={(event) => onChangeGuardianEnabled(event.currentTarget.checked)}
+              />
+            </label>
             <label className="settings-form-control-row">
               <span className="settings-form-control-copy">
                 <strong>Enable Danger Mode</strong>

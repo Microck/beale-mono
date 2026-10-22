@@ -65,6 +65,7 @@ export interface ResolvedAppServerSessionLaunch {
     shellReview?: { models: Readonly<Record<string, string>>; effort: string };
   };
   shellSafetyMode: string;
+  guardianEnabled?: boolean;
   remoteShell?: { sshArgs: readonly string[]; guestPlatform: 'win32' | 'darwin' | 'linux'; guestCwd: string };
   selectedTargets?: { ids: readonly string[]; remoteShells: Readonly<Record<string, {
     sshArgs: readonly string[]; guestPlatform: 'win32' | 'darwin' | 'linux'; guestCwd: string;
@@ -183,6 +184,7 @@ export function appServerSessionArgs(
   // Host-controlled reviewer routing follows extension arguments so operator
   // runtime flags cannot replace the authorization model selection.
   args.push('--shell-safety-mode', launch.shellSafetyMode);
+  if (launch.guardianEnabled === false) args.push('--no-guardian');
   if (launch.provider.shellReview) {
     args.push('--shell-review-models', JSON.stringify(launch.provider.shellReview.models));
     args.push('--shell-review-effort', launch.provider.shellReview.effort);

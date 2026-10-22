@@ -9,6 +9,7 @@ type Surface = BealeWorkspaceSurfaceMap['surfaces'][number];
 const surface = (id: string, parentId: string | null, firstTouchedAt: string | null, hasCoverage = false, complete = false): Surface => ({
   id, parentId, resourceId: 'asset-example', name: id, description: `${id} boundary`, firstTouchedAt,
   foundation: hasCoverage ? { coverage: { mappingComplete: false, sinksInvestigated: false, openQuestions: [], unexploredConnections: [] } } : null,
+  progressBlocker: null,
   coverageState: { covered: complete, unmetRequirements: complete ? [] : hasCoverage ? ['mapping'] : ['foundation'], unblockedFindingIds: [] }
 });
 const surfaces: Surface[] = [
@@ -46,12 +47,24 @@ test('live map shows search and untouched controls without replay', () => {
   expect(html).toContain('aria-label="Search surfaces"');
   expect(html).not.toContain('workspace-surface-map-search');
   expect(html).toContain('Show untouched surfaces');
-  expect(html).toContain('2 of 5 touched · 1 complete');
+  expect(html).toContain('2 of 5 touched · 1 complete · 0 blocked');
   expect(html).not.toContain('Replay');
   expect(html).toContain('asset-example · 0% coverage');
   expect(html).not.toContain('untouched-sibling boundary');
   expect(html).not.toContain('other-root boundary');
   expect(surfaceCoveragePercent(surfaces[0]!)).toBe(0);
+});
+
+test('blocked surfaces show their dependency in the map', () => {
+  const reason = 'Pre-auth requests were tested; an authorized account is required for the remaining session path.';
+  const blocked: Surface = { ...surfaces[1]!, progressBlocker: { reason, actorId: 'agent-example', setAt: '2026-01-01T00:03:00.000Z' },
+    coverageState: { covered: false, unmetRequirements: ['blocked'], unblockedFindingIds: [] } };
+  const map: BealeWorkspaceSurfaceMap = { schemaVersion: 1, workspaceId: 'workspace-example',
+    surfaces: surfaces.map((item) => item.id === blocked.id ? blocked : item), agents: [] };
+  const html = renderToStaticMarkup(createElement(WorkspaceSurfaceMap, { map, workspaceName: 'Example Workspace' }));
+  expect(html).toContain('1 blocked');
+  expect(html).toContain('workspace-surface-node blocked');
+  expect(html).toContain(`Blocked: ${reason}`);
 });
 
 test('surface map keeps the workspace heading while loading', () => {

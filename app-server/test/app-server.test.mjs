@@ -2116,6 +2116,7 @@ test("app-server preserves launch options through restart metadata and runtime a
     daybreakBlue: false,
   };
   request.launch.devHarnessFeedback = true;
+  request.launch.guardianEnabled = false;
 
   const prepared = await service.prepareSession(request, "generated-session");
 
@@ -2128,11 +2129,13 @@ test("app-server preserves launch options through restart metadata and runtime a
   assert.ok(appServerSessionArgs(prepared.launch, {}).includes("--daybreak-mode"));
   assert.ok(appServerSessionArgs(prepared.launch, {}).includes("red"));
   assert.ok(appServerSessionArgs(prepared.launch, {}).includes("--dev-harness-feedback"));
+  assert.ok(appServerSessionArgs(prepared.launch, {}).includes("--no-guardian"));
   const createCall = calls.find((call) => call.operation === "session.create");
   assert.equal(
     createCall.options.input.metadata.appServerRestartLaunch.launch.provider.fastMode,
     true,
   );
+  assert.equal(createCall.options.input.metadata.appServerRestartLaunch.launch.guardianEnabled, false);
   assert.equal(
     createCall.options.input.metadata.appServerRestartLaunch.launch.provider.daybreakBlue,
     undefined,
@@ -2379,6 +2382,7 @@ test("app-server owns built-in plugins and pins canonical session profile identi
       promptMarkdown: "Test the typed app-server launch contract.",
       provider: { id: "xai", model: "grok-4.6", reasoningEffort: "high" },
       shellSafetyMode: "manual_approval",
+      guardianEnabled: true,
       researchProfileId: "security-research",
       researchProfileHash: hash,
     },
@@ -3067,6 +3071,7 @@ test("expands typed session intent into app-server-owned runtime policy", () => 
   assert.equal(args[args.indexOf("--memory-backend") + 1], "app-server");
   assert.ok(args.includes("--no-default-tool-config"));
   assert.ok(args.includes("--fast-mode"));
+  assert.ok(appServerSessionArgs({ ...launch, guardianEnabled: false }, {}).includes("--no-guardian"));
   assert.ok(args.includes("--profile-tool-family-ceiling"));
   assert.ok(args.includes("--profile-side-effect-ceiling"));
   assert.equal(args.includes("--disable-tool-family"), false);

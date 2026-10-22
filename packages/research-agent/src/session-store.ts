@@ -76,6 +76,11 @@ export interface AppServerSessionAttempt {
   metadata: Record<string, unknown>;
 }
 
+export interface AppServerSessionActivityInterval {
+  startedAt: string;
+  endedAt: string | null;
+}
+
 export interface AppServerSessionRecord {
   schemaVersion: typeof APP_SERVER_SESSION_SCHEMA_VERSION;
   id: string;
@@ -93,6 +98,7 @@ export interface AppServerSessionRecord {
   finalDisposition: AppServerSessionDisposition | null;
   finalResponse: string | null;
   attempts: AppServerSessionAttempt[];
+  activityIntervals?: AppServerSessionActivityInterval[];
   events: AppServerSessionEvent[];
   createdAt: string;
   startedAt: string;
@@ -751,6 +757,7 @@ export class AppServerSessionStore {
         capture: null,
         metadata: input.attemptMetadata ?? {},
       }],
+      activityIntervals: [{ startedAt: now, endedAt: null }],
       events: [],
       createdAt: now,
       startedAt: now,
@@ -1171,6 +1178,7 @@ export class AppServerSessionStore {
       const sessions = rows.map((row) => this.decodeSessionRow(row));
       let interruptedAttempts = 0;
       for (const session of sessions) {
+        closeSessionActivity(session, recoveredAt);
         const recoveredAttemptIds: string[] = [];
         for (const attempt of session.attempts) {
           if (attempt.status !== "active") continue;
@@ -1259,6 +1267,7 @@ export class AppServerSessionStore {
         throw new Error(`Session ${session.id} already has an active attempt.`);
       }
       const now = input.startedAt ?? new Date().toISOString();
+      startSessionActivity(session, now);
       session.status = "active";
       session.summary = requiredString(input.summary, "Attempt summary");
       session.endedAt = null;
@@ -1289,6 +1298,8 @@ export class AppServerSessionStore {
   public transition(sessionId: string, input: AppServerSessionTransitionInput): AppServerSessionRecord {
     return this.mutate(sessionId, input.expectedRevision, (session) => {
       const now = input.at ?? new Date().toISOString();
+      if (session.status === "active" && input.status !== "active") closeSessionActivity(session, now);
+      else if (session.status !== "active" && input.status === "active") startSessionActivity(session, now);
       session.status = input.status;
       session.summary = requiredString(input.summary, "Lifecycle summary");
       session.metadata = { ...session.metadata, ...(input.metadata ?? {}) };
@@ -1331,6 +1342,7 @@ export class AppServerSessionStore {
       validateCaptureResearchProfile(capture, session);
 
       const capturedAt = optionalString(capture.capturedAt) ?? new Date().toISOString();
+      closeSessionActivity(session, capturedAt);
       const agent = recordValue(capture.agent) ?? {};
       const goal = recordValue(agent.goal);
       const goalStatus = optionalString(goal?.status);
@@ -1922,6 +1934,7 @@ function sessionSummary(
     metadata: session.metadata,
     finalDisposition: session.finalDisposition,
     attempts: session.attempts.map(({ capture: _capture, ...attempt }) => attempt),
+    ...(session.activityIntervals ? { activityIntervals: session.activityIntervals } : {}),
     lastMessageAt,
     tokenUsage,
     activityCounts,
@@ -2553,6 +2566,30 @@ function completionSummary(agentStatus: string | null, goalStatus: string | null
 
 function terminalStatus(status: AppServerSessionStatus): boolean {
   return status === "blocked" || status === "completed" || status === "failed" || status === "stopped";
+}
+
+function ensureSessionActivityIntervals(session: AppServerSessionRecord): AppServerSessionActivityInterval[] {
+  if (session.activityIntervals) return session.activityIntervals;
+  session.activityIntervals = session.attempts.map((attempt, index) => ({
+    startedAt: attempt.startedAt,
+    endedAt: attempt.endedAt
+      ?? optionalString(attempt.metadata.recoveredAt)
+      ?? session.attempts[index + 1]?.startedAt
+      ?? (session.status === "active" ? null : session.endedAt ?? session.updatedAt),
+  }));
+  return session.activityIntervals;
+}
+
+function startSessionActivity(session: AppServerSessionRecord, startedAt: string): void {
+  const intervals = ensureSessionActivityIntervals(session);
+  const previous = intervals.at(-1);
+  if (previous && previous.endedAt === null) previous.endedAt = startedAt;
+  intervals.push({ startedAt, endedAt: null });
+}
+
+function closeSessionActivity(session: AppServerSessionRecord, endedAt: string): void {
+  const interval = ensureSessionActivityIntervals(session).at(-1);
+  if (interval && interval.endedAt === null) interval.endedAt = endedAt;
 }
 
 function requiredString(value: unknown, label: string): string {

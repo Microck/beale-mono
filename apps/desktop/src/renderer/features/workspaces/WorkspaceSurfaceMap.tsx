@@ -25,7 +25,7 @@ export function WorkspaceSurfaceMap({ map, workspaceName, loading = false, error
         <div className="workspace-catalog-title-row"><h2>{workspaceName.trim() || 'Workspace'} Surfaces</h2><WorkspaceTitleSearch label="surfaces" query={query} onChange={setQuery} /></div>
         <p>Security surfaces and their threat-model coverage.</p>
       </div>
-      {map ? <div className="workspace-surface-map-count">{map.surfaces.filter((surface) => surfaceCoveragePercent(surface) > 0).length} of {map.surfaces.length} touched · {map.surfaces.filter((surface) => surface.coverageState.covered).length} complete</div> : null}
+      {map ? <div className="workspace-surface-map-count">{map.surfaces.filter((surface) => surfaceCoveragePercent(surface) > 0).length} of {map.surfaces.length} touched · {map.surfaces.filter((surface) => surface.coverageState.covered).length} complete · {map.surfaces.filter((surface) => surface.progressBlocker).length} blocked</div> : null}
     </header>
     {error ? <p className="workspace-surface-map-status" role="alert">{error}</p> : !map
       ? <p className="workspace-surface-map-status" role="status">{loading ? 'Loading surfaces…' : 'Surface map unavailable.'}</p>
@@ -53,10 +53,10 @@ export function WorkspaceSurfaceMap({ map, workspaceName, loading = false, error
         </svg>
         {layout.nodes.map((node) => {
           const coverage = surfaceCoveragePercent(node.surface);
-          return <button key={node.surface.id} className={`workspace-surface-node${selectedSurfaceId === node.surface.id ? ' selected' : ''}${node.surface.coverageState.covered ? ' covered' : ''}`}
+          return <button key={node.surface.id} className={`workspace-surface-node${selectedSurfaceId === node.surface.id ? ' selected' : ''}${node.surface.coverageState.covered ? ' covered' : ''}${node.surface.progressBlocker ? ' blocked' : ''}`}
             style={{ left: node.x, top: node.y, backgroundImage: `linear-gradient(90deg, var(--surface-coverage-fill) ${coverage}%, var(--surface-node-bg) ${coverage}%)` }}
-            type="button" onClick={() => setSelectedSurfaceId(node.surface.id)} title={`${node.surface.name} · ${coverage}% coverage`}>
-            <span className="workspace-surface-node-kind">{node.surface.parentId ? 'Surface' : 'Resource root'}</span>
+            type="button" onClick={() => setSelectedSurfaceId(node.surface.id)} title={`${node.surface.name} · ${coverage}% coverage${node.surface.progressBlocker ? ` · Blocked: ${node.surface.progressBlocker.reason}` : ''}`}>
+            <span className="workspace-surface-node-kind">{node.surface.parentId ? 'Surface' : 'Resource root'}{node.surface.progressBlocker ? ' · Blocked' : ''}</span>
             <span className="workspace-surface-node-name">{node.surface.name}</span>
             <span className="workspace-surface-node-progress">{coverage}%</span>
           </button>;
@@ -71,7 +71,8 @@ export function WorkspaceSurfaceMap({ map, workspaceName, loading = false, error
       </div>
     </div>}
     {selected ? <div className="workspace-surface-map-detail"><strong>{selected.name}</strong><span>{selected.description}</span>
-      <span>{selected.coverageState.covered ? 'Covered' : `Coverage ${surfaceCoveragePercent(selected)}%`}
+      {selected.progressBlocker ? <p className="workspace-surface-map-blocker"><strong>Blocked</strong> {selected.progressBlocker.reason}</p> : null}
+      <span className="workspace-surface-map-coverage">{selected.coverageState.covered ? 'Covered' : `Coverage ${surfaceCoveragePercent(selected)}%`}
         {selected.coverageState.unmetRequirements.length ? ` · Open: ${selected.coverageState.unmetRequirements.join(', ').replaceAll('_', ' ')}` : ''}</span>
     </div> : null}
     </>}

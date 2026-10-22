@@ -20,6 +20,12 @@ export interface SurfaceFoundation {
   threatModel: { attackerControl: string; trustBoundaries: string; assetsAtRisk: string; plausibleImpacts: string; assumptions: string };
 }
 
+export interface SurfaceProgressBlocker {
+  reason: string;
+  actorId: string;
+  setAt: string;
+}
+
 export interface SurfaceCoverageState {
   covered: boolean;
   unmetRequirements: string[];
@@ -30,6 +36,7 @@ export function assessSurfaceCoverage(
   foundation: SurfaceFoundation | null,
   unblockedFindingIds: string[],
   incompleteChildren: boolean,
+  blocked = false,
 ): SurfaceCoverageState {
   const coverage = foundation?.coverage;
   const unmetRequirements: string[] = [];
@@ -40,6 +47,7 @@ export function assessSurfaceCoverage(
   if (coverage?.unexploredConnections?.length) unmetRequirements.push("surface_connections");
   if (unblockedFindingIds.length) unmetRequirements.push("unblocked_findings");
   if (incompleteChildren) unmetRequirements.push("child_surfaces");
+  if (blocked) unmetRequirements.push("blocked");
   return { covered: unmetRequirements.length === 0, unmetRequirements, unblockedFindingIds };
 }
 
@@ -59,6 +67,7 @@ export interface ResearchSurface {
   root: boolean;
   firstTouchedAt: string | null;
   foundation: SurfaceFoundation | null;
+  progressBlocker: SurfaceProgressBlocker | null;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -75,6 +84,7 @@ export interface SurfaceCard {
   firstTouchedAt: string | null;
   foundationReady: boolean;
   coverage: SurfaceFoundation["coverage"] | null;
+  progressBlocker: SurfaceProgressBlocker | null;
   coverageState: SurfaceCoverageState;
   updatedAt: string;
 }
@@ -175,7 +185,7 @@ export class SurfaceStore {
       const path = this.path(surface.id);
       const haystack = [surface.name, surface.description, path,
         surface.foundation?.bugHistory.summary, surface.foundation?.bugHistory.limits, surface.foundation?.coverage.summary,
-        surface.foundation?.coverage.gaps, surface.foundation?.coverage.opportunities,
+        surface.foundation?.coverage.gaps, surface.foundation?.coverage.opportunities, surface.progressBlocker?.reason,
         ...Object.values(surface.foundation?.threatModel ?? {})].join(" ").toLowerCase();
       return words.every((word) => haystack.includes(word));
     });
@@ -232,24 +242,38 @@ export class SurfaceStore {
     return this.require(id);
   }
 
-  public update(id: string, expectedRevision: number, foundation: SurfaceFoundation, name?: string, description?: string): ResearchSurface {
+  public update(id: string, expectedRevision: number, foundation: SurfaceFoundation, name?: string, description?: string,
+    progressBlocker?: { reason: string } | null, actorId?: string): ResearchSurface {
     const surface = this.require(id, true);
     if (surface.root && (name !== undefined || description !== undefined)) throw new Error("Root surface name and description belong to the resource catalog.");
     if (surface.revision !== expectedRevision) throw new Error("Surface revision changed; read it again before updating.");
     const normalized = parseFoundation(foundation);
     const at = nowIso();
+    if (progressBlocker && !surface.firstTouchedAt) {
+      throw new Error("Focus and investigate the surface before recording a progress blocker.");
+    }
+    const stored: SurfaceFoundation & { progressBlocker: SurfaceProgressBlocker | null } = {
+      ...normalized,
+      progressBlocker: progressBlocker === undefined ? surface.progressBlocker
+        : progressBlocker === null ? null
+          : { reason: bounded(nonempty(progressBlocker.reason, "Progress blocker reason"), 2_000),
+              actorId: bounded(nonempty(actorId ?? "host", "Progress blocker actor"), 200), setAt: at },
+    };
+    if (stored.progressBlocker && !stored.coverage.gaps) {
+      throw new Error("Describe the work blocked by the dependency in foundation.coverage.gaps.");
+    }
     const changed = surface.root
       ? this.#database.prepare(`INSERT INTO app_server_surface_roots(resource_id, workspace_id, foundation_json, revision, updated_at)
           VALUES (?, ?, ?, 2, ?)
           ON CONFLICT(resource_id) DO UPDATE SET foundation_json = excluded.foundation_json,
             revision = app_server_surface_roots.revision + 1, updated_at = excluded.updated_at
           WHERE app_server_surface_roots.revision = ?`)
-        .run(id, this.#workspaceId, JSON.stringify(normalized), at, expectedRevision).changes
+        .run(id, this.#workspaceId, JSON.stringify(stored), at, expectedRevision).changes
       : this.#database.prepare(`UPDATE app_server_surfaces SET name = ?, description = ?, foundation_json = ?,
           revision = revision + 1, updated_at = ? WHERE workspace_id = ? AND id = ? AND revision = ?`)
         .run(name === undefined ? surface.name : bounded(nonempty(name, "name"), 180),
           description === undefined ? surface.description : bounded(description, 2_000),
-          JSON.stringify(normalized), at, this.#workspaceId, id, expectedRevision).changes;
+          JSON.stringify(stored), at, this.#workspaceId, id, expectedRevision).changes;
     if (!changed) throw new Error("Surface revision changed; read it again before updating.");
     return this.require(id);
   }
@@ -305,22 +329,26 @@ export class SurfaceStore {
   }
 
   #root(resource: TrackedResearchResource): ResearchSurface {
-    const foundation = this.#database.prepare("SELECT * FROM app_server_surface_roots WHERE resource_id = ? AND workspace_id = ?")
+    const row = this.#database.prepare("SELECT * FROM app_server_surface_roots WHERE resource_id = ? AND workspace_id = ?")
       .get(resource.id, this.#workspaceId) as SurfaceRow | undefined;
+    const stored = decodeStoredFoundation(row?.foundation_json);
     return {
       id: resource.id, workspaceId: this.#workspaceId, resourceId: resource.id, parentId: null,
       name: resource.name, description: resource.rationale, root: true,
       firstTouchedAt: this.#touchedAt(resource.id),
-      foundation: decodeFoundation(foundation?.foundation_json), revision: foundation ? Number(foundation.revision) : 1,
-      createdAt: resource.discoveredAt, updatedAt: foundation ? String(foundation.updated_at) : resource.updatedAt,
+      foundation: stored?.foundation ?? null, progressBlocker: stored?.progressBlocker ?? null,
+      revision: row ? Number(row.revision) : 1,
+      createdAt: resource.discoveredAt, updatedAt: row ? String(row.updated_at) : resource.updatedAt,
     };
   }
 
   #child(row: SurfaceRow): ResearchSurface {
+    const stored = decodeStoredFoundation(row.foundation_json);
     return {
       id: String(row.id), workspaceId: String(row.workspace_id), resourceId: String(row.resource_id),
       parentId: String(row.parent_id), name: String(row.name), description: String(row.description), root: false,
-      firstTouchedAt: this.#touchedAt(String(row.id)), foundation: decodeFoundation(row.foundation_json),
+      firstTouchedAt: this.#touchedAt(String(row.id)), foundation: stored?.foundation ?? null,
+      progressBlocker: stored?.progressBlocker ?? null,
       revision: Number(row.revision), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
     };
   }
@@ -338,6 +366,7 @@ export class SurfaceStore {
       name: surface.name, path: this.path(surface.id), root: surface.root,
       focusEligible: this.#focusEligible(surface),
       firstTouchedAt: surface.firstTouchedAt, foundationReady: surface.foundation !== null,
+      progressBlocker: surface.progressBlocker,
       coverage: coverage ? { ...coverage, summary: bounded(coverage.summary, 260), gaps: bounded(coverage.gaps, 260), opportunities: bounded(coverage.opportunities, 260) } : null,
       coverageState: this.coverageState(surface.id),
       updatedAt: surface.updatedAt,
@@ -350,7 +379,7 @@ export class SurfaceStore {
     const children = this.#database.prepare("SELECT id FROM app_server_surfaces WHERE workspace_id = ? AND parent_id = ?")
       .all(this.#workspaceId, id) as { id: string }[];
     return assessSurfaceCoverage(surface.foundation, unblockedFindingIds,
-      children.some((child) => !this.coverageState(child.id).covered));
+      children.some((child) => !this.coverageState(child.id).covered), Boolean(surface.progressBlocker));
   }
 
   #unblockedFindingIds(surface: ResearchSurface): string[] {
@@ -414,7 +443,9 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
     { name: "surface.get", transportName: "surface_get", effect: "read", properties: { surfaceId: { type: "string" } }, required: ["surfaceId"] },
     { name: "surface.query", transportName: "surface_query", effect: "read", properties: { query: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: ["query"] },
     { name: "surface.create", transportName: "surface_create", effect: "write", properties: { parentId: { type: "string" }, name: { type: "string" }, description: { type: "string", description: "Security-relevant attacker path, trust boundary, privilege context, sink, or effect that distinguishes this child surface." } }, required: ["parentId", "name", "description"] },
-    { name: "surface.update", transportName: "surface_update", effect: "write", properties: { surfaceId: { type: "string" }, expectedRevision: { type: "integer", minimum: 1 }, name: { type: "string" }, description: { type: "string" }, foundation: foundationSchema }, required: ["surfaceId", "expectedRevision", "foundation"] },
+    { name: "surface.update", transportName: "surface_update", effect: "write", properties: { surfaceId: { type: "string" }, expectedRevision: { type: "integer", minimum: 1 }, name: { type: "string" }, description: { type: "string" }, foundation: foundationSchema,
+      progressBlocker: { type: ["object", "null"], required: ["reason"], additionalProperties: false,
+        properties: { reason: { type: "string", description: "Name the blocked action, concrete external dependency, the authorized work already completed without it (such as pre-auth testing), and what would unblock the rest. Set only after reachable work is exhausted; use null to clear." } } } }, required: ["surfaceId", "expectedRevision", "foundation"] },
     { name: "surface.focus", transportName: "surface_focus", effect: "write", properties: { surfaceId: { type: "string" }, reason: { type: "string" } }, required: ["surfaceId"] },
   ] as const;
   return specs.map((spec): ResearchExecutableTool => ({
@@ -444,7 +475,9 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
           }
           case "surface.query": output = store.query(nonempty(input.query, "query"), typeof input.limit === "number" ? input.limit : 20, typeof input.offset === "number" ? input.offset : 0); break;
           case "surface.create": output = store.create(nonempty(input.parentId, "parentId"), nonempty(input.name, "name"), nonempty(input.description, "description")); break;
-          case "surface.update": output = store.update(nonempty(input.surfaceId, "surfaceId"), positive(input.expectedRevision, "expectedRevision"), parseFoundation(input.foundation), typeof input.name === "string" ? input.name : undefined, typeof input.description === "string" ? input.description : undefined); break;
+          case "surface.update": output = store.update(nonempty(input.surfaceId, "surfaceId"), positive(input.expectedRevision, "expectedRevision"), parseFoundation(input.foundation), typeof input.name === "string" ? input.name : undefined, typeof input.description === "string" ? input.description : undefined,
+            parseBlockerUpdate(input.progressBlocker),
+            context?.agentId ?? "root"); break;
           case "surface.focus": output = store.focus(context?.agentId ?? "root", nonempty(input.surfaceId, "surfaceId"), typeof input.reason === "string" ? input.reason : "research"); break;
         }
         return { action, status: "complete", startedAt, completedAt: nowIso(), summary: `${spec.name} completed.`, output, followUpActions: spec.name === "surface.focus" && typeof output === "object" && output !== null && "foundationScout" in output && output.foundationScout
@@ -480,6 +513,20 @@ function parseFoundation(value: unknown): SurfaceFoundation {
     threatModel: section(record.threatModel, ["attackerControl", "trustBoundaries", "assetsAtRisk", "plausibleImpacts", "assumptions"], "foundation.threatModel") as unknown as SurfaceFoundation["threatModel"],
   };
 }
+function parseProgressBlocker(value: unknown): SurfaceProgressBlocker | null {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Stored surface progress blocker must be an object.");
+  const record = value as Record<string, unknown>;
+  const setAt = nonempty(record.setAt, "Progress blocker timestamp");
+  if (!Number.isFinite(Date.parse(setAt))) throw new Error("Progress blocker timestamp must be a date-time.");
+  return { reason: bounded(nonempty(record.reason, "Progress blocker reason"), 2_000),
+    actorId: bounded(nonempty(record.actorId, "Progress blocker actor"), 200), setAt };
+}
+function parseBlockerUpdate(value: unknown): { reason: string } | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("progressBlocker must be an object or null.");
+  return { reason: nonempty((value as Record<string, unknown>).reason, "progressBlocker.reason") };
+}
 function parseCoverage(value: unknown): SurfaceFoundation["coverage"] {
   const text = section(value, ["summary", "opportunities"], "foundation.coverage") as Pick<SurfaceFoundation["coverage"], "summary" | "opportunities">;
   const record = value as Record<string, unknown>;
@@ -498,7 +545,8 @@ function coverageList(value: unknown, name: string): string[] {
   if (!Array.isArray(value) || value.length > 100) throw new Error(`${name} must be an array with at most 100 entries.`);
   return [...new Set(value.map((item) => bounded(nonempty(item, name), 500)))];
 }
-function decodeFoundation(value: unknown): SurfaceFoundation | null {
+function decodeStoredFoundation(value: unknown): { foundation: SurfaceFoundation; progressBlocker: SurfaceProgressBlocker | null } | null {
   if (typeof value !== "string") return null;
-  return parseFoundation(JSON.parse(value));
+  const parsed = JSON.parse(value) as unknown;
+  return { foundation: parseFoundation(parsed), progressBlocker: parseProgressBlocker((parsed as Record<string, unknown>).progressBlocker) };
 }

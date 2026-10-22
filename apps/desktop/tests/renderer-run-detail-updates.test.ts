@@ -112,6 +112,16 @@ describe('renderer run detail update view model', () => {
     expect(mergeRunDetailUpdate(current, update).projectionCursor).toEqual(update.projectionCursor);
   });
 
+  it('refreshes active session periods from incremental detail updates', () => {
+    const current = runDetail();
+    const update = runDetailUpdate();
+    update.activityIntervals = [{
+      id: 'activity_example', runId: current.run.id, attemptId: null,
+      startedAt: '2026-04-30T00:00:00.000Z', endedAt: null
+    }];
+    expect(mergeRunDetailUpdate(current, update).activityIntervals).toEqual(update.activityIntervals);
+  });
+
   it('replaces each subagent preview with its latest projected message', () => {
     const current = runDetail({
       subagentPreviews: [subagentPreview('/root/reviewer', 'Earlier preview.', 5)]

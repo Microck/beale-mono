@@ -253,6 +253,7 @@ export class AppServerRunEngine {
         machineId: input.machineId ?? 'local',
         ...(input.targetIds?.length ? { targetIds: [...input.targetIds] } : {}),
         modelProvider: input.provider?.trim() || null,
+        guardianEnabled: input.guardianEnabled !== false,
         fastMode: input.fastMode === true,
         ...(input.provider === 'openai-codex' ? { daybreakBlue: true } : {}),
         goalEnabled,
@@ -2014,7 +2015,7 @@ export class AppServerRunEngine {
     if (!approvalRequestId || approvalRequestId.length > 200 || (decision !== 'approved' && decision !== 'denied')) return;
     if (active?.resolvedShellApprovalRequestIds.has(approvalRequestId)) return;
     const reportedSource = stringPayload(payload, 'source');
-    const source = reportedSource === 'human' || reportedSource === 'small_model' || reportedSource === 'danger'
+    const source = reportedSource === 'human' || reportedSource === 'small_model' || reportedSource === 'guardian' || reportedSource === 'danger'
       ? reportedSource
       : 'unknown';
     const reason = redactForModelText(stringPayload(payload, 'reason') ?? `${source} ${decision} the shell command.`).slice(0, 1_000);
@@ -2904,6 +2905,7 @@ function appServerSessionLaunchRequest(
           : {}
       ),
       shellSafetyMode: input.shellSafetyMode,
+      guardianEnabled: input.guardianEnabled !== false,
       ...(researchProfile
         ? {
             researchProfileId: researchProfile.id,
@@ -2931,6 +2933,7 @@ function startRunInputFromRun(run: RunRecord, promptMarkdown: string): StartRunI
     ...(Array.isArray(run.budget.targetIds) ? { targetIds: run.budget.targetIds.filter((id): id is string => typeof id === 'string') } : {}),
     provider: typeof run.budget.modelProvider === 'string' ? run.budget.modelProvider : undefined,
     shellSafetyMode: run.shellSafetyMode,
+    guardianEnabled: run.budget.guardianEnabled !== false,
     goalEnabled: goal.enabled,
     goalObjective: goal.objective,
     promptMarkdown,
@@ -3430,6 +3433,7 @@ function boundedAuditNumber(value: unknown): number | null {
 function shellAuthorizationSourceLabel(source: string): string {
   if (source === 'human') return 'the researcher';
   if (source === 'small_model') return 'Auto-Review';
+  if (source === 'guardian') return 'Guardian';
   if (source === 'danger') return 'Danger Mode';
   return 'the shell safety policy';
 }

@@ -81,6 +81,11 @@ export interface AppServerSessionAttempt {
   metadata: Record<string, unknown>;
 }
 
+export interface AppServerSessionActivityInterval {
+  startedAt: string;
+  endedAt: string | null;
+}
+
 export interface AppServerSessionRecord {
   schemaVersion: 1;
   id: string;
@@ -98,6 +103,7 @@ export interface AppServerSessionRecord {
   finalDisposition: Record<string, unknown> | null;
   finalResponse: string | null;
   attempts: AppServerSessionAttempt[];
+  activityIntervals?: AppServerSessionActivityInterval[];
   events: AppServerSessionEvent[];
   createdAt: string;
   startedAt: string;

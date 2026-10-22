@@ -9,6 +9,7 @@ import { CommentaryView } from '../src/renderer/features/commentary/CommentaryVi
 import { mergeRemoteSessionHistory, remoteRunDetail, remoteSessionHistoryPage, remoteWorkspaceRegistry } from '../src/renderer/features/fleet/remoteFleetProjection';
 import { buildTraceDisplayEventsForAgentPath } from '../src/renderer/view-models/traceDisplay';
 import { commentaryMessagesForSession } from '../src/renderer/view-models/commentary';
+import { sessionDurationTiming } from '../src/renderer/view-models/sessionHeader';
 
 const catalog: FleetRemoteCatalog = {
   serverId: 'server-example',
@@ -146,6 +147,22 @@ test('remote Quick Chat opens in the dock without selecting a workspace', () => 
   expect(remoteQuickChatModels(catalog).initialSelection).toEqual({
     provider: 'openai-codex', model: 'gpt-example', reasoningEffort: 'high'
   });
+});
+
+test('remote session duration excludes time between active periods', () => {
+  const detail = remoteRunDetail({ result: {
+    session: {
+      id: 'session-example', status: 'completed', title: 'Example session', prompt: 'Inspect example.test',
+      model: 'gpt-example', createdAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-01-03T00:05:00.000Z', updatedAt: '2026-01-03T00:05:00.000Z', metadata: {},
+      activityIntervals: [
+        { startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:10:00.000Z' },
+        { startedAt: '2026-01-03T00:00:00.000Z', endedAt: '2026-01-03T00:05:00.000Z' }
+      ]
+    }, events: []
+  } });
+  expect(detail?.activityIntervals).toHaveLength(2);
+  expect(sessionDurationTiming(detail!, Date.parse('2026-01-03T00:05:00.000Z'))?.durationMs).toBe(15 * 60_000);
 });
 
 test('remote canonical events feed the local commentary projection', () => {

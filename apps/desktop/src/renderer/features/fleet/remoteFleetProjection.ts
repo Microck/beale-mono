@@ -74,6 +74,30 @@ export function remoteRunDetail(value: unknown): RunDetail | null {
   const sessionId = session.id;
   const metadata = asRecord(session.metadata);
   const storedRun = asRecord(metadata?.bealeRun);
+  const attempts = Array.isArray(session.attempts) ? session.attempts.flatMap((item) => {
+    const attempt = asRecord(item);
+    return attempt && string(attempt.startedAt) ? [attempt] : [];
+  }) : [];
+  const rawIntervals = Array.isArray(session.activityIntervals)
+    ? session.activityIntervals
+    : attempts.map((attempt, index) => ({
+        startedAt: attempt.startedAt,
+        endedAt: string(attempt.endedAt)
+          ?? string(asRecord(attempt.metadata)?.recoveredAt)
+          ?? string(attempts[index + 1]?.startedAt)
+          ?? (remoteRunStatus(string(session.status) ?? '') === 'active' ? null : string(session.endedAt) ?? string(session.updatedAt))
+      }));
+  const activityIntervals = rawIntervals.flatMap((item, index) => {
+    const interval = asRecord(item);
+    const startedAt = string(interval?.startedAt);
+    return startedAt ? [{
+      id: `activity_${sessionId}_${index}`,
+      runId: sessionId,
+      attemptId: string([...attempts].reverse().find((attempt) => (string(attempt.startedAt) ?? '') <= startedAt)?.id),
+      startedAt,
+      endedAt: string(interval?.endedAt)
+    }] : [];
+  });
   const events = Array.isArray(result?.events) ? result.events.flatMap((item) => {
     const event = asRecord(item);
     return event && typeof event.id === 'string' && typeof event.kind === 'string' ? [event] : [];
@@ -179,6 +203,7 @@ export function remoteRunDetail(value: unknown): RunDetail | null {
       startedAt: string(session.startedAt),
       endedAt: string(session.endedAt)
     },
+    ...(activityIntervals.length ? { activityIntervals } : {}),
     attempts: [],
     traceEvents,
     transcriptMessages,

@@ -88,6 +88,7 @@ export function mergeRunDetailUpdate(current: RunDetail, update: RunDetailUpdate
     run: update.run,
     tokenUsage: update.tokenUsage ?? current.tokenUsage,
     activityCounts: update.activityCounts ?? current.activityCounts,
+    activityIntervals: update.activityIntervals ?? current.activityIntervals,
     researchProfile: update.researchProfile ?? current.researchProfile ?? null,
     nextStepSuggestions: update.nextStepSuggestions === undefined
       ? current.nextStepSuggestions ?? null

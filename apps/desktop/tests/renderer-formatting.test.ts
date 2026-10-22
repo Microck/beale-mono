@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { RunDetail } from '../src/shared/types';
+import { sessionDurationTiming } from '../src/renderer/view-models/sessionHeader';
 import {
   clampPriorityScoreForDisplay,
   formatCompactTimeSince,
@@ -16,6 +18,39 @@ import {
 } from '../src/renderer/lib/formatting';
 
 describe('renderer formatting helpers', () => {
+  it('sums only active session periods across long idle gaps', () => {
+    const detail = {
+      run: {
+        status: 'active', createdAt: '2026-01-01T00:00:00.000Z',
+        startedAt: '2026-01-01T00:00:00.000Z', endedAt: null,
+      },
+      activityIntervals: [
+        { id: 'period_one', runId: 'session_example', attemptId: 'attempt_one',
+          startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:10:00.000Z' },
+        { id: 'period_two', runId: 'session_example', attemptId: 'attempt_two',
+          startedAt: '2026-01-03T00:00:00.000Z', endedAt: null },
+      ],
+      attempts: [], traceEvents: [], artifacts: [], verifierContracts: [], verifierRuns: [],
+      modelSessions: [], policyEvents: [], exports: [],
+    } as unknown as RunDetail;
+    const nowMs = Date.parse('2026-01-03T00:05:00.000Z');
+    expect(sessionDurationTiming(detail, nowMs)).toMatchObject({
+      durationMs: 15 * 60_000,
+      durationLabel: '00:15:00',
+    });
+
+    const olderDetail = {
+      ...detail,
+      run: { ...detail.run, status: 'completed', endedAt: '2026-01-03T00:05:00.000Z' },
+      activityIntervals: undefined,
+      attempts: [
+        { startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:10:00.000Z' },
+        { startedAt: '2026-01-03T00:00:00.000Z', endedAt: '2026-01-03T00:05:00.000Z' },
+      ],
+    } as RunDetail;
+    expect(sessionDurationTiming(olderDetail, nowMs)?.durationMs).toBe(15 * 60_000);
+  });
+
   it('formats session dates, times, and durations with compact product labels', () => {
     const date = new Date(2026, 3, 30, 0, 5, 9);
 

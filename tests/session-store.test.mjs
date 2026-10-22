@@ -220,6 +220,38 @@ test("session store owns creation, lifecycle, capture import, and queries as one
   }
 });
 
+test("session activity duration records each active period across pause and continuation", () => {
+  const store = new AppServerSessionStore({ databasePath: ":memory:" });
+  try {
+    store.create({
+      id: "session_example",
+      workspaceId: "workspace_example",
+      attemptId: "attempt_first",
+      title: "Example session",
+      prompt: "Inspect the example parser.",
+      model: "gpt-example",
+      reasoningEffort: "medium",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    store.transition("session_example", { status: "paused", summary: "Paused.", at: "2026-01-01T00:10:00.000Z" });
+    store.transition("session_example", { status: "active", summary: "Resumed.", at: "2026-01-02T00:00:00.000Z" });
+    store.transition("session_example", { status: "completed", summary: "Finished.", at: "2026-01-02T00:05:00.000Z" });
+    store.beginAttempt("session_example", {
+      attemptId: "attempt_second", summary: "Continuing.", startedAt: "2026-01-03T00:00:00.000Z",
+    });
+    store.transition("session_example", { status: "stopped", summary: "Stopped.", at: "2026-01-03T00:02:00.000Z" });
+
+    assert.deepEqual(store.get("session_example").activityIntervals, [
+      { startedAt: "2026-01-01T00:00:00.000Z", endedAt: "2026-01-01T00:10:00.000Z" },
+      { startedAt: "2026-01-02T00:00:00.000Z", endedAt: "2026-01-02T00:05:00.000Z" },
+      { startedAt: "2026-01-03T00:00:00.000Z", endedAt: "2026-01-03T00:02:00.000Z" },
+    ]);
+    assert.deepEqual(store.list("workspace_example")[0].activityIntervals, store.get("session_example").activityIntervals);
+  } finally {
+    store.close();
+  }
+});
+
 test("session capture import preserves an intentional host stop instead of recording failure", () => {
   const store = new AppServerSessionStore({ databasePath: ":memory:" });
   try {

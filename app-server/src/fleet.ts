@@ -498,6 +498,7 @@ export class FleetService {
         ...(research.goal ? { goal: research.goal } : {}),
         ...(research.provider ? { provider: research.provider } : {}),
         ...(research.shellSafetyMode ? { shellSafetyMode: research.shellSafetyMode } : {}),
+        ...(research.guardianEnabled === false ? { guardianEnabled: false } : {}),
         ...(research.workflowId ? { workflowId: research.workflowId } : {}),
         ...(research.collaboration ? { collaboration: research.collaboration } : {}),
         ...(research.repeatSchedule && research.repeatSchedule.type !== 'none' ? { repeatSchedule: research.repeatSchedule } : {}),

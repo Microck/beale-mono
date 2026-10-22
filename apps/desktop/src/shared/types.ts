@@ -1579,6 +1579,7 @@ export interface StartRunInput {
   runEngine: RunEngineKind;
   provider?: string;
   shellSafetyMode: ShellSafetyMode;
+  guardianEnabled?: boolean;
   goalEnabled: boolean;
   goalObjective: string | null;
   promptMarkdown: string;
@@ -2069,6 +2070,8 @@ export interface SessionActivityInterval {
 
 export interface RunDetail {
   run: RunRecord;
+  /** Durable periods when the session was actively running. */
+  activityIntervals?: SessionActivityInterval[];
   /** Canonical, durable session usage reported by the app-server. */
   tokenUsage?: SessionTokenUsage;
   /** Canonical, durable session activity reported by the app-server. */
@@ -2148,6 +2151,7 @@ export interface RunDetailUpdateCursor {
 
 export interface RunDetailUpdate {
   run: RunRecord;
+  activityIntervals?: SessionActivityInterval[];
   /** Canonical, durable session usage reported by the app-server. */
   tokenUsage?: SessionTokenUsage;
   /** Canonical, durable session activity reported by the app-server. */

@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { assessSurfaceCoverage, type SurfaceFoundation } from '@beale/research-agent';
+import { assessSurfaceCoverage, type SurfaceFoundation, type SurfaceProgressBlocker } from '@beale/research-agent';
 import type { BealeWorkspaceSurfaceMap } from '@beale/app-server-runtime/protocol';
 
 type Row = Record<string, unknown>;
 type Surface = BealeWorkspaceSurfaceMap['surfaces'][number];
+type StoredFoundation = SurfaceFoundation & { progressBlocker: SurfaceProgressBlocker | null };
 
 function tableExists(database: DatabaseSync, name: string): boolean {
   return Boolean(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
@@ -18,11 +19,15 @@ function parsed(value: unknown): Record<string, unknown> | null {
   if (typeof value !== 'string') return null;
   try { return object(JSON.parse(value) as unknown); } catch { return null; }
 }
-function foundation(value: unknown): SurfaceFoundation | null {
+function foundation(value: unknown): StoredFoundation | null {
   const record = parsed(value);
   const coverage = object(record?.coverage);
   if (!coverage || !Array.isArray(coverage.openQuestions) || !Array.isArray(coverage.unexploredConnections)) return null;
-  return record as unknown as SurfaceFoundation;
+  const blocker = object(record?.progressBlocker);
+  const progressBlocker = blocker && typeof blocker.reason === 'string' && typeof blocker.actorId === 'string'
+    && typeof blocker.setAt === 'string'
+    ? { reason: blocker.reason, actorId: blocker.actorId, setAt: blocker.setAt } : null;
+  return { ...record, progressBlocker } as unknown as StoredFoundation;
 }
 function displayFoundation(value: SurfaceFoundation | null): Surface['foundation'] {
   const coverage = value?.coverage;
@@ -51,7 +56,7 @@ export function readWorkspaceSurfaceMap(databasePath: string, workspaceId: strin
       ? (database.prepare(`SELECT id, resource_id, parent_id, name, description, foundation_json
           FROM app_server_surfaces WHERE workspace_id=? ORDER BY created_at, id`).all(workspaceId) as Row[])
         .filter((row) => eligibleRootIds.has(string(row.resource_id))) : [];
-    const rootFoundations = new Map<string, SurfaceFoundation | null>((tableExists(database, 'app_server_surface_roots')
+    const rootFoundations = new Map<string, StoredFoundation | null>((tableExists(database, 'app_server_surface_roots')
       ? database.prepare('SELECT resource_id, foundation_json FROM app_server_surface_roots WHERE workspace_id=?').all(workspaceId) as Row[] : [])
       .map((row) => [string(row.resource_id), foundation(row.foundation_json)]));
     const firstTouches = new Map<string, string>((tableExists(database, 'app_server_surface_touches')
@@ -90,11 +95,12 @@ export function readWorkspaceSurfaceMap(databasePath: string, workspaceId: strin
         return !blocked && (surfaceIds.includes(id) || unassignedRoot) ? [string(claim.id)] : [];
       });
       const state = assessSurfaceCoverage(surface.foundation, findingIds,
-        (byParent.get(id) ?? []).some((child) => !coverage(child, nextTrail).covered));
+        (byParent.get(id) ?? []).some((child) => !coverage(child, nextTrail).covered), Boolean(surface.foundation?.progressBlocker));
       coverageCache.set(id, state);
       return state;
     };
-    const surfaces = raw.map((surface) => ({ ...surface, foundation: displayFoundation(surface.foundation), coverageState: coverage(surface.id) }));
+    const surfaces = raw.map((surface) => ({ ...surface, progressBlocker: surface.foundation?.progressBlocker ?? null,
+      foundation: displayFoundation(surface.foundation), coverageState: coverage(surface.id) }));
     const visibleSurfaceIds = new Set(surfaces.map((surface) => surface.id));
     const agents = tableExists(database, 'app_server_surface_focus') && tableExists(database, 'app_server_sessions')
       ? (database.prepare(`SELECT focus.session_id, sessions.title AS session_title, focus.agent_id, focus.surface_id

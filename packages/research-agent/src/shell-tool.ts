@@ -1317,6 +1317,8 @@ function shellAuthorizationDenialSummary(authorization: ShellAuthorizationDecisi
     ? "Manual Approval"
     : authorization.source === "small_model"
       ? "Auto-Review"
+      : authorization.source === "guardian"
+        ? "Guardian"
       : "shell safety policy";
   return "Shell execution denied by " + source + ": " + authorization.reason;
 }

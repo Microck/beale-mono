@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   classifyShellNetworkIntent,
@@ -626,6 +629,7 @@ test("Auto-Review sends a clear destructive risk to one human override", async (
   const requested = [];
   const authorize = createShellSafetyAuthorizer({
     getMode: () => "auto_review",
+    guardianEnabled: false,
     getReviewerSelection: () => ({
       provider: "openai-codex",
       model: "gpt-6-luna",
@@ -647,6 +651,92 @@ test("Auto-Review sends a clear destructive risk to one human override", async (
   assert.equal(requested.length, 1);
   assert.equal(requested[0].approvalKind, "auto_review_override");
   assert.match(requested[0].reviewReason, /Recursively deletes/);
+});
+
+test("Guardian uses the lead model after Auto-Review denial and returns its reason", async () => {
+  const calls = [];
+  let manualCalls = 0;
+  const authorize = createShellSafetyAuthorizer({
+    getMode: () => "auto_review",
+    guardianEnabled: true,
+    getReviewerSelection: () => ({ provider: "openai-codex", model: "gpt-6-luna", reasoningEffort: "low" }),
+    getGuardianSelection: () => ({ provider: "openai-codex", model: "gpt-6-astra", reasoningEffort: "high" }),
+    requestManualApproval: async () => { manualCalls += 1; return { decision: "approved", reason: "unused" }; },
+    models: fixtureModels([
+      '{"decision":"denied","reason":"Potentially broad deletion."}',
+      '{"decision":"denied","reason":"HOME resolves outside the intended scratch directory; narrow the path."}',
+    ], calls),
+  });
+  const decision = await authorize({ ...BASE_REQUEST, utility: "rm", args: ["-rf", "$HOME/scratch"] });
+  assert.equal(decision.decision, "denied");
+  assert.equal(decision.source, "guardian");
+  assert.match(decision.reason, /narrow the path/);
+  assert.equal(manualCalls, 0);
+  assert.equal(calls.at(-1).modelId, "gpt-6-astra");
+  assert.match(calls.at(-1).context.messages[0].content, /hostAccountHomeDirectory/);
+});
+
+test("Guardian can approve a denied command once without a human waiter", async () => {
+  const authorize = createShellSafetyAuthorizer({
+    getMode: () => "auto_review",
+    guardianEnabled: true,
+    getReviewerSelection: () => ({ provider: "openai-codex", model: "gpt-6-luna", reasoningEffort: "low" }),
+    getGuardianSelection: () => ({ provider: "openai-codex", model: "gpt-6-astra", reasoningEffort: "high" }),
+    requestManualApproval: async () => { throw new Error("human waiter must not be used"); },
+    models: fixtureModels([
+      '{"decision":"denied","reason":"Needs deeper review."}',
+      '{"decision":"approved","reason":"The command only removes the named synthetic scratch file."}',
+    ], []),
+  });
+  const decision = await authorize({ ...BASE_REQUEST, utility: "rm", args: ["/tmp/example-scratch-file"] });
+  assert.equal(decision.decision, "approved");
+  assert.equal(decision.source, "guardian");
+});
+
+test("Guardian fails closed when the lead model is unavailable", async () => {
+  const authorize = createShellSafetyAuthorizer({
+    getMode: () => "auto_review",
+    guardianEnabled: true,
+    getReviewerSelection: () => ({ provider: "openai-codex", model: "gpt-6-luna", reasoningEffort: "low" }),
+    getGuardianSelection: () => undefined,
+    requestManualApproval: async () => { throw new Error("unexpected human approval"); },
+    models: fixtureModels('{"decision":"denied","reason":"Needs deeper review."}', []),
+  });
+  const decision = await authorize(BASE_REQUEST);
+  assert.equal(decision.decision, "denied");
+  assert.equal(decision.source, "guardian");
+  assert.match(decision.reason, /lead model is unavailable/);
+});
+
+test("Guardian reads a directly invoked script in full and denies when it cannot", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "beale-guardian-example-"));
+  const scriptPath = join(directory, "example.sh");
+  const calls = [];
+  try {
+    await writeFile(scriptPath, 'rm -rf "$HOME/example-scratch"\n');
+    const authorize = createShellSafetyAuthorizer({
+      getMode: () => "auto_review",
+      guardianEnabled: true,
+      getReviewerSelection: () => ({ provider: "openai-codex", model: "gpt-6-luna", reasoningEffort: "low" }),
+      getGuardianSelection: () => ({ provider: "openai-codex", model: "gpt-6-astra", reasoningEffort: "high" }),
+      requestManualApproval: async () => { throw new Error("unexpected human approval"); },
+      models: fixtureModels([
+        '{"decision":"denied","reason":"Inspect script."}',
+        '{"decision":"denied","reason":"The script deletes under HOME; use a narrower explicit path."}',
+      ], calls),
+    });
+    const request = { ...BASE_REQUEST, utility: "bash", args: [scriptPath], cwd: directory };
+    const decision = await authorize(request);
+    assert.equal(decision.source, "guardian");
+    assert.match(calls.at(-1).context.messages[0].content, /rm -rf \\"\$HOME\/example-scratch\\"/);
+    await rm(scriptPath);
+    const missing = await authorize(request);
+    assert.equal(missing.decision, "denied");
+    assert.match(missing.reason, /could not inspect the full script/);
+    assert.equal(calls.filter((call) => call.modelId === "gpt-6-astra").length, 1);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("Auto-Review override expires and releases an unanswered approval waiter", async () => {

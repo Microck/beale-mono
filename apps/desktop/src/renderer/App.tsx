@@ -354,7 +354,7 @@ export function App(): JSX.Element {
   const [appServerRemoteAccessSettings, setAppServerRemoteAccessSettings] = useState<AppServerRemoteAccessSettings | null>(null);
   const [appServerRemoteAccessBusy, setAppServerRemoteAccessBusy] = useState(false);
   const [appearanceTheme, setAppearanceTheme] = useAppearanceTheme();
-  const [permissionSettings, setDangerModeEnabled, setDefaultShellSafetyMode] = usePermissionSettings();
+  const [permissionSettings, setDangerModeEnabled, setDefaultShellSafetyMode, setGuardianEnabled] = usePermissionSettings();
   const [sessionHeatPreferences, setSessionHeatPreference, setSessionHeatPalettePreference] = useSessionHeatPreferences();
   const [workspaceDraft, setWorkspaceDraft] = useState<WorkspaceOnboardingFormState | null>(null);
   const [workspaceOnboardingProgress, setWorkspaceOnboardingProgress] = useState<WorkspaceOnboardingProgressUpdate | null>(null);
@@ -2081,6 +2081,7 @@ export function App(): JSX.Element {
       openAiStatus={snapshot.openAi ?? openAiStatus}
       defaultProviderId={providerSettings?.defaultProviderId}
       defaultShellSafetyMode={permissionSettings.defaultShellSafetyMode}
+      guardianEnabled={permissionSettings.guardianEnabled}
       providerModelDefaults={providerSettings?.modelDefaults}
       providerPolicyRiskAcknowledgements={providerSettings?.cyberPolicyRiskAcknowledgements}
       researchProviderStatuses={researchProviderStatuses}
@@ -2327,6 +2328,8 @@ export function App(): JSX.Element {
             suggestionPreferences={suggestionPreferences}
             dangerModeEnabled={permissionSettings.dangerModeEnabled}
             defaultShellSafetyMode={permissionSettings.defaultShellSafetyMode}
+            guardianEnabled={permissionSettings.guardianEnabled}
+            onChangeGuardianEnabled={setGuardianEnabled}
             openAiOAuthResult={openAiOAuthResult}
             openAiStatus={openAiStatus ?? snapshot?.openAi ?? null}
             researchProviderOAuthResults={researchProviderOAuthResults}
@@ -2404,6 +2407,7 @@ export function App(): JSX.Element {
                 serverId={selectedFleetServerId} serverName={selectedFleetServer?.name ?? 'Remote'}
                 catalog={remoteCatalog} workspaceId={remoteWorkspaceId} sessionId={remoteSessionId}
                 newResearchOpen={remoteResearchOpen} automations={automationsOpen} error={remoteCatalogError}
+                guardianEnabled={permissionSettings.guardianEnabled}
                 selectedSubagentPath={remoteSelectedSubagentPath} onBackToSubagents={() => setRemoteSelectedSubagentPath(null)}
                 onSurfaceFocusChange={onRemoteSurfaceFocusChange}
                 onLaunched={(workspaceId, sessionId) => {

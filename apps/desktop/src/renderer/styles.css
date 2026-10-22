@@ -18673,12 +18673,16 @@ button.research-goal-choice:focus-visible {
 .workspace-surface-node { position: absolute; display: flex; flex-direction: column; align-items: flex-start; width: 220px; height: 84px; padding: 10px 12px; border: 1px solid var(--panel-border); border-radius: 9px; color: var(--text); text-align: left; box-shadow: 0 2px 8px rgb(0 0 0 / 6%); transition: background-image 180ms, border-color 180ms; }
 .workspace-surface-node:hover, .workspace-surface-node.selected { border-color: color-mix(in srgb, #32a887 70%, var(--panel-border)); }
 .workspace-surface-node.covered { border-color: color-mix(in srgb, #32a887 65%, var(--panel-border)); }
+.workspace-surface-node.blocked { border-color: color-mix(in srgb, #bf7741 75%, var(--panel-border)); }
+.workspace-surface-node.blocked .workspace-surface-node-kind { color: #bf7741; }
 .workspace-surface-node-kind { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
 .workspace-surface-node-name { width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 600; line-height: 22px; }
 .workspace-surface-node-progress { color: var(--muted-strong); font-size: 11px; font-variant-numeric: tabular-nums; }
 .workspace-surface-agent-dot { position: absolute; z-index: 2; width: 10px; height: 10px; border: 2px solid var(--panel); border-radius: 50%; background: #338fa6; box-shadow: 0 0 0 1px var(--panel-border); transition: left 360ms ease, top 360ms ease; pointer-events: auto; }
 .workspace-surface-agent-dot.root { background: var(--text); }
 .workspace-surface-map-detail { display: grid; gap: 5px; padding: 12px 14px; border: 1px solid var(--panel-border); border-radius: 8px; background: var(--panel); font-size: 13px; }
-.workspace-surface-map-detail span:last-child { color: var(--muted); font-size: 12px; }
+.workspace-surface-map-coverage { color: var(--muted); font-size: 12px; }
+.workspace-surface-map-blocker { margin: 2px 0; padding: 9px 11px; border: 1px solid color-mix(in srgb, #bf7741 55%, var(--panel-border)); border-radius: 6px; background: color-mix(in srgb, #bf7741 10%, var(--panel)); line-height: 1.45; }
+.workspace-surface-map-blocker strong { margin-right: 6px; color: #bf7741; }
 .workspace-surface-map-empty, .workspace-surface-map-status { margin: 12px 24px; color: var(--muted); font-size: 13px; }
 .workspace-surface-map > .workspace-surface-map-status { margin-inline: 0; }

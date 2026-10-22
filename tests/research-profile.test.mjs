@@ -87,6 +87,7 @@ test("default prompt uses plain guidance lines and bullets only for feature and 
   assert.match(prompt, /connect attacker control through reachable transformations and boundaries to a plausible unauthorized effect/);
   assert.match(prompt, /do not promote them as security findings without evidence of a security consequence/);
   assert.match(prompt, /Unknown reachability and unexplored chains remain open questions, not blocked findings/);
+  assert.match(prompt, /pursue all authorized work available without it first, including pre-auth research/);
   assert.match(prompt, /an independent review marked needs-work are work to pursue, not reasons to mark a finding Blocked/);
   assert.match(prompt, /Treat its gaps as the next research or review steps/);
   assert.match(prompt, /Use one canonical, evidence-gated research claim ledger[^\n]*\nThe active profile declares/);

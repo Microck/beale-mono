@@ -56,7 +56,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-22T21:05:38.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-22T23:07:52.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -408,6 +408,7 @@ export interface BealeWorkspaceSurfaceMap {
     firstTouchedAt: string | null; foundation: {
       coverage: { mappingComplete: boolean; sinksInvestigated: boolean; openQuestions: string[]; unexploredConnections: string[] };
     } | null;
+    progressBlocker: { reason: string; actorId: string; setAt: string } | null;
     coverageState: { covered: boolean; unmetRequirements: string[]; unblockedFindingIds: string[] };
   }>;
   agents: Array<{ sessionId: string; sessionTitle: string; agentId: string; surfaceId: string }>;
@@ -426,6 +427,9 @@ export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSu
       && typeof surface.name === 'string' && typeof surface.description === 'string'
       && (surface.firstTouchedAt === null || typeof surface.firstTouchedAt === 'string')
       && validFoundation(surface.foundation)
+      && (surface.progressBlocker === null || isRecord(surface.progressBlocker)
+        && typeof surface.progressBlocker.reason === 'string' && typeof surface.progressBlocker.actorId === 'string'
+        && typeof surface.progressBlocker.setAt === 'string')
       && isRecord(surface.coverageState) && typeof surface.coverageState.covered === 'boolean'
       && strings(surface.coverageState.unmetRequirements) && strings(surface.coverageState.unblockedFindingIds))
     || !Array.isArray(value.agents) || !value.agents.every((event) => isRecord(event)
@@ -790,6 +794,7 @@ export interface FleetRemoteResearchInput {
   goal?: { objective?: string };
   provider?: AppServerSessionLaunchProvider;
   shellSafetyMode?: string;
+  guardianEnabled?: boolean;
   workflowId?: string;
   collaboration?: Record<string, unknown>;
   repeatSchedule?: AppServerRepeatSchedule;
@@ -841,6 +846,7 @@ export function decodeFleetRemoteResearchInput(value: unknown, workspaceId: stri
     ...(value.goal === undefined ? {} : { goal: value.goal }),
     ...(value.provider === undefined ? {} : { provider: value.provider }),
     ...(value.shellSafetyMode === undefined ? {} : { shellSafetyMode: value.shellSafetyMode }),
+    ...(value.guardianEnabled === undefined ? {} : { guardianEnabled: value.guardianEnabled }),
     ...(value.workflowId === undefined ? {} : { workflowId: value.workflowId }),
     ...(value.collaboration === undefined ? {} : { collaboration: value.collaboration }) };
   if (value.repeatSchedule !== undefined) {
@@ -1122,6 +1128,7 @@ export interface AppServerSessionLaunchIntent {
   goal?: { objective?: string };
   provider?: AppServerSessionLaunchProvider;
   shellSafetyMode?: string;
+  guardianEnabled?: boolean;
   workflowId?: string;
   researchProfileId?: string;
   researchProfileHash?: string;
@@ -1201,6 +1208,9 @@ export function decodeAppServerSessionLaunchRequest(value: unknown): AppServerSe
   optionalBoundedString(launch, "attemptId", 128);
   requiredBoundedString(launch, "promptMarkdown", 131_072);
   optionalBoundedString(launch, "shellSafetyMode", 64);
+  if (launch.guardianEnabled !== undefined && typeof launch.guardianEnabled !== "boolean") {
+    throw new Error("launch.guardianEnabled must be a boolean.");
+  }
   optionalBoundedString(launch, "workflowId", 256);
   optionalBoundedString(launch, "researchProfileId", 256);
   optionalBoundedString(launch, "researchProfileHash", 256);

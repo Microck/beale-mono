@@ -319,6 +319,7 @@ interface ParsedArgs {
   titleModelDefault: string | undefined;
   titleEffortDefault: ResearchModelEffort | undefined;
   shellSafetyMode: ShellSafetyMode;
+  guardianEnabled: boolean;
   shellReviewModels: Readonly<Record<string, string>> | undefined;
   shellReviewEffort: ResearchModelEffort | undefined;
   memoryBackend: ResearchMemoryBackendId;
@@ -441,6 +442,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   let titleModelDefault: string | undefined;
   let titleEffortDefault: ResearchModelEffort | undefined;
   let shellSafetyMode: ShellSafetyMode = "auto_review";
+  let guardianEnabled = true;
   let shellReviewModels: Readonly<Record<string, string>> | undefined;
   let shellReviewEffort: ResearchModelEffort | undefined;
   let memoryBackend: ResearchMemoryBackendId = "app-server";
@@ -696,6 +698,8 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
     } else if (arg === "--shell-safety-mode") {
       shellSafetyMode = parseShellSafetyMode(readOptionValue(argv, index, arg));
       index += 1;
+    } else if (arg === "--no-guardian") {
+      guardianEnabled = false;
     } else if (arg === "--shell-review-models") {
       shellReviewModels = parseShellReviewModels(readOptionValue(argv, index, arg));
       index += 1;
@@ -809,6 +813,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
     titleModelDefault,
     titleEffortDefault,
     shellSafetyMode,
+    guardianEnabled,
     shellReviewModels,
     shellReviewEffort,
     memoryBackend,
@@ -2147,6 +2152,20 @@ export async function main(
           executionPosture: "operator_managed",
         },
         getMode: () => controlStream?.getShellSafetyMode() ?? args.shellSafetyMode,
+        guardianEnabled: args.guardianEnabled,
+        getGuardianSelection: (): ShellReviewerSelection | undefined => {
+          const active = controlStream?.getModelSelection();
+          const provider = active?.provider ?? modelConfig?.provider;
+          const model = active?.model ?? modelConfig?.model;
+          if (!provider || !model) return undefined;
+          return {
+            provider,
+            model,
+            reasoningEffort: active?.reasoningEffort === "off"
+              ? "low"
+              : active?.reasoningEffort ?? modelConfig?.effort ?? "medium",
+          };
+        },
         getReviewerSelection: (): ShellReviewerSelection | undefined => {
           const provider =
             controlStream?.getModelSelection()?.provider ??

@@ -61,7 +61,7 @@ export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, s
   />;
 }
 
-export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceId, sessionId, newResearchOpen, automations, error, selectedSubagentPath = null, onBackToSubagents = () => undefined, onLaunched, onSurfaceFocusChange }: {
+export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceId, sessionId, newResearchOpen, automations, error, guardianEnabled = true, selectedSubagentPath = null, onBackToSubagents = () => undefined, onLaunched, onSurfaceFocusChange }: {
   serverId: string;
   serverName: string;
   catalog: FleetRemoteCatalog | null;
@@ -70,6 +70,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   newResearchOpen: boolean;
   automations: boolean;
   error: string | null;
+  guardianEnabled?: boolean;
   selectedSubagentPath?: string | null;
   onBackToSubagents?: () => void;
   onLaunched: (workspaceId: string, sessionId: string) => void;
@@ -236,6 +237,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
       const research: FleetRemoteResearchInput = {
         promptMarkdown: input.promptMarkdown, targetIds: input.targetIds,
         mode: input.mode, shellSafetyMode: input.shellSafetyMode,
+        guardianEnabled,
         ...(input.goalEnabled ? { goal: { ...(input.goalObjective ? { objective: input.goalObjective } : {}) } } : {}),
         ...(input.provider ? { provider: { id: input.provider, model: input.model,
           reasoningEffort: input.reasoningEffort, fastMode: input.fastMode === true,

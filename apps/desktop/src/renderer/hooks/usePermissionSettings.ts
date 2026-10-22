@@ -4,6 +4,7 @@ import {
   DEFAULT_PERMISSION_SETTINGS,
   readPermissionSettings,
   withDangerModeEnabled,
+  withGuardianEnabled,
   withDefaultShellSafetyMode,
   writePermissionSettings,
   type PermissionSettings
@@ -17,7 +18,8 @@ function initialPermissionSettings(): PermissionSettings {
 export function usePermissionSettings(): [
   PermissionSettings,
   (enabled: boolean) => void,
-  (mode: ShellSafetyMode) => void
+  (mode: ShellSafetyMode) => void,
+  (enabled: boolean) => void
 ] {
   const [settings, setSettings] = useState<PermissionSettings>(initialPermissionSettings);
 
@@ -33,5 +35,9 @@ export function usePermissionSettings(): [
     setSettings((current) => withDefaultShellSafetyMode(current, mode));
   }, []);
 
-  return [settings, setDangerModeEnabled, setDefaultMode];
+  const setGuardianEnabled = useCallback((enabled: boolean): void => {
+    setSettings((current) => withGuardianEnabled(current, enabled));
+  }, []);
+
+  return [settings, setDangerModeEnabled, setDefaultMode, setGuardianEnabled];
 }

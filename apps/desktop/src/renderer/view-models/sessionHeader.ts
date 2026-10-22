@@ -23,14 +23,27 @@ export function sessionDurationTiming(detail: RunDetail, nowMs: number): Session
   const updated = latestRunDetailDate(detail);
   if (!updated) return null;
 
-  const createdMs = Date.parse(detail.run.createdAt);
-  const durationEndMs = detail.run.status === 'active' ? nowMs : updated.getTime();
-  const durationMs = Number.isFinite(createdMs) ? Math.max(0, durationEndMs - createdMs) : 0;
+  const intervals = detail.activityIntervals?.length
+    ? detail.activityIntervals
+    : detail.attempts.length
+      ? detail.attempts.map((attempt, index) => ({
+          startedAt: attempt.startedAt,
+          endedAt: attempt.endedAt ?? detail.attempts[index + 1]?.startedAt ?? null
+        }))
+      : [{ startedAt: detail.run.startedAt ?? detail.run.createdAt, endedAt: detail.run.endedAt }];
+  const durationMs = intervals.reduce((total, interval, index) => {
+    const startedMs = Date.parse(interval.startedAt);
+    const endedMs = interval.endedAt
+      ? Date.parse(interval.endedAt)
+      : detail.run.status === 'active' && index === intervals.length - 1 ? nowMs : updated.getTime();
+    return total + (Number.isFinite(startedMs) && Number.isFinite(endedMs)
+      ? Math.max(0, endedMs - startedMs) : 0);
+  }, 0);
 
   return {
     durationMs,
     durationLabel: formatDurationHms(durationMs),
-    durationTooltip: `Created ${formatSessionDateTime(detail.run.createdAt)}\nUpdated ${formatSessionStart(updated)}`
+    durationTooltip: `Active across ${intervals.length} ${intervals.length === 1 ? 'period' : 'periods'}\nCreated ${formatSessionDateTime(detail.run.createdAt)}\nUpdated ${formatSessionStart(updated)}`
   };
 }
 

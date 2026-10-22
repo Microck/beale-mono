@@ -615,6 +615,8 @@ describe('app-server session persistence boundary', () => {
       });
       const activeDetail = database.getRunDetail(context.run.id);
       expect(activeDetail.run.status).toBe('active');
+      expect(activeDetail.activityIntervals).toHaveLength(2);
+      expect(database.getRunRow(context.run.id)?.sessionRuns[0]?.activityIntervals).toEqual(activeDetail.activityIntervals);
       expect(activeDetail.transcriptMessages.some((message) =>
         message.phase === 'final_answer' && message.contentMarkdown === 'Request was aborted'
       )).toBe(false);
@@ -628,6 +630,7 @@ describe('app-server session persistence boundary', () => {
           : latestTrace?.id ?? null
       });
       expect(update?.run.status).toBe('active');
+      expect(update?.activityIntervals).toEqual(activeDetail.activityIntervals);
       expect(update?.transcriptMessages).toEqual([]);
     } finally {
       database.close();

@@ -17,6 +17,7 @@ import type {
   RunHistoryPage,
   RunRecord,
   RunRow,
+  SessionActivityInterval,
   SessionNextPromptSuggestion,
   SessionTranscriptSearchInput,
   SessionTranscriptSearchResponse,
@@ -305,13 +306,7 @@ export function createAppServerSessionBoundary(
         runId: session.id,
         attemptId: session.attempts.at(-1)?.id ?? null,
         status: sessionStatus(session.status),
-        activityIntervals: [{
-          id: `activity_${session.id}`,
-          runId: session.id,
-          attemptId: session.attempts.at(-1)?.id ?? null,
-          startedAt: session.startedAt,
-          endedAt: session.status === 'paused' && recovery ? recovery.recoveredAt : session.endedAt
-        }],
+        activityIntervals: sessionActivityIntervals(session),
         terminationCause: session.status === 'paused' && recovery ? 'workspace_recovery' : null
       }]
     };
@@ -1321,6 +1316,23 @@ function sessionRun(session: AppServerSessionRecord | AppServerSessionSummary): 
   };
 }
 
+function sessionActivityIntervals(session: AppServerSessionRecord | AppServerSessionSummary): SessionActivityInterval[] {
+  const intervals = session.activityIntervals ?? session.attempts.map((attempt, index) => ({
+    startedAt: attempt.startedAt,
+    endedAt: attempt.endedAt
+      ?? stringValue(attempt.metadata.recoveredAt)
+      ?? session.attempts[index + 1]?.startedAt
+      ?? (session.status === 'active' ? null : session.endedAt ?? session.updatedAt)
+  }));
+  return intervals.map((interval, index) => ({
+    id: `activity_${session.id}_${index}`,
+    runId: session.id,
+    attemptId: [...session.attempts].reverse().find((attempt) => attempt.startedAt <= interval.startedAt)?.id ?? null,
+    startedAt: interval.startedAt,
+    endedAt: interval.endedAt
+  }));
+}
+
 function isRootFinalResponse(message: TranscriptMessageRecord, attemptId: string | null): boolean {
   if (message.role !== 'assistant' || message.phase !== 'final_answer') return false;
   const agentPath = stringValue(message.metadata.agentPath);
@@ -1458,6 +1470,7 @@ function sessionDetail(
   });
   return {
     run,
+    activityIntervals: sessionActivityIntervals(session),
     ...(session.tokenUsage ? { tokenUsage: session.tokenUsage } : {}),
     ...(session.activityCounts ? { activityCounts: session.activityCounts } : {}),
     researchProfile: run.researchProfileSnapshotId
