@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { BealeWorkspaceResearchTrackRequest } from '@beale/app-server-runtime/protocol';
 import { ArrowRight, Check, ChevronDown, ChevronRight, Compass, FileText, Lightbulb, Monitor, Play, Plus, RefreshCw, Repeat, Settings, ShieldAlert, Sparkles, Telescope, Waypoints, X } from 'lucide-react';
 import type {
   HostEnvironment,
@@ -79,6 +80,19 @@ export async function loadWorkspaceFleetStateWithRetry(
 
 export function newResearchPromptPlaceholder(addContext: boolean): string {
   return addContext ? 'Write a sentence or two' : 'Write a full research prompt';
+}
+
+export function researchTrackConfiguration(input: StartRunInput): NonNullable<BealeWorkspaceResearchTrackRequest['configuration']> {
+  if (!input.provider || !input.model || !input.targetIds?.length) {
+    throw new Error('Choose a lead model and at least one target before starting the track.');
+  }
+  const collaboration = input.collaboration ? normalizeResearchCollaboration(input.collaboration) : null;
+  return { provider: { id: input.provider, model: input.model, reasoningEffort: input.reasoningEffort || 'off' },
+    targetIds: input.targetIds,
+    ...(collaboration ? { collaboration: {
+      ...collaboration,
+      providers: collaboration.providers.filter((preference) => preference.enabled)
+    } } : {}) };
 }
 
 export function enableCollaboratorAtTop(
@@ -183,6 +197,8 @@ interface StartRunFormProps {
   onSelectResearchGoalSuggestion?: (phase: ResearchGoalPhase, suggestion: string) => void;
   onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onStarted: (run: RunRecord) => void;
+  trackMode?: boolean;
+  onTrackStarted?: () => void;
 }
 
 export interface ResearchSettingsFormProps {
@@ -209,6 +225,7 @@ export interface ResearchSettingsFormProps {
   initialInput?: StartRunInput;
   showSuggestions?: boolean;
   showAddContext?: boolean;
+  trackMode?: boolean;
   generatePrompt?: (input: ResearchPromptGenerationInput) => Promise<GeneratedResearchPrompt>;
   disableNoRepeat?: boolean;
   presentation?: 'dialog' | 'embedded' | 'session';
@@ -238,6 +255,15 @@ export function StartRunForm(props: StartRunFormProps): JSX.Element {
   const [credentialAccessError, setCredentialAccessError] = useState<string | null>(null);
   const preparingRun = useRef(false);
   const launchRun = async (input: StartRunInput): Promise<void> => {
+    if (props.trackMode) {
+      let started = false;
+      await runAction(async () => {
+        await window.beale.controlResearchTrack(snapshot.workspace.workspaceId, 'start', undefined, researchTrackConfiguration(input));
+        started = true;
+      });
+      if (started) props.onTrackStarted?.();
+      return;
+    }
     let latestRun: RunRecord | undefined;
     await runAction(async () => {
       const next = await window.beale.startRun({ ...input, guardianEnabled: props.guardianEnabled !== false });
@@ -264,7 +290,7 @@ export function StartRunForm(props: StartRunFormProps): JSX.Element {
     preparingRun.current = true;
     try {
       const selectedTargetId = input.targetIds?.[0] ?? input.machineId;
-      if (selectedTargetId) {
+      if (selectedTargetId && !props.trackMode) {
         await window.beale.configureFleet({ action: 'select-machine', workspaceId: snapshot.workspace.workspaceId, machineId: selectedTargetId });
       }
       await prepareCredentials(input);
@@ -304,6 +330,9 @@ export function StartRunForm(props: StartRunFormProps): JSX.Element {
         workspaceName={snapshot.activeScope.workspaceName ?? 'Workspace'}
         showSuggestions={props.showSuggestions ?? true}
         presentation={presentation}
+        trackMode={props.trackMode}
+        title={props.trackMode ? 'Start Track' : undefined}
+        showAddContext={!props.trackMode}
         onSubmit={prepareRun}
       />
       {credentialAccess ? (
@@ -383,6 +412,7 @@ export function ResearchSettingsForm({
   initialInput,
   showSuggestions = true,
   showAddContext = true,
+  trackMode = false,
   generatePrompt,
   disableNoRepeat = false,
   presentation: formPresentation = 'embedded',
@@ -801,7 +831,7 @@ export function ResearchSettingsForm({
   const vmRepeatConflict = selectedMachineIds.some((machineId) => machineId.startsWith('vm:')) && repeatSchedule.type !== 'none';
   const remoteTargetsReady = !remoteTargetChoices || selectedMachineIds.length > 0
     && selectedMachineIds.every((machineId) => remoteTargetChoices.some((target) => target.id === machineId && target.ready));
-  const canStart = hasPromptDraft
+  const canStart = (trackMode || hasPromptDraft)
     && (!fleetWorkspaceId || Boolean(selectedMachineIds.length > 0 && selectedMachineIds.every((machineId) => (
       remoteTargetChoices
         ? remoteTargetChoices.some((target) => target.id === machineId && target.ready)
@@ -1023,7 +1053,7 @@ export function ResearchSettingsForm({
       const { daybreakBlue: _previousDaybreakBlue, ...otherInput } = inputRef.current;
       const next: StartRunInput = {
         ...otherInput,
-        promptMarkdown,
+        promptMarkdown: trackMode ? '' : promptMarkdown,
         provider: modelSelection.provider,
         model: modelSelection.model,
         reasoningEffort: inputValueForEffort(modelSelection.reasoningEffort),
@@ -1054,8 +1084,9 @@ export function ResearchSettingsForm({
         collaboration={collaboration}
         onCollaborationChange={(nextCollaboration) => update('collaboration', nextCollaboration)}
         initialSafetyMode={input.shellSafetyMode}
-        initialInstruction={input.promptMarkdown}
-        inputPlaceholder={newResearchPromptPlaceholder(generateEnabled)}
+        initialInstruction={trackMode ? '' : input.promptMarkdown}
+        inputPlaceholder={trackMode ? 'Continue security research until all surfaces are covered.' : newResearchPromptPlaceholder(generateEnabled)}
+        instructionLocked={trackMode}
         ariaLabel={title ?? 'Start new research'}
         emptyContent={(
           <NewResearchWelcome
@@ -1085,7 +1116,7 @@ export function ResearchSettingsForm({
                 <ArrowRight className="new-research-target-arrow" size={13} aria-hidden="true" />
                 {fleetWorkspaceId ? <MachinePicker targets={remoteTargetChoices ?? (fleetState ? allowedFleetTargets(fleetState, fleetWorkspaceId) : null)} values={selectedMachineIds} disabled={generatingPrompt} error={fleetError} onChange={selectMachine} onRetry={() => setFleetLoadAttempt((attempt) => attempt + 1)} /> : <span>No target</span>}
               </div>
-              <div className="new-research-options-tray-right">
+              {!trackMode ? <div className="new-research-options-tray-right">
                 <NewResearchSettingsMenu
                   goalEnabled={input.goalEnabled}
                   addContextEnabled={generateEnabled}
@@ -1098,7 +1129,7 @@ export function ResearchSettingsForm({
                   onAddContextChange={setGenerateEnabled}
                   onRepeatChange={selectRepeatSchedule}
                 />
-              </div>
+              </div> : null}
             </div>
             {vmRepeatConflict ? <div role="alert">Repeating sessions are available on Local only. Choose No repeat to use this VM.</div> : null}
           </>

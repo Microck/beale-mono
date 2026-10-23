@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import type { BealeAppServerWorkspaceDetails, FleetRemoteCatalog, FleetRemoteResearchInput } from '@beale/app-server-runtime/protocol';
 import type { ResearchGoalSuggestionsByPhase, ResearchGoalSuggestionStateByPhase, ResearchModelEffortLevel, ResearchModelProviderId, ResearchProviderModelCatalog, ResearchProviderStatus, ProviderModelDefaults, StartRunInput } from '../../../shared/types';
-import { ResearchSettingsForm } from '../sessions/StartRunForm';
+import { ResearchSettingsForm, researchTrackConfiguration } from '../sessions/StartRunForm';
 import { WorkspaceSidebar } from '../workspaces/WorkspaceSidebar';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { FleetBrowserSideView } from '../research/FleetBrowserSideView';
@@ -61,19 +61,23 @@ export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, s
   />;
 }
 
-export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceId, sessionId, newResearchOpen, automations, error, guardianEnabled = true, selectedSubagentPath = null, onBackToSubagents = () => undefined, onLaunched, onSurfaceFocusChange, onWorkspaceViewChange }: {
+export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceId, sessionId, newResearchOpen, trackMode = false, automations, error, guardianEnabled = true, selectedSubagentPath = null, onBackToSubagents = () => undefined, onLaunched, onTrackStarted, onStartTrack, onCancelResearch, onSurfaceFocusChange, onWorkspaceViewChange }: {
   serverId: string;
   serverName: string;
   catalog: FleetRemoteCatalog | null;
   workspaceId: string | null;
   sessionId: string | null;
   newResearchOpen: boolean;
+  trackMode?: boolean;
   automations: boolean;
   error: string | null;
   guardianEnabled?: boolean;
   selectedSubagentPath?: string | null;
   onBackToSubagents?: () => void;
   onLaunched: (workspaceId: string, sessionId: string) => void;
+  onTrackStarted?: () => void;
+  onStartTrack?: () => void;
+  onCancelResearch?: () => void;
   onSurfaceFocusChange?: (serverId: string, workspaceId: string, sessionId: string, summary: SurfaceFocusSummary | null) => void;
   onWorkspaceViewChange?: (viewName: string) => void;
 }): JSX.Element {
@@ -231,10 +235,15 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
       });
   };
   const start = async (input: StartRunInput): Promise<void> => {
-    if (!workspaceId || !input.promptMarkdown.trim() || starting || !input.targetIds?.length) return;
+    if (!workspaceId || starting || !input.targetIds?.length || !trackMode && !input.promptMarkdown.trim()) return;
     setStarting(true);
     setLaunchError(null);
     try {
+      if (trackMode) {
+        await window.beale.controlResearchTrack(workspaceId, 'start', serverId, researchTrackConfiguration(input));
+        onTrackStarted?.();
+        return;
+      }
       const research: FleetRemoteResearchInput = {
         promptMarkdown: input.promptMarkdown, targetIds: input.targetIds,
         mode: input.mode, shellSafetyMode: input.shellSafetyMode,
@@ -270,7 +279,9 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
         <h1>{workspace?.name ?? (automations ? 'Automations' : 'Research')}</h1></> : null}
       {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
       {showingWorkspaceDetails ? workspaceDetails?.workspace.workspaceId === workspaceId
-        ? <RemoteWorkspaceDetails key={`${serverId}:${workspaceId}`} serverId={serverId} details={workspaceDetails} onViewChange={onWorkspaceViewChange} />
+        ? <RemoteWorkspaceDetails key={`${serverId}:${workspaceId}`} serverId={serverId} details={workspaceDetails}
+          onViewChange={onWorkspaceViewChange} onOpenSession={(id) => onLaunched(workspaceId, id)}
+          onStartTrack={onStartTrack} />
         : <p className="remote-fleet-details-status" role={workspaceDetailsError ? 'alert' : 'status'}>{workspaceDetailsError ?? 'Loading workspace details…'}</p>
       : null}
       {session ? <>{detailError ? <p className="settings-form-error" role="alert">{detailError}</p> : null}
@@ -334,6 +345,8 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
         {providerIds.length === 0 ? <p className="settings-form-error remote-research-error" role="alert">Configure a research provider on this app server before starting research.</p> : null}
         <ResearchSettingsForm
           key={`${serverId}:${workspaceId}`} researchProfile={null} formIdentity={`${serverId}:${workspaceId}`}
+          trackMode={trackMode} title={trackMode ? 'Start Track' : undefined}
+          showSuggestions={!trackMode} showAddContext={!trackMode}
           fleetWorkspaceId={workspaceId ?? undefined} remoteTargetChoices={targets} appServerName={serverName} workspaceName={workspace.name}
           openAiStatus={null} defaultProviderId={defaultProviderId} providerModelDefaults={providerDefaults}
           providerPolicyRiskAcknowledgements={providerRiskAcknowledgements} requireCyberPolicyAcknowledgement
@@ -346,7 +359,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
           onSelectResearchGoalSuggestion={(phase, suggestion) => setGoalState((current) => current.key !== suggestionKey ? current : {
             ...current, suggestions: { ...current.suggestions, [phase]: current.suggestions[phase]?.filter((candidate) => candidate !== suggestion) ?? [] }
           })}
-          presentation="session" busy={starting} onSubmit={start}
+          presentation="session" busy={starting} onSubmit={start} onCancel={onCancelResearch}
           generatePrompt={async (input) => {
             if (!workspaceId) throw new Error('Choose a workspace.');
             const expanded = await window.beale.expandFleetRemoteResearchPrompt(serverId, workspaceId, {

@@ -40,6 +40,7 @@ import {
   type BealeAppServerSessionStopResult,
   type BealeAppServerSessionControlResult,
   type BealeAppServerShutdownResult,
+  type BealeWorkspaceResearchTrack,
   type AppServerSessionLaunchRequest
 } from '@beale/app-server-runtime/protocol';
 import {
@@ -60,6 +61,7 @@ import {
 import { prepareAppServerSessionLaunch } from './sessionLaunch.js';
 import {
   AppServerHostService,
+  type AppServerSessionStopCause,
   type AppServerStartupRecoveryResult,
   type PreparedAppServerSession
 } from './hostService.js';
@@ -167,6 +169,7 @@ interface SessionRuntime {
   exitCode: number | null;
   stopRequested: boolean;
   trackRotationRequested: boolean;
+  terminalPersistencePending: boolean;
   diagnostic: string | null;
   startupDiagnostic: string | null;
   unsubscribeSessionEvents: (() => void) | null;
@@ -227,6 +230,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
   let fleetProxyScanInProgress = false;
   let automationScanInProgress = false;
   let researchTrackScanInProgress = false;
+  const trackTitleEpochs = new Map<string, string>();
   let closing = false;
 
   const notifyChange = (): void => {
@@ -646,18 +650,23 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
         return;
       }
       if (body.operation === 'workspace.research_track' && isRecord(body.input)) {
-        const { action, workspaceId } = decodeBealeWorkspaceResearchTrackRequest(body.input);
+        const { action, workspaceId, configuration } = decodeBealeWorkspaceResearchTrackRequest(body.input);
+        if (action === 'status') {
+          const result = await hostCall(() => hostService.workspaceResearchTrack(workspaceId, action));
+          sendJson(response, 200, { controlVersion: BEALE_APP_SERVER_CONTROL_VERSION, result: researchTrackWithPhase(result) });
+          return;
+        }
         if (action === 'pause' || action === 'stop') {
           const current = await hostCall(() => hostService.workspaceResearchTrack(workspaceId, 'status'));
           const result = await hostCall(() => hostService.workspaceResearchTrack(workspaceId, action));
-          if (current?.activeSessionId) stopSession(current.activeSessionId);
-          sendJson(response, 200, { controlVersion: BEALE_APP_SERVER_CONTROL_VERSION, result });
+          if (current?.activeSessionId) stopSession(current.activeSessionId, 'track_control');
+          sendJson(response, 200, { controlVersion: BEALE_APP_SERVER_CONTROL_VERSION, result: researchTrackWithPhase(result) });
           return;
         }
         if (action === 'start' || action === 'resume') {
-          const result = await hostCall(() => hostService.workspaceResearchTrack(workspaceId, action));
+          const result = await hostCall(() => hostService.workspaceResearchTrack(workspaceId, action, configuration));
           setImmediate(() => void scanDueResearchTracks());
-          sendJson(response, 200, { controlVersion: BEALE_APP_SERVER_CONTROL_VERSION, result });
+          sendJson(response, 200, { controlVersion: BEALE_APP_SERVER_CONTROL_VERSION, result: researchTrackWithPhase(result) });
           return;
         }
       }
@@ -918,7 +927,8 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
   ): Promise<StartedSession> {
     const normalized = normalizeSessionRequest(input);
     let request = normalized.request;
-    if (sessions.has(normalized.sessionId) && !isTerminal(sessions.get(normalized.sessionId)!.state)) {
+    const previous = sessions.get(normalized.sessionId);
+    if (previous && (!isTerminal(previous.state) || previous.terminalPersistencePending)) {
       throw new HttpError(409, `Session ${normalized.sessionId} already exists.`);
     }
     if (request.launch.machineId && !request.launch.machineId.startsWith('vm:')
@@ -1006,7 +1016,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
       }
     }
     const existing = sessions.get(sessionId);
-    if (existing && !isTerminal(existing.state)) {
+    if (existing && (!isTerminal(existing.state) || existing.terminalPersistencePending)) {
       if (residentIntrospectionToken) introspectionBindings.delete(residentIntrospectionToken);
       throw new HttpError(409, `Session ${sessionId} already exists.`);
     }
@@ -1090,6 +1100,17 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     }
   }
 
+  function researchTrackWithPhase(track: BealeWorkspaceResearchTrack | null): BealeWorkspaceResearchTrack | null {
+    if (!track) return null;
+    if (track.status !== 'running') return { ...track, activeSessionPhase: null };
+    if (!track.activeSessionId) return { ...track,
+      activeSessionPhase: track.epochCount === 0 ? 'selecting' : 'switching' };
+    const runtime = sessions.get(track.activeSessionId);
+    return { ...track, activeSessionPhase: !runtime ? 'preparing'
+      : runtime.state === 'running' ? 'researching'
+        : runtime.state === 'starting' ? 'preparing' : 'switching' };
+  }
+
   async function scanDueResearchTracks(): Promise<void> {
     if (closing || researchTrackScanInProgress) return;
     researchTrackScanInProgress = true;
@@ -1098,20 +1119,34 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
         if (runtime.request.launch.mode !== 'research-track' || isTerminal(runtime.state)) continue;
         if (Date.now() - Date.parse(runtime.startedAt) > 45 * 60_000) {
           runtime.trackRotationRequested = true;
-          stopSession(runtime.sessionId);
+          stopSession(runtime.sessionId, 'track_rotation');
           continue;
         }
         try {
           const track = await hostCall(() => hostService.workspaceResearchTrack(runtime.request.launch.workspaceId, 'status'));
-          if (!track || track.status !== 'running' || track.activeSessionId !== runtime.sessionId) stopSession(runtime.sessionId);
+          if (!track || track.status !== 'running' || track.activeSessionId !== runtime.sessionId) {
+            stopSession(runtime.sessionId, 'track_state');
+          } else if (runtime.state === 'running' && Date.now() - Date.parse(runtime.startedAt) >= 60_000
+            && trackTitleEpochs.get(track.id) !== `${track.pass}:${track.epochCount}`) {
+            const surface = track.surfaces.find((work) => work.surfaceId === track.activeSurfaceId);
+            const complete = track.surfaces.filter((work) => work.status === 'complete').length;
+            const total = track.surfaces.filter((work) => work.status !== 'excluded').length;
+            const title = `Track · ${surface ? `Researching ${surface.name.slice(0, 80)}` : 'Selecting surface'} · ${complete}/${total}`;
+            await hostCall(() => hostService.updateResearchTrackSessionTitle(
+              runtime.request.launch.workspaceId, runtime.sessionId, track.epochCount, title));
+            trackTitleEpochs.set(track.id, `${track.pass}:${track.epochCount}`);
+          }
         } catch { /* A transient status read must not interrupt active research. */ }
       }
       const service = hostService as AppServerHostService & {
-        dueResearchTracks?: (at?: Date) => Promise<Array<{ request: AppServerSessionLaunchRequest }>>;
+        dueResearchTracks?: (at?: Date, activeSessionIds?: ReadonlySet<string>) => Promise<Array<{ request: AppServerSessionLaunchRequest }>>;
         recordResearchTrackEpochLaunchFailure?: (workspaceId: string, sessionId: string, reason: string) => void;
       };
       if (typeof service.dueResearchTracks !== 'function') return;
-      const tracks = await service.dueResearchTracks();
+      const activeSessionIds = new Set([...sessions.values()]
+        .filter((runtime) => !isTerminal(runtime.state) || runtime.terminalPersistencePending)
+        .map((runtime) => runtime.sessionId));
+      const tracks = await service.dueResearchTracks(new Date(), activeSessionIds);
       for (const track of tracks) {
         const sessionId = track.request.sessionId;
         if (!sessionId || closing) break;
@@ -1148,6 +1183,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
       exitCode: null,
       stopRequested: false,
       trackRotationRequested: false,
+      terminalPersistencePending: false,
       diagnostic: null,
       startupDiagnostic: null,
       unsubscribeSessionEvents: null,
@@ -1396,7 +1432,8 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
 
   async function recordSessionControlState(
     runtime: SessionRuntime,
-    state: 'active' | 'paused' | 'stopped'
+    state: 'active' | 'paused' | 'stopped',
+    stopCause?: AppServerSessionStopCause
   ): Promise<void> {
     const service = hostService as AppServerHostService & {
       recordSessionControlState?: (input: {
@@ -1404,6 +1441,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
         sessionId: string;
         attemptId: string;
         state: 'active' | 'paused' | 'stopped';
+        stopCause?: AppServerSessionStopCause;
       }) => Promise<void>;
     };
     try {
@@ -1411,7 +1449,8 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
         request: runtime.request,
         sessionId: runtime.sessionId,
         attemptId: runtime.currentAttemptId,
-        state
+        state,
+        ...(stopCause ? { stopCause } : {})
       });
     } catch (error) {
       runtime.diagnostic = boundedDiagnostic(
@@ -1563,7 +1602,11 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     void fleetBrowserSessions.closeSessionTargets(runtime.sessionId).catch(() => undefined);
     teardownRuntime(runtime, state === 'completed' ? 1000 : 1011);
     notifyChange();
-    void recordSessionTerminalState(runtime, state);
+    runtime.terminalPersistencePending = true;
+    void recordSessionTerminalState(runtime, state).finally(() => {
+      runtime.terminalPersistencePending = false;
+      setImmediate(() => void scanDueResearchTracks());
+    });
   }
 
   async function recordSessionTerminalState(runtime: SessionRuntime, state: 'completed' | 'failed' | 'stopped'): Promise<void> {
@@ -1617,7 +1660,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
    * Returns true when a running session was stopped, false when a retained
    * terminal record was removed, or null when the id is unknown.
    */
-  function stopSession(sessionId: string): boolean | null {
+  function stopSession(sessionId: string, stopCause: AppServerSessionStopCause = 'user'): boolean | null {
     const runtime = sessions.get(sessionId);
     if (!runtime) return null;
     if (isTerminal(runtime.state)) {
@@ -1625,17 +1668,18 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
       notifyChange();
       return false;
     }
-    requestRuntimeStop(runtime);
+    requestRuntimeStop(runtime, undefined, stopCause);
     return true;
   }
 
   function requestRuntimeStop(
     runtime: SessionRuntime,
-    control?: Record<string, unknown>
+    control?: Record<string, unknown>,
+    stopCause: AppServerSessionStopCause = 'user'
   ): void {
     if (!runtime.stopRequested) {
       runtime.stopRequested = true;
-      void recordSessionControlState(runtime, 'stopped');
+      void recordSessionControlState(runtime, 'stopped', stopCause);
     }
     const session = runtime.session;
     if (!session) {

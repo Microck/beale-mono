@@ -1,24 +1,30 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { BealeWorkspaceResearchTrack } from '@beale/app-server-runtime/protocol';
 
-export function WorkspaceResearchTrack({ workspaceId, serverId, enabled }: {
+export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenSession, onStartTrack }: {
   workspaceId: string;
   serverId?: string;
   enabled: boolean;
+  onOpenSession?: (sessionId: string) => void;
+  onStartTrack?: () => void;
 }): JSX.Element {
   const [track, setTrack] = useState<BealeWorkspaceResearchTrack | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [observedSessionId, setObservedSessionId] = useState<string | null>(null);
   useEffect(() => {
     if (!workspaceId) { setLoading(false); return undefined; }
     let active = true;
     const refresh = (): void => {
       void window.beale.getResearchTrack(workspaceId, serverId)
-        .then((value) => { if (active) { setTrack(value); setLoading(false); setError(null); } })
+        .then((value) => { if (active) { setTrack(value);
+          if (value?.activeSessionId && value.activeSessionPhase === 'researching') setObservedSessionId(value.activeSessionId);
+          setLoading(false); setError(null); } })
         .catch((caught: unknown) => { if (active) { setLoading(false); setError(message(caught)); } });
     };
     setTrack(null);
+    setObservedSessionId(null);
     setLoading(true);
     refresh();
     const timer = window.setInterval(refresh, 5_000);
@@ -28,7 +34,9 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled }: {
     if (busy) return;
     setBusy(true);
     setError(null);
-    try { setTrack(await window.beale.controlResearchTrack(workspaceId, action, serverId)); }
+    try { const value = await window.beale.controlResearchTrack(workspaceId, action, serverId);
+      setTrack(value);
+      if (value.activeSessionId && value.activeSessionPhase === 'researching') setObservedSessionId(value.activeSessionId); }
     catch (caught) { setError(message(caught)); }
     finally { setBusy(false); }
   };
@@ -39,10 +47,14 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled }: {
   const scheduledRevisit = track?.surfaces.some((surface) => surface.revisitAfter && Date.parse(surface.revisitAfter) > Date.now());
   const action = !enabled ? null : !track || status === 'complete' || status === 'stopped' ? 'start'
     : status === 'paused' || status === 'waiting' ? 'resume' : null;
-  const label = !track ? 'Start continuous research' : status === 'complete' ? 'Start another pass'
-    : status === 'stopped' ? 'Start continuous research' : 'Resume research';
-  const progress = status === 'running' ? active ? `Researching ${active.name}`
-    : scheduledRevisit ? 'Second look scheduled' : 'Selecting next surface' : null;
+  const label = action === 'start' ? 'Start Track' : 'Resume Track';
+  const phase = track?.activeSessionPhase ?? (active ? 'researching' : track?.epochCount ? 'switching' : 'selecting');
+  const progress = status === 'running'
+    ? phase === 'preparing' ? `Preparing ${active?.name ?? 'research session'}`
+      : phase === 'switching' ? 'Preparing next surface'
+        : phase === 'selecting' ? scheduledRevisit ? 'Second look scheduled' : 'Selecting next surface'
+          : `Researching ${active?.name ?? 'assigned surface'}`
+    : null;
   const statusTitle = track ? `${progress ?? status ?? 'Research track'} · ${complete} of ${total} surfaces complete` : undefined;
   const visibleError = error ?? (status === 'stopped' ? null : track?.lastError);
   return <div className="workspace-research-track" role="group" aria-label="Continuous research track">
@@ -57,11 +69,15 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled }: {
         </div>)}
       </div>
     </details> : null}
+    {status !== 'running' && onOpenSession && observedSessionId ? <button className="secondary-button" type="button"
+      onClick={() => onOpenSession(observedSessionId)}>View session</button> : null}
     {action ? <button className="primary-button" type="button" disabled={loading || busy}
-      onClick={() => void control(action)} title={statusTitle}>{busy ? 'Working…' : label}</button> : null}
+      onClick={() => action === 'start' && onStartTrack ? onStartTrack() : void control(action)} title={statusTitle}>{busy ? 'Working…' : label}</button> : null}
     {status === 'running' ? <span className="workspace-research-track-status" role="status" title={statusTitle}>
       <span className="workspace-research-track-spinner" aria-hidden="true" />
-      {active ? `Researching · ${complete}/${total}` : scheduledRevisit ? 'Second look scheduled' : 'Selecting surface'}
+      {phase === 'preparing' ? 'Preparing session' : phase === 'switching' ? 'Preparing next surface'
+        : phase === 'selecting' ? scheduledRevisit ? 'Second look scheduled' : 'Selecting surface'
+          : `Researching · ${complete}/${total}`}
     </span> : null}
     {status === 'running' ? <button className="secondary-button" type="button" disabled={busy}
       onClick={() => void control('pause')}>Pause</button> : null}

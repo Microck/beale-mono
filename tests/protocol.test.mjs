@@ -46,12 +46,31 @@ import {
 test('research-track control decodes a bounded workspace progress snapshot', () => {
   assert.deepEqual(decodeBealeWorkspaceResearchTrackRequest({ workspaceId: ' workspace-example ', action: 'start' }),
     { workspaceId: 'workspace-example', action: 'start' });
+  const configuration = { provider: { id: 'openai-codex', model: 'example-model', reasoningEffort: 'high' },
+    targetIds: ['local', 'browser:example'], collaboration: { subagentMode: 'advanced' } };
+  assert.deepEqual(decodeBealeWorkspaceResearchTrackRequest({ workspaceId: 'workspace-example', action: 'start', configuration }),
+    { workspaceId: 'workspace-example', action: 'start', configuration });
+  const offConfiguration = { ...configuration, provider: { ...configuration.provider, reasoningEffort: 'off' } };
+  assert.deepEqual(decodeBealeWorkspaceResearchTrackRequest({ workspaceId: 'workspace-example', action: 'start',
+    configuration: offConfiguration }).configuration, offConfiguration);
+  assert.equal(decodeAppServerSessionLaunchRequest({ launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
+    launch: { workspaceId: 'workspace-example', promptMarkdown: 'Synthetic research instruction.',
+      provider: offConfiguration.provider, targetIds: ['local'], machineId: 'local' } }).launch.provider.reasoningEffort,
+    'off');
+  assert.throws(() => decodeBealeWorkspaceResearchTrackRequest({ workspaceId: 'workspace-example', action: 'resume', configuration }),
+    /Invalid workspace research track configuration: only start accepts settings/);
+  assert.throws(() => decodeBealeWorkspaceResearchTrackRequest({ workspaceId: 'workspace-example', action: 'start',
+    configuration: { ...configuration, targetIds: ['local', 'local'] } }), /choose 1 to 16 distinct targets/);
+  assert.throws(() => decodeBealeWorkspaceResearchTrackRequest({ workspaceId: 'workspace-example', action: 'start',
+    configuration: { ...configuration, provider: { ...configuration.provider, reasoningEffort: '' } } }),
+    /choose a reasoning effort/);
   assert.throws(() => decodeBealeWorkspaceResearchTrackRequest({ workspaceId: 'workspace-example', action: 'reset' }),
     /Invalid workspace research track request/);
   const snapshot = {
     id: 'track-example', workspaceId: 'workspace-example', status: 'running', pass: 1,
     scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'],
-    activeSessionId: 'session-example', activeSurfaceId: 'surface-example', epochCount: 1,
+    activeSessionId: 'session-example', activeSessionPhase: 'preparing',
+    activeSurfaceId: 'surface-example', epochCount: 1,
     lastError: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
     surfaces: [{ surfaceId: 'surface-example', name: 'Example service', status: 'active', impact: 'high',
       theory: 'A privileged trust boundary may be crossed.', nextAction: 'Test the boundary.',
@@ -60,6 +79,8 @@ test('research-track control decodes a bounded workspace progress snapshot', () 
   };
   assert.deepEqual(decodeBealeWorkspaceResearchTrack(snapshot), snapshot);
   assert.equal(decodeBealeWorkspaceResearchTrack(null), null);
+  assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot, activeSessionPhase: 'unknown' }),
+    /invalid workspace research track/);
   assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot,
     surfaces: [{ ...snapshot.surfaces[0], evidenceRefs: [12] }] }), /invalid workspace research track/);
 });

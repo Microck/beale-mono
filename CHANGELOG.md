@@ -61,6 +61,7 @@
 
 #### Changed
 
+- Start Track opens the New Research form with target, lead model, collaborator, and subagent choices. Its research objective is locked; the track builds its own prompts. Repeat, Goal Mode, and Add Context are unavailable. Session titles update with surface progress after each epoch begins, and the running track no longer duplicates its session button in Campaign. Existing track records add a collaboration column automatically; the updated control contract requires rebuilt Beale and app-server clients.
 - Workspace surface maps now materialize root surfaces from the active authorized resources before the first research session, so Continuous research can start in a new workspace. Scope changes refresh root eligibility without resetting unchanged resource review state.
 - Continuous research controls now sit at the far right of the workspace Campaign view buttons, with progress available in a compact dropdown instead of a separate row.
 - Workspace headers identify the active Campaign subview, including Findings, Memories, Runbooks, and Reports, on local and connected app servers.
@@ -244,6 +245,8 @@
 
 #### Fixed
 
+- Start Track now sends only selected collaborators instead of the full model catalog, and preserves the New Research form's Off reasoning selection as an explicit track setting. Invalid track settings identify the failing field without exposing its value.
+- Subsequent Continuous research epochs now reuse one session with a fresh attempt for each surface. Workspace controls show preparation and handoff progress and can open the observed session. The updated control contract requires rebuilt Beale and app-server clients.
 - Stopped Continuous research tracks clear prior worker errors, and the workspace view no longer shows a saved failure after restart. Resuming a paused track also clears its prior error.
 - Session duration now sums persisted active periods across pauses and continuations, excluding idle time between them. Existing session records without periods use their attempt timestamps as a compatibility fallback.
 - The expanded research sidebar keeps its add-view menu within the sidebar when the tab row approaches either edge.
@@ -1444,6 +1447,7 @@
 
 #### Fixed
 
+- Continuous research waits for an epoch worker to exit and persist its terminal state before assigning another surface. A late stop from an earlier worker no longer pauses the next epoch; app-server records the source of host-initiated stops.
 - Continuous research workers now expose `track.checkpoint` as a core host tool. Worker and launch failures pause the track with the actual diagnostic instead of creating repeated empty sessions.
 - Hosted `file.read` resolves relative paths from the active research workspace instead of the worker's current directory.
 - Browser control accepts a listed page ID in `browser.connect` and distinguishes page IDs from browser aliases in its tool guidance.

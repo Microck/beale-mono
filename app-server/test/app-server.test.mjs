@@ -229,10 +229,14 @@ test('a connected primary forwards research-track control to its owning app-serv
     return { id: 'track-example', status: 'running' };
   };
   const result = await hostService.executeOperation({ operation: 'fleet.remote_research_track',
-    input: { serverId: 'server-example', workspaceId: 'workspace-test', action: 'resume' } });
+    input: { serverId: 'server-example', workspaceId: 'workspace-test', action: 'start',
+      configuration: { provider: { id: 'openai-codex', model: 'example-model', reasoningEffort: 'high' },
+        targetIds: ['local'], collaboration: { subagentMode: 'advanced' } } } });
   assert.equal(result.status, 'running');
   assert.deepEqual(forwarded, { serverId: 'server-example', operation: 'workspace.research_track',
-    input: { workspaceId: 'workspace-test', action: 'resume' } });
+    input: { workspaceId: 'workspace-test', action: 'start',
+      configuration: { provider: { id: 'openai-codex', model: 'example-model', reasoningEffort: 'high' },
+        targetIds: ['local'], collaboration: { subagentMode: 'advanced' } } } });
 });
 
 test('keeps a hosted session starting until the runtime readiness handshake completes', async () => {

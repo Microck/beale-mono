@@ -390,6 +390,20 @@ describe('renderer session composer', () => {
     expect(html).toContain('class="main-steer-input-row without-trace-filters"');
   });
 
+  it('allows an empty first instruction for a configured research track', () => {
+    const html = renderToStaticMarkup(createElement(MainSteerArea, {
+      busy: false, detail: null, runId: null,
+      providerModelCatalog: providerModelCatalog(),
+      initialModelSelection: { provider: 'openai-codex', model: 'gpt-5.6-sol', reasoningEffort: 'medium' },
+      initialInstruction: '', instructionLocked: true,
+      onInitialInstruction: () => undefined,
+      onSessionAction: () => undefined, onSteerInstruction: () => undefined
+    }));
+    expect(html).toMatch(/aria-label="Send steering instruction"[^>]*>/u);
+    expect(html).not.toMatch(/aria-label="Send steering instruction"[^>]*disabled/u);
+    expect(html).toContain('aria-label="Locked track objective"');
+  });
+
   it('can omit collaboration without leaving an empty action-row slot', () => {
     const html = renderToStaticMarkup(createElement(MainSteerArea, {
       busy: false,

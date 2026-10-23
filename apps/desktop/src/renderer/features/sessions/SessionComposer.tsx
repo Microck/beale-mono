@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { ArrowRight, ChevronDown, Plus, Square, Users, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, LockKeyhole, Plus, Square, Users, X } from 'lucide-react';
 import type {
   ApprovalRecord,
   PolicyReviewDecision,
@@ -54,6 +54,7 @@ export const MainSteerArea = memo(function MainSteerArea({
   initialSafetyMode,
   initialInstruction = '',
   inputPlaceholder,
+  instructionLocked = false,
   preComposerContent,
   postComposerContent,
   ariaLabel = 'Steer research session',
@@ -78,6 +79,7 @@ export const MainSteerArea = memo(function MainSteerArea({
   initialSafetyMode?: ShellSafetyMode;
   initialInstruction?: string;
   inputPlaceholder?: string;
+  instructionLocked?: boolean;
   preComposerContent?: ReactNode;
   postComposerContent?: ReactNode;
   ariaLabel?: string;
@@ -132,8 +134,9 @@ export const MainSteerArea = memo(function MainSteerArea({
         sentMessagesByRunRef.current.get(runId) ?? []
       )
     : [];
-  const trimmedInstruction = instruction.trim();
-  const disabled = busy || (!runId && !onInitialInstruction) || !trimmedInstruction || !selectedModelId;
+  const trimmedInstruction = instructionLocked ? '' : instruction.trim();
+  const disabled = busy || (!runId && !onInitialInstruction)
+    || (!trimmedInstruction && !(instructionLocked && !runId)) || !selectedModelId;
   const status = detail?.run.status ?? null;
   const suggestionKey = detail
     ? `${detail.run.id}:${status}:${detail.transcriptMessages?.at(-1)?.id ?? ''}:${detail.run.summary}`
@@ -330,13 +333,20 @@ export const MainSteerArea = memo(function MainSteerArea({
       {preComposerContent ? (
         <div className="main-steer-pre-composer-content" ref={preComposerRef}>{preComposerContent}</div>
       ) : null}
-      <div className={`main-steer-input-row without-trace-filters${showCollaboration ? '' : ' without-collaboration'}`}>
+      <div className={`main-steer-input-row without-trace-filters${showCollaboration ? '' : ' without-collaboration'}${instructionLocked ? ' is-instruction-locked' : ''}`}>
+        {instructionLocked ? <span className="main-steer-instruction-lock" role="img" aria-label="Track objective is locked">
+          <LockKeyhole size={15} aria-hidden="true" />
+        </span> : null}
         <textarea
           ref={textareaRef}
           rows={1}
-          value={instruction}
+          value={instructionLocked ? '' : instruction}
           placeholder={placeholder}
+          readOnly={instructionLocked}
+          aria-label={instructionLocked ? 'Locked track objective' : undefined}
+          title={instructionLocked ? 'The track manages its research prompts' : undefined}
           onChange={(event) => {
+            if (instructionLocked) return;
             setInstruction(event.target.value);
             historyIndexRef.current = null;
             historyDraftRef.current = '';

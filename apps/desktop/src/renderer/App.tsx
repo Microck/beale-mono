@@ -192,6 +192,7 @@ export function App(): JSX.Element {
     setRemoteSurfaceFocus(summary ? { serverId, workspaceId, sessionId, summary } : null);
   }, []);
   const [remoteResearchOpen, setRemoteResearchOpen] = useState(false);
+  const [remoteTrackMode, setRemoteTrackMode] = useState(false);
   useEffect(() => {
     setRemoteSurfaceFocus(null);
     setRemoteSelectedSubagentPath(null);
@@ -393,10 +394,12 @@ export function App(): JSX.Element {
   }, [snapshot?.workspace.workspaceId]);
   const [sessionOverviewOpen, setSessionOverviewOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
+  const [newResearchTrackMode, setNewResearchTrackMode] = useState(false);
   const [openScheduleOnNewResearch, setOpenScheduleOnNewResearch] = useState(false);
   const [newResearchInitialInput, setNewResearchInitialInput] = useState<StartRunInput | null>(null);
   const closeNewResearch = useCallback((): void => {
     setNewResearchOpen(false);
+    setNewResearchTrackMode(false);
     setOpenScheduleOnNewResearch(false);
     setNewResearchInitialInput(null);
   }, []);
@@ -1978,6 +1981,7 @@ export function App(): JSX.Element {
   }, [handleShellApprovalDecision, inlineApproval]);
   const closeProfiling = useCallback(() => setProfilingOpen(false), []);
   const openNewResearch = useCallback((openSchedule: boolean) => {
+    setNewResearchTrackMode(false);
     setNewResearchInitialInput(null);
     closeWorkspaceOnboarding();
     if (reportsOpen) {
@@ -1997,6 +2001,10 @@ export function App(): JSX.Element {
     setNewResearchOpen(true);
   }, [clearRunDetail, closeWorkspaceOnboarding, reportsOpen, setSelectedRunId]);
   const startNewResearch = useCallback(() => openNewResearch(false), [openNewResearch]);
+  const openStartTrack = useCallback(() => {
+    openNewResearch(false);
+    setNewResearchTrackMode(true);
+  }, [openNewResearch]);
   const openNewResearchForWorkspace = useCallback((workspace: WorkspaceRegistryEntry, openSchedule: boolean): void => {
     if (snapshot?.workspace.workspacePath === workspace.workspacePath) {
       openNewResearch(openSchedule);
@@ -2077,6 +2085,8 @@ export function App(): JSX.Element {
   }, [applySnapshot, clearRunDetail, runWorkspaceAction, setSelectedRunId, snapshot?.workspace.workspacePath, workspaceRegistry?.workspaces]);
   const newResearchContent = newResearchOpen && snapshot ? (
     <StartRunForm
+      trackMode={newResearchTrackMode}
+      onTrackStarted={closeNewResearch}
       initialInput={newResearchInitialInput ?? undefined}
       presentation="session"
       autoOpenSchedule={openScheduleOnNewResearch}
@@ -2092,7 +2102,7 @@ export function App(): JSX.Element {
       researchGoalSuggestions={researchGoalSuggestionState.suggestions}
       researchGoalSuggestionsLoading={researchGoalSuggestionState.loading}
       researchGoalSuggestionErrors={researchGoalSuggestionState.errors}
-      showSuggestions={suggestionPreferences.newResearchPromptSuggestionsEnabled}
+      showSuggestions={!newResearchTrackMode && suggestionPreferences.newResearchPromptSuggestionsEnabled}
       busy={busy}
       runAction={runAction}
       onCancel={cancelNewResearch}
@@ -2161,8 +2171,8 @@ export function App(): JSX.Element {
         workspaceName={selectedFleetServerId !== 'local'
           ? remoteWorkspace?.name ?? 'No Workspace Selected'
           : workspaceDraft && !newResearchOpen ? 'New Workspace' : currentWorkspaceName}
-        workspaceViewTitle={selectedFleetServerId !== 'local' ? remoteResearchOpen ? 'New Research' : remoteWorkspaceId && !remoteSessionId ? remoteWorkspaceViewName : null : newResearchOpen
-          ? snapshot?.researchProfile.profile.presentation?.newResearchLabel ?? 'New Research'
+        workspaceViewTitle={selectedFleetServerId !== 'local' ? remoteResearchOpen ? remoteTrackMode ? 'Start Track' : 'New Research' : remoteWorkspaceId && !remoteSessionId ? remoteWorkspaceViewName : null : newResearchOpen
+          ? newResearchTrackMode ? 'Start Track' : snapshot?.researchProfile.profile.presentation?.newResearchLabel ?? 'New Research'
           : workspaceDraft ? workspaceDashboardViewName : (snapshot && !selectedRunId ? workspaceDashboardViewName : null)}
         activeRunDetail={selectedFleetServerId !== 'local' && remoteSession
           ? { run: { id: remoteSession.id, title: remoteSession.title, promptMarkdown: remoteSession.prompt } }
@@ -2182,11 +2192,12 @@ export function App(): JSX.Element {
         onAddWorkspace={beginWorkspaceCreation}
         onToggleRightSidenav={toggleRightSidenav}
         onToggleSidebar={toggleSidebar}
-        onStartNewResearch={selectedFleetServerId === 'local' ? startNewResearch : () => { if (remoteWorkspaceId) { setRemoteSessionId(null); setRemoteResearchOpen(true); } }}
+        onStartNewResearch={selectedFleetServerId === 'local' ? startNewResearch : () => { if (remoteWorkspaceId) { setRemoteSessionId(null); setRemoteTrackMode(false); setRemoteResearchOpen(true); } }}
         onStartNewResearchForWorkspace={selectedFleetServerId === 'local' ? startNewResearchForWorkspace : (workspace) => {
           setRemoteWorkspaceId(workspace.workspaceId);
           setRemoteSessionId(null);
           setRemoteResearchOpen(true);
+          setRemoteTrackMode(false);
         }}
         onOpenQuickChat={openSelectedQuickChat}
       />
@@ -2254,7 +2265,7 @@ export function App(): JSX.Element {
           selectedWorkspaceId={remoteWorkspaceId} selectedSessionId={remoteSessionId}
           automations={automationsOpen} collapsed={sidebarCollapsed} serverSelector={serverSelector}
           onSelect={(workspaceId, sessionId) => { setRemoteWorkspaceId(workspaceId); setRemoteSessionId(sessionId); setRemoteResearchOpen(false); }}
-          onStartNewResearch={(workspaceId) => { setRemoteWorkspaceId(workspaceId); setRemoteSessionId(null); setRemoteResearchOpen(true); }}
+          onStartNewResearch={(workspaceId) => { setRemoteWorkspaceId(workspaceId); setRemoteSessionId(null); setRemoteTrackMode(false); setRemoteResearchOpen(true); }}
           onOpenQuickChat={openSelectedQuickChat}
           onResizePointerDown={beginSidebarResize}
         />
@@ -2409,7 +2420,11 @@ export function App(): JSX.Element {
                 key={selectedFleetServerId}
                 serverId={selectedFleetServerId} serverName={selectedFleetServer?.name ?? 'Remote'}
                 catalog={remoteCatalog} workspaceId={remoteWorkspaceId} sessionId={remoteSessionId}
-                newResearchOpen={remoteResearchOpen} automations={automationsOpen} error={remoteCatalogError}
+                newResearchOpen={remoteResearchOpen} trackMode={remoteTrackMode} automations={automationsOpen} error={remoteCatalogError}
+                onStartTrack={() => { setRemoteSessionId(null); setRemoteTrackMode(true); setRemoteResearchOpen(true); }}
+                onCancelResearch={() => { setRemoteResearchOpen(false); setRemoteTrackMode(false); }}
+                onTrackStarted={() => { setRemoteResearchOpen(false); setRemoteTrackMode(false);
+                  void window.beale.getFleetRemoteCatalog(selectedFleetServerId).then(setRemoteCatalog).catch((caught: unknown) => setRemoteCatalogError(errorMessage(caught))); }}
                 guardianEnabled={permissionSettings.guardianEnabled}
                 selectedSubagentPath={remoteSelectedSubagentPath} onBackToSubagents={() => setRemoteSelectedSubagentPath(null)}
                 onSurfaceFocusChange={onRemoteSurfaceFocusChange}
@@ -2418,6 +2433,7 @@ export function App(): JSX.Element {
                   setRemoteWorkspaceId(workspaceId);
                   setRemoteSessionId(sessionId);
                   setRemoteResearchOpen(false);
+                  setRemoteTrackMode(false);
                   void window.beale.getFleetRemoteCatalog(selectedFleetServerId).then(setRemoteCatalog).catch((caught: unknown) => setRemoteCatalogError(errorMessage(caught)));
                 }}
               />
@@ -2618,6 +2634,7 @@ export function App(): JSX.Element {
               onChangeWorkspaceResearchSubject={changeWorkspaceResearchSubject}
               onRemoveWorkspace={removeActiveWorkspace}
               onOpenSession={openWorkspaceDashboardSession}
+              onStartTrack={openStartTrack}
               initialWorkspaceView={workspaceDashboardWorkspaceIdRef.current === snapshot.workspace.workspaceId
                 ? workspaceDashboardInitialView : 'board'}
               onWorkspaceViewChange={setWorkspaceDashboardViewName}

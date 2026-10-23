@@ -26,6 +26,26 @@ function fixture() {
   return { store, database, databasePath, close() { database.close(); store.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
 
+test('existing track tables gain optional launch configuration columns', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-migration-example-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  const database = new DatabaseSync(databasePath);
+  try {
+    database.exec(`CREATE TABLE app_server_research_tracks (
+      workspace_id TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, status TEXT NOT NULL,
+      pass INTEGER NOT NULL, scope_id TEXT NOT NULL, provider_json TEXT NOT NULL,
+      target_ids_json TEXT NOT NULL, active_session_id TEXT, active_surface_id TEXT,
+      epoch_count INTEGER NOT NULL, last_surface_id TEXT, consecutive_surface_epochs INTEGER NOT NULL,
+      last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )`);
+    const store = new ResearchTrackStore({ databasePath, workspaceId });
+    try {
+      const columns = database.prepare('PRAGMA table_info(app_server_research_tracks)').all().map((row) => row.name);
+      assert.ok(columns.includes('collaboration_json'));
+    } finally { store.close(); }
+  } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('track reserves bounded surface epochs and requires canonical evidence for completion', () => {
   const state = fixture();
   try {
@@ -95,6 +115,79 @@ test('worker and launch failures pause a track with an actionable diagnostic', a
     assert.equal(state.store.reserveNext('session-example-second-unwanted-retry', surfaces), null);
     assert.equal(state.store.control('stop').lastError, null);
     assert.equal(state.store.control('stop').status, 'stopped');
+  } finally { state.close(); }
+});
+
+test('track start stores the selected model, targets, and collaboration on the owning app-server', async () => {
+  const state = fixture();
+  const service = new AppServerHostService({ registry: {
+    registryDirectory: join(dirname(state.databasePath), 'registry'),
+    resolveWorkspace: (id) => id === workspaceId ? {
+      workspaceId, researchProfileId: 'security-research', memoryBackend: 'app-server'
+    } : null,
+    storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') }),
+    providerSettings: () => ({ defaultProviderId: 'openai-codex', modelDefaults: {} })
+  }, invokeProtocol: async () => ({}) });
+  service.workspaceDetails = async () => ({ scope: { id: 'scope-example' },
+    targets: [{ id: 'local', ready: true }, { id: 'browser:example', ready: true }],
+    surfaceMap: { surfaces } });
+  try {
+    const collaboration = { mode: 'adaptive', subagentMode: 'advanced', providers: [] };
+    const track = await service.workspaceResearchTrack(workspaceId, 'start', {
+      provider: { id: 'openai-codex', model: 'example-model', reasoningEffort: 'high' },
+      targetIds: ['browser:example'], collaboration
+    });
+    assert.deepEqual(track.provider, { id: 'openai-codex', model: 'example-model', reasoningEffort: 'high' });
+    assert.deepEqual(track.targetIds, ['local', 'browser:example']);
+    assert.deepEqual(track.collaboration, collaboration);
+  } finally { state.close(); }
+});
+
+test('track epochs share a session, wait for worker exit, and ignore an obsolete stop', async () => {
+  const state = fixture();
+  let stopTransition = null;
+  let titleEvent = null;
+  const service = new AppServerHostService({ registry: {
+    registryDirectory: join(dirname(state.databasePath), 'registry'),
+    listWorkspaces: () => [{ workspaceId }],
+    resolveWorkspace: (id) => id === workspaceId ? {
+      workspaceId, researchProfileId: 'security-research', memoryBackend: 'app-server'
+    } : null,
+    storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
+  }, invokeProtocol: async (operation, options) => {
+    if (operation === 'session.transition') stopTransition = options.input;
+    if (operation === 'session.append_event') titleEvent = options.input;
+    return operation === 'session.get' ? { status: 'completed' } : {};
+  } });
+  service.workspaceDetails = async () => ({ scope: { id: 'scope-example' },
+    targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
+  try {
+    const collaboration = { mode: 'adaptive', subagentMode: 'advanced', providers: [] };
+    const started = state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex', model: 'example-model' },
+      targetIds: ['local'], collaboration, surfaces });
+    assert.deepEqual(state.store.get().collaboration, collaboration);
+    const [first] = await service.dueResearchTracks();
+    assert.equal(first.request.sessionId, started.id);
+    assert.deepEqual(first.request.launch.collaboration, collaboration);
+    await service.updateResearchTrackSessionTitle(workspaceId, started.id, 1, 'Track · Researching Example service · 0/2');
+    assert.equal(titleEvent.id, 'track_title_1_1');
+    assert.equal(titleEvent.payload.title, 'Track · Researching Example service · 0/2');
+    assert.equal(first.request.launch.continuation, undefined);
+    assert.deepEqual(await service.dueResearchTracks(new Date(), new Set([started.id])), []);
+    await service.recordSessionTerminalState({ request: first.request, sessionId: started.id,
+      attemptId: 'attempt-example-first', state: 'completed' });
+    const [second] = await service.dueResearchTracks();
+    assert.equal(second.request.sessionId, started.id);
+    assert.equal(second.request.launch.continuation.fallbackPrompt, second.request.launch.promptMarkdown);
+    assert.equal(second.request.launch.continuation.resumeAttemptId, undefined);
+    await service.recordSessionTerminalState({ request: first.request, sessionId: 'session-example-obsolete',
+      attemptId: 'attempt-example-obsolete', state: 'stopped' });
+    assert.equal(state.store.get().status, 'running');
+    assert.equal(state.store.get().activeSessionId, started.id);
+    await service.recordSessionControlState({ request: first.request, sessionId: started.id,
+      attemptId: 'attempt-example-first', state: 'stopped', stopCause: 'track_state' });
+    assert.equal(stopTransition.metadata.appServerStopCause, 'track_state');
+    assert.equal(stopTransition.metadata.manualControlState, undefined);
   } finally { state.close(); }
 });
 

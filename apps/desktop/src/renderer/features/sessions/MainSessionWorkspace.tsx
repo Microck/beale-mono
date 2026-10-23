@@ -85,6 +85,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onChangeWorkspaceResearchSubject = async () => undefined,
   onRemoveWorkspace = async () => undefined,
   onOpenSession = () => undefined,
+  onStartTrack,
   onWorkspaceViewChange,
   onWorkspaceViewSelectionChange,
   onResearchDetailsOpenChange,
@@ -156,6 +157,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onChangeWorkspaceResearchSubject?: (researchSubjectName: string) => Promise<void>;
   onRemoveWorkspace?: () => Promise<void>;
   onOpenSession?: (runId: string) => void;
+  onStartTrack?: () => void;
   onWorkspaceViewChange?: (viewName: string) => void;
   onWorkspaceViewSelectionChange?: (view: WorkspaceDashboardView) => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
@@ -370,6 +372,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onChangeResearchSubject={onChangeWorkspaceResearchSubject}
           onRemoveWorkspace={onRemoveWorkspace}
           onOpenSession={onOpenSession}
+          onStartTrack={onStartTrack}
           onActiveViewChange={onWorkspaceViewChange}
           onViewSelectionChange={onWorkspaceViewSelectionChange}
           onOpenClaim={openWorkspaceClaim}

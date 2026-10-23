@@ -206,6 +206,8 @@ export function WorkspaceUnderstandingView({
   onChangeMemoryBackend = async () => undefined,
   onChangeResearchSubject = async () => undefined,
   onRemoveWorkspace = async () => undefined,
+  onOpenSession,
+  onStartTrack,
   onOpenClaim = () => undefined,
   openClaimId = null,
   onTransitionClaim,
@@ -256,6 +258,7 @@ export function WorkspaceUnderstandingView({
   onChangeResearchSubject?: (researchSubjectName: string) => Promise<void>;
   onRemoveWorkspace?: () => Promise<void>;
   onOpenSession?: (runId: string) => void;
+  onStartTrack?: () => void;
   onOpenClaim?: (claimId: string) => void;
   openClaimId?: string | null;
   onTransitionClaim?: (claim: AppServerFindingSummary, targetMaturity: ClaimBoardMaturity) => Promise<void>;
@@ -383,7 +386,7 @@ export function WorkspaceUnderstandingView({
             })}
           </div>
           {workspaceId ? <WorkspaceResearchTrack workspaceId={workspaceId} serverId={trackServerId}
-            enabled={memoryBackend !== 'disabled'} /> : null}
+            enabled={memoryBackend !== 'disabled'} onOpenSession={onOpenSession} onStartTrack={onStartTrack} /> : null}
         </div>
       ) : null}
 

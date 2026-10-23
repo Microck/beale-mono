@@ -72,6 +72,7 @@ export const CommentaryView = memo(function CommentaryView({
   collaboration,
   initialSafetyMode,
   inputPlaceholder,
+  instructionLocked = false,
   ariaLabel,
   showCollaboration = true,
   initialInstruction,
@@ -108,6 +109,7 @@ export const CommentaryView = memo(function CommentaryView({
   collaboration?: ResearchCollaborationPreferences;
   initialSafetyMode?: ShellSafetyMode;
   inputPlaceholder?: string;
+  instructionLocked?: boolean;
   ariaLabel?: string;
   showCollaboration?: boolean;
   initialInstruction?: string;
@@ -649,6 +651,7 @@ export const CommentaryView = memo(function CommentaryView({
           collaboration={collaboration}
           initialSafetyMode={initialSafetyMode}
           inputPlaceholder={inputPlaceholder}
+          instructionLocked={instructionLocked}
           ariaLabel={ariaLabel}
           showCollaboration={showCollaboration}
           runId={detail?.run.id ?? selectedRunId}

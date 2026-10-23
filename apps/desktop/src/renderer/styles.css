@@ -10206,6 +10206,25 @@ button.runbook-catalog-item:not(.breakout-room-catalog-item):hover:not(:disabled
   line-height: 1.2;
 }
 
+.main-steer-input-row.is-instruction-locked {
+  position: relative;
+}
+
+.main-steer-input-row.is-instruction-locked textarea {
+  padding-left: 38px;
+  cursor: default;
+}
+
+.main-steer-instruction-lock {
+  position: absolute;
+  top: 13px;
+  left: 13px;
+  z-index: 1;
+  display: inline-flex;
+  color: var(--muted-strong);
+  pointer-events: none;
+}
+
 .main-steer-input-row textarea:focus,
 .main-steer-input-row textarea:focus-visible {
   border-color: transparent;

@@ -107,9 +107,11 @@ function remoteMemory(details: BealeAppServerWorkspaceDetails): AppServerMemoryS
   };
 }
 
-export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board', onViewChange }: {
+export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board', onViewChange, onOpenSession, onStartTrack }: {
   serverId: string; details: BealeAppServerWorkspaceDetails; initialView?: WorkspaceDashboardView;
   onViewChange?: (viewName: string) => void;
+  onOpenSession?: (sessionId: string) => void;
+  onStartTrack?: () => void;
 }): JSX.Element {
   const [selected, setSelected] = useState<{ kind: 'claim' | 'memory' | 'runbook' | 'report'; id: string } | null>(null);
   const [documentState, setDocumentState] = useState<{ key: string; value: BealeAppServerWorkspaceDocument | null; error: string | null } | null>(null);
@@ -156,6 +158,8 @@ export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board
       workspaceId={details.workspace.workspaceId}
       workspaceName={workspaceName}
       runs={[]}
+      onOpenSession={onOpenSession}
+      onStartTrack={onStartTrack}
       onActiveViewChange={onViewChange}
       onOpenClaim={(id) => open('claim', id)}
       openClaimId={selected?.kind === 'claim' ? selected.id : null}

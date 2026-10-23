@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { decodeBealeWorkspaceResearchTrackRequest } from '@beale/app-server-runtime/protocol';
 import type { AppServerMemoryNodeSummary, ResearchCollaborationProviderPreference, ResearchGoalSuggestionsByPhase, RunDetail, TraceEventRecord, WorkspaceSnapshot } from '@shared/types';
 import { BottomSheet, Modal } from '../src/renderer/app/Modal';
 import { ModelSelectionPicker } from '../src/renderer/app/ModelSelectionPicker';
@@ -10,6 +11,7 @@ import { expandedDeviceCapturePanelWidth, isIosDeviceOs, latestOverallRunbookExe
 import {
   enableCollaboratorAtTop,
   newResearchPromptPlaceholder,
+  researchTrackConfiguration,
   newResearchTargetSummary,
   toggleResearchTargetSelection,
   ProviderKeychainAccessDialog,
@@ -473,6 +475,52 @@ describe('renderer dialog surfaces', () => {
   it('changes the New Research prompt hint when context enrichment is enabled', () => {
     expect(newResearchPromptPlaceholder(false)).toBe('Write a full research prompt');
     expect(newResearchPromptPlaceholder(true)).toBe('Write a sentence or two');
+  });
+
+  it('uses the research composer for track configuration without repeat or goal controls', () => {
+    const html = renderToStaticMarkup(createElement(StartRunForm, {
+      presentation: 'session', trackMode: true,
+      snapshot: { workspace: { workspaceId: 'workspace-example' },
+        activeScope: { id: 'scope-example', workspaceName: 'Example Workspace' } } as WorkspaceSnapshot,
+      openAiStatus: null, defaultProviderId: 'openai-codex', providerModelDefaults: {},
+      researchProviderStatuses: [], providerModelCatalog: [],
+      researchGoalSuggestions: phaseSuggestions(), researchGoalSuggestionsLoading: phaseValues(false),
+      researchGoalSuggestionErrors: phaseValues(null), busy: false,
+      runAction: async () => undefined, onCancel: () => undefined,
+      onRetryResearchGoalSuggestions: () => undefined, onStarted: () => undefined
+    }));
+    expect(html).toContain('Continue security research until all surfaces are covered.');
+    expect(html).toContain('aria-label="Track objective is locked"');
+    expect(html).toContain('aria-label="Locked track objective"');
+    expect(html).toMatch(/<textarea[^>]*readOnly=""/u);
+    expect(html).not.toContain('aria-label="New research settings"');
+    expect(html).not.toContain('>Goal Mode</span>');
+    expect(html).not.toContain('>Add Context</span>');
+    expect(html).not.toContain('>Repeat</span>');
+    expect(researchTrackConfiguration({ ...defaultRunInput, provider: 'openai-codex', model: 'example-model',
+      reasoningEffort: 'high', targetIds: ['local'], promptMarkdown: 'Ignored example instruction.' })).toEqual({
+      provider: { id: 'openai-codex', model: 'example-model', reasoningEffort: 'high' },
+      targetIds: ['local'], collaboration: { ...defaultRunInput.collaboration }
+    });
+    expect(researchTrackConfiguration({ ...defaultRunInput, provider: 'openai-codex', model: 'example-model',
+      reasoningEffort: '', targetIds: ['local'] }).provider.reasoningEffort).toBe('off');
+  });
+
+  it('starts a track with selected collaborators when the model catalog exceeds the control limit', () => {
+    const selected = { provider: 'openai-codex' as const, model: 'example-selected', reasoningEffort: 'high' as const,
+      enabled: true, roles: ['discoverer' as const, 'reviewer' as const] };
+    const collaboration = { ...defaultRunInput.collaboration!, subagentMode: 'advanced' as const,
+      providers: [selected, ...Array.from({ length: 400 }, (_, index) => ({
+        provider: 'openai-codex' as const, model: `example-unselected-${index}`, reasoningEffort: 'high' as const,
+        enabled: false, roles: ['discoverer' as const]
+      }))] };
+    expect(JSON.stringify(collaboration).length).toBeGreaterThan(32_000);
+    const configuration = researchTrackConfiguration({ ...defaultRunInput,
+      provider: 'openai-codex', model: 'example-lead', targetIds: ['local'], collaboration });
+    expect(configuration.collaboration).toEqual({ ...defaultRunInput.collaboration,
+      subagentMode: 'advanced', providers: [selected] });
+    expect(decodeBealeWorkspaceResearchTrackRequest({ workspaceId: 'workspace-example',
+      action: 'start', configuration }).configuration).toEqual(configuration);
   });
 
   it('prevents New Research checkbox labels from being text-selected', () => {

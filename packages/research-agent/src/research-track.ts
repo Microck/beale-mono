@@ -32,6 +32,7 @@ export interface ResearchTrackSnapshot {
   scopeId: string;
   provider: { id: string; model?: string; reasoningEffort?: string };
   targetIds: string[];
+  collaboration?: Record<string, unknown>;
   activeSessionId: string | null;
   activeSurfaceId: string | null;
   epochCount: number;
@@ -67,7 +68,8 @@ export class ResearchTrackStore {
       CREATE TABLE IF NOT EXISTS app_server_research_tracks (
         workspace_id TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, status TEXT NOT NULL,
         pass INTEGER NOT NULL, scope_id TEXT NOT NULL, provider_json TEXT NOT NULL,
-        target_ids_json TEXT NOT NULL, active_session_id TEXT, active_surface_id TEXT,
+        target_ids_json TEXT NOT NULL, collaboration_json TEXT,
+        active_session_id TEXT, active_surface_id TEXT,
         epoch_count INTEGER NOT NULL, last_surface_id TEXT, consecutive_surface_epochs INTEGER NOT NULL,
         last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       );
@@ -83,6 +85,10 @@ export class ResearchTrackStore {
         snapshot_json TEXT NOT NULL, saved_at TEXT NOT NULL
       );
     `);
+    const columns = this.#database.prepare("PRAGMA table_info(app_server_research_tracks)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "collaboration_json")) {
+      this.#database.exec("ALTER TABLE app_server_research_tracks ADD COLUMN collaboration_json TEXT");
+    }
   }
 
   public close(): void { this.#database.close(); }
@@ -98,6 +104,7 @@ export class ResearchTrackStore {
       pass: Number(row.pass), scopeId: String(row.scope_id),
       provider: JSON.parse(String(row.provider_json)) as ResearchTrackSnapshot["provider"],
       targetIds: JSON.parse(String(row.target_ids_json)) as string[],
+      ...(row.collaboration_json ? { collaboration: JSON.parse(String(row.collaboration_json)) as Record<string, unknown> } : {}),
       activeSessionId: nullable(row.active_session_id), activeSurfaceId: nullable(row.active_surface_id),
       epochCount: Number(row.epoch_count), lastError: nullable(row.last_error),
       createdAt: String(row.created_at), updatedAt: String(row.updated_at),
@@ -116,6 +123,7 @@ export class ResearchTrackStore {
     scopeId: string;
     provider: ResearchTrackSnapshot["provider"];
     targetIds: string[];
+    collaboration?: Record<string, unknown>;
     surfaces: readonly ResearchTrackSurfaceProjection[];
     replaceUnfinished?: boolean;
   }): ResearchTrackSnapshot {
@@ -138,16 +146,18 @@ export class ResearchTrackStore {
         .run(`track_history_${randomUUID().replaceAll("-", "")}`, this.#workspaceId,
           existing.pass, JSON.stringify(existing), now);
       this.#database.prepare(`INSERT INTO app_server_research_tracks
-        (workspace_id, id, status, pass, scope_id, provider_json, target_ids_json, active_session_id,
+        (workspace_id, id, status, pass, scope_id, provider_json, target_ids_json, collaboration_json, active_session_id,
          active_surface_id, epoch_count, last_surface_id, consecutive_surface_epochs, last_error, created_at, updated_at)
-        VALUES (?, ?, 'running', ?, ?, ?, ?, NULL, NULL, 0, NULL, 0, NULL, ?, ?)
+        VALUES (?, ?, 'running', ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, 0, NULL, ?, ?)
         ON CONFLICT(workspace_id) DO UPDATE SET status='running', pass=excluded.pass,
           scope_id=excluded.scope_id, provider_json=excluded.provider_json,
-          target_ids_json=excluded.target_ids_json, active_session_id=NULL, active_surface_id=NULL,
+          target_ids_json=excluded.target_ids_json, collaboration_json=excluded.collaboration_json,
+          active_session_id=NULL, active_surface_id=NULL,
           epoch_count=0, last_surface_id=NULL, consecutive_surface_epochs=0,
           last_error=NULL, updated_at=excluded.updated_at`)
         .run(this.#workspaceId, id, (existing?.pass ?? 0) + 1, required(input.scopeId, "scopeId"),
-          JSON.stringify(input.provider), JSON.stringify(input.targetIds), now, now);
+          JSON.stringify(input.provider), JSON.stringify(input.targetIds),
+          input.collaboration ? JSON.stringify(input.collaboration) : null, now, now);
       if (existing) this.#database.prepare("DELETE FROM app_server_research_track_surfaces WHERE workspace_id = ?").run(this.#workspaceId);
       this.#insertSurfaces(input.surfaces, now);
       this.#database.exec("COMMIT");

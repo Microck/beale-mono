@@ -56,7 +56,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-22T23:55:00.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-23T02:02:07.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -423,7 +423,9 @@ export interface BealeWorkspaceResearchTrack {
   scopeId: string;
   provider: { id: string; model?: string; reasoningEffort?: string };
   targetIds: string[];
+  collaboration?: Record<string, unknown>;
   activeSessionId: string | null;
+  activeSessionPhase?: "selecting" | "preparing" | "researching" | "switching" | null;
   activeSurfaceId: string | null;
   epochCount: number;
   lastError: string | null;
@@ -449,6 +451,11 @@ export interface BealeWorkspaceResearchTrack {
 export interface BealeWorkspaceResearchTrackRequest {
   workspaceId: string;
   action: "status" | "start" | "pause" | "resume" | "stop";
+  configuration?: {
+    provider: { id: string; model: string; reasoningEffort: string };
+    targetIds: string[];
+    collaboration?: Record<string, unknown>;
+  };
 }
 
 export function decodeBealeWorkspaceResearchTrackRequest(value: unknown): BealeWorkspaceResearchTrackRequest {
@@ -457,7 +464,32 @@ export function decodeBealeWorkspaceResearchTrackRequest(value: unknown): BealeW
     && value.action !== "pause" && value.action !== "resume" && value.action !== "stop") {
     throw new Error("Invalid workspace research track request.");
   }
-  return { workspaceId: value.workspaceId.trim(), action: value.action };
+  const configuration = value.configuration;
+  if (configuration !== undefined) {
+    if (value.action !== "start" || !isRecord(configuration)) {
+      throw new Error("Invalid workspace research track configuration: only start accepts settings.");
+    }
+    const provider = configuration.provider;
+    if (!isRecord(provider) || !nonEmptyString(provider.id) || provider.id.length > 100
+      || !nonEmptyString(provider.model) || provider.model.length > 200) {
+      throw new Error("Invalid workspace research track configuration: choose a lead provider and model.");
+    }
+    if (!nonEmptyString(provider.reasoningEffort) || provider.reasoningEffort.length > 40) {
+      throw new Error("Invalid workspace research track configuration: choose a reasoning effort.");
+    }
+    const targetIds = configuration.targetIds;
+    if (!Array.isArray(targetIds) || targetIds.length < 1 || targetIds.length > 16
+      || !targetIds.every((id: unknown) => typeof id === "string" && id.length > 0 && id.length <= 256)
+      || new Set(targetIds).size !== targetIds.length) {
+      throw new Error("Invalid workspace research track configuration: choose 1 to 16 distinct targets.");
+    }
+    if (configuration.collaboration !== undefined && (!isRecord(configuration.collaboration)
+      || JSON.stringify(configuration.collaboration).length > 32_000)) {
+      throw new Error("Invalid workspace research track configuration: collaborator settings are malformed or too large.");
+    }
+  }
+  return { workspaceId: value.workspaceId.trim(), action: value.action,
+    ...(configuration === undefined ? {} : { configuration: configuration as NonNullable<BealeWorkspaceResearchTrackRequest["configuration"]> }) };
 }
 
 export function decodeBealeWorkspaceResearchTrack(value: unknown): BealeWorkspaceResearchTrack | null {
@@ -469,8 +501,11 @@ export function decodeBealeWorkspaceResearchTrack(value: unknown): BealeWorkspac
     || !statuses.includes(String(value.status)) || !Number.isSafeInteger(value.pass)
     || typeof value.scopeId !== "string" || !isRecord(value.provider)
     || typeof value.provider.id !== "string" || !Array.isArray(value.targetIds)
+    || (value.collaboration !== undefined && !isRecord(value.collaboration))
     || !value.targetIds.every((id: unknown) => typeof id === "string")
     || (value.activeSessionId !== null && typeof value.activeSessionId !== "string")
+    || (value.activeSessionPhase !== undefined && value.activeSessionPhase !== null
+      && !["selecting", "preparing", "researching", "switching"].includes(String(value.activeSessionPhase)))
     || (value.activeSurfaceId !== null && typeof value.activeSurfaceId !== "string")
     || !Number.isSafeInteger(value.epochCount)
     || (value.lastError !== null && typeof value.lastError !== "string")

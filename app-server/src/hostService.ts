@@ -11,6 +11,7 @@ import {
   type BealeAppServerWorkspaceDetails,
   type BealeWorkspaceSurfaceMap,
   type BealeWorkspaceResearchTrack,
+  type BealeWorkspaceResearchTrackRequest,
   type BealeAppServerQuickChatList,
   type BealeAppServerQuickChatStartInput,
   type BealeAppServerProviderCatalog,
@@ -84,6 +85,8 @@ interface StoredRestartLaunchDescriptor {
   eligible: boolean;
   launch: AppServerSessionLaunchRequest['launch'];
 }
+
+export type AppServerSessionStopCause = 'user' | 'track_control' | 'track_rotation' | 'track_state';
 
 interface AppServerSessionSummaryProjection {
   id?: unknown;
@@ -336,7 +339,8 @@ export class AppServerHostService {
       if (request.operation === 'fleet.remote_workspace_details') return this.fleet.remoteWorkspaceDetails(nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '');
       if (request.operation === 'fleet.remote_research_track') return this.fleet.callRemote(
         nonEmpty(input.serverId) ?? '', 'workspace.research_track',
-        { ...decodeBealeWorkspaceResearchTrackRequest({ workspaceId: input.workspaceId, action: input.action ?? 'status' }) });
+        { ...decodeBealeWorkspaceResearchTrackRequest({ workspaceId: input.workspaceId,
+          action: input.action ?? 'status', ...(input.configuration ? { configuration: input.configuration } : {}) }) });
       if (request.operation === 'fleet.remote_workspace_document') {
         if (input.kind !== 'runbook' && input.kind !== 'report') throw new Error('Invalid remote workspace document kind.');
         return this.fleet.remoteWorkspaceDocument(
@@ -502,7 +506,7 @@ export class AppServerHostService {
     if (request.operation === 'workspace.research_track') {
       if (!workspace) throw new Error('A registered workspace is required.');
       const input = decodeBealeWorkspaceResearchTrackRequest(request.input);
-      return this.workspaceResearchTrack(workspace.workspaceId, input.action);
+      return this.workspaceResearchTrack(workspace.workspaceId, input.action, input.configuration);
     }
     const storageProfileId = workspace?.researchProfileId ?? request.profileId;
     if (request.operation === 'workspace.project') {
@@ -1251,7 +1255,8 @@ export class AppServerHostService {
     return due.sort((left, right) => left.dueAt.localeCompare(right.dueAt));
   }
 
-  public async workspaceResearchTrack(workspaceIdentifier: string, action: string): Promise<BealeWorkspaceResearchTrack | null> {
+  public async workspaceResearchTrack(workspaceIdentifier: string, action: string,
+    configuration?: BealeWorkspaceResearchTrackRequest['configuration']): Promise<BealeWorkspaceResearchTrack | null> {
     const workspace = this.requireWorkspace(workspaceIdentifier);
     if (workspace.researchProfileId !== 'security-research') throw new Error('A Security workspace is required for a research track.');
     const storage = this.registry.storageForProfile(workspace.researchProfileId);
@@ -1283,10 +1288,15 @@ export class AppServerHostService {
           throw new Error('Renew the recorded authorization before resuming continuous research.');
         }
         if (details.scope.id !== track.scopeId) {
-          const targetIds = [...new Set(details.targets.filter((target) => target.ready)
-            .map((target) => target.id === 'browser:in-agent' ? 'local' : target.id))];
+          const readyTargets = new Set(details.targets.filter((target) => target.ready)
+            .map((target) => target.id === 'browser:in-agent' ? 'local' : target.id));
+          const targetIds = track.targetIds;
+          if (targetIds.some((targetId) => !readyTargets.has(targetId))) {
+            throw new Error('A selected research target is unavailable. Restore it before resuming the track.');
+          }
           if (!targetIds.includes('local')) throw new Error('Enable Local as a workspace target to run the research track on its owning app-server.');
           return store.start({ scopeId: details.scope.id, provider: track.provider,
+            ...(track.collaboration ? { collaboration: track.collaboration } : {}),
             targetIds, surfaces: details.surfaceMap.surfaces, replaceUnfinished: true });
         }
         return store.control('resume');
@@ -1297,22 +1307,27 @@ export class AppServerHostService {
       if (details.scope.expiresAt && Date.parse(details.scope.expiresAt) <= Date.now()) {
         throw new Error('The recorded authorization has expired. Renew the workspace scope before starting.');
       }
-      const targetIds = [...new Set(details.targets.filter((target) => target.ready)
-        .map((target) => target.id === 'browser:in-agent' ? 'local' : target.id))];
+      const readyTargets = new Set(details.targets.filter((target) => target.ready)
+        .map((target) => target.id === 'browser:in-agent' ? 'local' : target.id));
+      const targetIds = [...new Set(['local', ...(configuration?.targetIds ?? [...readyTargets])])];
       if (targetIds.length === 0 || targetIds.length > 16) throw new Error('Enable 1 to 16 ready workspace targets for continuous research.');
+      if (targetIds.some((targetId) => !readyTargets.has(targetId))) throw new Error('A selected research target is unavailable in this workspace.');
       if (!targetIds.includes('local')) throw new Error('Enable Local as a workspace target to run the research track on its owning app-server.');
       const settings = this.registry.providerSettings();
-      const providerId = settings.defaultProviderId;
+      const providerId = configuration?.provider.id ?? settings.defaultProviderId;
       if (!providerId) throw new Error('Select a default research provider before starting continuous research.');
       const defaults = settings.modelDefaults[providerId] ?? {};
       return store.start({ scopeId: details.scope.id,
-        provider: { id: providerId, ...(defaults.leadModel ? { model: defaults.leadModel } : {}),
-          ...(defaults.reasoningEffort ? { reasoningEffort: defaults.reasoningEffort } : {}) },
+        provider: { id: providerId, ...(configuration?.provider.model || defaults.leadModel
+          ? { model: configuration?.provider.model ?? defaults.leadModel } : {}),
+          ...(configuration?.provider.reasoningEffort || defaults.reasoningEffort
+            ? { reasoningEffort: configuration?.provider.reasoningEffort ?? defaults.reasoningEffort } : {}) },
+        ...(configuration?.collaboration ? { collaboration: configuration.collaboration } : {}),
         targetIds, surfaces: details.surfaceMap.surfaces });
     } finally { store.close(); }
   }
 
-  public async dueResearchTracks(at = new Date()): Promise<DueAppServerAutomation[]> {
+  public async dueResearchTracks(at = new Date(), activeSessionIds: ReadonlySet<string> = new Set()): Promise<DueAppServerAutomation[]> {
     const due: DueAppServerAutomation[] = [];
     for (const summary of this.registry.listWorkspaces()) {
       const workspace = this.registry.resolveWorkspace(summary.workspaceId);
@@ -1339,6 +1354,9 @@ export class AppServerHostService {
           store.pauseWithError('A selected workspace target is unavailable. Restore it or start a new pass with updated targets.');
           continue;
         }
+        // The canonical session can finish before its worker exits. Keep the assignment
+        // until that worker and its terminal persistence have both settled.
+        if (track.activeSessionId && activeSessionIds.has(track.activeSessionId)) continue;
         if (track.activeSessionId) {
           try {
             const session = await this.invokeProtocol<AppServerSessionSummaryProjection>('session.get', {
@@ -1357,18 +1375,21 @@ export class AppServerHostService {
           track = store.get();
           if (track?.activeSessionId || track?.status !== 'running') continue;
         }
-        const sessionId = `track_epoch_${randomUUID().replaceAll('-', '')}`;
+        const sessionId = track.id;
         const assignment = store.reserveNext(sessionId, details.surfaceMap.surfaces);
         if (!assignment) continue;
         const work = assignment.track.surfaces.find((item) => item.surfaceId === assignment.surface.id)!;
         const promptMarkdown = researchTrackEpochPrompt(assignment.track.id, assignment.track.pass,
           assignment.surface, work, details.surfaceMap.surfaces.length);
+        const continuing = assignment.track.pass > 1 || assignment.track.epochCount > 1;
         due.push({ dueAt: at.toISOString(), request: { launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
           sessionId, launch: { workspaceId: workspace.workspaceId,
             mode: 'research-track',
             machineId: 'local',
             targetIds: track.targetIds, promptMarkdown,
-            provider: track.provider, shellSafetyMode: 'auto_review', guardianEnabled: true,
+            provider: track.provider, ...(track.collaboration ? { collaboration: track.collaboration } : {}),
+            shellSafetyMode: 'auto_review', guardianEnabled: true,
+            ...(continuing ? { continuation: { fallbackPrompt: promptMarkdown } } : {}),
             generateTitle: false } } });
       } catch (error) {
         const track = store.get();
@@ -1377,6 +1398,23 @@ export class AppServerHostService {
       } finally { store.close(); }
     }
     return due;
+  }
+
+  public async updateResearchTrackSessionTitle(workspaceId: string, sessionId: string, epochCount: number,
+    title: string): Promise<void> {
+    const workspace = this.requireWorkspace(workspaceId);
+    const storage = this.registry.storageForProfile(workspace.researchProfileId);
+    const store = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId: workspace.workspaceId });
+    try {
+      const track = store.get();
+      if (track?.status !== 'running' || track.activeSessionId !== sessionId || track.epochCount !== epochCount) return;
+      await this.invokeProtocol('session.append_event', {
+        args: ['session', 'append-event', '--session-id', sessionId], storage,
+        input: { id: `track_title_${track.pass}_${epochCount}`, kind: 'session.title',
+          timestamp: new Date().toISOString(), summary: 'Research track state updated.',
+          payload: { status: 'generated', title: title.slice(0, 120) } }
+      });
+    } finally { store.close(); }
   }
 
   public recordResearchTrackEpochLaunchFailure(workspaceId: string, sessionId: string, reason: string): void {
@@ -1396,13 +1434,17 @@ export class AppServerHostService {
     sessionId: string;
     attemptId: string;
     state: 'active' | 'paused' | 'stopped';
+    stopCause?: AppServerSessionStopCause;
   }): Promise<void> {
     const workspace = this.requireWorkspace(input.request.launch.workspaceId);
     const storage = this.registry.storageForProfile(workspace.researchProfileId || 'security-research');
     const summary = input.state === 'paused'
       ? 'Paused by the user.'
       : input.state === 'stopped'
-        ? 'Stopped by the user.'
+        ? input.stopCause === 'track_rotation' ? 'Rotated to the next research epoch.'
+          : input.stopCause === 'track_state' ? 'Stopped because the research track assignment changed.'
+            : input.stopCause === 'track_control' ? 'Stopped with the research track controls.'
+              : 'Stopped by the user.'
         : 'Resumed by the user.';
     await this.invokeProtocol('session.transition', {
       args: ['session', 'transition', '--session-id', input.sessionId],
@@ -1411,10 +1453,9 @@ export class AppServerHostService {
         status: input.state,
         summary,
         attemptId: input.attemptId,
-        metadata: {
-          manualControlState: input.state,
-          manualControlAt: new Date().toISOString()
-        }
+        metadata: input.state === 'stopped' && input.stopCause && input.stopCause !== 'user'
+          ? { appServerStopCause: input.stopCause, appServerStopAt: new Date().toISOString() }
+          : { manualControlState: input.state, manualControlAt: new Date().toISOString() }
       }
     });
   }
@@ -1471,9 +1512,11 @@ export class AppServerHostService {
     }
     const trackStore = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId: workspace.workspaceId });
     try {
-      if (input.request.launch.mode === 'research-track' && input.state === 'stopped' && !input.trackRotation
+      const assigned = input.request.launch.mode === 'research-track'
+        && trackStore.get()?.activeSessionId === input.sessionId;
+      if (assigned && input.state === 'stopped' && !input.trackRotation
         && trackStore.get()?.status === 'running') trackStore.control('pause');
-      if (input.request.launch.mode === 'research-track' && trackStore.get()?.activeSessionId === input.sessionId) {
+      if (assigned) {
         const diagnostic = input.state === 'failed' ? input.diagnostic?.trim() || 'The research worker failed.' : undefined;
         trackStore.finishEpoch(input.sessionId, input.state === 'completed' || current.status === 'blocked', diagnostic);
         if (diagnostic) trackStore.pauseWithError(diagnostic);

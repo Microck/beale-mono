@@ -1042,10 +1042,11 @@ export class WorkspaceService {
       input: { workspaceId, action: 'status', ...(serverId ? { serverId } : {}) } }));
   }
 
-  public async controlResearchTrack(workspaceId: string, action: 'start' | 'pause' | 'resume' | 'stop', serverId?: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrack> {
+  public async controlResearchTrack(workspaceId: string, action: 'start' | 'pause' | 'resume' | 'stop', serverId?: string,
+    configuration?: import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrackRequest['configuration']): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrack> {
     const operation = serverId ? 'fleet.remote_research_track' : 'workspace.research_track';
     const result = decodeBealeWorkspaceResearchTrack(await invokeAppServerOperation({ operation,
-      input: { workspaceId, action, ...(serverId ? { serverId } : {}) } }));
+      input: { workspaceId, action, ...(serverId ? { serverId } : {}), ...(configuration ? { configuration } : {}) } }));
     if (!result) throw new Error('The research track was not returned by app-server.');
     return result;
   }
