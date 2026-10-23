@@ -26,6 +26,7 @@ import {
   decodeBealeAppServerSessionContinuationRequest,
   decodeBealeAppServerSessionControlRequest,
   decodeAppServerSessionLaunchRequest,
+  decodeBealeWorkspaceResearchTrackRequest,
   decodeBealeAppServerQuickChatStartInput,
   appServerServerHello,
   appServerSessionEvent,
@@ -165,6 +166,7 @@ interface SessionRuntime {
   endedAt: string | null;
   exitCode: number | null;
   stopRequested: boolean;
+  trackRotationRequested: boolean;
   diagnostic: string | null;
   startupDiagnostic: string | null;
   unsubscribeSessionEvents: (() => void) | null;
@@ -220,9 +222,11 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
   const introspectionBindings = new Map<string, ResidentIntrospectionBinding>();
   let discoveryRecord: AppServerDiscoveryRecord | null = null;
   let automationTimer: NodeJS.Timeout | null = null;
+  let researchTrackTimer: NodeJS.Timeout | null = null;
   let fleetProxyTimer: NodeJS.Timeout | null = null;
   let fleetProxyScanInProgress = false;
   let automationScanInProgress = false;
+  let researchTrackScanInProgress = false;
   let closing = false;
 
   const notifyChange = (): void => {
@@ -338,6 +342,9 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     automationTimer.unref();
     setImmediate(() => void scanDueAutomations());
   }
+  researchTrackTimer = setInterval(() => void scanDueResearchTracks(), 15_000);
+  researchTrackTimer.unref();
+  setImmediate(() => void scanDueResearchTracks());
   fleetProxyTimer = setInterval(() => void scanFleetProxySessions(), 5_000);
   fleetProxyTimer.unref();
 
@@ -637,6 +644,22 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
           startedAt: existingProxy?.startedAt ?? new Date().toISOString() });
         sendJson(response, 200, { controlVersion: BEALE_APP_SERVER_CONTROL_VERSION, result: { machineId: body.input.machineId, url: baseUrl } });
         return;
+      }
+      if (body.operation === 'workspace.research_track' && isRecord(body.input)) {
+        const { action, workspaceId } = decodeBealeWorkspaceResearchTrackRequest(body.input);
+        if (action === 'pause' || action === 'stop') {
+          const current = await hostCall(() => hostService.workspaceResearchTrack(workspaceId, 'status'));
+          const result = await hostCall(() => hostService.workspaceResearchTrack(workspaceId, action));
+          if (current?.activeSessionId) stopSession(current.activeSessionId);
+          sendJson(response, 200, { controlVersion: BEALE_APP_SERVER_CONTROL_VERSION, result });
+          return;
+        }
+        if (action === 'start' || action === 'resume') {
+          const result = await hostCall(() => hostService.workspaceResearchTrack(workspaceId, action));
+          setImmediate(() => void scanDueResearchTracks());
+          sendJson(response, 200, { controlVersion: BEALE_APP_SERVER_CONTROL_VERSION, result });
+          return;
+        }
       }
       const controller = new AbortController();
       const abortDisconnectedOperation = (): void => {
@@ -1066,6 +1089,42 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     }
   }
 
+  async function scanDueResearchTracks(): Promise<void> {
+    if (closing || researchTrackScanInProgress) return;
+    researchTrackScanInProgress = true;
+    try {
+      for (const runtime of sessions.values()) {
+        if (runtime.request.launch.mode !== 'research-track' || isTerminal(runtime.state)) continue;
+        if (Date.now() - Date.parse(runtime.startedAt) > 45 * 60_000) {
+          runtime.trackRotationRequested = true;
+          stopSession(runtime.sessionId);
+          continue;
+        }
+        try {
+          const track = await hostCall(() => hostService.workspaceResearchTrack(runtime.request.launch.workspaceId, 'status'));
+          if (!track || track.status !== 'running' || track.activeSessionId !== runtime.sessionId) stopSession(runtime.sessionId);
+        } catch { /* A transient status read must not interrupt active research. */ }
+      }
+      const service = hostService as AppServerHostService & {
+        dueResearchTracks?: (at?: Date) => Promise<Array<{ request: AppServerSessionLaunchRequest }>>;
+        recordResearchTrackEpochLaunchFailure?: (workspaceId: string, sessionId: string, reason: string) => void;
+      };
+      if (typeof service.dueResearchTracks !== 'function') return;
+      const tracks = await service.dueResearchTracks();
+      for (const track of tracks) {
+        const sessionId = track.request.sessionId;
+        if (!sessionId || closing) break;
+        try { await startSession(track.request, true); }
+        catch (error) {
+          service.recordResearchTrackEpochLaunchFailure?.(track.request.launch.workspaceId, sessionId,
+            error instanceof Error ? error.message : String(error));
+        }
+      }
+    } catch (error) {
+      console.error('Research track scheduler failed:', error);
+    } finally { researchTrackScanInProgress = false; }
+  }
+
   function createSessionRuntime(
     request: AppServerSessionLaunchRequest,
     prepared: PreparedAppServerSession
@@ -1087,6 +1146,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
       endedAt: null,
       exitCode: null,
       stopRequested: false,
+      trackRotationRequested: false,
       diagnostic: null,
       startupDiagnostic: null,
       unsubscribeSessionEvents: null,
@@ -1512,11 +1572,13 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
         sessionId: string;
         attemptId: string;
         state: 'completed' | 'failed' | 'stopped';
+        trackRotation?: boolean;
       }) => Promise<void>;
     };
     try {
       await service.recordSessionTerminalState?.({
-        request: runtime.request, sessionId: runtime.sessionId, attemptId: runtime.currentAttemptId, state
+        request: runtime.request, sessionId: runtime.sessionId, attemptId: runtime.currentAttemptId, state,
+        trackRotation: runtime.trackRotationRequested
       });
       notifyChange();
     } catch (error) {
@@ -1812,6 +1874,8 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     hostService.stopFleetModelBrokers?.();
     if (automationTimer) clearInterval(automationTimer);
     automationTimer = null;
+    if (researchTrackTimer) clearInterval(researchTrackTimer);
+    researchTrackTimer = null;
     if (fleetProxyTimer) clearInterval(fleetProxyTimer);
     fleetProxyTimer = null;
     for (const runtime of [...sessions.values()]) {

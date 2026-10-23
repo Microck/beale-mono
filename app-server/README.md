@@ -23,6 +23,10 @@ The `workspace.project` operation accepts these inputs through the canonical ope
 
 Workspace housekeeping quarantines disposable scratch and cache content under `.beale/quarantine/` with a recovery journal. Research sessions have no Git checkpoint preflight, periodic commit, or terminal commit gate.
 
+## Continuous research tracks
+
+`workspace.research_track` accepts `status`, `start`, `pause`, `resume`, and `stop` for one track per Security workspace. A track requires recorded, unexpired authorized scope, enabled memory, a default provider, and a ready Local workspace target. The app-server retains the track and each surface's impact, theory, evidence references, next action, blocker state, and revisit timing in its global database. It starts bounded research epochs with Auto-Review and Guardian, rotates surfaces by impact and progress, and resumes scheduling after an app-server restart. A completed high-impact surface receives a later second look before the pass closes. Scope changes, disabled memory, unavailable targets, and repeated epochs without durable progress pause the track for operator review. Stopping an individual track session pauses the track; a watchdog stop rotates to the next surface. Surface completion requires threat-model coverage and canonical evidence; report-ready findings remain visible without blocking completion. `fleet.remote_research_track` forwards the same controls to a connected primary app-server. The owning app-server remains the scheduler and storage owner.
+
 ## Optional research features
 
 Fleet and the other harness features appear under Optional Features in Agent Settings. Enabled features appear in the agent's `{{features}}` catalog under "Internal features" with short usage descriptions. Traditional plugins appear under "External Plugins" in `{{plugins}}`. Existing registry IDs and the native tool groups' launch field retain saved toggle compatibility.

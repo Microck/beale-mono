@@ -107,7 +107,10 @@ function remoteMemory(details: BealeAppServerWorkspaceDetails): AppServerMemoryS
   };
 }
 
-export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board' }: { serverId: string; details: BealeAppServerWorkspaceDetails; initialView?: WorkspaceDashboardView }): JSX.Element {
+export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board', onViewChange }: {
+  serverId: string; details: BealeAppServerWorkspaceDetails; initialView?: WorkspaceDashboardView;
+  onViewChange?: (viewName: string) => void;
+}): JSX.Element {
   const [selected, setSelected] = useState<{ kind: 'claim' | 'memory' | 'runbook' | 'report'; id: string } | null>(null);
   const [documentState, setDocumentState] = useState<{ key: string; value: BealeAppServerWorkspaceDocument | null; error: string | null } | null>(null);
   const scope = useMemo(() => remoteScope(details), [details]);
@@ -139,6 +142,7 @@ export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board
       rightAreaExpanded={selected !== null}
       readOnly
       remoteTargets={details.targets}
+      trackServerId={serverId}
       surfaceMap={details.surfaceMap}
       appServerMemory={memory}
       activeScope={scope}
@@ -152,6 +156,7 @@ export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board
       workspaceId={details.workspace.workspaceId}
       workspaceName={workspaceName}
       runs={[]}
+      onActiveViewChange={onViewChange}
       onOpenClaim={(id) => open('claim', id)}
       openClaimId={selected?.kind === 'claim' ? selected.id : null}
       onOpenMemory={(id) => open('memory', id)}

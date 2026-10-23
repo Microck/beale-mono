@@ -182,6 +182,8 @@ export function App(): JSX.Element {
   const [remoteCatalogError, setRemoteCatalogError] = useState<string | null>(null);
   const [remoteWorkspaceId, setRemoteWorkspaceId] = useState<string | null>(null);
   const [remoteSessionId, setRemoteSessionId] = useState<string | null>(null);
+  const [remoteWorkspaceViewName, setRemoteWorkspaceViewName] = useState('Campaign Findings');
+  useEffect(() => { setRemoteWorkspaceViewName('Campaign Findings'); }, [selectedFleetServerId, remoteWorkspaceId]);
   const [remoteSurfaceFocus, setRemoteSurfaceFocus] = useState<{
     serverId: string; workspaceId: string; sessionId: string; summary: SurfaceFocusSummary;
   } | null>(null);
@@ -379,7 +381,7 @@ export function App(): JSX.Element {
     void refreshFleetConfiguration().catch((caught: unknown) => setFleetConfigurationError(errorMessage(caught)));
   }, [fleetOpen, refreshFleetConfiguration]);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
-  const [workspaceDashboardViewName, setWorkspaceDashboardViewName] = useState('Campaign');
+  const [workspaceDashboardViewName, setWorkspaceDashboardViewName] = useState('Campaign Findings');
   const [workspaceDashboardInitialView, setWorkspaceDashboardInitialView] = useState<WorkspaceDashboardView>('board');
   const workspaceDashboardWorkspaceIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -387,6 +389,7 @@ export function App(): JSX.Element {
     if (workspaceDashboardWorkspaceIdRef.current === workspaceId) return;
     workspaceDashboardWorkspaceIdRef.current = workspaceId;
     setWorkspaceDashboardInitialView('board');
+    if (workspaceId) setWorkspaceDashboardViewName('Campaign Findings');
   }, [snapshot?.workspace.workspaceId]);
   const [sessionOverviewOpen, setSessionOverviewOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
@@ -2158,7 +2161,7 @@ export function App(): JSX.Element {
         workspaceName={selectedFleetServerId !== 'local'
           ? remoteWorkspace?.name ?? 'No Workspace Selected'
           : workspaceDraft && !newResearchOpen ? 'New Workspace' : currentWorkspaceName}
-        workspaceViewTitle={selectedFleetServerId !== 'local' ? remoteResearchOpen ? 'New Research' : remoteWorkspaceId && !remoteSessionId ? 'Workspace Details' : null : newResearchOpen
+        workspaceViewTitle={selectedFleetServerId !== 'local' ? remoteResearchOpen ? 'New Research' : remoteWorkspaceId && !remoteSessionId ? remoteWorkspaceViewName : null : newResearchOpen
           ? snapshot?.researchProfile.profile.presentation?.newResearchLabel ?? 'New Research'
           : workspaceDraft ? workspaceDashboardViewName : (snapshot && !selectedRunId ? workspaceDashboardViewName : null)}
         activeRunDetail={selectedFleetServerId !== 'local' && remoteSession
@@ -2410,6 +2413,7 @@ export function App(): JSX.Element {
                 guardianEnabled={permissionSettings.guardianEnabled}
                 selectedSubagentPath={remoteSelectedSubagentPath} onBackToSubagents={() => setRemoteSelectedSubagentPath(null)}
                 onSurfaceFocusChange={onRemoteSurfaceFocusChange}
+                onWorkspaceViewChange={setRemoteWorkspaceViewName}
                 onLaunched={(workspaceId, sessionId) => {
                   setRemoteWorkspaceId(workspaceId);
                   setRemoteSessionId(sessionId);

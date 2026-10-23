@@ -14,6 +14,8 @@ import {
   decodeBealeAppServerDescriptor,
   decodeBealeAppServerErrorResponse,
   decodeBealeAppServerProviderCatalog,
+  decodeBealeWorkspaceResearchTrack,
+  decodeBealeWorkspaceResearchTrackRequest,
   decodeBealeAppServerSessionAttachResult,
   decodeBealeAppServerSessionContinuationRequest,
   decodeBealeAppServerSessionStartResult,
@@ -40,6 +42,27 @@ import {
   appServerProtocolSuccess,
   parseAppServerProtocolArguments,
 } from "../packages/app-server-runtime/dist/protocol.js";
+
+test('research-track control decodes a bounded workspace progress snapshot', () => {
+  assert.deepEqual(decodeBealeWorkspaceResearchTrackRequest({ workspaceId: ' workspace-example ', action: 'start' }),
+    { workspaceId: 'workspace-example', action: 'start' });
+  assert.throws(() => decodeBealeWorkspaceResearchTrackRequest({ workspaceId: 'workspace-example', action: 'reset' }),
+    /Invalid workspace research track request/);
+  const snapshot = {
+    id: 'track-example', workspaceId: 'workspace-example', status: 'running', pass: 1,
+    scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'],
+    activeSessionId: 'session-example', activeSurfaceId: 'surface-example', epochCount: 1,
+    lastError: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    surfaces: [{ surfaceId: 'surface-example', name: 'Example service', status: 'active', impact: 'high',
+      theory: 'A privileged trust boundary may be crossed.', nextAction: 'Test the boundary.',
+      evidenceRefs: ['memory:memory-example'], epochs: 1, noProgressEpochs: 0, revisits: 0,
+      revisitAfter: null, lastWorkedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }],
+  };
+  assert.deepEqual(decodeBealeWorkspaceResearchTrack(snapshot), snapshot);
+  assert.equal(decodeBealeWorkspaceResearchTrack(null), null);
+  assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot,
+    surfaces: [{ ...snapshot.surfaces[0], evidenceRefs: [12] }] }), /invalid workspace research track/);
+});
 
 test('research suggestion responses reject malformed lists and the wrong lane', () => {
   const valid = { phase: 'discovery', suggestions: ['Inspect an example component.'] };

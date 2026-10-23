@@ -38,6 +38,7 @@ import { WorkspaceTargetsPanel } from './WorkspaceTargetsPanel';
 import { CampaignBoardView } from './CampaignGraphView';
 import { ResourcePriorArtView } from './ResourcePriorArtView';
 import { WorkspaceSurfaceMap } from './WorkspaceSurfaceMap';
+import { WorkspaceResearchTrack } from './WorkspaceResearchTrack';
 import { WorkspaceTitleSearch, workspaceCatalogMatchesQuery } from './WorkspaceTitleSearch';
 
 const WORKSPACE_ACTIVITY_DAY_COUNT = 365;
@@ -217,6 +218,7 @@ export function WorkspaceUnderstandingView({
   rightAreaExpanded = false,
   readOnly = false,
   remoteTargets,
+  trackServerId,
   surfaceMap,
   researchProfileLabel,
   nowMs
@@ -240,6 +242,7 @@ export function WorkspaceUnderstandingView({
   rightAreaExpanded?: boolean;
   readOnly?: boolean;
   remoteTargets?: readonly { id: string; name: string; ready: boolean }[];
+  trackServerId?: string;
   surfaceMap?: BealeWorkspaceSurfaceMap | null;
   researchProfileLabel?: string;
   onAddResource?: (asset: ScopeAssetInput) => Promise<void>;
@@ -279,8 +282,10 @@ export function WorkspaceUnderstandingView({
     return () => window.clearInterval(timer);
   }, [nowMs]);
   useEffect(() => {
-    onActiveViewChange?.(workspaceDashboardViewLabel(activeView, researchKitId));
-  }, [activeView, onActiveViewChange, researchKitId]);
+    onActiveViewChange?.(activeView === 'campaign'
+      ? `Campaign ${workspaceCampaignViewLabel(activeCampaignView)}`
+      : workspaceDashboardViewLabel(activeView, researchKitId));
+  }, [activeCampaignView, activeView, onActiveViewChange, researchKitId]);
   useEffect(() => {
     onViewSelectionChange?.(activeView === 'campaign' ? activeCampaignView : activeView);
   }, [activeCampaignView, activeView, onViewSelectionChange]);
@@ -353,6 +358,9 @@ export function WorkspaceUnderstandingView({
           );
         })}
       </div>
+
+      {workspaceId ? <WorkspaceResearchTrack workspaceId={workspaceId} serverId={trackServerId}
+        enabled={memoryBackend !== 'disabled'} showDetails={activeView === 'surfaces'} /> : null}
 
       {campaignActive ? (
         <div className="workspace-campaign-subview-navigation" id="workspace-dashboard-campaign-subviews" role="tabpanel">

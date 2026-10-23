@@ -140,6 +140,101 @@ test('research starts without a workspace Git checkpoint', async () => {
   upstream.complete();
 });
 
+test('the app-server reserves a safe research-track epoch and retains its pause state', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-host-example-'));
+  temporaryDirectories.push(directory);
+  const registry = hostRegistryFixture(directory);
+  registry.listWorkspaces = () => [{ workspaceId: 'workspace-test' }];
+  const hostService = new AppServerHostService({ registry });
+  hostService.workspaceDetails = async () => ({
+    scope: { id: 'scope-example', expiresAt: null },
+    targets: [{ id: 'local', ready: true }],
+    surfaceMap: { surfaces: [{ id: 'surface-example', parentId: null, name: 'Example service',
+      coverageState: { covered: false, unmetRequirements: ['surface_map', 'sinks'], unblockedFindingIds: [] },
+      progressBlocker: null }] },
+  });
+  const started = await hostService.workspaceResearchTrack('workspace-test', 'start');
+  assert.equal(started.status, 'running');
+  const due = await hostService.dueResearchTracks();
+  assert.equal(due.length, 1);
+  assert.equal(due[0].request.launch.mode, 'research-track');
+  assert.equal(due[0].request.launch.shellSafetyMode, 'auto_review');
+  assert.equal(due[0].request.launch.guardianEnabled, true);
+  assert.deepEqual(due[0].request.launch.targetIds, ['local']);
+  assert.match(due[0].request.launch.promptMarkdown, /Assigned surface: Example service/u);
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).activeSessionId,
+    due[0].request.sessionId);
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'pause')).status, 'paused');
+  hostService.recordResearchTrackEpochLaunchFailure('workspace-test', due[0].request.sessionId, 'Example failure');
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).status, 'paused');
+});
+
+test('stopping a track session pauses research while a watchdog rotation continues it', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-stop-example-'));
+  temporaryDirectories.push(directory);
+  const registry = hostRegistryFixture(directory);
+  registry.listWorkspaces = () => [{ workspaceId: 'workspace-test' }];
+  const hostService = new AppServerHostService({ registry,
+    invokeProtocol: async (operation) => operation === 'session.get' ? { status: 'stopped' } : null });
+  hostService.workspaceDetails = async () => ({
+    scope: { id: 'scope-example', expiresAt: null }, targets: [{ id: 'local', ready: true }],
+    surfaceMap: { surfaces: [{ id: 'surface-example', parentId: null, name: 'Example service',
+      coverageState: { covered: false, unmetRequirements: ['surface_map'], unblockedFindingIds: [] },
+      progressBlocker: null }] },
+  });
+  await hostService.workspaceResearchTrack('workspace-test', 'start');
+  const first = (await hostService.dueResearchTracks())[0].request;
+  assert.equal(first.launch.mode, 'research-track');
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).activeSessionId, first.sessionId);
+  await hostService.recordSessionTerminalState({ request: first, sessionId: first.sessionId,
+    attemptId: 'attempt-example-one', state: 'stopped' });
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).status, 'paused');
+  await hostService.workspaceResearchTrack('workspace-test', 'resume');
+  const second = (await hostService.dueResearchTracks())[0].request;
+  await hostService.recordSessionTerminalState({ request: second, sessionId: second.sessionId,
+    attemptId: 'attempt-example-two', state: 'stopped', trackRotation: true });
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).status, 'running');
+  registry.resolveWorkspace('workspace-test').memoryBackend = 'disabled';
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).status, 'paused');
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'stop')).status, 'stopped');
+});
+
+test('an authorization change pauses a reserved research epoch before the next scheduler action', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-scope-example-'));
+  temporaryDirectories.push(directory);
+  const registry = hostRegistryFixture(directory);
+  registry.listWorkspaces = () => [{ workspaceId: 'workspace-test' }];
+  const hostService = new AppServerHostService({ registry });
+  let scopeId = 'scope-example-one';
+  hostService.workspaceDetails = async () => ({
+    scope: { id: scopeId, expiresAt: null }, targets: [{ id: 'local', ready: true }],
+    surfaceMap: { surfaces: [{ id: 'surface-example', parentId: null, name: 'Example service',
+      coverageState: { covered: false, unmetRequirements: ['surface_map'], unblockedFindingIds: [] },
+      progressBlocker: null }] },
+  });
+  await hostService.workspaceResearchTrack('workspace-test', 'start');
+  assert.equal((await hostService.dueResearchTracks()).length, 1);
+  scopeId = 'scope-example-two';
+  assert.equal((await hostService.dueResearchTracks()).length, 0);
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).status, 'paused');
+});
+
+test('a connected primary forwards research-track control to its owning app-server', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-remote-example-'));
+  temporaryDirectories.push(directory);
+  const hostService = new AppServerHostService({ registry: hostRegistryFixture(directory) });
+  let forwarded;
+  hostService.fleet.callRemote = async (serverId, operation, input) => {
+    forwarded = { serverId, operation, input };
+    return { id: 'track-example', status: 'running' };
+  };
+  const result = await hostService.executeOperation({ operation: 'fleet.remote_research_track',
+    input: { serverId: 'server-example', workspaceId: 'workspace-test', action: 'resume' } });
+  assert.equal(result.status, 'running');
+  assert.deepEqual(forwarded, { serverId: 'server-example', operation: 'workspace.research_track',
+    input: { workspaceId: 'workspace-test', action: 'resume' } });
+});
+
 test('keeps a hosted session starting until the runtime readiness handshake completes', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-runtime-ready-example-'));
   temporaryDirectories.push(directory);
@@ -2639,6 +2734,31 @@ test("discovers overdue automations from canonical session metadata and rebuilds
     nextAutomationRunAt({ type: "monthly", interval: 1 }, "2026-08-15T12:00:00.000Z")?.toISOString(),
     "2026-09-15T12:00:00.000Z",
   );
+});
+
+test('automatically launches a reserved research-track epoch while the app-server is resident', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-scheduler-example-'));
+  temporaryDirectories.push(directory);
+  const upstream = await createFakeAppServerSessionHost();
+  const hostService = testHostService(directory);
+  let scanned = false;
+  hostService.dueResearchTracks = async () => {
+    if (scanned) return [];
+    scanned = true;
+    const request = sessionLaunchRequest(directory, { sessionId: 'session-track-example' });
+    request.launch.mode = 'research-track';
+    request.launch.targetIds = ['local'];
+    request.launch.machineId = 'local';
+    request.launch.shellSafetyMode = 'auto_review';
+    request.launch.guardianEnabled = true;
+    return [{ request }];
+  };
+  hostService.workspaceResearchTrack = async () => ({ status: 'running', activeSessionId: 'session-track-example' });
+  const server = await startAppServer({ hostService, spawnSession: upstream.spawnSession });
+  servers.push(server);
+  await waitFor(() => server.listSessions().some((session) => session.sessionId === 'session-track-example'));
+  assert.equal(server.listSessions().find((session) => session.sessionId === 'session-track-example')?.state, 'running');
+  upstream.complete();
 });
 
 test("automatically launches due automations while the app-server is resident", async () => {

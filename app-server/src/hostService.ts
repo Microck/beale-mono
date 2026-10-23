@@ -10,6 +10,7 @@ import {
   type BealeAppServerCanonicalResult,
   type BealeAppServerWorkspaceDetails,
   type BealeWorkspaceSurfaceMap,
+  type BealeWorkspaceResearchTrack,
   type BealeAppServerQuickChatList,
   type BealeAppServerQuickChatStartInput,
   type BealeAppServerProviderCatalog,
@@ -24,12 +25,13 @@ import {
   decodeFleetRemoteResearchInput,
   decodeFleetRemotePromptExpansionInput,
   decodeWorkspaceProjectRequest,
+  decodeBealeWorkspaceResearchTrackRequest,
   type AppServerProtocolOperation,
   type AppServerSessionLaunchRequest,
   decodeFleetSshTestInput
 } from '@beale/app-server-runtime/protocol';
 import { getProviderModelCatalog, readWorkspaceProject, readWorkspaceResearchCacheState, resolveStoredResearchWorkspaceBinding, workspaceResearchIndexNeedsRebuild } from '@beale/app-server-runtime/runtime-services';
-import { applyFeaturePromptOverrides, bundledPluginsRequiredByResearchKit, decodeResearchPluginCatalog, researchKitsRequiringBundledPlugin, validateResearchSystemPromptTemplate, verifyBrokerModelAccess } from '@beale/research-agent';
+import { applyFeaturePromptOverrides, bundledPluginsRequiredByResearchKit, decodeResearchPluginCatalog, researchKitsRequiringBundledPlugin, validateResearchSystemPromptTemplate, verifyBrokerModelAccess, ResearchTrackStore, type ResearchTrackSurfaceState, type ResearchTrackSurfaceProjection } from '@beale/research-agent';
 import { runWorkspaceCheckpoint, workspaceOperationKey } from './workspaceCheckpoints.js';
 import { projectWorkspaceDetails } from './workspaceDetails.js';
 import { readWorkspaceSurfaceMap } from './surfaceMap.js';
@@ -332,6 +334,9 @@ export class AppServerHostService {
       }
       if (request.operation === 'fleet.remote_catalog') return this.fleet.remoteCatalog(nonEmpty(input.serverId) ?? '');
       if (request.operation === 'fleet.remote_workspace_details') return this.fleet.remoteWorkspaceDetails(nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '');
+      if (request.operation === 'fleet.remote_research_track') return this.fleet.callRemote(
+        nonEmpty(input.serverId) ?? '', 'workspace.research_track',
+        { ...decodeBealeWorkspaceResearchTrackRequest({ workspaceId: input.workspaceId, action: input.action ?? 'status' }) });
       if (request.operation === 'fleet.remote_workspace_document') {
         if (input.kind !== 'runbook' && input.kind !== 'report') throw new Error('Invalid remote workspace document kind.');
         return this.fleet.remoteWorkspaceDocument(
@@ -493,6 +498,11 @@ export class AppServerHostService {
     if (request.operation === 'workspace.surface_map') {
       if (!workspace) throw new Error('A registered workspace is required.');
       return this.workspaceSurfaceMap(workspace.workspaceId);
+    }
+    if (request.operation === 'workspace.research_track') {
+      if (!workspace) throw new Error('A registered workspace is required.');
+      const input = decodeBealeWorkspaceResearchTrackRequest(request.input);
+      return this.workspaceResearchTrack(workspace.workspaceId, input.action);
     }
     const storageProfileId = workspace?.researchProfileId ?? request.profileId;
     if (request.operation === 'workspace.project') {
@@ -1241,6 +1251,138 @@ export class AppServerHostService {
     return due.sort((left, right) => left.dueAt.localeCompare(right.dueAt));
   }
 
+  public async workspaceResearchTrack(workspaceIdentifier: string, action: string): Promise<BealeWorkspaceResearchTrack | null> {
+    const workspace = this.requireWorkspace(workspaceIdentifier);
+    if (workspace.researchProfileId !== 'security-research') throw new Error('A Security workspace is required for a research track.');
+    const storage = this.registry.storageForProfile(workspace.researchProfileId);
+    const store = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId: workspace.workspaceId });
+    try {
+      if (action === 'status') {
+        const track = store.get();
+        if (!track) return null;
+        if (workspace.memoryBackend === 'disabled' && track.status === 'running') {
+          return store.pauseWithError('Workspace memory was disabled. Re-enable memory before resuming the research track.');
+        }
+        if (workspace.memoryBackend === 'disabled') return track;
+        const details = await this.workspaceDetails(workspace.workspaceId);
+        const current = store.syncSurfaces(details.surfaceMap.surfaces)!;
+        if (current.status === 'running' && (!details.scope || details.scope.id !== current.scopeId
+          || details.scope.expiresAt && Date.parse(details.scope.expiresAt) <= Date.now()
+          || current.activeSurfaceId && !details.surfaceMap.surfaces.some((surface) => surface.id === current.activeSurfaceId))) {
+          return store.pauseWithError('The authorized scope or assigned surface changed. Review the workspace before resuming.');
+        }
+        return current;
+      }
+      if (action === 'pause' || action === 'stop') return store.control(action);
+      if (workspace.memoryBackend === 'disabled') throw new Error('Enable workspace memory before starting or resuming a research track.');
+      if (action === 'resume') {
+        const track = store.get();
+        if (!track) throw new Error('No research track exists in this workspace.');
+        const details = await this.workspaceDetails(workspace.workspaceId);
+        if (!details.scope?.id || details.scope.expiresAt && Date.parse(details.scope.expiresAt) <= Date.now()) {
+          throw new Error('Renew the recorded authorization before resuming continuous research.');
+        }
+        if (details.scope.id !== track.scopeId) {
+          const targetIds = [...new Set(details.targets.filter((target) => target.ready)
+            .map((target) => target.id === 'browser:in-agent' ? 'local' : target.id))];
+          if (!targetIds.includes('local')) throw new Error('Enable Local as a workspace target to run the research track on its owning app-server.');
+          return store.start({ scopeId: details.scope.id, provider: track.provider,
+            targetIds, surfaces: details.surfaceMap.surfaces, replaceUnfinished: true });
+        }
+        return store.control('resume');
+      }
+      if (action !== 'start') throw new Error('Unsupported research track action.');
+      const details = await this.workspaceDetails(workspace.workspaceId);
+      if (!details.scope?.id) throw new Error('Record an authorized workspace scope before starting continuous research.');
+      if (details.scope.expiresAt && Date.parse(details.scope.expiresAt) <= Date.now()) {
+        throw new Error('The recorded authorization has expired. Renew the workspace scope before starting.');
+      }
+      const targetIds = [...new Set(details.targets.filter((target) => target.ready)
+        .map((target) => target.id === 'browser:in-agent' ? 'local' : target.id))];
+      if (targetIds.length === 0 || targetIds.length > 16) throw new Error('Enable 1 to 16 ready workspace targets for continuous research.');
+      if (!targetIds.includes('local')) throw new Error('Enable Local as a workspace target to run the research track on its owning app-server.');
+      const settings = this.registry.providerSettings();
+      const providerId = settings.defaultProviderId;
+      if (!providerId) throw new Error('Select a default research provider before starting continuous research.');
+      const defaults = settings.modelDefaults[providerId] ?? {};
+      return store.start({ scopeId: details.scope.id,
+        provider: { id: providerId, ...(defaults.leadModel ? { model: defaults.leadModel } : {}),
+          ...(defaults.reasoningEffort ? { reasoningEffort: defaults.reasoningEffort } : {}) },
+        targetIds, surfaces: details.surfaceMap.surfaces });
+    } finally { store.close(); }
+  }
+
+  public async dueResearchTracks(at = new Date()): Promise<DueAppServerAutomation[]> {
+    const due: DueAppServerAutomation[] = [];
+    for (const summary of this.registry.listWorkspaces()) {
+      const workspace = this.registry.resolveWorkspace(summary.workspaceId);
+      if (!workspace) continue;
+      const storage = this.registry.storageForProfile(workspace.researchProfileId);
+      const store = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId: workspace.workspaceId });
+      try {
+        let track = store.get();
+        if (!track || track.status !== 'running') continue;
+        if (workspace.memoryBackend === 'disabled') {
+          store.pauseWithError('Workspace memory was disabled. Re-enable memory before resuming the research track.');
+          continue;
+        }
+        const details = await this.workspaceDetails(workspace.workspaceId);
+        const activeSurfaceId = track.activeSurfaceId;
+        if (!details.scope || details.scope.id !== track.scopeId
+          || details.scope.expiresAt && Date.parse(details.scope.expiresAt) <= at.getTime()
+          || activeSurfaceId && !details.surfaceMap.surfaces.some((surface) => surface.id === activeSurfaceId)) {
+          store.pauseWithError('The recorded authorization or assigned surface changed. Review the workspace before resuming.');
+          continue;
+        }
+        const ready = new Set(details.targets.filter((target) => target.ready).map((target) => target.id));
+        if (track.targetIds.some((targetId) => !ready.has(targetId))) {
+          store.pauseWithError('A selected workspace target is unavailable. Restore it or start a new pass with updated targets.');
+          continue;
+        }
+        if (track.activeSessionId) {
+          try {
+            const session = await this.invokeProtocol<AppServerSessionSummaryProjection>('session.get', {
+              args: ['session', 'get', '--session-id', track.activeSessionId], storage });
+            if (session.status === 'completed' || session.status === 'failed' || session.status === 'stopped' || session.status === 'blocked') {
+              store.finishEpoch(track.activeSessionId, session.status === 'completed' || session.status === 'blocked');
+            }
+          } catch {
+            if (at.getTime() - Date.parse(track.updatedAt) > 120_000) {
+              store.finishEpoch(track.activeSessionId, false, 'The reserved research session was not found after recovery.');
+            }
+          }
+          track = store.get();
+          if (track?.activeSessionId || track?.status !== 'running') continue;
+        }
+        const sessionId = `track_epoch_${randomUUID().replaceAll('-', '')}`;
+        const assignment = store.reserveNext(sessionId, details.surfaceMap.surfaces);
+        if (!assignment) continue;
+        const work = assignment.track.surfaces.find((item) => item.surfaceId === assignment.surface.id)!;
+        const promptMarkdown = researchTrackEpochPrompt(assignment.track.id, assignment.track.pass,
+          assignment.surface, work, details.surfaceMap.surfaces.length);
+        due.push({ dueAt: at.toISOString(), request: { launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
+          sessionId, launch: { workspaceId: workspace.workspaceId,
+            mode: 'research-track',
+            machineId: 'local',
+            targetIds: track.targetIds, promptMarkdown,
+            provider: track.provider, shellSafetyMode: 'auto_review', guardianEnabled: true,
+            generateTitle: false } } });
+      } catch (error) {
+        const track = store.get();
+        if (track?.activeSessionId) store.finishEpoch(track.activeSessionId, false, errorMessage(error));
+        store.pauseWithError(`Research track could not prepare the next surface: ${errorMessage(error)}`);
+      } finally { store.close(); }
+    }
+    return due;
+  }
+
+  public recordResearchTrackEpochLaunchFailure(workspaceId: string, sessionId: string, reason: string): void {
+    const workspace = this.requireWorkspace(workspaceId);
+    const storage = this.registry.storageForProfile(workspace.researchProfileId);
+    const store = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId });
+    try { store.finishEpoch(sessionId, false, reason); } finally { store.close(); }
+  }
+
   public async recordSessionControlState(input: {
     request: AppServerSessionLaunchRequest;
     sessionId: string;
@@ -1297,6 +1439,7 @@ export class AppServerHostService {
     sessionId: string;
     attemptId: string;
     state: 'completed' | 'failed' | 'stopped';
+    trackRotation?: boolean;
   }): Promise<void> {
     await this.releaseSessionTarget(input.sessionId);
     const workspace = this.requireWorkspace(input.request.launch.workspaceId);
@@ -1304,17 +1447,27 @@ export class AppServerHostService {
     const current = await this.invokeProtocol<AppServerSessionSummaryProjection>('session.get', {
       args: ['session', 'get', '--session-id', input.sessionId], storage
     });
-    if (current.status === 'blocked' || current.status === 'completed' || current.status === 'failed' || current.status === 'stopped') return;
-    await this.invokeProtocol('session.transition', {
-      args: ['session', 'transition', '--session-id', input.sessionId], storage,
-      input: {
-        status: input.state,
-        summary: input.state === 'completed' ? 'The app-server research session completed.'
-          : input.state === 'stopped' ? 'Stopped by the user.'
-            : 'The app-server research worker ended before the session completed.',
-        attemptId: input.attemptId
-      }
-    });
+    if (current.status !== 'blocked' && current.status !== 'completed'
+      && current.status !== 'failed' && current.status !== 'stopped') {
+      await this.invokeProtocol('session.transition', {
+        args: ['session', 'transition', '--session-id', input.sessionId], storage,
+        input: {
+          status: input.state,
+          summary: input.state === 'completed' ? 'The app-server research session completed.'
+            : input.state === 'stopped' ? 'Stopped by the user.'
+              : 'The app-server research worker ended before the session completed.',
+          attemptId: input.attemptId
+        }
+      });
+    }
+    const trackStore = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId: workspace.workspaceId });
+    try {
+      if (input.request.launch.mode === 'research-track' && input.state === 'stopped' && !input.trackRotation
+        && trackStore.get()?.status === 'running') trackStore.control('pause');
+      trackStore.finishEpoch(input.sessionId, input.state === 'completed' || current.status === 'blocked',
+        input.state === 'failed' ? 'The research worker failed.' : undefined);
+    }
+    finally { trackStore.close(); }
   }
 
   public async workspaceMemory(
@@ -2331,6 +2484,26 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.flatMap((entry) => typeof entry === 'string' && entry.trim() ? [entry.trim()] : [])
     : [];
+}
+
+function researchTrackEpochPrompt(
+  trackId: string,
+  pass: number,
+  surface: ResearchTrackSurfaceProjection,
+  work: ResearchTrackSurfaceState,
+  surfaceCount: number
+): string {
+  return [
+    '# Continuous research track',
+    `Track ${trackId}, pass ${pass}. The workspace currently contains ${surfaceCount} eligible security surfaces.`,
+    `Assigned surface: ${surface.name} (${surface.id}).`,
+    `Prior impact estimate: ${work.impact}. Prior theory: ${work.theory || 'Unexamined.'}`,
+    `Next action: ${work.nextAction}`,
+    '',
+    'Conduct one bounded, reasoning-based security research epoch on this assigned surface. Start with attacker control, trust boundaries, assets, plausible unauthorized effects, and the strongest high-impact theory. Use surface.focus. Coordinate with its first-touch foundation scout when one starts. Investigate reachable security-relevant sinks and possible cross-surface chains. Do not treat files, routes, or unit tests as surfaces merely because they exist; use tests only when they provide security evidence or a focused proof harness.',
+    'Favor concrete source-to-sink reasoning and discriminating experiments over inventory scans. Search existing findings before creating a new one. Advance a candidate through the existing evidence, reproduction, independent-review, and report gates when authorized work can do so. A negative result must name its bounds and be recorded in durable memory before it supports surface completion.',
+    'After approximately 30 minutes or 25 substantive research actions, finish this epoch at a safe checkpoint and let the track rotate. Extend only to finish an actively progressing high-value proof. Record surface.update and then track.checkpoint with impact, tested theory, existing canonical evidence references, and the next action. Use complete only when the threat-model coverage state is complete and its evidence is durable. Use blocked only for a concrete external dependency after accessible work is exhausted. Otherwise defer with a useful next action. Then give a concise final response so the host can select the next surface.',
+  ].join('\n');
 }
 
 function stringRecord(value: unknown): Record<string, string> {

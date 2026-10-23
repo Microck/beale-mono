@@ -61,7 +61,7 @@ export function RemoteFleetSidebar({ catalog, serverName, selectedWorkspaceId, s
   />;
 }
 
-export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceId, sessionId, newResearchOpen, automations, error, guardianEnabled = true, selectedSubagentPath = null, onBackToSubagents = () => undefined, onLaunched, onSurfaceFocusChange }: {
+export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceId, sessionId, newResearchOpen, automations, error, guardianEnabled = true, selectedSubagentPath = null, onBackToSubagents = () => undefined, onLaunched, onSurfaceFocusChange, onWorkspaceViewChange }: {
   serverId: string;
   serverName: string;
   catalog: FleetRemoteCatalog | null;
@@ -75,6 +75,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   onBackToSubagents?: () => void;
   onLaunched: (workspaceId: string, sessionId: string) => void;
   onSurfaceFocusChange?: (serverId: string, workspaceId: string, sessionId: string, summary: SurfaceFocusSummary | null) => void;
+  onWorkspaceViewChange?: (viewName: string) => void;
 }): JSX.Element {
   const [detail, setDetail] = useState<unknown>(null);
   const [workspaceDetails, setWorkspaceDetails] = useState<BealeAppServerWorkspaceDetails | null>(null);
@@ -269,7 +270,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
         <h1>{workspace?.name ?? (automations ? 'Automations' : 'Research')}</h1></> : null}
       {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
       {showingWorkspaceDetails ? workspaceDetails?.workspace.workspaceId === workspaceId
-        ? <RemoteWorkspaceDetails key={`${serverId}:${workspaceId}`} serverId={serverId} details={workspaceDetails} />
+        ? <RemoteWorkspaceDetails key={`${serverId}:${workspaceId}`} serverId={serverId} details={workspaceDetails} onViewChange={onWorkspaceViewChange} />
         : <p className="remote-fleet-details-status" role={workspaceDetailsError ? 'alert' : 'status'}>{workspaceDetailsError ?? 'Loading workspace details…'}</p>
       : null}
       {session ? <>{detailError ? <p className="settings-form-error" role="alert">{detailError}</p> : null}

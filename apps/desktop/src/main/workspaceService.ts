@@ -10,7 +10,7 @@ import { WORKSPACE_PRIMARY_DIRECTORY_MISSING_MESSAGE } from '../shared/ipc';
 import { fleetBrowserViewerTargetId } from '../shared/fleet';
 import { findingRevisionContext } from './findingRevisionContext';
 import { AppServerReadTransportError, fetchBealeProviderUsageLimits, invokeAppServerOperation } from './bealeAppServerClient';
-import { decodeBealeWorkspaceSurfaceMap, decodeClaimBoardTransitionRequest, decodeFleetAppServerStatuses, decodeFleetPairingQrCode, type BealeProviderLimitId, type BealeProviderUsageLimits, type FleetSshTestInput, type FleetSshTestResult, type FleetState, type ResourcePriorArtPage, type ResourcePriorArtDetail, type ResourcePriorArtListInput } from '@beale/app-server-runtime/protocol';
+import { decodeBealeWorkspaceResearchTrack, decodeBealeWorkspaceSurfaceMap, decodeClaimBoardTransitionRequest, decodeFleetAppServerStatuses, decodeFleetPairingQrCode, type BealeProviderLimitId, type BealeProviderUsageLimits, type FleetSshTestInput, type FleetSshTestResult, type FleetState, type ResourcePriorArtPage, type ResourcePriorArtDetail, type ResourcePriorArtListInput } from '@beale/app-server-runtime/protocol';
 import {
   WorkspaceDatabase,
   type ProjectSourceCoveragePathRecord,
@@ -1034,6 +1034,20 @@ export class WorkspaceService {
     const runtime = this.getForegroundRuntime();
     if (!runtime || runtime.db.getWorkspaceId() !== workspaceId) throw new Error('The workspace is not open.');
     return invokeAppServerOperation({ operation: 'workspace.surface_map', input: { workspaceId } }).then(decodeBealeWorkspaceSurfaceMap);
+  }
+
+  public async getResearchTrack(workspaceId: string, serverId?: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrack | null> {
+    const operation = serverId ? 'fleet.remote_research_track' : 'workspace.research_track';
+    return decodeBealeWorkspaceResearchTrack(await invokeAppServerOperation({ operation,
+      input: { workspaceId, action: 'status', ...(serverId ? { serverId } : {}) } }));
+  }
+
+  public async controlResearchTrack(workspaceId: string, action: 'start' | 'pause' | 'resume' | 'stop', serverId?: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrack> {
+    const operation = serverId ? 'fleet.remote_research_track' : 'workspace.research_track';
+    const result = decodeBealeWorkspaceResearchTrack(await invokeAppServerOperation({ operation,
+      input: { workspaceId, action, ...(serverId ? { serverId } : {}) } }));
+    if (!result) throw new Error('The research track was not returned by app-server.');
+    return result;
   }
 
   public getFleetRemoteWorkspaceDocument(serverId: string, workspaceId: string, kind: 'runbook' | 'report', resourceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDocument> {

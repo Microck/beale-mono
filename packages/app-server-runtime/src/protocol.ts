@@ -48,7 +48,7 @@ export interface ResourcePriorArtGetInput extends Omit<ResourcePriorArtListInput
 
 export const APP_SERVER_PROTOCOL_NAME = "app-server" as const;
 export const APP_SERVER_PROTOCOL_VERSION = 1 as const;
-export const APP_SERVER_CONTRACT_VERSION = 58 as const;
+export const APP_SERVER_CONTRACT_VERSION = 59 as const;
 export const APP_SERVER_RUNTIME_VERSION = "0.1.0" as const;
 export const APP_SERVER_PROTOCOL_WEBSOCKET_PATH = "/v1/session" as const;
 export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as const;
@@ -56,7 +56,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-22T23:07:52.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-22T23:55:00.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -72,6 +72,7 @@ export const BEALE_APP_SERVER_CAPABILITIES = [
   "workspace.research-project.v3",
   "workspace.details.v1",
   "workspace.surface-map.v1",
+  "workspace.research-track.v1",
   "quick-chat.v1",
   "session.typed-launch.v3",
   "session.openai-fast-mode.v1",
@@ -414,6 +415,81 @@ export interface BealeWorkspaceSurfaceMap {
   agents: Array<{ sessionId: string; sessionTitle: string; agentId: string; surfaceId: string }>;
 }
 
+export interface BealeWorkspaceResearchTrack {
+  id: string;
+  workspaceId: string;
+  status: "running" | "paused" | "waiting" | "complete" | "stopped";
+  pass: number;
+  scopeId: string;
+  provider: { id: string; model?: string; reasoningEffort?: string };
+  targetIds: string[];
+  activeSessionId: string | null;
+  activeSurfaceId: string | null;
+  epochCount: number;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  surfaces: Array<{
+    surfaceId: string;
+    name: string;
+    status: "unexamined" | "active" | "deferred" | "blocked" | "complete" | "excluded";
+    impact: "unknown" | "low" | "medium" | "high" | "critical";
+    theory: string;
+    nextAction: string;
+    evidenceRefs: string[];
+    epochs: number;
+    noProgressEpochs: number;
+    revisits: number;
+    revisitAfter: string | null;
+    lastWorkedAt: string | null;
+    updatedAt: string;
+  }>;
+}
+
+export interface BealeWorkspaceResearchTrackRequest {
+  workspaceId: string;
+  action: "status" | "start" | "pause" | "resume" | "stop";
+}
+
+export function decodeBealeWorkspaceResearchTrackRequest(value: unknown): BealeWorkspaceResearchTrackRequest {
+  if (!isRecord(value) || typeof value.workspaceId !== "string" || !value.workspaceId.trim()
+    || value.workspaceId.length > 200 || value.action !== "status" && value.action !== "start"
+    && value.action !== "pause" && value.action !== "resume" && value.action !== "stop") {
+    throw new Error("Invalid workspace research track request.");
+  }
+  return { workspaceId: value.workspaceId.trim(), action: value.action };
+}
+
+export function decodeBealeWorkspaceResearchTrack(value: unknown): BealeWorkspaceResearchTrack | null {
+  if (value === null) return null;
+  const statuses = ["running", "paused", "waiting", "complete", "stopped"];
+  const workStatuses = ["unexamined", "active", "deferred", "blocked", "complete", "excluded"];
+  const impacts = ["unknown", "low", "medium", "high", "critical"];
+  if (!isRecord(value) || typeof value.id !== "string" || typeof value.workspaceId !== "string"
+    || !statuses.includes(String(value.status)) || !Number.isSafeInteger(value.pass)
+    || typeof value.scopeId !== "string" || !isRecord(value.provider)
+    || typeof value.provider.id !== "string" || !Array.isArray(value.targetIds)
+    || !value.targetIds.every((id: unknown) => typeof id === "string")
+    || (value.activeSessionId !== null && typeof value.activeSessionId !== "string")
+    || (value.activeSurfaceId !== null && typeof value.activeSurfaceId !== "string")
+    || !Number.isSafeInteger(value.epochCount)
+    || (value.lastError !== null && typeof value.lastError !== "string")
+    || typeof value.createdAt !== "string" || typeof value.updatedAt !== "string"
+    || !Array.isArray(value.surfaces) || !value.surfaces.every((work) => isRecord(work)
+      && typeof work.surfaceId === "string" && typeof work.name === "string" && workStatuses.includes(String(work.status))
+      && impacts.includes(String(work.impact)) && typeof work.theory === "string"
+      && typeof work.nextAction === "string" && Array.isArray(work.evidenceRefs)
+      && work.evidenceRefs.every((ref: unknown) => typeof ref === "string")
+      && Number.isSafeInteger(work.epochs) && Number.isSafeInteger(work.noProgressEpochs)
+      && Number.isSafeInteger(work.revisits)
+      && (work.revisitAfter === null || typeof work.revisitAfter === "string")
+      && (work.lastWorkedAt === null || typeof work.lastWorkedAt === "string")
+      && typeof work.updatedAt === "string")) {
+    throw new Error("The app-server returned an invalid workspace research track.");
+  }
+  return value as unknown as BealeWorkspaceResearchTrack;
+}
+
 export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSurfaceMap {
   const strings = (items: unknown): items is string[] => Array.isArray(items) && items.every((item) => typeof item === 'string');
   const validFoundation = (foundation: unknown): boolean => foundation === null || isRecord(foundation)
@@ -673,13 +749,13 @@ export const APP_SERVER_PROTOCOL_OPERATIONS = [
   "fleet.state", "fleet.browser_home_page", "fleet.configure", "fleet.test_ssh", "fleet.test_app_server", "fleet.clone", "fleet.clone_for_session", "fleet.start", "fleet.stop",
   "fleet.prepare", "fleet.connect", "fleet.complete", "fleet.stage", "fleet.export", "fleet.reserve", "fleet.release",
   "fleet.broker", "fleet.relay_broker",
-  "fleet.remote_machines", "fleet.app_server_statuses", "fleet.pairing_qr_code", "fleet.remote_catalog", "fleet.remote_workspace_details", "fleet.remote_workspace_document", "fleet.remote_quick_chats", "fleet.remote_quick_chat_start", "fleet.remote_quick_chat_continue", "fleet.remote_session", "fleet.remote_launch", "fleet.remote_prompt_expand", "fleet.remote_goal_suggestions", "fleet.remote_control", "fleet.remote_browser_attach", "fleet.relay_stage", "fleet.relay_export",
+  "fleet.remote_machines", "fleet.app_server_statuses", "fleet.pairing_qr_code", "fleet.remote_catalog", "fleet.remote_workspace_details", "fleet.remote_research_track", "fleet.remote_workspace_document", "fleet.remote_quick_chats", "fleet.remote_quick_chat_start", "fleet.remote_quick_chat_continue", "fleet.remote_session", "fleet.remote_launch", "fleet.remote_prompt_expand", "fleet.remote_goal_suggestions", "fleet.remote_control", "fleet.remote_browser_attach", "fleet.relay_stage", "fleet.relay_export",
   "fleet.restart_app_server", "fleet.restart_guest_app_server",
   "resource.prior_art.list", "resource.prior_art.get",
   "protocol.describe", "session.create", "session.begin_attempt", "session.append_event", "session.append_event_receipt",
   "session.transition", "session.recover_interrupted", "session.import_capture", "session.get", "session.get_update", "session.events", "session.event_details",
   "session.collaboration", "session.captures", "session.capture", "session.list", "session.list_summaries",
-  "memory.summary", "memory.notification_feed", "history.mark_duplicate", "history.undo_duplicate", "claim.mark_duplicate", "claim.undo_duplicate", "claim.board_transition", "workspace.state", "workspace.surface_map", "registry.state",
+  "memory.summary", "memory.notification_feed", "history.mark_duplicate", "history.undo_duplicate", "claim.mark_duplicate", "claim.undo_duplicate", "claim.board_transition", "workspace.state", "workspace.surface_map", "workspace.research_track", "registry.state",
   "runbook.get", "report.list", "report.get", "report.revise_content", "report.update_triage_status", "report.replace_packet", "report.replace_recording",
   "artifact.resolve", "provider.complete", "provider.describe", "model_job.resolve",
   "suggestion.generate", "suggestion.select", "suggestion.steering", "prompt.expand",

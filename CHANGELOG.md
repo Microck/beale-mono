@@ -6,6 +6,7 @@
 
 #### Added
 
+- Workspace Continuous research tracks now run bounded, reasoning-based security epochs across authorized surfaces with impact-aware rotation, durable per-surface checkpoints, blocker handling, a later second look at high-impact surfaces, and Start/Resume/Pause/Stop controls for local and connected app servers. The app-server owns scheduling and persistence; control contract v59 requires rebuilt Beale and app-server clients.
 - Session commentary now marks context compaction and automatic recovery from a provider cybersecurity safeguard. Repeated safeguards still show the existing steering prompt.
 - Security surfaces can retain a progress blocker after accessible research is exhausted; the surface map shows blocked work and its reason. The updated control contract requires rebuilt Beale and app-server clients.
 - Guardian now uses the lead model to decide commands denied by Auto-Review, with complete direct-script inspection, path environment context, and actionable denials. The Permission agent setting is enabled by default for new local and Fleet sessions and can restore human overrides when disabled. Rebuild Beale and app-server together.
@@ -60,6 +61,7 @@
 
 #### Changed
 
+- Workspace headers identify the active Campaign subview, including Findings, Memories, Runbooks, and Reports, on local and connected app servers.
 - Session and workspace summaries now show browser contexts in a separate section before other resources, with each browser's current host and port beside its context name.
 - Session and workspace summary sidebars now show all memory type counts without a disclosure control.
 - The expanded Findings catalog hides refuted findings by default and opens them from a right-aligned refuted count.

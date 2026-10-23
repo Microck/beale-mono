@@ -62,6 +62,8 @@ import {
   createResearchResourceTool,
   SurfaceStore,
   createSurfaceTools,
+  ResearchTrackStore,
+  createResearchTrackTool,
   createResearchResourceScopeAuthorizer,
   reviewResearchResourceFirstTouch,
   createResearchAgentFlowCapture,
@@ -3965,6 +3967,21 @@ async function createRuntimeConfig(args: {
   const surfaceTools = createSurfaceTools(surfaceStore);
   executableTools.push(...surfaceTools);
   toolDescriptors.push(...surfaceTools.map((tool) => tool.descriptor));
+  if (args.sessionId) {
+    const trackStore = new ResearchTrackStore({ databasePath: memoryGraph.databasePath,
+      workspaceId: workspaceContext.memoryContext?.workspaceId ?? `workspace:${workspaceRoot}`,
+      sessionId: args.sessionId });
+    if (trackStore.get()?.activeSessionId === args.sessionId) {
+      const trackTool = createResearchTrackTool(trackStore, (id) => {
+        const current = surfaceStore.require(id, true);
+        return { id: current.id, parentId: current.parentId, name: current.name,
+          coverageState: surfaceStore.coverageState(id), progressBlocker: current.progressBlocker };
+      });
+      executableTools.push(trackTool);
+      toolDescriptors.push(trackTool.descriptor);
+    }
+    cleanupCallbacks.push(async () => trackStore.close());
+  }
   cleanupCallbacks.push(async () => surfaceStore.close());
   cleanupCallbacks.push(async () => resourceCatalog.close());
   const repositoryResearchSession = new RepositoryResearchSession({

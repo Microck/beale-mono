@@ -299,6 +299,12 @@ const api: BealeApi = {
   getWorkspaceSurfaceMap(workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceSurfaceMap> {
     return ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceSurfaceMap, workspaceId);
   },
+  getResearchTrack(workspaceId: string, serverId?: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrack | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getResearchTrack, workspaceId, serverId);
+  },
+  controlResearchTrack(workspaceId: string, action: 'start' | 'pause' | 'resume' | 'stop', serverId?: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrack> {
+    return ipcRenderer.invoke(IPC_CHANNELS.controlResearchTrack, workspaceId, action, serverId);
+  },
   getFleetRemoteWorkspaceDocument(serverId: string, workspaceId: string, kind: 'runbook' | 'report', resourceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDocument> {
     return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteWorkspaceDocument, serverId, workspaceId, kind, resourceId);
   },
