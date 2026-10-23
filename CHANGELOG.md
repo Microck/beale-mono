@@ -245,6 +245,7 @@
 
 #### Fixed
 
+- Track sessions now appear in the workspace sidebar when a large canonical session catalog would exceed the app-server registry request limit.
 - Start Track now sends only selected collaborators instead of the full model catalog, and preserves the New Research form's Off reasoning selection as an explicit track setting. Invalid track settings identify the failing field without exposing its value.
 - Subsequent Continuous research epochs now reuse one session with a fresh attempt for each surface. Workspace controls show preparation and handoff progress and can open the observed session. The updated control contract requires rebuilt Beale and app-server clients.
 - Stopped Continuous research tracks clear prior worker errors, and the workspace view no longer shows a saved failure after restart. Resuming a paused track also clears its prior error.

@@ -81,6 +81,7 @@ import {
   type AppServerAuxiliaryModelRoute
 } from './appServerCliClient';
 import { WorkspaceRegistry } from './workspaceRegistry';
+import { canonicalSessionRegistryBatches } from './canonicalSessionRegistry';
 import { AgentPluginRegistry } from './agentPluginRegistry';
 import { BealeIntrospectionServer } from './bealeIntrospectionServer';
 import { ProfilingService } from './profilingService';
@@ -4358,7 +4359,9 @@ export class WorkspaceService {
         }
         for (const workspace of workspaces) {
           const canonicalSessions = sessionsByWorkspace.get(workspace.workspaceId) ?? [];
-          await registry.reconcileAppServerSessionsAsync(profileId, workspace.workspaceId, canonicalSessions);
+          for (const batch of canonicalSessionRegistryBatches(canonicalSessions)) {
+            await registry.reconcileAppServerSessionsAsync(profileId, workspace.workspaceId, batch);
+          }
           const runtime = this.runtimeForWorkspacePath(workspace.workspacePath);
           if (runtime?.appServerEngine.hasActiveRuns()) continue;
           const canonicalIds = new Set(canonicalSessions.map((session) => session.id));
