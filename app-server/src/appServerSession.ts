@@ -30,6 +30,12 @@ export function generateSessionToken(): string {
   return randomBytes(24).toString('base64url');
 }
 
+export function scheduleCompletedWorkerExit(worker: Pick<Worker, 'terminate'>, delayMs = 3_000): () => void {
+  const timeout = setTimeout(() => void worker.terminate(), delayMs);
+  timeout.unref();
+  return () => clearTimeout(timeout);
+}
+
 export function appServerWorkerEnvironment(
   additions: NodeJS.ProcessEnv = {},
   electronVersion: string | undefined = process.versions.electron
@@ -79,6 +85,13 @@ export function spawnAppServerSession(options: SpawnAppServerSessionOptions): Pr
   void readyPromise.catch(() => undefined);
   let stopRequested = false;
   let forceStopTimeout: ReturnType<typeof setTimeout> | null = null;
+  let cancelCompletedExit: (() => void) | null = null;
+  const finishWorkerAfterResult = (): void => {
+    if (cancelCompletedExit) return;
+    // The runtime has finished its capture and cleanup before reporting a result.
+    // A leftover provider handle must not keep the session (or track epoch) active.
+    cancelCompletedExit = scheduleCompletedWorkerExit(worker);
+  };
   const settleReady = (): void => {
     if (readySettled) return;
     readySettled = true;
@@ -122,15 +135,19 @@ export function spawnAppServerSession(options: SpawnAppServerSessionOptions): Pr
         settleReady();
       } else if (record.type === 'complete') {
         resolvedCode = typeof record.exitCode === 'number' ? record.exitCode : 0;
+        finishWorkerAfterResult();
       } else if (record.type === 'failed') {
         failureMessage = typeof record.error === 'string' ? record.error : 'app-server runtime worker failed.';
         resolvedCode = 1;
         failReady(failureMessage);
+        finishWorkerAfterResult();
       }
     });
     worker.once('exit', (code) => {
       if (forceStopTimeout) clearTimeout(forceStopTimeout);
       forceStopTimeout = null;
+      cancelCompletedExit?.();
+      cancelCompletedExit = null;
       databaseBroker.close();
       failReady(failureMessage || stderr || `app-server runtime worker exited before initialization completed (code ${code ?? 'unknown'}).`);
       resolve({ code: resolvedCode ?? code, stderr: failureMessage || stderr });

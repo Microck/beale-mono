@@ -1204,6 +1204,24 @@ export class AppServerHostService {
           });
           const restart = decodeRestartLaunchDescriptor(session.metadata);
           const previousAttempt = interruptedAttempt(session.attempts);
+          if (restart?.launch.mode === 'research-track' && previousAttempt) {
+            const trackStore = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId: workspace.workspaceId });
+            try {
+              const track = trackStore.get();
+              const assigned = track?.surfaces.find((work) => work.surfaceId === track.activeSurfaceId);
+              if (track?.status === 'running' && track.activeSessionId === sessionId
+                && assigned && assigned.status !== 'active') {
+                await this.invokeProtocol('session.transition', {
+                  args: ['session', 'transition', '--session-id', sessionId], storage,
+                  input: { status: 'completed', attemptId: previousAttempt.id,
+                    summary: 'The research track epoch checkpoint was recovered after app-server restart.' }
+                });
+                trackStore.finishEpoch(sessionId, true);
+                skippedSessions += 1;
+                continue;
+              }
+            } finally { trackStore.close(); }
+          }
           if (!restart || !restart.eligible || !previousAttempt) {
             skippedSessions += 1;
             continue;
@@ -1366,10 +1384,15 @@ export class AppServerHostService {
               store.finishEpoch(track.activeSessionId, session.status === 'completed' || session.status === 'blocked',
                 failed ? 'The research worker failed. Open the failed session for details.' : undefined);
               if (failed) store.pauseWithError('The research worker failed. Open the failed session for details.');
+            } else if (at.getTime() - Date.parse(track.updatedAt) > 120_000) {
+              store.finishEpoch(track.activeSessionId, false,
+                'The research worker ended without a terminal session record.');
+              store.pauseWithError('The research worker ended without a terminal session record. Review the session before resuming.');
             }
           } catch {
             if (at.getTime() - Date.parse(track.updatedAt) > 120_000) {
               store.finishEpoch(track.activeSessionId, false, 'The reserved research session was not found after recovery.');
+              store.pauseWithError('The reserved research session was not found after recovery. Review the workspace before resuming.');
             }
           }
           track = store.get();
