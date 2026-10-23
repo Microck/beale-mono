@@ -53,6 +53,44 @@ afterEach(() => {
 });
 
 describe('app-server session persistence boundary', () => {
+  it('discovers the first canonical session created after the workspace boundary opens', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-app-server-external-session-'));
+    createdDirectories.push(directory);
+    const databasePath = join(directory, 'memory.sqlite');
+    const artifactRoot = join(directory, '.beale', 'artifacts');
+    mkdirSync(join(artifactRoot, 'sha256'), { recursive: true });
+    setEnvironment('BEALE_APP_SERVER_MOCK', '1');
+    configureRealAppServer({
+      registryDirectory: join(directory, 'registry'),
+      databasePath,
+      artifactDirectoryPath: artifactRoot,
+      workspacePath: directory,
+      workspaceId: 'workspace_example'
+    });
+    const rawDatabase = new WorkspaceDatabase(databasePath, artifactRoot, {
+      workspacePath: directory,
+      workspaceId: 'workspace_example'
+    });
+    rawDatabase.initialize();
+    const database = createAppServerSessionBoundary(rawDatabase);
+    try {
+      expect(database.listRunRows()).toEqual([]);
+      const store = new AppServerSessionStore({ databasePath });
+      try {
+        store.create({
+          id: 'session_external_example', workspaceId: 'workspace_example', attemptId: 'attempt_example',
+          title: 'Example research session', prompt: 'Inspect the example parser.',
+          model: 'example-model', reasoningEffort: 'high'
+        });
+      } finally {
+        store.close();
+      }
+      expect(database.listRunRows().map((row) => row.run.id)).toContain('session_external_example');
+    } finally {
+      database.close();
+    }
+  }, 15_000);
+
   it('captures and persists end-of-session suggestions for app-server-owned runs', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'beale-app-server-next-steps-'));
     createdDirectories.push(directory);

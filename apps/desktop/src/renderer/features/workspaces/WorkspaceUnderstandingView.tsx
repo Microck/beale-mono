@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, JSX } from 'react';
 import { Binary, BookOpen, Boxes, Brain, Columns3, Download, FileText, GitBranch, Globe2, Info, Layers3, ListChecks, Network, Plus, RefreshCw, Server, Settings, Trash2 } from 'lucide-react';
-import type { BealeWorkspaceSurfaceMap } from '@beale/app-server-runtime/protocol';
+import type { BealeWorkspaceResearchTrack, BealeWorkspaceSurfaceMap } from '@beale/app-server-runtime/protocol';
 import { isLiveResearchRunStatus, repositoryClonedDirectory } from '../../../shared/types';
 import { researchKitDefinition, researchKitLabel, researchKitResourceKey } from '../../../shared/researchKits';
 import type {
@@ -208,6 +208,7 @@ export function WorkspaceUnderstandingView({
   onRemoveWorkspace = async () => undefined,
   onOpenSession,
   onStartTrack,
+  onTrackResumed,
   onOpenClaim = () => undefined,
   openClaimId = null,
   onTransitionClaim,
@@ -259,6 +260,7 @@ export function WorkspaceUnderstandingView({
   onRemoveWorkspace?: () => Promise<void>;
   onOpenSession?: (runId: string) => void;
   onStartTrack?: () => void;
+  onTrackResumed?: (track: BealeWorkspaceResearchTrack) => void;
   onOpenClaim?: (claimId: string) => void;
   openClaimId?: string | null;
   onTransitionClaim?: (claim: AppServerFindingSummary, targetMaturity: ClaimBoardMaturity) => Promise<void>;
@@ -386,7 +388,8 @@ export function WorkspaceUnderstandingView({
             })}
           </div>
           {workspaceId ? <WorkspaceResearchTrack workspaceId={workspaceId} serverId={trackServerId}
-            enabled={memoryBackend !== 'disabled'} onOpenSession={onOpenSession} onStartTrack={onStartTrack} /> : null}
+            enabled={memoryBackend !== 'disabled'} onOpenSession={onOpenSession} onStartTrack={onStartTrack}
+            onTrackResumed={onTrackResumed} /> : null}
         </div>
       ) : null}
 

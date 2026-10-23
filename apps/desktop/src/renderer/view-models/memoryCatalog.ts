@@ -150,7 +150,6 @@ export interface SessionMemoryTypeSummary {
 
 export interface MemoryTypeSummaryPresentation {
   summaries: SessionMemoryTypeSummary[];
-  defaultVisibleCount: number;
 }
 
 export function memoryTypeSummaryPresentation(
@@ -164,11 +163,6 @@ export function memoryTypeSummaryPresentation(
     definition.id,
     memoryTypeHeatRank(definition, profileId, overrides)
   ]) ?? []);
-  const defaultVisibleCount = Math.max(
-    4,
-    [...heatRankByType.values()].filter((rank) => rank > 0).length
-  );
-
   return {
     summaries: [...summaries].sort((left, right) => {
       const heatDifference = (heatRankByType.get(right.type) ?? 0) - (heatRankByType.get(left.type) ?? 0);
@@ -180,8 +174,7 @@ export function memoryTypeSummaryPresentation(
         right.type,
         definitionById.get(right.type) ?? null
       );
-    }),
-    defaultVisibleCount
+    })
   };
 }
 
@@ -206,32 +199,24 @@ export function sessionMemoryTypeSummaries(
   memory?: ResearchProfileMemory
 ): SessionMemoryTypeSummary[] {
   if (memory) return dynamicSessionMemoryTypeSummaries(nodes, memory);
-  const summaries: SessionMemoryTypeSummary[] = [
-    { type: 'sink', count: 0, confirmedCount: 0, suspectedCount: 0, rejectedCount: 0, countLabel: '', statusLabel: '' },
-    { type: 'primitive', count: 0, confirmedCount: 0, suspectedCount: 0, rejectedCount: 0, countLabel: '', statusLabel: '' },
-    { type: 'chain', count: 0, confirmedCount: 0, suspectedCount: 0, rejectedCount: 0, countLabel: '', statusLabel: '' },
-    { type: 'other', count: 0, confirmedCount: 0, suspectedCount: 0, rejectedCount: 0, countLabel: '', statusLabel: '' }
-  ];
+  const summaries = new Map<string, SessionMemoryTypeSummary>();
 
   for (const node of nodes) {
     if (!isActiveMemoryNode(node)) continue;
     const type = node.type.trim();
     if (!type) continue;
-    const normalizedType = type.toLocaleLowerCase();
-    const category = normalizedType === 'primitive' || normalizedType === 'chain' || normalizedType === 'sink'
-      ? normalizedType
-      : 'other';
-    const current = summaries.find((summary) => summary.type === category);
-    if (!current) continue;
+    const current = summaries.get(type) ?? {
+      type, count: 0, confirmedCount: 0, suspectedCount: 0, rejectedCount: 0, countLabel: '', statusLabel: ''
+    };
     current.count += 1;
     const status = node.status.trim().toLocaleLowerCase();
     if (status === 'confirmed') current.confirmedCount += 1;
     if (status === 'suspected') current.suspectedCount += 1;
     if (status === 'rejected') current.rejectedCount += 1;
+    summaries.set(type, current);
   }
 
-  return summaries
-    .filter((summary) => summary.count > 0)
+  return [...summaries.values()]
     .map((summary) => ({
       ...summary,
       countLabel: memoryTypeCountLabel(summary.type, summary.count),
@@ -367,8 +352,8 @@ function activityCountLabel(count: number, label: string, pluralLabel = `${label
 }
 
 function memoryTypeCountLabel(type: string, count: number): string {
-  if (type === 'other') return `${count} Boring`;
-  const label = `${type[0].toUpperCase()}${type.slice(1)}`;
+  const normalized = type.replace(/[_-]+/gu, ' ').trim();
+  const label = `${normalized[0]?.toUpperCase() ?? ''}${normalized.slice(1)}`;
   return `${count} ${count === 1 ? label : `${label}s`}`;
 }
 
@@ -383,7 +368,9 @@ function dynamicSessionMemoryTypeSummaries(
     definition: ResearchProfileMemoryType | null;
     count: number;
     statusCounts: Map<string, number>;
-  }>();
+  }>(memory.types.map((definition) => [definition.id, {
+    definition, count: 0, statusCounts: new Map<string, number>()
+  }]));
 
   for (const node of nodes) {
     if (!isActiveMemoryNode(node, memory.statuses)) continue;
@@ -459,7 +446,6 @@ function unknownCatalogLabel(kind: 'type' | 'status', id: string): string {
 }
 
 function memoryTypeStatusLabel(summary: SessionMemoryTypeSummary): string {
-  if (summary.type === 'other') return '';
   return [
     summary.confirmedCount > 0 ? `${summary.confirmedCount} Confirmed` : null,
     summary.suspectedCount > 0 ? `${summary.suspectedCount} Suspected` : null,

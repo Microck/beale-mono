@@ -2,7 +2,7 @@ import { startTransition, useCallback, useDeferredValue, useEffect, useLayoutEff
 import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import 'katex/dist/katex.min.css';
-import type { FleetAppServer, FleetAppServerStatus, FleetRemoteCatalog, FleetState } from '@beale/app-server-runtime/protocol';
+import type { BealeWorkspaceResearchTrack, FleetAppServer, FleetAppServerStatus, FleetRemoteCatalog, FleetState } from '@beale/app-server-runtime/protocol';
 import './styles.css';
 import { devInstrumentation, useDevInputLatencyProbe, useDevRenderProbe } from './devInstrumentation';
 import type {
@@ -115,6 +115,7 @@ import {
 } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, buildTraceDisplayEventsForAgentPath } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
+import { waitForResearchTrackSession } from './view-models/researchTrackSession';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from './view-models/researchProfileFeatures';
 import { isReportResourceRun, reportSessionDefaultModelSelection, reportTitleFromMarkdown } from './view-models/reports';
 import {
@@ -395,6 +396,10 @@ export function App(): JSX.Element {
   const [sessionOverviewOpen, setSessionOverviewOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [newResearchTrackMode, setNewResearchTrackMode] = useState(false);
+  const [pendingTrackNavigation, setPendingTrackNavigation] = useState<{
+    track: BealeWorkspaceResearchTrack;
+    serverId: string | null;
+  } | null>(null);
   const [openScheduleOnNewResearch, setOpenScheduleOnNewResearch] = useState(false);
   const [newResearchInitialInput, setNewResearchInitialInput] = useState<StartRunInput | null>(null);
   const closeNewResearch = useCallback((): void => {
@@ -493,6 +498,52 @@ export function App(): JSX.Element {
     refreshKey: selectedRunRefreshKey,
     onError: handleRunDetailError
   });
+  useEffect(() => {
+    if (!pendingTrackNavigation) return undefined;
+    const { track, serverId } = pendingTrackNavigation;
+    const remote = serverId !== null;
+    if (remote
+      ? selectedFleetServerId !== serverId || remoteWorkspaceId !== track.workspaceId || remoteSessionId !== null || remoteResearchOpen
+      : snapshot?.workspace.workspaceId !== track.workspaceId || selectedRunId !== null || newResearchOpen) {
+      setPendingTrackNavigation(null);
+      return undefined;
+    }
+    const controller = new AbortController();
+    void waitForResearchTrackSession({
+      trackId: track.id,
+      initialSessionId: track.activeSessionId,
+      signal: controller.signal,
+      getTrack: () => window.beale.getResearchTrack(track.workspaceId, serverId ?? undefined),
+      findSession: async (sessionId) => {
+        if (serverId) {
+          const catalog = await window.beale.getFleetRemoteCatalog(serverId);
+          return catalog.sessions.some((session) => session.id === sessionId && session.workspaceId === track.workspaceId)
+            ? { kind: 'remote' as const, catalog, sessionId }
+            : null;
+        }
+        const next = await window.beale.getSnapshot();
+        const run = next?.workspace.workspaceId === track.workspaceId
+          ? next.runs.find((row) => row.run.id === sessionId)?.run : null;
+        return run && next ? { kind: 'local' as const, snapshot: next, run } : null;
+      }
+    }).then((session) => {
+      if (controller.signal.aborted) return;
+      if (session?.kind === 'remote') {
+        setRemoteCatalog(session.catalog);
+        setRemoteSessionId(session.sessionId);
+      } else if (session?.kind === 'local') {
+        primeRunDetail(session.run);
+        applySnapshot(session.snapshot, session.run.id);
+      }
+      setPendingTrackNavigation(null);
+    }).catch((caught: unknown) => {
+      if (controller.signal.aborted) return;
+      setError(errorMessage(caught));
+      setPendingTrackNavigation(null);
+    });
+    return () => controller.abort();
+  }, [applySnapshot, newResearchOpen, pendingTrackNavigation, primeRunDetail, remoteResearchOpen,
+    remoteSessionId, remoteWorkspaceId, selectedFleetServerId, selectedRunId, snapshot?.workspace.workspaceId]);
   useEffect(() => {
     if (continuationPendingRunId && (selectedRunId !== continuationPendingRunId || runDetail?.run.id === continuationPendingRunId && runDetail.run.status === 'active')) {
       setContinuationPendingRunId(null);
@@ -2086,7 +2137,10 @@ export function App(): JSX.Element {
   const newResearchContent = newResearchOpen && snapshot ? (
     <StartRunForm
       trackMode={newResearchTrackMode}
-      onTrackStarted={closeNewResearch}
+      onTrackStarted={(track) => {
+        closeNewResearch();
+        setPendingTrackNavigation({ track, serverId: null });
+      }}
       initialInput={newResearchInitialInput ?? undefined}
       presentation="session"
       autoOpenSchedule={openScheduleOnNewResearch}
@@ -2423,8 +2477,10 @@ export function App(): JSX.Element {
                 newResearchOpen={remoteResearchOpen} trackMode={remoteTrackMode} automations={automationsOpen} error={remoteCatalogError}
                 onStartTrack={() => { setRemoteSessionId(null); setRemoteTrackMode(true); setRemoteResearchOpen(true); }}
                 onCancelResearch={() => { setRemoteResearchOpen(false); setRemoteTrackMode(false); }}
-                onTrackStarted={() => { setRemoteResearchOpen(false); setRemoteTrackMode(false);
+                onTrackStarted={(track) => { setRemoteResearchOpen(false); setRemoteTrackMode(false);
+                  setPendingTrackNavigation({ track, serverId: selectedFleetServerId });
                   void window.beale.getFleetRemoteCatalog(selectedFleetServerId).then(setRemoteCatalog).catch((caught: unknown) => setRemoteCatalogError(errorMessage(caught))); }}
+                onTrackResumed={(track) => setPendingTrackNavigation({ track, serverId: selectedFleetServerId })}
                 guardianEnabled={permissionSettings.guardianEnabled}
                 selectedSubagentPath={remoteSelectedSubagentPath} onBackToSubagents={() => setRemoteSelectedSubagentPath(null)}
                 onSurfaceFocusChange={onRemoteSurfaceFocusChange}
@@ -2635,6 +2691,7 @@ export function App(): JSX.Element {
               onRemoveWorkspace={removeActiveWorkspace}
               onOpenSession={openWorkspaceDashboardSession}
               onStartTrack={openStartTrack}
+              onTrackResumed={(track) => setPendingTrackNavigation({ track, serverId: null })}
               initialWorkspaceView={workspaceDashboardWorkspaceIdRef.current === snapshot.workspace.workspaceId
                 ? workspaceDashboardInitialView : 'board'}
               onWorkspaceViewChange={setWorkspaceDashboardViewName}

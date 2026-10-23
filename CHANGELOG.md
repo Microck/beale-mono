@@ -227,6 +227,7 @@
 
 #### Changed
 
+- Session and workspace summary sidebars list every configured memory type, including zero-count types, and show observed types individually when no research profile is available.
 - The sidebar App Server selector shows status dots in its menu while the active server label shows only its name.
 - Assigned workflows now start in persistent Goal mode from Run All or New Research, and earlier assigned runs enter Goal mode when continued. The repository auditor's goal requires complete inventoried source coverage and a refreshed inventory before reporting completion; partial dispositions continue the session.
 - Workflow run history now reads the canonical session lifecycle, and app-server records terminal states for workers that end before their runbooks finish. Run All fetches current provider settings before launch so an unopened New Research view does not block it.
@@ -245,6 +246,7 @@
 
 #### Fixed
 
+- Starting or resuming a research track now opens its session automatically once the session appears locally or on the selected fleet server. Workspace snapshots also discover canonical sessions created after opening a workspace.
 - Research track sessions now show heat from their attributed Findings even when their canonical session has no local research profile snapshot.
 - The session view resumes live detail polling when a research track starts its next attempt in the same session, and removes the prior attempt's provisional ending from the active transcript.
 - Research tracks no longer remain in a running spinner after an epoch finishes without another ready surface. A scheduled second look runs once other actionable work is exhausted; completed runtime workers get a bounded exit fallback, and orphaned, failed, or timed-out terminal writes pause with a diagnostic. Startup recovery advances an already checkpointed epoch instead of replaying it.

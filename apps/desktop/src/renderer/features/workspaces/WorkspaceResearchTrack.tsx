@@ -1,12 +1,13 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { BealeWorkspaceResearchTrack } from '@beale/app-server-runtime/protocol';
 
-export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenSession, onStartTrack }: {
+export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenSession, onStartTrack, onTrackResumed }: {
   workspaceId: string;
   serverId?: string;
   enabled: boolean;
   onOpenSession?: (sessionId: string) => void;
   onStartTrack?: () => void;
+  onTrackResumed?: (track: BealeWorkspaceResearchTrack) => void;
 }): JSX.Element {
   const [track, setTrack] = useState<BealeWorkspaceResearchTrack | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,6 +37,7 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenS
     setError(null);
     try { const value = await window.beale.controlResearchTrack(workspaceId, action, serverId);
       setTrack(value);
+      if (action === 'resume') onTrackResumed?.(value);
       if (value.activeSessionId && value.activeSessionPhase === 'researching') setObservedSessionId(value.activeSessionId); }
     catch (caught) { setError(message(caught)); }
     finally { setBusy(false); }

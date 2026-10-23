@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
-import type { BealeAppServerWorkspaceDetails, BealeAppServerWorkspaceDocument, BealeWorkspaceResearchClaim } from '@beale/app-server-runtime/protocol';
+import type { BealeAppServerWorkspaceDetails, BealeAppServerWorkspaceDocument, BealeWorkspaceResearchClaim, BealeWorkspaceResearchTrack } from '@beale/app-server-runtime/protocol';
 import type {
   AppServerFindingSummary, AppServerMemorySummary, AppServerMemoryNodeSummary,
   AppServerReportSummary, AppServerRunbookSummary, ScopeAssetKind, WorkspaceScopeVersion
@@ -107,11 +107,12 @@ function remoteMemory(details: BealeAppServerWorkspaceDetails): AppServerMemoryS
   };
 }
 
-export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board', onViewChange, onOpenSession, onStartTrack }: {
+export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board', onViewChange, onOpenSession, onStartTrack, onTrackResumed }: {
   serverId: string; details: BealeAppServerWorkspaceDetails; initialView?: WorkspaceDashboardView;
   onViewChange?: (viewName: string) => void;
   onOpenSession?: (sessionId: string) => void;
   onStartTrack?: () => void;
+  onTrackResumed?: (track: BealeWorkspaceResearchTrack) => void;
 }): JSX.Element {
   const [selected, setSelected] = useState<{ kind: 'claim' | 'memory' | 'runbook' | 'report'; id: string } | null>(null);
   const [documentState, setDocumentState] = useState<{ key: string; value: BealeAppServerWorkspaceDocument | null; error: string | null } | null>(null);
@@ -160,6 +161,7 @@ export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board
       runs={[]}
       onOpenSession={onOpenSession}
       onStartTrack={onStartTrack}
+      onTrackResumed={onTrackResumed}
       onActiveViewChange={onViewChange}
       onOpenClaim={(id) => open('claim', id)}
       openClaimId={selected?.kind === 'claim' ? selected.id : null}

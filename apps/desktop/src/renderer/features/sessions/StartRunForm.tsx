@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, KeyboardEvent as ReactKeyboardEvent } from 'react';
-import type { BealeWorkspaceResearchTrackRequest } from '@beale/app-server-runtime/protocol';
+import type { BealeWorkspaceResearchTrack, BealeWorkspaceResearchTrackRequest } from '@beale/app-server-runtime/protocol';
 import { ArrowRight, Check, ChevronDown, ChevronRight, Compass, FileText, Lightbulb, Monitor, Play, Plus, RefreshCw, Repeat, Settings, ShieldAlert, Sparkles, Telescope, Waypoints, X } from 'lucide-react';
 import type {
   HostEnvironment,
@@ -198,7 +198,7 @@ interface StartRunFormProps {
   onRetryResearchGoalSuggestions: (phase: ResearchGoalPhase) => void;
   onStarted: (run: RunRecord) => void;
   trackMode?: boolean;
-  onTrackStarted?: () => void;
+  onTrackStarted?: (track: BealeWorkspaceResearchTrack) => void;
 }
 
 export interface ResearchSettingsFormProps {
@@ -256,12 +256,11 @@ export function StartRunForm(props: StartRunFormProps): JSX.Element {
   const preparingRun = useRef(false);
   const launchRun = async (input: StartRunInput): Promise<void> => {
     if (props.trackMode) {
-      let started = false;
+      let startedTrack: BealeWorkspaceResearchTrack | null = null;
       await runAction(async () => {
-        await window.beale.controlResearchTrack(snapshot.workspace.workspaceId, 'start', undefined, researchTrackConfiguration(input));
-        started = true;
+        startedTrack = await window.beale.controlResearchTrack(snapshot.workspace.workspaceId, 'start', undefined, researchTrackConfiguration(input));
       });
-      if (started) props.onTrackStarted?.();
+      if (startedTrack) props.onTrackStarted?.(startedTrack);
       return;
     }
     let latestRun: RunRecord | undefined;

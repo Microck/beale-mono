@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
+import type { BealeWorkspaceResearchTrack } from '@beale/app-server-runtime/protocol';
 import type { ApprovalRecord, AppServerFindingSummary, AppServerMemorySummary, AppServerReportDocument, AppServerReportSummary, AppServerRunbookDocument, AppServerRunbookSummary, ClaimBoardMaturity, PolicyReviewDecision, ProviderModelDefaults, RepositoryCloneMode, ResearchKitId, ResearchKitRefreshInput, ResearchKitRefreshResult, ResearchModelProviderId, ResearchModelSelection, ResearchProfile, ResearchProviderModelCatalog, RunDetail, RunRow, RunbookExecutionSelection, RunbookProofTarget, ScopeAssetInput, SteeringAction, TraceEventRecord, WorkspaceMemoryBackendId, WorkspaceRule, WorkspaceScopeVersion } from '@shared/types';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceConfigurationInput, WorkspaceDashboardView } from '../workspaces/WorkspaceUnderstandingView';
@@ -86,6 +87,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onRemoveWorkspace = async () => undefined,
   onOpenSession = () => undefined,
   onStartTrack,
+  onTrackResumed,
   onWorkspaceViewChange,
   onWorkspaceViewSelectionChange,
   onResearchDetailsOpenChange,
@@ -158,6 +160,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   onRemoveWorkspace?: () => Promise<void>;
   onOpenSession?: (runId: string) => void;
   onStartTrack?: () => void;
+  onTrackResumed?: (track: BealeWorkspaceResearchTrack) => void;
   onWorkspaceViewChange?: (viewName: string) => void;
   onWorkspaceViewSelectionChange?: (view: WorkspaceDashboardView) => void;
   onResearchDetailsOpenChange: (expanded: boolean) => void;
@@ -373,6 +376,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onRemoveWorkspace={onRemoveWorkspace}
           onOpenSession={onOpenSession}
           onStartTrack={onStartTrack}
+          onTrackResumed={onTrackResumed}
           onActiveViewChange={onWorkspaceViewChange}
           onViewSelectionChange={onWorkspaceViewSelectionChange}
           onOpenClaim={openWorkspaceClaim}

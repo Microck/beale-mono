@@ -271,7 +271,6 @@ export function createAppServerSessionBoundary(
   };
   const workspaceId = database.getWorkspaceId();
   const sessionSummaries = listAppServerSessionSummaries(workspaceId, storage);
-  let prefetchedSessionSummaries: AppServerSessionSummary[] | null = sessionSummaries;
   const ownedRunIds = new Set(sessionSummaries.map((session) => session.id));
   const nextTraceSequence = new Map(sessionSummaries.map((session) => [session.id, session.revision]));
   const sessionWrites = new AppServerSessionWriteQueue(storage);
@@ -391,7 +390,6 @@ export function createAppServerSessionBoundary(
         createdAt
       }, storage);
       ownedRunIds.add(runId);
-      prefetchedSessionSummaries = null;
       nextTraceSequence.set(runId, 1);
       return { run, attempt };
     }) as WorkspaceDatabase['createRun'],
@@ -493,9 +491,7 @@ export function createAppServerSessionBoundary(
     }) as WorkspaceDatabase['getRunDetailUpdate'],
 
     listRunRows: (() => {
-      if (ownedRunIds.size === 0) return database.listRunRows();
-      const sessions = prefetchedSessionSummaries ?? listAppServerSessionSummaries(workspaceId, storage);
-      prefetchedSessionSummaries = null;
+      const sessions = listAppServerSessionSummaries(workspaceId, storage);
       for (const session of sessions) ownedRunIds.add(session.id);
       const appServerRows = sessions.map(sessionRow);
       return [...appServerRows, ...database.listRunRows().filter((row) => !ownedRunIds.has(row.run.id))];

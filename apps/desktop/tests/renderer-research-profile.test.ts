@@ -202,6 +202,20 @@ describe('renderer research profile presentation', () => {
     expect(unknownHtml).toContain('Unknown type (Old observation)');
   });
 
+  it('lists observed memory types separately when no profile is available', () => {
+    const summaries = sessionMemoryTypeSummaries([
+      node('note_one', 'research_note', 'confirmed'),
+      node('note_two', 'research_note', 'suspected'),
+      node('lead_one', 'lead', 'confirmed'),
+      node('stale_note', 'research_note', 'stale')
+    ]);
+
+    expect(summaries.map(({ type, countLabel, statusLabel }) => ({ type, countLabel, statusLabel }))).toEqual([
+      { type: 'research_note', countLabel: '2 Research notes', statusLabel: '1 Confirmed, 1 Suspected' },
+      { type: 'lead', countLabel: '1 Lead', statusLabel: '1 Confirmed' }
+    ]);
+  });
+
   it('includes profile workflow and vocabulary identity in suggestion cache keys', () => {
     const first = snapshot(customProfile());
     const second = snapshot({
@@ -252,7 +266,16 @@ describe('renderer research profile presentation', () => {
   });
 
   it('shows every memory type count directly in session and workspace summaries', () => {
-    const profile = customProfile();
+    const baseProfile = customProfile();
+    const profile = {
+      ...baseProfile,
+      memory: {
+        ...baseProfile.memory,
+        types: [...baseProfile.memory.types, {
+          ...baseProfile.memory.types[0]!, id: 'reference', name: 'Reference', pluralName: 'References', order: 30
+        }]
+      }
+    };
     const memory = {
       nodes: [node('memory-note', 'note', 'published'), node('memory-archive', 'retired_note', 'draft')],
       runbooks: [], edges: [], contextWorkspaceId: 'workspace_one', contextSubjectId: 'subject_one'
@@ -284,6 +307,8 @@ describe('renderer research profile presentation', () => {
       expect(html.indexOf('aria-label="Open Browser Default"')).toBeLessThan(html.indexOf('<span>2 Memories</span>'));
       expect(html).toContain('<div class="session-memory-type-item"><span>1 Note</span>');
       expect(html).toContain('<div class="session-memory-type-item"><span>1 Archived Note</span>');
+      expect(html).toContain('<div class="session-memory-type-item"><span>0 References</span>');
+      expect(html).not.toContain('Boring');
       expect(html).not.toContain('session-memory-type-toggle');
       expect(html).not.toContain('session-memory-type-overflow');
     }
