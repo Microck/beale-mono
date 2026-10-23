@@ -84,6 +84,7 @@ const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const MAX_RETAINED_TERMINAL_SESSIONS = 50;
 const MAX_ERROR_DETAIL_CHARS = 1_000;
 const DEFAULT_SESSION_STARTUP_TIMEOUT_MS = 60_000;
+const DEFAULT_TERMINAL_PERSISTENCE_TIMEOUT_MS = 120_000;
 export const APP_SERVER_CAPABILITIES = BEALE_APP_SERVER_CAPABILITIES;
 
 export interface AppServerOptions {
@@ -108,6 +109,8 @@ export interface AppServerOptions {
   };
   /** Maximum time from worker launch to runtime readiness. */
   sessionStartupTimeoutMs?: number;
+  /** Maximum time to persist a terminal session before reporting a track blocker. */
+  sessionTerminalPersistenceTimeoutMs?: number;
 }
 
 export type SessionStartRequest = AppServerSessionLaunchRequest;
@@ -211,6 +214,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     : 0;
   const recoveryDelay = recoveryOptions?.delayMs ?? longSessionRecoveryDelayMs;
   const sessionStartupTimeoutMs = boundedSessionStartupTimeout(options.sessionStartupTimeoutMs);
+  const terminalPersistenceTimeoutMs = boundedSessionTerminalPersistenceTimeout(options.sessionTerminalPersistenceTimeoutMs);
   const automationScheduler = options.automationScheduler === false
     ? null
     : options.automationScheduler ?? {};
@@ -1620,18 +1624,35 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
         diagnostic?: string;
       }) => Promise<void>;
     };
+    let timeout: ReturnType<typeof setTimeout> | null = null;
     try {
-      await service.recordSessionTerminalState?.({
+      await Promise.race([Promise.resolve(service.recordSessionTerminalState?.({
         request: runtime.request, sessionId: runtime.sessionId, attemptId: runtime.currentAttemptId, state,
         trackRotation: runtime.trackRotationRequested,
         ...(state === 'failed' && runtime.diagnostic ? { diagnostic: runtime.diagnostic } : {})
-      });
+      })), new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error('Terminal session persistence timed out.')),
+          terminalPersistenceTimeoutMs);
+        timeout.unref();
+      })]);
       notifyChange();
     } catch (error) {
       runtime.diagnostic = boundedDiagnostic(
         `${runtime.diagnostic ? `${runtime.diagnostic} ` : ''}Could not persist ${state} session state: ${error instanceof Error ? error.message : String(error)}`
       );
+      if (runtime.request.launch.mode === 'research-track') {
+        const serviceWithTrackFailure = hostService as AppServerHostService & {
+          recordResearchTrackEpochLaunchFailure?: (workspaceId: string, sessionId: string, reason: string) => void;
+        };
+        try {
+          serviceWithTrackFailure.recordResearchTrackEpochLaunchFailure?.(
+            runtime.request.launch.workspaceId, runtime.sessionId,
+            runtime.diagnostic ?? 'Could not persist the research track session state.');
+        } catch { /* The next track scan detects an orphaned assignment. */ }
+      }
       notifyChange();
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
   }
 
@@ -2179,6 +2200,14 @@ function boundedSessionStartupTimeout(value: number | undefined): number {
   if (value === undefined) return DEFAULT_SESSION_STARTUP_TIMEOUT_MS;
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error('sessionStartupTimeoutMs must be a positive number.');
+  }
+  return Math.min(Math.floor(value), 10 * 60_000);
+}
+
+function boundedSessionTerminalPersistenceTimeout(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_TERMINAL_PERSISTENCE_TIMEOUT_MS;
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error('sessionTerminalPersistenceTimeoutMs must be a positive number.');
   }
   return Math.min(Math.floor(value), 10 * 60_000);
 }

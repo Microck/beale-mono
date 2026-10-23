@@ -226,16 +226,19 @@ export class ResearchTrackStore {
     const track = this.syncSurfaces(surfaces);
     if (!track || track.status !== "running" || track.activeSessionId) return null;
     const byId = new Map(surfaces.map((surface) => [surface.id, surface]));
-    const eligible = track.surfaces.filter((work) => {
+    const actionable = track.surfaces.filter((work) => {
       const surface = byId.get(work.surfaceId);
       if (!surface || work.status === "complete" || work.status === "blocked" || work.status === "excluded") return false;
-      if (work.revisitAfter && work.revisitAfter > new Date().toISOString()) return false;
       if (surface.parentId === null && surface.coverageState.unmetRequirements.length > 0
         && surface.coverageState.unmetRequirements.every((item) => item === "child_surfaces")
         && track.surfaces.some((child) => byId.get(child.surfaceId)?.parentId === surface.id
           && child.status !== "complete" && child.status !== "excluded")) return false;
       return true;
     });
+    const ready = actionable.filter((work) => !work.revisitAfter || work.revisitAfter <= new Date().toISOString());
+    // A second look should follow other available work, but never leave a
+    // running track idle solely because its remaining revisit time is future.
+    const eligible = ready.length > 0 ? ready : actionable;
     const rootFirstPass = eligible.some((work) => byId.get(work.surfaceId)?.parentId === null && work.epochs === 0);
     const candidates = eligible.filter((work) => !rootFirstPass || byId.get(work.surfaceId)?.parentId === null
       || work.impact === "critical").sort((left, right) => {
@@ -252,7 +255,6 @@ export class ResearchTrackStore {
       ? candidates.find((candidate) => candidate.surfaceId !== history.last_surface_id) ?? candidates[0]
       : candidates[0];
     if (!selected) {
-      if (track.surfaces.some((work) => work.revisitAfter && work.revisitAfter > new Date().toISOString())) return null;
       const status = track.surfaces.every((work) => work.status === "complete" || work.status === "excluded") ? "complete"
         : track.surfaces.some((work) => work.status === "blocked") ? "waiting" : "paused";
       const error = status === "paused" ? "No actionable surface could be selected; review remaining coverage gaps." : null;

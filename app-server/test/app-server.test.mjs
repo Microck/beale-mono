@@ -36,6 +36,7 @@ import {
   AppServerWorkerDatabaseCoordinator,
 } from "../dist/workerDatabaseBroker.js";
 import { createWorkerResearchDatabaseFactory } from "../dist/workerDatabaseClient.js";
+import { scheduleCompletedWorkerExit } from "../dist/appServerSession.js";
 import {
   callAppServerResearchTool,
   listAppServerResearchTools,
@@ -2763,6 +2764,60 @@ test('automatically launches a reserved research-track epoch while the app-serve
   await waitFor(() => server.listSessions().some((session) => session.sessionId === 'session-track-example'));
   assert.equal(server.listSessions().find((session) => session.sessionId === 'session-track-example')?.state, 'running');
   upstream.complete();
+});
+
+test('pauses a track when its terminal session state cannot be persisted', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-finalization-example-'));
+  temporaryDirectories.push(directory);
+  const upstream = await createFakeAppServerSessionHost();
+  const hostService = testHostService(directory);
+  const failures = [];
+  hostService.recordSessionTerminalState = async () => { throw new Error('Synthetic terminal persistence failure.'); };
+  hostService.recordResearchTrackEpochLaunchFailure = (workspaceId, sessionId, reason) => {
+    failures.push({ workspaceId, sessionId, reason });
+  };
+  const server = await startAppServer({ hostService, spawnSession: upstream.spawnSession, longSessionRecovery: false });
+  servers.push(server);
+  const request = sessionLaunchRequest(directory, { sessionId: 'session-track-finalization-example' });
+  request.launch.mode = 'research-track';
+  await server.startSession(request);
+  upstream.complete();
+  await waitFor(() => failures.length === 1);
+  assert.equal(failures[0].workspaceId, request.launch.workspaceId);
+  assert.equal(failures[0].sessionId, request.sessionId);
+  assert.match(failures[0].reason, /Could not persist completed session state/);
+});
+
+test('a hanging terminal write stops a track from showing indefinite progress', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-terminal-timeout-example-'));
+  temporaryDirectories.push(directory);
+  const upstream = await createFakeAppServerSessionHost();
+  const hostService = testHostService(directory);
+  const failures = [];
+  hostService.recordSessionTerminalState = async () => new Promise(() => undefined);
+  hostService.recordResearchTrackEpochLaunchFailure = (workspaceId, sessionId, reason) => {
+    failures.push({ workspaceId, sessionId, reason });
+  };
+  const server = await startAppServer({ hostService, spawnSession: upstream.spawnSession,
+    longSessionRecovery: false, sessionTerminalPersistenceTimeoutMs: 25 });
+  servers.push(server);
+  const request = sessionLaunchRequest(directory, { sessionId: 'session-track-terminal-timeout-example' });
+  request.launch.mode = 'research-track';
+  await server.startSession(request);
+  upstream.complete();
+  await waitFor(() => failures.length === 1);
+  assert.match(failures[0].reason, /Terminal session persistence timed out/);
+});
+
+test('a completed worker that retains an open handle is terminated after the exit grace period', async () => {
+  let terminateCalls = 0;
+  const worker = { terminate: async () => { terminateCalls += 1; return 1; } };
+  scheduleCompletedWorkerExit(worker, 10);
+  await waitFor(() => terminateCalls === 1);
+  const cancel = scheduleCompletedWorkerExit(worker, 10);
+  cancel();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(terminateCalls, 1);
 });
 
 test("automatically launches due automations while the app-server is resident", async () => {

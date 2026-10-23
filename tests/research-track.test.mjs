@@ -191,6 +191,73 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
   } finally { state.close(); }
 });
 
+test('an orphaned track epoch pauses instead of showing indefinite research progress', async () => {
+  const state = fixture();
+  const service = new AppServerHostService({ registry: {
+    registryDirectory: join(dirname(state.databasePath), 'registry'),
+    listWorkspaces: () => [{ workspaceId }],
+    resolveWorkspace: (id) => id === workspaceId ? {
+      workspaceId, researchProfileId: 'security-research', memoryBackend: 'app-server'
+    } : null,
+    storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
+  }, invokeProtocol: async (operation) => operation === 'session.get' ? { status: 'active' } : {} });
+  service.workspaceDetails = async () => ({ scope: { id: 'scope-example' },
+    targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
+  try {
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'], surfaces });
+    state.store.reserveNext('session-example-orphaned', surfaces);
+    state.database.prepare('UPDATE app_server_research_tracks SET updated_at=? WHERE workspace_id=?')
+      .run('2000-01-01T00:00:00.000Z', workspaceId);
+    assert.deepEqual(await service.dueResearchTracks(new Date(), new Set()), []);
+    assert.equal(state.store.get().status, 'paused');
+    assert.equal(state.store.get().activeSessionId, null);
+    assert.match(state.store.get().lastError, /without a terminal session record/);
+  } finally { state.close(); }
+});
+
+test('startup recovery advances a checkpointed track epoch without replaying it', async () => {
+  const state = fixture();
+  let terminalTransition = null;
+  let started = null;
+  const service = new AppServerHostService({ registry: {
+    registryDirectory: join(dirname(state.databasePath), 'registry'),
+    listWorkspaces: () => [{ workspaceId }],
+    resolveWorkspace: (id) => id === workspaceId ? {
+      workspaceId, researchProfileId: 'security-research', memoryBackend: 'app-server'
+    } : null,
+    storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
+  }, invokeProtocol: async (operation, options) => {
+    if (operation === 'session.recover_interrupted') return { sessionIds: [started.id], interruptedSessions: 1 };
+    if (operation === 'session.get') return { workspaceId, status: 'paused',
+      metadata: { appServerRestartLaunch: { schemaVersion: 1, eligible: true,
+        launch: { workspaceId, mode: 'research-track', promptMarkdown: 'Synthetic surface investigation.',
+          machineId: 'local', targetIds: ['local'], provider: { id: 'openai-codex', model: 'example-model' } } } },
+      attempts: [{ id: 'attempt-example-interrupted', parentAttemptId: null,
+        status: 'paused', metadata: { interruptedByRecovery: true } }] };
+    if (operation === 'session.transition') { terminalTransition = options.input; return {}; }
+    throw new Error(`Unexpected operation: ${operation}`);
+  } });
+  service.workspaceDetails = async () => ({ scope: { id: 'scope-example' },
+    targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
+  try {
+    started = state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces });
+    const first = state.store.reserveNext(started.id, surfaces);
+    const worker = new ResearchTrackStore({ databasePath: state.databasePath, workspaceId, sessionId: started.id });
+    try { worker.checkpoint({ surfaceId: first.surface.id, outcome: 'defer', impact: 'medium',
+      theory: 'A synthetic trust boundary needs another proof.', nextAction: 'Inspect a different entry path.',
+      evidenceRefs: [] }, first.surface); }
+    finally { worker.close(); }
+    const recovery = await service.recoverInterruptedSessions();
+    assert.equal(recovery.recovered.length, 0);
+    assert.equal(recovery.skippedSessions, 1);
+    assert.equal(terminalTransition.status, 'completed');
+    assert.equal(state.store.get().activeSessionId, null);
+    assert.equal((await service.dueResearchTracks())[0].request.sessionId, started.id);
+    assert.equal(state.store.get().activeSurfaceId, surfaces[1].id);
+  } finally { state.close(); }
+});
+
 test('a high-impact surface receives a later second look before track completion', () => {
   const state = fixture();
   try {
@@ -204,10 +271,6 @@ test('a high-impact surface receives a later second look before track completion
       evidenceRefs: ['memory:memory-example-a'] }, map[0]); }
     finally { worker.close(); }
     state.store.finishEpoch('session-example-first', true);
-    assert.equal(state.store.reserveNext('session-example-too-early', map), null);
-    assert.equal(state.store.get().status, 'running');
-    state.database.prepare('UPDATE app_server_research_track_surfaces SET revisit_after=? WHERE workspace_id=? AND surface_id=?')
-      .run('2000-01-01T00:00:00.000Z', workspaceId, first.surface.id);
     const second = state.store.reserveNext('session-example-second', map);
     assert.equal(second.surface.id, first.surface.id);
     state.database.prepare('UPDATE memory_nodes SET updated_at=? WHERE id=?').run(new Date().toISOString(), 'memory-example-a');
