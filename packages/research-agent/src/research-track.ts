@@ -358,10 +358,17 @@ export class ResearchTrackStore {
   #validEvidenceRef(ref: string, since?: string | null): boolean {
     const match = /^(finding|memory|runbook|report):([A-Za-z0-9_-]{1,160})$/u.exec(ref);
     if (!match) return false;
+    const kind = match[1] as "finding" | "memory" | "runbook" | "report";
     const table = { finding: "app_server_research_claims", memory: "memory_nodes",
-      runbook: "app_server_runbooks", report: "app_server_reports" }[match[1] as "finding" | "memory" | "runbook" | "report"];
+      runbook: "app_server_runbooks", report: "app_server_reports" }[kind];
     if (!this.#database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)) return false;
-    const row = this.#database.prepare(`SELECT updated_at FROM ${table} WHERE id=? AND workspace_id=? LIMIT 1`)
+    if (kind === "memory" && !this.#database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_node_workspaces'").get()) return false;
+    const query = kind === "memory"
+      ? `SELECT node.updated_at FROM memory_nodes node
+          JOIN memory_node_workspaces membership ON membership.node_id=node.id
+          WHERE node.id=? AND membership.workspace_id=? LIMIT 1`
+      : `SELECT updated_at FROM ${table} WHERE id=? AND workspace_id=? LIMIT 1`;
+    const row = this.#database.prepare(query)
       .get(match[2]!, this.#workspaceId) as { updated_at?: unknown } | undefined;
     return typeof row?.updated_at === "string" && (!since || row.updated_at >= since);
   }
@@ -418,6 +425,11 @@ export function createResearchTrackTool(store: ResearchTrackStore, surface: (id:
         return { action, status: "complete", startedAt, completedAt: new Date().toISOString(),
           summary: "Research track checkpoint recorded.", output, followUpActions: [] };
       } catch (error) {
+        if (error && typeof error === "object" && "code" in error
+          && typeof error.code === "string" && error.code.startsWith("ERR_SQLITE_")) {
+          try { store.pauseWithError(`Track checkpoint storage failed: ${error instanceof Error ? error.message : String(error)}`); }
+          catch { /* The original storage error is still returned to the session. */ }
+        }
         return { action, status: "error", startedAt, completedAt: new Date().toISOString(),
           summary: "Research track checkpoint failed.", error: { message: error instanceof Error ? error.message : String(error) }, followUpActions: [] };
       }

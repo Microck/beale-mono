@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { ResearchTrackStore } from '../packages/research-agent/dist/index.js';
+import { ResearchTrackStore, createResearchTrackTool } from '../packages/research-agent/dist/index.js';
 import { AppServerHostService } from '../app-server/dist/hostService.js';
 
 const workspaceId = 'workspace-example-track';
@@ -20,9 +20,15 @@ function fixture() {
   const databasePath = join(directory, 'memory.sqlite');
   const store = new ResearchTrackStore({ databasePath, workspaceId });
   const database = new DatabaseSync(databasePath);
-  database.exec('CREATE TABLE memory_nodes (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, updated_at TEXT NOT NULL)');
-  database.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?)').run('memory-example-a', workspaceId, '2000-01-01T00:00:00.000Z');
-  database.prepare('INSERT INTO memory_nodes VALUES (?, ?, ?)').run('memory-other-workspace', 'workspace-other', '2000-01-01T00:00:00.000Z');
+  database.exec(`CREATE TABLE memory_nodes (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL);
+    CREATE TABLE memory_node_workspaces (node_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
+      workspace_name TEXT NOT NULL, PRIMARY KEY(node_id, workspace_id))`);
+  database.prepare('INSERT INTO memory_nodes VALUES (?, ?)').run('memory-example-a', '2000-01-01T00:00:00.000Z');
+  database.prepare('INSERT INTO memory_nodes VALUES (?, ?)').run('memory-other-workspace', '2000-01-01T00:00:00.000Z');
+  database.prepare('INSERT INTO memory_node_workspaces VALUES (?, ?, ?)')
+    .run('memory-example-a', workspaceId, 'Example workspace');
+  database.prepare('INSERT INTO memory_node_workspaces VALUES (?, ?, ?)')
+    .run('memory-other-workspace', 'workspace-other', 'Other workspace');
   return { store, database, databasePath, close() { database.close(); store.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
 
@@ -115,6 +121,73 @@ test('worker and launch failures pause a track with an actionable diagnostic', a
     assert.equal(state.store.reserveNext('session-example-second-unwanted-retry', surfaces), null);
     assert.equal(state.store.control('stop').lastError, null);
     assert.equal(state.store.control('stop').status, 'stopped');
+  } finally { state.close(); }
+});
+
+test('expected epoch rotation preserves checkpoints and identifies missing checkpoints', async () => {
+  const state = fixture();
+  const service = new AppServerHostService({ registry: {
+    registryDirectory: join(dirname(state.databasePath), 'registry'),
+    resolveWorkspace: (id) => id === workspaceId ? {
+      workspaceId, researchProfileId: 'security-research', memoryBackend: 'app-server'
+    } : null,
+    storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
+  }, invokeProtocol: async (operation) => operation === 'session.get' ? { status: 'stopped' } : {} });
+  const request = { launch: { workspaceId, mode: 'research-track' } };
+  try {
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces: [surfaces[0]] });
+    const first = state.store.reserveNext('session-example-rotation-one', [surfaces[0]]);
+    const worker = new ResearchTrackStore({ databasePath: state.databasePath, workspaceId,
+      sessionId: 'session-example-rotation-one' });
+    try {
+      worker.checkpoint({ surfaceId: first.surface.id, outcome: 'defer', impact: 'medium',
+        theory: 'A synthetic trust boundary requires another proof.', nextAction: 'Check another entry path.',
+        evidenceRefs: ['memory:memory-example-a'] }, first.surface);
+    } finally { worker.close(); }
+    await service.recordSessionTerminalState({ request, sessionId: 'session-example-rotation-one',
+      attemptId: 'attempt-example-rotation-one', state: 'stopped', trackRotation: true });
+    assert.equal(state.store.get().status, 'running');
+    assert.equal(state.store.get().lastError, null);
+    assert.equal(state.store.get().surfaces[0].noProgressEpochs, 0);
+
+    state.store.reserveNext('session-example-rotation-two', [surfaces[0]]);
+    await service.recordSessionTerminalState({ request, sessionId: 'session-example-rotation-two',
+      attemptId: 'attempt-example-rotation-two', state: 'stopped', trackRotation: true });
+    assert.equal(state.store.get().status, 'running');
+    assert.match(state.store.get().lastError, /time limit without a track checkpoint/);
+    assert.equal(state.store.get().surfaces[0].noProgressEpochs, 1);
+
+    state.store.reserveNext('session-example-manual-stop', [surfaces[0]]);
+    await service.recordSessionTerminalState({ request, sessionId: 'session-example-manual-stop',
+      attemptId: 'attempt-example-manual-stop', state: 'stopped' });
+    assert.equal(state.store.get().status, 'paused');
+    assert.equal(state.store.get().lastError, null);
+  } finally { state.close(); }
+});
+
+test('checkpoint storage errors pause a track instead of consuming more epochs', async () => {
+  const state = fixture();
+  try {
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces: [surfaces[0]] });
+    state.store.reserveNext('session-example-storage-error', [surfaces[0]]);
+    state.database.exec(`CREATE TABLE app_server_research_claims (
+      id TEXT PRIMARY KEY, updated_at TEXT NOT NULL)`);
+    state.database.prepare('INSERT INTO app_server_research_claims VALUES (?, ?)')
+      .run('claim-example', new Date().toISOString());
+    const worker = new ResearchTrackStore({ databasePath: state.databasePath, workspaceId,
+      sessionId: 'session-example-storage-error' });
+    try {
+      const tool = createResearchTrackTool(worker, () => surfaces[0]);
+      const result = await tool.execute({ input: { surfaceId: surfaces[0].id,
+        outcome: 'defer', impact: 'medium', theory: 'A synthetic trust boundary needs another proof.',
+        nextAction: 'Check another path.', evidenceRefs: ['finding:claim-example'] } });
+      assert.equal(result.status, 'error');
+      assert.match(result.error.message, /no such column: workspace_id/);
+      assert.equal(state.store.get().status, 'paused');
+      assert.match(state.store.get().lastError, /checkpoint storage failed: no such column: workspace_id/i);
+    } finally { worker.close(); }
   } finally { state.close(); }
 });
 

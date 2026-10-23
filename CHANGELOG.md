@@ -1449,6 +1449,7 @@
 
 #### Fixed
 
+- Research track checkpoints now resolve memory ownership through workspace memberships after the memory graph migration. Unexpected checkpoint storage errors pause the track instead of consuming more epochs. Expected rotations and manual stops no longer display a false incomplete-epoch error; a timed rotation without a checkpoint identifies the missing checkpoint.
 - Continuous research waits for an epoch worker to exit and persist its terminal state before assigning another surface. A late stop from an earlier worker no longer pauses the next epoch; app-server records the source of host-initiated stops.
 - Continuous research workers now expose `track.checkpoint` as a core host tool. Worker and launch failures pause the track with the actual diagnostic instead of creating repeated empty sessions.
 - Hosted `file.read` resolves relative paths from the active research workspace instead of the worker's current directory.

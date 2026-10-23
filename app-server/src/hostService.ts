@@ -1535,14 +1535,22 @@ export class AppServerHostService {
     }
     const trackStore = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId: workspace.workspaceId });
     try {
+      const track = trackStore.get();
       const assigned = input.request.launch.mode === 'research-track'
-        && trackStore.get()?.activeSessionId === input.sessionId;
+        && track?.activeSessionId === input.sessionId;
       if (assigned && input.state === 'stopped' && !input.trackRotation
-        && trackStore.get()?.status === 'running') trackStore.control('pause');
+        && track.status === 'running') trackStore.control('pause');
       if (assigned) {
-        const diagnostic = input.state === 'failed' ? input.diagnostic?.trim() || 'The research worker failed.' : undefined;
-        trackStore.finishEpoch(input.sessionId, input.state === 'completed' || current.status === 'blocked', diagnostic);
-        if (diagnostic) trackStore.pauseWithError(diagnostic);
+        const checkpointed = track.surfaces.some((work) => work.surfaceId === track.activeSurfaceId
+          && work.status !== 'active');
+        const workerFailure = input.state === 'failed' ? input.diagnostic?.trim() || 'The research worker failed.' : null;
+        const diagnostic = workerFailure
+          ?? (input.state === 'stopped' && input.trackRotation && !checkpointed
+            ? 'The research epoch reached its time limit without a track checkpoint.' : undefined);
+        const expectedStop = input.state === 'stopped' && (!input.trackRotation || checkpointed);
+        trackStore.finishEpoch(input.sessionId,
+          input.state === 'completed' || current.status === 'blocked' || expectedStop, diagnostic);
+        if (workerFailure) trackStore.pauseWithError(workerFailure);
       }
     }
     finally { trackStore.close(); }
