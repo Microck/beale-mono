@@ -261,6 +261,25 @@ describe('renderer run detail update view model', () => {
     expect(merged.transcriptMessages).toEqual([canonical]);
   });
 
+  it('drops a provisional previous-epoch ending when a new attempt becomes active', () => {
+    const current = runDetail({ transcriptMessages: [transcriptMessage({
+      id: 'transcript_final_run_test_attempt_one', attemptId: 'attempt_one',
+      phase: 'final_answer', contentMarkdown: 'First epoch summary.', source: 'app-server'
+    })] });
+    current.run.status = 'completed';
+    current.attempts = [{ id: 'attempt_one' }] as RunDetail['attempts'];
+    const update = runDetailUpdate({ transcriptMessages: [transcriptMessage({
+      id: 'message_next_epoch', attemptId: 'attempt_two', role: 'user',
+      contentMarkdown: 'Investigate the next surface.'
+    })] });
+    update.attempts = [{ id: 'attempt_one' }, { id: 'attempt_two' }] as RunDetailUpdate['attempts'];
+
+    const merged = mergeRunDetailUpdate(current, update);
+
+    expect(merged.run.status).toBe('active');
+    expect(merged.transcriptMessages.map((message) => message.id)).toEqual(['message_next_epoch']);
+  });
+
   it('keeps distinct canonical terminal responses with identical text', () => {
     const first = transcriptMessage({
       id: 'transcript_first',

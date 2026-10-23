@@ -88,11 +88,11 @@ export function sessionHeatForDetail(
   detail: RunDetail | null,
   preferences: SessionHeatPreferences | SessionHeatPreferenceOverrides = EMPTY_SESSION_HEAT_PREFERENCES
 ): SessionHeat {
-  if (!detail?.researchProfile?.profile) return 'none';
+  if (!detail) return 'none';
   return sessionHeatForAppServerMemory(
     detail.appServerMemory ?? null,
     detail.run.id,
-    detail.researchProfile.profile,
+    detail.researchProfile?.profile,
     sessionHeatPreferenceOverrides(preferences)
   );
 }

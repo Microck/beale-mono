@@ -1,5 +1,6 @@
 import type {
   HostEnvironment,
+  ResearchSessionSummary,
   RunDetail,
   RunStatus,
   WindowChromeState,
@@ -7,8 +8,16 @@ import type {
 } from '@shared/types';
 import type { SessionHeat } from './sessionHeat';
 
-export function selectedRunStatus(snapshot: WorkspaceSnapshot | null, selectedRunId: string | null): RunStatus | null {
+export function selectedRunStatus(
+  snapshot: WorkspaceSnapshot | null,
+  selectedRunId: string | null,
+  registrySessions: readonly Pick<ResearchSessionSummary, 'runId' | 'workspaceId' | 'status'>[] = []
+): RunStatus | null {
   if (!snapshot || !selectedRunId) return null;
+  // Track epochs reuse a session ID. Its registry row is refreshed while a
+  // workspace snapshot can still describe the previous, terminal attempt.
+  if (registrySessions.some((session) => session.runId === selectedRunId
+    && session.workspaceId === snapshot.workspace.workspaceId && session.status === 'active')) return 'active';
   return snapshot.runs.find((row) => row.run.id === selectedRunId)?.run.status ?? null;
 }
 

@@ -84,6 +84,11 @@ export function runDetailUpdateIdentity(update: RunDetailUpdate): string {
 }
 
 export function mergeRunDetailUpdate(current: RunDetail, update: RunDetailUpdate): RunDetail {
+  const activeAttemptId = update.run.status === 'active' ? update.attempts.at(-1)?.id : null;
+  const priorTranscripts = activeAttemptId && activeAttemptId !== current.attempts.at(-1)?.id
+    ? current.transcriptMessages.filter((message) => !isSyntheticTerminalResponse(message)
+      || message.attemptId === activeAttemptId)
+    : current.transcriptMessages;
   return {
     run: update.run,
     tokenUsage: update.tokenUsage ?? current.tokenUsage,
@@ -95,7 +100,7 @@ export function mergeRunDetailUpdate(current: RunDetail, update: RunDetailUpdate
       : update.nextStepSuggestions,
     attempts: update.attempts,
     traceEvents: mergeTraceEvents(current.traceEvents, update.traceEvents),
-    transcriptMessages: mergeTranscriptMessages(current.transcriptMessages, update.transcriptMessages),
+    transcriptMessages: mergeTranscriptMessages(priorTranscripts, update.transcriptMessages),
     breakoutRooms: mergeRecordsById(current.breakoutRooms ?? [], update.breakoutRooms ?? []),
     breakoutRoomMembers: mergeRecordsById(current.breakoutRoomMembers ?? [], update.breakoutRoomMembers ?? []),
     breakoutRoomMessages: mergeRecordsById(current.breakoutRoomMessages ?? [], update.breakoutRoomMessages ?? []),

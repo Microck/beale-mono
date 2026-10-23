@@ -470,7 +470,7 @@ export function App(): JSX.Element {
     active: startupPhase === 'ready' || profilingOpen || settingsOpen,
     observeReports: profilingOpen || settingsOpen
   });
-  const selectedRunState = selectedRunStatus(snapshot, selectedRunId);
+  const selectedRunState = selectedRunStatus(snapshot, selectedRunId, workspaceRegistry?.researchSessions);
   const runDetailProjection = useMemo<RunDetailProjection>(() => ({
     mode: 'commentary',
     agentPath: selectedSubagentPath

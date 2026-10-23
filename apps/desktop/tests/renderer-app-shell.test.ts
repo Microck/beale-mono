@@ -606,6 +606,18 @@ describe('renderer app shell view model', () => {
     expect(activeRunDetailForSelection(detail, 'run_other')).toBeNull();
   });
 
+  it('uses a refreshed active session row to resume polling after a terminal track epoch', () => {
+    const snapshot = workspaceSnapshot('run_track', 'completed');
+    const registrySessions = [{ runId: 'run_track', workspaceId: snapshot.workspace.workspaceId,
+      status: 'active' as const }];
+
+    expect(selectedRunStatus(snapshot, 'run_track', registrySessions)).toBe('active');
+    expect(selectedRunStatus(snapshot, 'run_track', [{ ...registrySessions[0], workspaceId: 'workspace_other' }]))
+      .toBe('completed');
+    expect(selectedRunStatus(snapshot, 'run_track', [{ ...registrySessions[0], status: 'stopped' }]))
+      .toBe('completed');
+  });
+
   it('builds shell classes from heat, chrome, and pane state', () => {
     expect(
       appShellClassName({
