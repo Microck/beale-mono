@@ -219,3 +219,47 @@ test("resource catalog replaces stale explicit scope classification on a new act
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("recorded in-scope resources recover from an earlier ambient relevance rejection", async () => {
+  const root = await mkdtemp(join(tmpdir(), "app-server-resource-promotion-example-"));
+  const databasePath = join(root, "memory.sqlite");
+  const workspaceId = "workspace_resource_promotion_example";
+  const discovered = new ResearchResourceCatalog({ databasePath, workspaceId });
+  try {
+    const resource = discovered.discover({ kind: "service", name: "Example service",
+      locator: "api.example.test", rationale: "Potential ambient dependency." });
+    discovered.recordReview(resource.id, { decision: "not_relevant", source: "policy", reason: "Outside the prior scope." });
+  } finally { discovered.close(); }
+  const scoped = new ResearchResourceCatalog({ databasePath, workspaceId, explicitResources: [{
+    id: "asset-example-service", direction: "in_scope", kind: "service", locator: "api.example.test",
+    source: "explicit_scope"
+  }] });
+  try {
+    const resource = scoped.list()[0];
+    assert.equal(resource.source, "explicit_scope");
+    assert.equal(resource.direction, "in_scope");
+    assert.equal(resource.reviewStatus, "unreviewed");
+  } finally {
+    scoped.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an explicit exclusion takes precedence over the same included resource", async () => {
+  const root = await mkdtemp(join(tmpdir(), "app-server-resource-exclusion-example-"));
+  const catalog = new ResearchResourceCatalog({ databasePath: join(root, "memory.sqlite"),
+    workspaceId: "workspace_exclusion_example", explicitResources: [{
+      id: "asset-excluded", direction: "out_of_scope", kind: "service", locator: "api.example.test",
+      source: "explicit_scope"
+    }, {
+      id: "asset-included", direction: "in_scope", kind: "service", locator: "api.example.test",
+      source: "explicit_scope"
+    }] });
+  try {
+    assert.equal(catalog.list()[0].direction, "out_of_scope");
+    assert.equal(catalog.list()[0].reviewStatus, "explicit_out_of_scope");
+  } finally {
+    catalog.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

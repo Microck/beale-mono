@@ -166,7 +166,9 @@ export class ResearchResourceCatalog {
     const existing = this.#findByIdentity(resource.kind, resource.locator);
     const timestamp = nowIso();
     const id = existing?.id ?? stableResourceId(this.#workspaceId, resource.kind, resource.locator);
-    const reviewStatus = resource.direction === "out_of_scope" ? "explicit_out_of_scope" : existing?.reviewStatus ?? "unreviewed";
+    const reviewStatus = resource.direction === "out_of_scope" ? "explicit_out_of_scope"
+      : existing?.reviewStatus === "not_relevant" || existing?.reviewStatus === "explicit_out_of_scope"
+        ? "unreviewed" : existing?.reviewStatus ?? "unreviewed";
     this.#database.prepare(`
       INSERT INTO app_server_research_resources (
         id, workspace_id, kind, name, locator, normalized_locator, source,
@@ -184,7 +186,7 @@ export class ResearchResourceCatalog {
         rationale = excluded.rationale,
         review_status = CASE
           WHEN excluded.direction = 'out_of_scope' THEN 'explicit_out_of_scope'
-          WHEN app_server_research_resources.review_status = 'explicit_out_of_scope' THEN 'unreviewed'
+          WHEN app_server_research_resources.review_status IN ('explicit_out_of_scope', 'not_relevant') THEN 'unreviewed'
           ELSE app_server_research_resources.review_status
         END,
         updated_at = excluded.updated_at
@@ -205,15 +207,38 @@ export class ResearchResourceCatalog {
   }
 
   #replaceExplicitResources(resources: readonly ResearchWorkspaceResourceContext[]): void {
+    const ordered = [...resources].sort((left, right) =>
+      Number(left.direction === "out_of_scope") - Number(right.direction === "out_of_scope"));
+    const desired = new Map(ordered.map((resource) => [
+      JSON.stringify([resource.kind, normalizeLocator(resource.locator)]), resource,
+    ]));
+    const current = this.#database.prepare(`
+      SELECT id, kind, name, locator, normalized_locator, direction, scope_asset_id, rationale, review_status
+      FROM app_server_research_resources WHERE workspace_id = ? AND source = 'explicit_scope'
+    `).all(this.#workspaceId) as Record<string, unknown>[];
+    if (current.length === desired.size && current.every((row) => {
+      const resource = desired.get(JSON.stringify([row.kind, row.normalized_locator]));
+      return resource && row.name === (resource.name ?? resource.locator)
+        && row.locator === resource.locator && row.direction === resource.direction
+        && row.scope_asset_id === resource.id
+        && row.rationale === (resource.instruction ?? "Operator-recorded scope resource.")
+        && (resource.direction === "out_of_scope" ? row.review_status === "explicit_out_of_scope"
+          : row.review_status !== "explicit_out_of_scope" && row.review_status !== "not_relevant");
+    })) return;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
-      this.#database.prepare(`
+      const demote = this.#database.prepare(`
         UPDATE app_server_research_resources
         SET source = 'runtime_discovery', direction = NULL, scope_asset_id = NULL,
             review_status = 'unreviewed', review_reason = NULL, updated_at = ?
-        WHERE workspace_id = ? AND source = 'explicit_scope'
-      `).run(nowIso(), this.#workspaceId);
-      for (const resource of resources) this.#upsertExplicit(resource);
+        WHERE workspace_id = ? AND source = 'explicit_scope' AND id = ?
+      `);
+      for (const row of current) {
+        if (!desired.has(JSON.stringify([row.kind, row.normalized_locator]))) {
+          demote.run(nowIso(), this.#workspaceId, String(row.id));
+        }
+      }
+      for (const resource of ordered) this.#upsertExplicit(resource);
       this.#database.exec("COMMIT");
     } catch (error) {
       this.#database.exec("ROLLBACK");

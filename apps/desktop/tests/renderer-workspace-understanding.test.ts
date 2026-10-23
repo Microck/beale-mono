@@ -469,6 +469,7 @@ describe('workspace dashboard', () => {
       busy: false,
       appServerMemory: memorySummary(),
       researchProfile: testResearchProfile(),
+      workspaceId: 'workspace-example',
       workspaceName: 'Parser Workspace',
       runs: [],
     }));
@@ -477,6 +478,9 @@ describe('workspace dashboard', () => {
     expect(html).toContain('id="workspace-dashboard-campaign-subviews" role="tabpanel"');
     expect(html).toContain('role="tablist" aria-label="Campaign views"');
     expect(html).toContain('class="workspace-campaign-subview-tabs research-side-view-tabs pill-view-tabs"');
+    expect(html.indexOf('class="workspace-research-track"')).toBeGreaterThan(html.indexOf('class="workspace-campaign-subview-tabs'));
+    expect(html.indexOf('class="workspace-research-track"')).toBeLessThan(html.indexOf('id="workspace-dashboard-campaign-board-panel"'));
+    expect(html).not.toContain('Reasoning-based security research across the authorized scope.');
     expect(html).not.toContain('<span>Highlights</span>');
     expect(html).toContain('<span>Findings</span>');
     expect(html).not.toContain('<span>Activity</span>');

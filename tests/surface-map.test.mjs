@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { AppServerSessionStore, ResearchResourceCatalog, SurfaceStore } from '../packages/research-agent/dist/index.js';
+import { AppServerSessionStore, ResearchResourceCatalog, ResearchTrackStore, SurfaceStore } from '../packages/research-agent/dist/index.js';
+import { AppServerHostService } from '../app-server/dist/hostService.js';
 import { readWorkspaceSurfaceMap } from '../app-server/dist/surfaceMap.js';
 import { decodeBealeWorkspaceSurfaceMap } from '../packages/app-server-runtime/dist/protocol.js';
 
@@ -64,5 +65,75 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     assert.deepEqual(readWorkspaceSurfaceMap(databasePath, 'workspace-other').surfaces, []);
   } finally {
     surfaces.close(); resources.close(); sessions.close(); rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('new workspace scope resources seed root surfaces before the first research session', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-surface-scope-example-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  const workspaceId = 'workspace-scope-example';
+  const database = new DatabaseSync(databasePath);
+  try {
+    database.exec(`
+      CREATE TABLE workspaces (id TEXT PRIMARY KEY, workspace_path TEXT NOT NULL);
+      CREATE TABLE scope_versions (
+        id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, version INTEGER NOT NULL,
+        status TEXT NOT NULL, workspace_name TEXT NOT NULL, scope_owner TEXT NOT NULL,
+        description_markdown TEXT NOT NULL, active_from TEXT NOT NULL, expires_at TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE scope_assets (
+        id TEXT PRIMARY KEY, scope_version_id TEXT NOT NULL, direction TEXT NOT NULL,
+        kind TEXT NOT NULL, value TEXT NOT NULL, sensitivity TEXT NOT NULL,
+        attributes_json TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+    `);
+    database.prepare('INSERT INTO workspaces VALUES (?, ?)').run(workspaceId, directory);
+    const insertScope = database.prepare('INSERT INTO scope_versions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertAsset = database.prepare('INSERT INTO scope_assets VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    insertScope.run('scope-example-first', workspaceId, 1, 'active', 'Example workspace', 'ExampleCo',
+      'Authorized example resources.', '2026-01-01T00:00:00Z', null, '2026-01-01T00:00:00Z');
+    insertAsset.run('asset-example-service', 'scope-example-first', 'in_scope', 'service',
+      'api.example.test', 'public', '{}', '2026-01-01T00:00:01Z');
+    insertAsset.run('asset-example-excluded', 'scope-example-first', 'out_of_scope', 'domain',
+      'excluded.example.test', 'public', '{}', '2026-01-01T00:00:02Z');
+    insertAsset.run('asset-example-credential', 'scope-example-first', 'in_scope', 'other',
+      'secret://example-credential', 'secret', '{"legacyKind":"credential_ref"}', '2026-01-01T00:00:03Z');
+    const workspace = { workspaceId, workspacePath: directory, researchProfileId: 'security-research', memoryBackend: 'app-server' };
+    const service = new AppServerHostService({ registry: {
+      registryDirectory: join(directory, 'registry'),
+      resolveWorkspace: (identifier) => identifier === workspaceId ? workspace : null,
+      storageForProfile: () => ({ databasePath, artifactDirectoryPath: join(directory, 'artifacts') })
+    } });
+
+    assert.equal(readWorkspaceSurfaceMap(databasePath, workspaceId).surfaces.length, 0);
+    const first = await service.workspaceSurfaceMap(workspaceId);
+    assert.equal(first.surfaces.length, 1);
+    assert.equal(first.surfaces[0].name, 'api.example.test');
+    assert.equal(first.surfaces[0].parentId, null);
+    const firstId = first.surfaces[0].id;
+    assert.equal(database.prepare('SELECT scope_asset_id FROM app_server_research_resources WHERE id=?').get(firstId).scope_asset_id,
+      'asset-example-service');
+    const before = database.prepare('SELECT updated_at FROM app_server_research_resources WHERE id=?').get(firstId).updated_at;
+    assert.equal((await service.workspaceSurfaceMap(workspaceId)).surfaces[0].id, firstId);
+    assert.equal(database.prepare('SELECT updated_at FROM app_server_research_resources WHERE id=?').get(firstId).updated_at, before);
+    const track = new ResearchTrackStore({ databasePath, workspaceId });
+    try {
+      assert.equal(track.start({ scopeId: 'scope-example-first', provider: { id: 'openai-codex' },
+        targetIds: ['local'], surfaces: first.surfaces }).surfaces.length, 1);
+    } finally { track.close(); }
+
+    database.prepare("UPDATE scope_versions SET status='inactive' WHERE id='scope-example-first'").run();
+    insertScope.run('scope-example-second', workspaceId, 2, 'active', 'Example workspace', 'ExampleCo',
+      'Updated authorized example resources.', '2026-02-01T00:00:00Z', null, '2026-02-01T00:00:00Z');
+    insertAsset.run('asset-example-repository', 'scope-example-second', 'in_scope', 'repo',
+      'https://github.com/example-org/example-repository', 'public', '{}', '2026-02-01T00:00:01Z');
+    const second = await service.workspaceSurfaceMap(workspaceId);
+    assert.equal(second.surfaces.length, 1);
+    assert.equal(second.surfaces[0].name, 'https://github.com/example-org/example-repository');
+    assert.notEqual(second.surfaces[0].id, firstId);
+  } finally {
+    database.close();
+    rmSync(directory, { recursive: true, force: true });
   }
 });

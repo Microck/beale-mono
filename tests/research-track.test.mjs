@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { ResearchTrackStore } from '../packages/research-agent/dist/index.js';
+import { AppServerHostService } from '../app-server/dist/hostService.js';
 
 const workspaceId = 'workspace-example-track';
 const covered = { covered: true, unmetRequirements: [] };
@@ -62,6 +63,38 @@ test('track reserves bounded surface epochs and requires canonical evidence for 
     state.store.finishEpoch('session-example-two', false, 'Example provider error');
     assert.equal(state.store.get().surfaces.find((work) => work.surfaceId === 'resource-example-b').noProgressEpochs, 1);
     assert.equal(state.store.get().activeSessionId, null);
+  } finally { state.close(); }
+});
+
+test('worker and launch failures pause a track with an actionable diagnostic', async () => {
+  const state = fixture();
+  const service = new AppServerHostService({ registry: {
+    registryDirectory: join(dirname(state.databasePath), 'registry'),
+    resolveWorkspace: (id) => id === workspaceId ? {
+      workspaceId, researchProfileId: 'security-research', memoryBackend: 'app-server'
+    } : null,
+    storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
+  }, invokeProtocol: async (operation) => operation === 'session.get' ? { status: 'failed' } : {} });
+  try {
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'], surfaces });
+    state.store.reserveNext('session-example-failed-worker', surfaces);
+    await service.recordSessionTerminalState({ request: { launch: { workspaceId, mode: 'research-track' } },
+      sessionId: 'session-example-failed-worker', attemptId: 'attempt-example', state: 'failed',
+      diagnostic: 'Synthetic worker tool registration failed.' });
+    assert.equal(state.store.get().status, 'paused');
+    assert.equal(state.store.get().lastError, 'Synthetic worker tool registration failed.');
+    assert.equal(state.store.reserveNext('session-example-unwanted-retry', surfaces), null);
+
+    state.store.control('resume');
+    assert.equal(state.store.get().lastError, null);
+    state.store.reserveNext('session-example-launch-failure', surfaces);
+    service.recordResearchTrackEpochLaunchFailure(workspaceId, 'session-example-launch-failure',
+      'Synthetic launch preparation failed.');
+    assert.equal(state.store.get().status, 'paused');
+    assert.equal(state.store.get().lastError, 'Synthetic launch preparation failed.');
+    assert.equal(state.store.reserveNext('session-example-second-unwanted-retry', surfaces), null);
+    assert.equal(state.store.control('stop').lastError, null);
+    assert.equal(state.store.control('stop').status, 'stopped');
   } finally { state.close(); }
 });
 

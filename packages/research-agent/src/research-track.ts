@@ -199,8 +199,9 @@ export class ResearchTrackStore {
     }
     if (action === "pause" && track.status !== "running") throw new Error("Only a running research track can pause.");
     const status = action === "resume" ? "running" : action === "pause" ? "paused" : "stopped";
-    this.#database.prepare("UPDATE app_server_research_tracks SET status=?, updated_at=? WHERE workspace_id=?")
-      .run(status, new Date().toISOString(), this.#workspaceId);
+    this.#database.prepare(`UPDATE app_server_research_tracks SET status=?,
+      last_error=CASE WHEN ? THEN NULL ELSE last_error END, updated_at=? WHERE workspace_id=?`)
+      .run(status, action === "resume" || action === "stop" ? 1 : 0, new Date().toISOString(), this.#workspaceId);
     return this.get()!;
   }
 

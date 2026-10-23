@@ -1036,7 +1036,8 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
       runtime.diagnostic = boundedDiagnostic(diagnostic);
       await recordSessionLaunchFailure(runtime, diagnostic);
       await fleetBrowserSessions.closeSessionTargets(sessionId).catch(() => undefined);
-      await hostService.recordSessionTerminalState?.({ request: runtime.request, sessionId, attemptId, state: 'failed' }).catch(() => undefined);
+      await hostService.recordSessionTerminalState?.({ request: runtime.request, sessionId, attemptId, state: 'failed',
+        diagnostic }).catch(() => undefined);
       throw new HttpError(502, `app-server session failed to start: ${diagnostic}`);
     }
   }
@@ -1573,12 +1574,14 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
         attemptId: string;
         state: 'completed' | 'failed' | 'stopped';
         trackRotation?: boolean;
+        diagnostic?: string;
       }) => Promise<void>;
     };
     try {
       await service.recordSessionTerminalState?.({
         request: runtime.request, sessionId: runtime.sessionId, attemptId: runtime.currentAttemptId, state,
-        trackRotation: runtime.trackRotationRequested
+        trackRotation: runtime.trackRotationRequested,
+        ...(state === 'failed' && runtime.diagnostic ? { diagnostic: runtime.diagnostic } : {})
       });
       notifyChange();
     } catch (error) {

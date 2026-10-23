@@ -31,7 +31,7 @@ import {
   decodeFleetSshTestInput
 } from '@beale/app-server-runtime/protocol';
 import { getProviderModelCatalog, readWorkspaceProject, readWorkspaceResearchCacheState, resolveStoredResearchWorkspaceBinding, workspaceResearchIndexNeedsRebuild } from '@beale/app-server-runtime/runtime-services';
-import { applyFeaturePromptOverrides, bundledPluginsRequiredByResearchKit, decodeResearchPluginCatalog, researchKitsRequiringBundledPlugin, validateResearchSystemPromptTemplate, verifyBrokerModelAccess, ResearchTrackStore, type ResearchTrackSurfaceState, type ResearchTrackSurfaceProjection } from '@beale/research-agent';
+import { applyFeaturePromptOverrides, bundledPluginsRequiredByResearchKit, decodeResearchPluginCatalog, researchKitsRequiringBundledPlugin, validateResearchSystemPromptTemplate, verifyBrokerModelAccess, ResearchResourceCatalog, ResearchTrackStore, type ResearchTrackSurfaceState, type ResearchTrackSurfaceProjection } from '@beale/research-agent';
 import { runWorkspaceCheckpoint, workspaceOperationKey } from './workspaceCheckpoints.js';
 import { projectWorkspaceDetails } from './workspaceDetails.js';
 import { readWorkspaceSurfaceMap } from './surfaceMap.js';
@@ -1344,7 +1344,10 @@ export class AppServerHostService {
             const session = await this.invokeProtocol<AppServerSessionSummaryProjection>('session.get', {
               args: ['session', 'get', '--session-id', track.activeSessionId], storage });
             if (session.status === 'completed' || session.status === 'failed' || session.status === 'stopped' || session.status === 'blocked') {
-              store.finishEpoch(track.activeSessionId, session.status === 'completed' || session.status === 'blocked');
+              const failed = session.status === 'failed';
+              store.finishEpoch(track.activeSessionId, session.status === 'completed' || session.status === 'blocked',
+                failed ? 'The research worker failed. Open the failed session for details.' : undefined);
+              if (failed) store.pauseWithError('The research worker failed. Open the failed session for details.');
             }
           } catch {
             if (at.getTime() - Date.parse(track.updatedAt) > 120_000) {
@@ -1380,7 +1383,12 @@ export class AppServerHostService {
     const workspace = this.requireWorkspace(workspaceId);
     const storage = this.registry.storageForProfile(workspace.researchProfileId);
     const store = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId });
-    try { store.finishEpoch(sessionId, false, reason); } finally { store.close(); }
+    try {
+      if (store.get()?.activeSessionId === sessionId) {
+        store.finishEpoch(sessionId, false, reason);
+        store.pauseWithError(reason);
+      }
+    } finally { store.close(); }
   }
 
   public async recordSessionControlState(input: {
@@ -1440,6 +1448,7 @@ export class AppServerHostService {
     attemptId: string;
     state: 'completed' | 'failed' | 'stopped';
     trackRotation?: boolean;
+    diagnostic?: string;
   }): Promise<void> {
     await this.releaseSessionTarget(input.sessionId);
     const workspace = this.requireWorkspace(input.request.launch.workspaceId);
@@ -1464,8 +1473,11 @@ export class AppServerHostService {
     try {
       if (input.request.launch.mode === 'research-track' && input.state === 'stopped' && !input.trackRotation
         && trackStore.get()?.status === 'running') trackStore.control('pause');
-      trackStore.finishEpoch(input.sessionId, input.state === 'completed' || current.status === 'blocked',
-        input.state === 'failed' ? 'The research worker failed.' : undefined);
+      if (input.request.launch.mode === 'research-track' && trackStore.get()?.activeSessionId === input.sessionId) {
+        const diagnostic = input.state === 'failed' ? input.diagnostic?.trim() || 'The research worker failed.' : undefined;
+        trackStore.finishEpoch(input.sessionId, input.state === 'completed' || current.status === 'blocked', diagnostic);
+        if (diagnostic) trackStore.pauseWithError(diagnostic);
+      }
     }
     finally { trackStore.close(); }
   }
@@ -1521,13 +1533,33 @@ export class AppServerHostService {
     ];
     const { workspacePath: _workspacePath, workspaceDirectories: _workspaceDirectories, memoryBackend: _memoryBackend, ...summary } = workspace;
     return projectWorkspaceDetails(summary, state, memory, memorySummary,
-      availableTargets.filter((target) => allowed.has(target.id)), this.workspaceSurfaceMap(workspace.workspaceId));
+      availableTargets.filter((target) => allowed.has(target.id)), await this.workspaceSurfaceMap(workspace.workspaceId));
   }
 
-  public workspaceSurfaceMap(workspaceIdentifier: string): BealeWorkspaceSurfaceMap {
+  public async workspaceSurfaceMap(workspaceIdentifier: string): Promise<BealeWorkspaceSurfaceMap> {
     const workspace = this.requireWorkspace(workspaceIdentifier);
     const storage = this.registry.storageForProfile(workspace.researchProfileId);
-    return readWorkspaceSurfaceMap(storage.databasePath, workspace.workspaceId);
+    return this.databaseCoordinator.runWhenAvailable(storage.databasePath, () => {
+      if (workspace.memoryBackend !== 'disabled') {
+        const binding = resolveStoredResearchWorkspaceBinding({
+          workspaceRoot: workspace.workspacePath,
+          databasePath: storage.databasePath,
+          researchProfileId: workspace.researchProfileId
+        });
+        if (binding.source === 'beale') {
+          if (binding.memoryContext.workspaceId !== workspace.workspaceId) {
+            throw new Error('The recorded workspace scope does not match this workspace.');
+          }
+          const resources = new ResearchResourceCatalog({
+            databasePath: storage.databasePath,
+            workspaceId: workspace.workspaceId,
+            explicitResources: binding.resources
+          });
+          resources.close();
+        }
+      }
+      return readWorkspaceSurfaceMap(storage.databasePath, workspace.workspaceId);
+    });
   }
 
   public async workspaceMemoryNotifications(

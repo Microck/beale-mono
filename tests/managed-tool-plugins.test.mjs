@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import {
   AgentPluginRegistry, CORE_TOOL_NAMES, MANAGED_TOOL_PLUGINS, MANAGED_TOOL_PLUGIN_IDS,
-  ManagedToolPluginSession, assertManagedToolOwnership, createResearchToolRegistry, decodeResearchPluginCatalog,
+  ManagedToolPluginSession, assertManagedToolOwnership, createResearchToolRegistry, createResearchTrackTool, decodeResearchPluginCatalog,
   formatManagedToolPluginCatalog, formatHarnessFeatureCatalog, formatResearchPluginCatalog, managedToolPluginId, managedToolPluginOptions,
   mergeResearchPluginCatalog, parseManagedToolPluginIds,
 } from "../packages/research-agent/dist/index.js";
@@ -27,9 +27,10 @@ test("runtime assembly honors managed plugin selection while retaining core tool
     const disabled = await executeHostedUtilityOperation("tools.list", [...args, "--managed-plugins", "none"]);
     const knowledge = await executeHostedUtilityOperation("tools.list", [...args, "--managed-plugins", "beale-knowledge"]);
     const names = (capture) => capture.tools.map((tool) => tool.name);
-    for (const name of CORE_TOOL_NAMES.filter((name) => name !== "harness.feedback" && name !== "session.disposition")) assert.ok(names(disabled).includes(name), name);
+    for (const name of CORE_TOOL_NAMES.filter((name) => name !== "harness.feedback" && name !== "session.disposition" && name !== "track.checkpoint")) assert.ok(names(disabled).includes(name), name);
     assert.equal(names(disabled).includes("harness.feedback"), false);
     assert.equal(names(disabled).includes("session.disposition"), false);
+    assert.equal(names(disabled).includes("track.checkpoint"), false);
     assert.ok(names(enabled).includes("repository.search"));
     assert.ok(names(enabled).includes("prior_art.fetch"));
     assert.ok(names(enabled).includes("repository.fetch_history"));
@@ -66,6 +67,8 @@ test("all internal optional features have unique tool ownership and compatibilit
   }
   for (const name of CORE_TOOL_NAMES) assert.equal(managedToolPluginId(name), undefined);
   assertManagedToolOwnership([...names, ...CORE_TOOL_NAMES].map(stub));
+  const trackTool = createResearchTrackTool({ checkpoint: () => { throw new Error('Not executed in ownership test.'); } }, () => { throw new Error('Not executed in ownership test.'); });
+  assertManagedToolOwnership([trackTool]);
   assert.throws(() => assertManagedToolOwnership([stub("example.unassigned")]), /Assign host tool .* to a harness feature/);
   const external = stub("mcp.example.lookup");
   external.descriptor.metadata = { provider: "mcp" };

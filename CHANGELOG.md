@@ -61,6 +61,8 @@
 
 #### Changed
 
+- Workspace surface maps now materialize root surfaces from the active authorized resources before the first research session, so Continuous research can start in a new workspace. Scope changes refresh root eligibility without resetting unchanged resource review state.
+- Continuous research controls now sit at the far right of the workspace Campaign view buttons, with progress available in a compact dropdown instead of a separate row.
 - Workspace headers identify the active Campaign subview, including Findings, Memories, Runbooks, and Reports, on local and connected app servers.
 - Session and workspace summaries now show browser contexts in a separate section before other resources, with each browser's current host and port beside its context name.
 - Session and workspace summary sidebars now show all memory type counts without a disclosure control.
@@ -242,6 +244,7 @@
 
 #### Fixed
 
+- Stopped Continuous research tracks clear prior worker errors, and the workspace view no longer shows a saved failure after restart. Resuming a paused track also clears its prior error.
 - Session duration now sums persisted active periods across pauses and continuations, excluding idle time between them. Existing session records without periods use their attempt timestamps as a compatibility fallback.
 - The expanded research sidebar keeps its add-view menu within the sidebar when the tab row approaches either edge.
 - Workspace Targets scrolls vertically when its list exceeds the available view height.
@@ -1441,6 +1444,7 @@
 
 #### Fixed
 
+- Continuous research workers now expose `track.checkpoint` as a core host tool. Worker and launch failures pause the track with the actual diagnostic instead of creating repeated empty sessions.
 - Hosted `file.read` resolves relative paths from the active research workspace instead of the worker's current directory.
 - Browser control accepts a listed page ID in `browser.connect` and distinguishes page IDs from browser aliases in its tool guidance.
 - Memory correction now explains evidence replacement, and resource-history errors identify the resource ID required for reads.

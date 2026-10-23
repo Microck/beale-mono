@@ -359,9 +359,6 @@ export function WorkspaceUnderstandingView({
         })}
       </div>
 
-      {workspaceId ? <WorkspaceResearchTrack workspaceId={workspaceId} serverId={trackServerId}
-        enabled={memoryBackend !== 'disabled'} showDetails={activeView === 'surfaces'} /> : null}
-
       {campaignActive ? (
         <div className="workspace-campaign-subview-navigation" id="workspace-dashboard-campaign-subviews" role="tabpanel">
           <div className="workspace-campaign-subview-tabs research-side-view-tabs pill-view-tabs" role="tablist" aria-label="Campaign views">
@@ -385,6 +382,8 @@ export function WorkspaceUnderstandingView({
               );
             })}
           </div>
+          {workspaceId ? <WorkspaceResearchTrack workspaceId={workspaceId} serverId={trackServerId}
+            enabled={memoryBackend !== 'disabled'} /> : null}
         </div>
       ) : null}
 
