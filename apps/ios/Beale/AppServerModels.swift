@@ -56,10 +56,10 @@ struct AppServerPairingPayload: Equatable, Sendable {
 
 enum BealeAppServerContract {
     static let controlVersion = 1
-    static let sessionLaunchVersion = 2
+    static let sessionLaunchVersion = 3
     static let appServerProtocolVersion = 1
-    static let appServerContractVersion = 46
-    static let contractTimestamp = "2026-10-12T11:58:50.000Z"
+    static let appServerContractVersion = 60
+    static let contractTimestamp = "2026-10-24T13:00:00.000Z"
     static let memoryNotificationSchemaVersion = 3
     static let workspaceMemorySchemaVersion = 4
 
@@ -70,7 +70,7 @@ enum BealeAppServerContract {
     ]
 
     static let requiredCapabilities: Set<String> = [
-        "session.typed-launch.v2",
+        "session.typed-launch.v3",
         "session.exit-diagnostics",
         "session.transport-path.v1",
         "session.reconnect.v1",
@@ -335,9 +335,17 @@ struct AppServerWorkspaceMemoryCatalog: Decodable, Sendable {
     let leads: [AppServerWorkspaceResearchClaim]
     let findings: [AppServerWorkspaceResearchClaim]
 
+    func findings(for sessionID: String) -> [AppServerWorkspaceResearchClaim] {
+        findings.filter { $0.sessionIds.contains(sessionID) }
+    }
+
+    func memories(for sessionID: String) -> [AppServerWorkspaceMemoryNode] {
+        nodes.filter { $0.sessionIds.contains(sessionID) }
+    }
+
     func sessionHeat(for sessionID: String) -> AppServerSessionHeat {
-        findings
-            .filter { $0.maturity != "refuted" && $0.sessionIds.contains(sessionID) }
+        findings(for: sessionID)
+            .filter { $0.maturity != "refuted" }
             .map { AppServerSessionHeat(rating: $0.rating) }
             .max() ?? .none
     }

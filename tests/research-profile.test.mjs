@@ -303,6 +303,20 @@ test("the bundled Security profile does not prescribe collaboration recipes", ()
   assert.deepEqual(security.collaboration.recipes, []);
 });
 
+test("stored Security profile guidance keeps unlisted resources eligible under broad scope", () => {
+  const legacy = { ...DEFAULT_SECURITY_RESEARCH_PROFILE, workspace: {
+    ...DEFAULT_SECURITY_RESEARCH_PROFILE.workspace,
+    boundaryInstructions: [
+      "Only explicitly in-scope assets are authorized; exclusions and constraints override research objectives.",
+      "Ambient resources are non-authoring inventory. Require Auto-Reviewed relevance before their first substantive research touch; approval permits tracking and history work, not live-target authorization.",
+    ],
+  } };
+  const prompt = createResearchSystemPrompt({ hasTools: true, researchProfile: legacy });
+  assert.match(prompt, /An unlisted resource may be in scope/);
+  assert.match(prompt, /Auto-Reviewed scope membership and relevance/);
+  assert.doesNotMatch(prompt, /Only explicitly in-scope assets/);
+});
+
 test("retired bundled memory types stay out of model-facing catalogs", () => {
   const securityPrompt = createResearchSystemPrompt({
     hasTools: true,
@@ -318,9 +332,9 @@ test("retired bundled memory types stay out of model-facing catalogs", () => {
   assert.doesNotMatch(securityPrompt, /- bug \(Historical Bug\)/);
   assert.doesNotMatch(securityPrompt, /- procedure \(Procedure\)/);
   assert.match(securityPrompt, /Ambient resources are non-authoring inventory/);
-  assert.match(securityPrompt, /Auto-Reviewed first-touch path/);
+  assert.match(securityPrompt, /Auto-Reviewed first touch/);
   assert.match(securityPrompt, /provenance and build identity; check CVEs, advisories, vendor releases/);
-  assert.match(securityPrompt, /not live-target authorization/);
+  assert.match(securityPrompt, /does not expand that boundary/);
   assert.match(securityPrompt, /Execution dependencies:/);
   assert.match(securityPrompt, /lifecycle and ownership, route and address, listening service, host identity, then authentication/);
   assert.match(securityPrompt, /Do not substitute a host account for a guest account/);

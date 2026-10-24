@@ -3943,6 +3943,7 @@ async function createRuntimeConfig(args: {
     databasePath: memoryGraph.databasePath,
     workspaceId: workspaceContext.memoryContext?.workspaceId ?? `workspace:${workspaceRoot}`,
     explicitResources: workspaceContext.resources ?? [],
+    ...(workspaceContext.authorization ? { authorization: workspaceContext.authorization } : {}),
   });
   const surfaceStore = new SurfaceStore({
     databasePath: memoryGraph.databasePath,
@@ -3960,6 +3961,8 @@ async function createRuntimeConfig(args: {
     })),
     ...(args.prompt ? { campaignObjective: args.prompt } : {}),
     authorizationRecorded: workspaceContext.authorization?.recorded === true,
+    ...(workspaceContext.authorization ? { authorization: workspaceContext.authorization } : {}),
+    scopeResources: workspaceContext.resources ?? [],
   } satisfies Parameters<typeof createResearchResourceTool>[0];
   const resourceTool = createResearchResourceTool(resourceToolOptions);
   executableTools.push(resourceTool);

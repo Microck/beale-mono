@@ -3,7 +3,7 @@ import {
   formatMemoryTypeDescriptions,
   type MemoryTypeDescriptionsInput,
 } from "./memory-taxonomy.js";
-import { DEFAULT_SECURITY_RESEARCH_PROFILE, effectiveClaimClassifications, type ResearchProfile } from "./research-profile.js";
+import { DEFAULT_SECURITY_RESEARCH_PROFILE, effectiveClaimClassifications, effectiveResearchBoundaryInstructions, type ResearchProfile } from "./research-profile.js";
 import { formatHarnessFeatureCatalog, formatResearchPluginCatalog, isHarnessFeatureId, MANAGED_TOOL_PLUGINS, INTROSPECTION_HARNESS_FEATURE_ID, GOALS_HARNESS_FEATURE_ID, type ResearchPluginCatalogEntry } from "./managed-tool-plugins.js";
 
 export interface CreateResearchSystemPromptOptions {
@@ -150,7 +150,7 @@ function buildResearchPromptSections(
     "Host-verified same-Subject reference workspaces are read-only; cross-workspace mutation is never permitted.",
     ...(profile?.workspace.boundaryInstructions.length ? [
       "Profile-specific limits:",
-      ...profile.workspace.boundaryInstructions,
+      ...effectiveResearchBoundaryInstructions(profile.workspace.boundaryInstructions),
     ] : []),
     "Host safeguards:",
     "Never perform destructive actions against out-of-scope systems, unapproved accounts, or unauthorized devices.",
@@ -168,7 +168,7 @@ function buildResearchPromptSections(
       ...(profile?.id === "security-research" ? [
         "",
         "Resource first touch:",
-        "Use resource.catalog to classify relevant ambient binaries, services, tools, repositories, domains, and documentation. Before substantive work on a tracked resource or canonical repository revision, follow its Auto-Reviewed first-touch path.",
+        "Discover and add unlisted resources or assets with resource.catalog when they fit the recorded authorized scope, including instances covered by a broad inclusion. Discovery records inventory only. Before substantive research on a discovered resource or canonical repository revision, request its Auto-Reviewed first touch and proceed when approved. A denied review, explicit exclusion, or missing scope link is not authorization; continue other in-scope work.",
         "Complete the emitted baseline before broad exploration: establish provenance and build identity; check CVEs, advisories, vendor releases, fixed-version records, upstream and vendor history, and referenced fixes. Search aliases, record dated no-match queries and deferred sources, and treat shallow history as incomplete.",
         "",
         "Execution dependencies:",

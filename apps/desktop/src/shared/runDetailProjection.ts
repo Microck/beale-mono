@@ -35,6 +35,7 @@ const COMMENTARY_EVENT_PAYLOAD_KEYS = [
   'toolName',
   'appServerSessionEventId',
   'contextUsageEligible',
+  'contextWindow',
   'serializedSizeBytes'
 ] as const;
 

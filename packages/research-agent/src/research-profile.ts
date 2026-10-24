@@ -440,6 +440,22 @@ const SECURITY_MEMORY_TYPES: readonly ResearchProfileMemoryType[] = SECURITY_MEM
         : { lifecycle: "active" as const, creatable: true }),
 }));
 
+const SCOPE_INCLUSION_GUIDANCE = "Recorded inclusions and rules define the authorized boundary. An unlisted resource may be in scope when it is covered by a recorded broad inclusion; exclusions and constraints override research objectives.";
+const SCOPE_REVIEW_GUIDANCE = "Ambient resources are non-authoring inventory. Require Auto-Reviewed scope membership and relevance before their first substantive research touch. Review permits work within the recorded boundary; it does not expand that boundary.";
+
+/** Apply current scope semantics to older stored snapshots without changing their hashes. */
+export function effectiveResearchBoundaryInstructions(instructions: readonly string[]): string[] {
+  return instructions.map((instruction) => {
+    if (instruction === "Only explicitly in-scope assets are authorized; exclusions and constraints override research objectives.") {
+      return SCOPE_INCLUSION_GUIDANCE;
+    }
+    if (instruction === "Ambient resources are non-authoring inventory. Require Auto-Reviewed relevance before their first substantive research touch; approval permits tracking and history work, not live-target authorization.") {
+      return SCOPE_REVIEW_GUIDANCE;
+    }
+    return instruction;
+  });
+}
+
 export const DEFAULT_SECURITY_RESEARCH_PROFILE: ResearchProfile = {
   schemaVersion: RESEARCH_PROFILE_SCHEMA_VERSION,
   id: "security-research",
@@ -601,8 +617,8 @@ export const DEFAULT_SECURITY_RESEARCH_PROFILE: ResearchProfile = {
     boundaryNoun: "Authorized scope",
     authorizationMode: "required_for_live_network",
     boundaryInstructions: [
-      "Only explicitly in-scope assets are authorized; exclusions and constraints override research objectives.",
-      "Ambient resources are non-authoring inventory. Require Auto-Reviewed relevance before their first substantive research touch; approval permits tracking and history work, not live-target authorization.",
+      SCOPE_INCLUSION_GUIDANCE,
+      SCOPE_REVIEW_GUIDANCE,
     ],
     materialKinds: ["repo", "path", "binary", "documentation", "service", "domain", "host", "ip_range"],
   },

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BealeWorkspaceResearchTrack } from '@beale/app-server-runtime/protocol';
-import { waitForResearchTrackSession } from '../src/renderer/view-models/researchTrackSession';
+import type { RunDetail } from '../src/shared/types';
+import { runningResearchTrackDetail, waitForResearchTrackSession } from '../src/renderer/view-models/researchTrackSession';
 
 function track(activeSessionId: string | null): BealeWorkspaceResearchTrack {
   return {
@@ -10,6 +11,18 @@ function track(activeSessionId: string | null): BealeWorkspaceResearchTrack {
 }
 
 describe('research track session handoff', () => {
+  it('presents a terminal epoch as ongoing while the track is running', () => {
+    const detail = { run: { id: 'track_example', status: 'blocked', endedAt: '2026-08-20T12:00:00.000Z' } } as RunDetail;
+    const presented = runningResearchTrackDetail(detail, true);
+
+    expect(presented?.run.status).toBe('active');
+    expect(presented?.run.endedAt).toBeNull();
+    expect(detail.run.status).toBe('blocked');
+    expect(runningResearchTrackDetail(detail, false)).toBe(detail);
+    expect(runningResearchTrackDetail({ ...detail, run: { ...detail.run, status: 'failed' } }, true)?.run.status)
+      .toBe('failed');
+  });
+
   it('waits for a started track to create and expose its session', async () => {
     let checks = 0;
     let resolutions = 0;

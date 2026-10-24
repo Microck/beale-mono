@@ -250,6 +250,8 @@ function normalizeAuthorization(
     ...optionalStringProperty(value, "scopeId"),
     ...optionalStringProperty(value, "scopeName"),
     ...optionalStringProperty(value, "scopeOwner"),
+    ...optionalStringProperty(value, "description"),
+    ...optionalStringProperty(value, "rules"),
     ...optionalStringProperty(value, "activeFrom"),
     ...optionalStringProperty(value, "expiresAt"),
   };

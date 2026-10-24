@@ -9,6 +9,8 @@ import {
   createFindingTools,
   createMemoryGraphTools,
   createResearchResourceTool,
+  createResearchResourceScopeAuthorizer,
+  DEFAULT_SHELL_REVIEW_MODELS,
   createSurfaceTools,
   createReportTools,
   createResearchStorageLayout,
@@ -24,6 +26,7 @@ import {
   evaluateShellNetworkAuthorization,
   resolveStoredResearchProfile,
   resolveStoredResearchWorkspaceBinding,
+  readProviderAuthenticationPreferences,
   type ModelAuthor,
   type ResearchExecutableTool,
   type ResearchToolDescriptor,
@@ -223,7 +226,8 @@ async function createResearchToolBridgeRuntime(
     const resources = new ResearchResourceCatalog({
       databasePath: storage.databasePath,
       workspaceId: input.workspaceId,
-      explicitResources: binding.resources ?? []
+      explicitResources: binding.resources ?? [],
+      ...(binding.authorization ? { authorization: binding.authorization } : {})
     });
     close.unshift(() => resources.close());
     const surfaces = new SurfaceStore({
@@ -234,14 +238,29 @@ async function createResearchToolBridgeRuntime(
     });
     close.unshift(() => surfaces.close());
     tools.push(...createSurfaceTools(surfaces));
+    const scopeAuthorizer = createResearchResourceScopeAuthorizer({
+      researchProfileName: resolvedProfile.profile.name,
+      workspaceRoot: input.workspaceRoot,
+      getReviewerSelection: () => {
+        const configured = resolvedProfile.profile.modelJobs.shellReview;
+        const author = input.modelAuthor?.model !== 'codex' ? input.modelAuthor : undefined;
+        const provider = author?.provider ?? configured?.provider ?? input.modelAuthor?.provider ?? 'openai-codex';
+        const model = author?.model ?? configured?.model
+          ?? DEFAULT_SHELL_REVIEW_MODELS[provider as keyof typeof DEFAULT_SHELL_REVIEW_MODELS];
+        return provider && model ? { provider, model, reasoningEffort: 'medium' } : undefined;
+      },
+      authenticationPreferences: readProviderAuthenticationPreferences()
+    });
     tools.push(createResearchResourceTool({
       catalog: resources,
       ...(binding.researchKitId ? { researchKitId: binding.researchKitId } : {}),
       authorizationRecorded: binding.authorization?.recorded === true,
+      ...(binding.authorization ? { authorization: binding.authorization } : {}),
+      scopeResources: binding.resources,
       ...(input.objective ? { campaignObjective: input.objective } : {}),
       authorizeScopeRelevance: async (request) => request.resource.direction === 'in_scope'
         ? { decision: 'relevant', source: 'policy', reason: 'The resource is explicitly in the recorded authorized scope.' }
-        : { decision: 'not_relevant', source: 'policy', reason: 'Ambient resources require review and scope confirmation in Beale before first touch.' }
+        : scopeAuthorizer(request)
     }));
 
     return {

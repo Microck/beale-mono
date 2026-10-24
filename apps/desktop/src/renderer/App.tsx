@@ -89,6 +89,7 @@ import { useWorkspaceActions, type WorkspaceActionOptions } from './hooks/useWor
 import { useProfilingRuntime } from './hooks/useProfilingRuntime';
 import { useResizableSidebar } from './hooks/useResizableSidebar';
 import { useRunDetailPolling } from './hooks/useRunDetailPolling';
+import { useResearchTrackSessionRunning } from './hooks/useResearchTrackSessionRunning';
 import { useResearchGoalSuggestions } from './hooks/useResearchGoalSuggestions';
 import { useSidebarPerformanceProbe } from './hooks/useSidebarPerformanceProbe';
 import { usePermissionSettings } from './hooks/usePermissionSettings';
@@ -115,7 +116,7 @@ import {
 } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, buildTraceDisplayEventsForAgentPath } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
-import { waitForResearchTrackSession } from './view-models/researchTrackSession';
+import { runningResearchTrackDetail, waitForResearchTrackSession } from './view-models/researchTrackSession';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from './view-models/researchProfileFeatures';
 import { isReportResourceRun, reportSessionDefaultModelSelection, reportTitleFromMarkdown } from './view-models/reports';
 import {
@@ -475,6 +476,7 @@ export function App(): JSX.Element {
     active: startupPhase === 'ready' || profilingOpen || settingsOpen,
     observeReports: profilingOpen || settingsOpen
   });
+  const selectedResearchTrackRunning = useResearchTrackSessionRunning(snapshot?.workspace.workspaceId, selectedRunId);
   const selectedRunState = selectedRunStatus(snapshot, selectedRunId, workspaceRegistry?.researchSessions);
   const runDetailProjection = useMemo<RunDetailProjection>(() => ({
     mode: 'commentary',
@@ -493,6 +495,7 @@ export function App(): JSX.Element {
   const { runDetail, sessionSetupPending, clearRunDetail, primeRunDetail, loadOlderHistory } = useRunDetailPolling({
     selectedRunId,
     selectedRunState,
+    researchTrackRunning: selectedResearchTrackRunning,
     continuationPending: continuationPendingRunId === selectedRunId,
     projection: runDetailProjection,
     refreshKey: selectedRunRefreshKey,
@@ -1601,9 +1604,18 @@ export function App(): JSX.Element {
         setError('Enable Danger Mode in Agent Settings before selecting it for a research session.');
         return;
       }
+      if ((action.type === 'pause' || action.type === 'stop') && selectedResearchTrackRunning
+        && action.runId === selectedRunId && snapshot) {
+        setBusy(true);
+        setError(null);
+        void window.beale.controlResearchTrack(snapshot.workspace.workspaceId, 'pause')
+          .catch((caught: unknown) => setError(errorMessage(caught)))
+          .finally(() => setBusy(false));
+        return;
+      }
       void runAction(() => window.beale.steerRun(action));
     },
-    [permissionSettings.dangerModeEnabled, runAction]
+    [permissionSettings.dangerModeEnabled, runAction, selectedResearchTrackRunning, selectedRunId, snapshot]
   );
 
   const handleSteerInstruction = useCallback(
@@ -1654,16 +1666,20 @@ export function App(): JSX.Element {
       promptMarkdown: activeRunDetail.run.promptMarkdown
     }
   } : null, [activeRunDetail?.run.id, activeRunDetail?.run.promptMarkdown, activeRunDetail?.run.title]);
-  const deferredActiveRunDetail = useDeferredValue(activeRunDetail);
-  const renderedRunDetail = activeRunDetail?.run.id === deferredActiveRunDetail?.run.id
+  const presentedActiveRunDetail = useMemo(
+    () => runningResearchTrackDetail(activeRunDetail, selectedResearchTrackRunning),
+    [activeRunDetail, selectedResearchTrackRunning]
+  );
+  const deferredActiveRunDetail = useDeferredValue(presentedActiveRunDetail);
+  const renderedRunDetail = presentedActiveRunDetail?.run.id === deferredActiveRunDetail?.run.id
     ? deferredActiveRunDetail
-    : activeRunDetail;
+    : presentedActiveRunDetail;
   const localSurfaceFocus = useMemo(() => (
     !newResearchOpen && !reportsOpen && !workspaceDraft && selectedRunId
-      && activeRunDetail?.run.status === 'active' && renderedRunDetail?.run.id === selectedRunId
+      && presentedActiveRunDetail?.run.status === 'active' && renderedRunDetail?.run.id === selectedRunId
       ? surfaceFocusSummary(renderedRunDetail.traceEvents ?? [], 'active')
       : null
-  ), [newResearchOpen, reportsOpen, workspaceDraft, selectedRunId, activeRunDetail?.run.status, renderedRunDetail]);
+  ), [newResearchOpen, reportsOpen, workspaceDraft, selectedRunId, presentedActiveRunDetail?.run.status, renderedRunDetail]);
   const activeResearchProfile = selectedRunId
     ? activeRunDetail?.researchProfile?.profile ?? null
     : snapshot?.researchProfile.profile ?? null;

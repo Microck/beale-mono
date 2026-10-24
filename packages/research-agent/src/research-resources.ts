@@ -12,6 +12,7 @@ import type {
 import type {
   ResearchResourceKind,
   ResearchToolAction,
+  ResearchWorkspaceAuthorizationContext,
   ResearchWorkspaceResourceContext,
 } from "./types.js";
 
@@ -39,6 +40,8 @@ export interface ResearchResourceScopeReviewRequest {
   purpose: string;
   campaignObjective?: string;
   authorizationRecorded: boolean;
+  authorization?: ResearchWorkspaceAuthorizationContext;
+  scopeResources?: readonly ResearchWorkspaceResourceContext[];
 }
 
 export interface ResearchResourceScopeReviewDecision {
@@ -58,6 +61,7 @@ export interface ResearchResourceCatalogOptions {
   databasePath: string;
   workspaceId: string;
   explicitResources?: readonly ResearchWorkspaceResourceContext[];
+  authorization?: ResearchWorkspaceAuthorizationContext;
 }
 
 /**
@@ -69,12 +73,14 @@ export class ResearchResourceCatalog {
   public readonly priorArt: ResourcePriorArtStore;
   readonly #database: DatabaseSync;
   readonly #workspaceId: string;
+  readonly #scopeFingerprint: string;
 
   public constructor(options: ResearchResourceCatalogOptions) {
     this.#database = openResearchDatabase(options.databasePath);
     this.#workspaceId = requiredText(options.workspaceId, "workspaceId");
     this.#migrate();
     this.#replaceExplicitResources(options.explicitResources ?? []);
+    this.#scopeFingerprint = this.#syncScopeReview(options.authorization, options.explicitResources ?? []);
     this.priorArt = new ResourcePriorArtStore(this.#database, this.#workspaceId);
   }
 
@@ -95,6 +101,22 @@ export class ResearchResourceCatalog {
       SELECT * FROM app_server_research_resources WHERE workspace_id = ? AND id = ?
     `).get(this.#workspaceId, requiredText(id, "resourceId")) as Record<string, unknown> | undefined;
     return row ? decodeResource(row) : null;
+  }
+
+  public explicitExclusionFor(locator: string): TrackedResearchResource | null {
+    const candidate = normalizeLocator(locator);
+    const candidateHost = hostLocator(locator);
+    const rows = this.#database.prepare(`SELECT * FROM app_server_research_resources
+      WHERE workspace_id=? AND source='explicit_scope' AND direction='out_of_scope'`)
+      .all(this.#workspaceId) as Record<string, unknown>[];
+    const match = rows.find((row) => {
+      const excluded = String(row.normalized_locator);
+      if (excluded === candidate) return true;
+      const excludedHost = hostLocator(String(row.locator));
+      return Boolean(candidateHost && excludedHost?.startsWith("*.")
+        && candidateHost.endsWith(excludedHost.slice(1)) && candidateHost !== excludedHost.slice(2));
+    });
+    return match ? decodeResource(match) : null;
   }
 
   public discover(input: {
@@ -136,6 +158,7 @@ export class ResearchResourceCatalog {
   }
 
   public recordReview(resourceId: string, decision: ResearchResourceScopeReviewDecision): TrackedResearchResource {
+    this.#assertCurrentScope();
     const reviewStatus = decision.decision === "relevant" ? "relevant" : "not_relevant";
     this.#database.prepare(`
       UPDATE app_server_research_resources
@@ -146,6 +169,7 @@ export class ResearchResourceCatalog {
   }
 
   public recordTouch(resourceId: string, revisionKey: string): string {
+    this.#assertCurrentScope();
     const touchedAt = nowIso();
     this.#database.prepare(`
       INSERT OR IGNORE INTO app_server_research_resource_touches(resource_id, revision_key, touched_at)
@@ -273,7 +297,42 @@ export class ResearchResourceCatalog {
         touched_at TEXT NOT NULL,
         PRIMARY KEY(resource_id, revision_key)
       );
+      CREATE TABLE IF NOT EXISTS app_server_research_resource_scope_reviews (
+        workspace_id TEXT PRIMARY KEY, scope_fingerprint TEXT NOT NULL
+      );
     `);
+  }
+
+  #syncScopeReview(
+    authorization: ResearchWorkspaceAuthorizationContext | undefined,
+    resources: readonly ResearchWorkspaceResourceContext[],
+  ): string {
+    const scopeFingerprint = createHash("sha256").update(JSON.stringify({ authorization: authorization ?? null,
+      resources: [...resources].map((resource) => [resource.id, resource.direction, resource.kind,
+        resource.locator, resource.instruction ?? null]).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    })).digest("hex");
+    const previous = this.#database.prepare(`SELECT scope_fingerprint FROM app_server_research_resource_scope_reviews
+      WHERE workspace_id=?`).get(this.#workspaceId) as { scope_fingerprint: string } | undefined;
+    if (previous?.scope_fingerprint === scopeFingerprint) return scopeFingerprint;
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      this.#database.prepare(`UPDATE app_server_research_resources SET review_status='unreviewed',
+        review_reason=NULL, updated_at=? WHERE workspace_id=? AND source='runtime_discovery'`)
+        .run(nowIso(), this.#workspaceId);
+      this.#database.prepare(`INSERT INTO app_server_research_resource_scope_reviews(workspace_id, scope_fingerprint)
+        VALUES (?, ?) ON CONFLICT(workspace_id) DO UPDATE SET scope_fingerprint=excluded.scope_fingerprint`)
+        .run(this.#workspaceId, scopeFingerprint);
+      this.#database.exec("COMMIT");
+    } catch (error) { this.#database.exec("ROLLBACK"); throw error; }
+    return scopeFingerprint;
+  }
+
+  #assertCurrentScope(): void {
+    const current = this.#database.prepare(`SELECT scope_fingerprint FROM app_server_research_resource_scope_reviews
+      WHERE workspace_id=?`).get(this.#workspaceId) as { scope_fingerprint: string } | undefined;
+    if (current?.scope_fingerprint !== this.#scopeFingerprint) {
+      throw new Error("The recorded scope changed during resource review; retry with the current scope.");
+    }
   }
 }
 
@@ -283,6 +342,8 @@ export interface ResearchResourceToolOptions {
   researchKitId?: string;
   campaignObjective?: string;
   authorizationRecorded: boolean;
+  authorization?: ResearchWorkspaceAuthorizationContext;
+  scopeResources?: readonly ResearchWorkspaceResourceContext[];
   sourceRevision?: string;
   environmentFingerprint?: string;
 }
@@ -313,7 +374,7 @@ export function createResearchResourceTool(options: ResearchResourceToolOptions)
     descriptor: {
       name: "resource.catalog",
       transportName: "resource_catalog",
-      description: "List explicitly scoped and ambient research resources; classify a discovered binary, service, tool, repository, domain, or documentation source without authoring target content; or request Auto-Review before recording its first research touch. Use history with resourceId to recall saved prior-art searches and document snapshots before repeating requests. Discovery never grants authorization and never triggers bug-history work by itself.",
+      description: "List scoped resources or add an unlisted in-scope binary, service, tool, repository, domain, or documentation source to research inventory with discover. Request Auto-Review with touch before substantive work. Use history with resourceId to recall saved prior art. Discovery never expands the recorded authorization boundary.",
       actionClasses: ["recall", "inspect"],
       sideEffects: "write",
       requiredPermissions: ["research-resource:inventory"],
@@ -399,11 +460,19 @@ export async function reviewResearchResourceFirstTouch(
   if (resource.direction === "out_of_scope") {
     return touchOutcome("blocked", `First touch denied because ${resource.name} is explicitly out of scope.`, { resource });
   }
+  const exclusion = options.catalog.explicitExclusionFor(resource.locator);
+  if (exclusion) return touchOutcome("blocked", `First touch denied because ${exclusion.name} is explicitly out of scope.`, { resource });
+  if (resource.source === "runtime_discovery" && (!options.authorizationRecorded
+    || !(options.scopeResources?.some((item) => item.direction === "in_scope")
+      || options.authorization?.description?.trim() || options.authorization?.rules?.trim()))) {
+    return touchOutcome("blocked", "An unlisted resource needs a recorded scope inclusion or rule before first touch.", { resource });
+  }
   const revisionKey = requiredString(
     input.revision ?? options.sourceRevision ?? options.environmentFingerprint ?? "unversioned",
     "revision",
   );
-  if (options.catalog.hasTouch(resource.id, revisionKey)) {
+  const previouslyTouched = options.catalog.hasTouch(resource.id, revisionKey);
+  if (previouslyTouched && (resource.source === "explicit_scope" || resource.reviewStatus === "relevant")) {
     return touchOutcome("complete", `Research resource ${resource.name} was already touched for ${revisionKey}.`, {
       resource,
       revisionKey,
@@ -417,11 +486,15 @@ export async function reviewResearchResourceFirstTouch(
       purpose,
       ...(options.campaignObjective ? { campaignObjective: options.campaignObjective } : {}),
       authorizationRecorded: options.authorizationRecorded,
+      ...(options.authorization ? { authorization: options.authorization } : {}),
+      ...(options.scopeResources ? { scopeResources: options.scopeResources } : {}),
     }, input.signal);
   } catch (error) {
     return touchOutcome("blocked", `Auto-Review failed closed before resource first touch: ${errorMessage(error)}`, { resource });
   }
-  const reviewed = options.catalog.recordReview(resource.id, review);
+  let reviewed: TrackedResearchResource;
+  try { reviewed = options.catalog.recordReview(resource.id, review); }
+  catch (error) { return touchOutcome("blocked", `Resource review could not be recorded: ${errorMessage(error)}`, { resource }); }
   if (review.decision !== "relevant") {
     return touchOutcome("blocked", `Auto-Review did not verify campaign relevance for ${resource.name}: ${review.reason}`, {
       resource: reviewed,
@@ -429,7 +502,14 @@ export async function reviewResearchResourceFirstTouch(
       firstTouch: false,
     });
   }
-  const touchedAt = options.catalog.recordTouch(resource.id, revisionKey);
+  if (previouslyTouched) {
+    return touchOutcome("complete", `Auto-Review renewed scope approval for ${resource.name}.`, {
+      resource: reviewed, revisionKey, firstTouch: false, review, authorizationChanged: false,
+    });
+  }
+  let touchedAt: string;
+  try { touchedAt = options.catalog.recordTouch(resource.id, revisionKey); }
+  catch (error) { return touchOutcome("blocked", `Resource first touch could not be recorded: ${errorMessage(error)}`, { resource: reviewed }); }
   const reminder = researchHistoryReminder(reviewed.kind, options.researchKitId);
   return touchOutcome("complete", `Auto-Review verified relevance and recorded first touch of ${resource.name}.`, {
     resource: reviewed,
@@ -512,6 +592,14 @@ export function stableResourceId(workspaceId: string, kind: ResearchResourceKind
 
 function normalizeLocator(value: string): string {
   return value.trim().replace(/\\/gu, "/").replace(/\/+$/u, "").toLocaleLowerCase();
+}
+
+function hostLocator(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  if (/^https?:\/\//u.test(normalized)) {
+    try { return new URL(normalized).hostname; } catch { return null; }
+  }
+  return /^(?:\*\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+$/u.test(normalized) ? normalized : null;
 }
 
 function requiredString(value: unknown, name: string): string {

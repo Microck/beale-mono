@@ -1282,8 +1282,11 @@ export function usesAppServerSessionOwnership(): boolean {
   return appServerOwnsSessions();
 }
 
-function sessionRun(session: AppServerSessionRecord | AppServerSessionSummary): RunRecord {
+export function sessionRun(session: AppServerSessionRecord | AppServerSessionSummary): RunRecord {
   const stored = recordValue(session.metadata.bealeRun);
+  const budget = recordValue(stored?.budget) ?? {};
+  const restartLaunch = recordValue(recordValue(session.metadata.appServerRestartLaunch)?.launch);
+  const savedCollaboration = recordValue(restartLaunch?.collaboration);
   return {
     id: session.id,
     scopeVersionId: stringValue(stored?.scopeVersionId) ?? '',
@@ -1303,7 +1306,9 @@ function sessionRun(session: AppServerSessionRecord | AppServerSessionSummary): 
     sandboxProfile: stringValue(stored?.sandboxProfile) ?? 'host',
     targetAssetId: stringValue(stored?.targetAssetId),
     targetPath: stringValue(stored?.targetPath),
-    budget: recordValue(stored?.budget) ?? {},
+    budget: savedCollaboration && !budget.collaboration
+      ? { ...budget, collaboration: savedCollaboration }
+      : budget,
     summary: session.summary,
     finalDisposition: session.finalDisposition as RunRecord['finalDisposition'],
     createdAt: session.createdAt,
@@ -1593,7 +1598,7 @@ function sessionNextStepSuggestions(session: AppServerSessionRecord): GeneratedR
   return null;
 }
 
-function traceFromSessionEvent(runId: string, event: AppServerSessionEvent, sequence: number): TraceEventRecord[] {
+export function traceFromSessionEvent(runId: string, event: AppServerSessionEvent, sequence: number): TraceEventRecord[] {
   if (event.kind === 'beale.trace_batch') {
     const records = recordValue(event.payload)?.records;
     if (!Array.isArray(records)) return [];
@@ -1606,6 +1611,34 @@ function traceFromSessionEvent(runId: string, event: AppServerSessionEvent, sequ
   const stored = event.kind === 'beale.trace' ? recordValue(recordValue(event.payload)?.record) : null;
   if (stored) return [storedTraceEvent(stored, event.id)];
   const eventPayload = recordValue(event.payload);
+  if (event.kind === 'agent.event' && eventPayload?.type === 'turn_completed') {
+    const usage = recordValue(eventPayload.usage);
+    const agentPath = stringValue(eventPayload.agentPath) ?? event.agentPath;
+    const agentId = stringValue(eventPayload.agentId) ?? event.agentId;
+    if (usage) return [{
+      id: event.id,
+      runId,
+      attemptId: stringValue(eventPayload.attemptId),
+      sequence,
+      type: 'model_message',
+      source: 'model',
+      summary: event.summary,
+      payload: {
+        appServerEventId: event.id,
+        appServerKind: event.kind,
+        usage,
+        ...(typeof eventPayload.contextWindow === 'number' ? { contextWindow: eventPayload.contextWindow } : {}),
+        ...(agentPath ? { agentPath } : {}),
+        ...(agentId ? { agentId } : {})
+      },
+      sensitivity: 'internal',
+      modelVisible: true,
+      createdAt: event.timestamp,
+      artifactId: null,
+      toolCallId: null,
+      approvalId: null
+    }];
+  }
   const researchEvent = event.kind === 'research.event' ? recordValue(eventPayload?.event) : null;
   const researchKind = stringValue(researchEvent?.kind);
   const researchPayload = recordValue(researchEvent?.payload);

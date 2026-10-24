@@ -910,9 +910,9 @@ export class AppServerHostService {
         ? { repeatSchedule: request.launch.repeatSchedule,
             machineId: request.launch.machineId ?? 'local', targetIds: [...selectedTargetIds],
             goal: request.launch.goal, fastMode, daybreakBlue,
-            collaboration: request.launch.collaboration,
             shellSafetyMode: request.launch.shellSafetyMode?.trim() || 'auto_review' }
         : {}),
+      ...(request.launch.collaboration ? { collaboration: request.launch.collaboration } : {}),
       profileId,
       ...(request.launch.researchProfileHash
         ? { profileHash: request.launch.researchProfileHash }
@@ -1287,11 +1287,11 @@ export class AppServerHostService {
           return store.pauseWithError('Workspace memory was disabled. Re-enable memory before resuming the research track.');
         }
         if (workspace.memoryBackend === 'disabled') return track;
-        const details = await this.workspaceDetails(workspace.workspaceId);
-        const current = store.syncSurfaces(details.surfaceMap.surfaces)!;
-        if (current.status === 'running' && (!details.scope || details.scope.id !== current.scopeId
-          || details.scope.expiresAt && Date.parse(details.scope.expiresAt) <= Date.now()
-          || current.activeSurfaceId && !details.surfaceMap.surfaces.some((surface) => surface.id === current.activeSurfaceId))) {
+        const context = await this.workspaceResearchTrackContext(workspace);
+        const current = store.syncSurfaces(context.surfaceMap.surfaces)!;
+        if (current.status === 'running' && (!context.scope || context.scope.id !== current.scopeId
+          || context.scope.expiresAt && Date.parse(context.scope.expiresAt) <= Date.now()
+          || current.activeSurfaceId && !context.surfaceMap.surfaces.some((surface) => surface.id === current.activeSurfaceId))) {
           return store.pauseWithError('The authorized scope or assigned surface changed. Review the workspace before resuming.');
         }
         return current;
@@ -1301,7 +1301,7 @@ export class AppServerHostService {
       if (action === 'resume') {
         const track = store.get();
         if (!track) throw new Error('No research track exists in this workspace.');
-        const details = await this.workspaceDetails(workspace.workspaceId);
+        const details = await this.workspaceResearchTrackContext(workspace);
         if (!details.scope?.id || details.scope.expiresAt && Date.parse(details.scope.expiresAt) <= Date.now()) {
           throw new Error('Renew the recorded authorization before resuming continuous research.');
         }
@@ -1320,7 +1320,7 @@ export class AppServerHostService {
         return store.control('resume');
       }
       if (action !== 'start') throw new Error('Unsupported research track action.');
-      const details = await this.workspaceDetails(workspace.workspaceId);
+      const details = await this.workspaceResearchTrackContext(workspace);
       if (!details.scope?.id) throw new Error('Record an authorized workspace scope before starting continuous research.');
       if (details.scope.expiresAt && Date.parse(details.scope.expiresAt) <= Date.now()) {
         throw new Error('The recorded authorization has expired. Renew the workspace scope before starting.');
@@ -1359,7 +1359,7 @@ export class AppServerHostService {
           store.pauseWithError('Workspace memory was disabled. Re-enable memory before resuming the research track.');
           continue;
         }
-        const details = await this.workspaceDetails(workspace.workspaceId);
+        const details = await this.workspaceResearchTrackContext(workspace);
         const activeSurfaceId = track.activeSurfaceId;
         if (!details.scope || details.scope.id !== track.scopeId
           || details.scope.expiresAt && Date.parse(details.scope.expiresAt) <= at.getTime()
@@ -1403,7 +1403,8 @@ export class AppServerHostService {
         if (!assignment) continue;
         const work = assignment.track.surfaces.find((item) => item.surfaceId === assignment.surface.id)!;
         const promptMarkdown = researchTrackEpochPrompt(assignment.track.id, assignment.track.pass,
-          assignment.surface, work, details.surfaceMap.surfaces.length);
+          assignment.surface, work, details.surfaceMap.surfaces.length, assignment.track.targetIds,
+          workspace.researchKitId);
         const continuing = assignment.track.pass > 1 || assignment.track.epochCount > 1;
         due.push({ dueAt: at.toISOString(), request: { launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
           sessionId, launch: { workspaceId: workspace.workspaceId,
@@ -1577,6 +1578,45 @@ export class AppServerHostService {
     return workspace.memoryBackend === 'disabled' ? withoutWorkspaceMemory(result) : result;
   }
 
+  private async workspaceResearchTrackContext(workspace: AppServerHostWorkspace): Promise<{
+    scope: { id: string; expiresAt: string | null } | null;
+    targets: BealeAppServerWorkspaceDetails['targets'];
+    surfaceMap: BealeWorkspaceSurfaceMap;
+  }> {
+    const state = await this.invokeProtocol<unknown>('workspace.state', {
+      args: ['workspace', 'state'],
+      input: {
+        action: 'initialize',
+        workspacePath: workspace.workspacePath,
+        workspaceId: workspace.workspaceId,
+        researchKitId: workspace.researchKitId,
+        artifactRoot: join(workspace.workspacePath, '.beale', 'artifacts')
+      },
+      storage: this.registry.storageForProfile(workspace.researchProfileId)
+    });
+    const activeScope = isRecord(state) && isRecord(state.activeScope) ? state.activeScope : null;
+    const scopeId = nonEmpty(activeScope?.id);
+    const fleet = await this.fleet.state();
+    const allowed = new Set(fleet.workspaceTargets[workspace.workspaceId] ?? ['local', 'browser:in-agent']);
+    const targets: BealeAppServerWorkspaceDetails['targets'] = [
+      { id: 'local', name: 'Local', ready: true },
+      ...fleet.browsers.filter((browser) => browser.enabled).map((browser) => ({
+        id: `browser:${browser.id}`, name: browser.name, ready: fleet.enabled
+      })),
+      ...fleet.machines.flatMap((machine) => [
+        ...(machine.canRun ? [{ id: `vm:run:${machine.id}`, name: `${machine.name} · Run`, ready: fleet.enabled && machine.sshConfigured && machine.state !== 'unknown' && !machine.owner }] : []),
+        ...(machine.canClone ? [{ id: `vm:clone:${machine.id}`, name: `${machine.name} · Clone`, ready: fleet.enabled && machine.sshConfigured && machine.state === 'stopped' && !machine.owner }] : [])
+      ])
+    ].filter((target) => allowed.has(target.id));
+    return {
+      scope: scopeId
+        ? { id: scopeId, expiresAt: nonEmpty(activeScope?.expiresAt) }
+        : null,
+      targets,
+      surfaceMap: await this.workspaceSurfaceMap(workspace.workspaceId)
+    };
+  }
+
   public async workspaceDetails(workspaceIdentifier: string): Promise<BealeAppServerWorkspaceDetails> {
     const workspace = this.requireWorkspace(workspaceIdentifier);
     const storage = this.registry.storageForProfile(workspace.researchProfileId);
@@ -1627,7 +1667,8 @@ export class AppServerHostService {
           const resources = new ResearchResourceCatalog({
             databasePath: storage.databasePath,
             workspaceId: workspace.workspaceId,
-            explicitResources: binding.resources
+            explicitResources: binding.resources,
+            ...(binding.authorization ? { authorization: binding.authorization } : {})
           });
           resources.close();
         }
@@ -1936,14 +1977,18 @@ export class AppServerHostService {
           metadata: {
             source: 'beale-app-server',
             appServerRestartLaunch: input.restartLaunch,
-            ...(input.repeatSchedule ? { shellSafetyMode: input.shellSafetyMode,
+            ...(input.repeatSchedule ? { shellSafetyMode: input.shellSafetyMode } : {}),
+            ...(input.repeatSchedule || input.collaboration ? {
               bealeRun: { budget: {
-                repeatSchedule: input.repeatSchedule,
-                machineId: input.machineId ?? 'local', targetIds: input.targetIds ?? ['local'],
-                goalEnabled: Boolean(input.goal), goalObjective: input.goal?.objective ?? null,
-                fastMode: input.fastMode === true, daybreakBlue: input.daybreakBlue === true,
+                ...(input.repeatSchedule ? {
+                  repeatSchedule: input.repeatSchedule,
+                  machineId: input.machineId ?? 'local', targetIds: input.targetIds ?? ['local'],
+                  goalEnabled: Boolean(input.goal), goalObjective: input.goal?.objective ?? null,
+                  fastMode: input.fastMode === true, daybreakBlue: input.daybreakBlue === true
+                } : {}),
                 ...(input.collaboration ? { collaboration: input.collaboration } : {})
-              } } } : {})
+              } }
+            } : {})
           }
         }
       });
@@ -2597,18 +2642,29 @@ function researchTrackEpochPrompt(
   pass: number,
   surface: ResearchTrackSurfaceProjection,
   work: ResearchTrackSurfaceState,
-  surfaceCount: number
+  surfaceCount: number,
+  targetIds: readonly string[],
+  researchKitId?: string
 ): string {
   return [
     '# Continuous research track',
     `Track ${trackId}, pass ${pass}. The workspace currently contains ${surfaceCount} eligible security surfaces.`,
     `Assigned surface: ${surface.name} (${surface.id}).`,
+    `Work direction: ${surface.parentId ? 'depth on a mapped attacker path' : 'breadth on a resource root'}.`,
     `Prior impact estimate: ${work.impact}. Prior theory: ${work.theory || 'Unexamined.'}`,
+    `Current actionability: ${work.actionabilityScore}/100.`,
     `Next action: ${work.nextAction}`,
+    `Selected execution targets: ${targetIds.join(', ')}.`,
     '',
     'Conduct one bounded, reasoning-based security research epoch on this assigned surface. Start with attacker control, trust boundaries, assets, plausible unauthorized effects, and the strongest high-impact theory. Use surface.focus. Coordinate with its first-touch foundation scout when one starts. Investigate reachable security-relevant sinks and possible cross-surface chains. Do not treat files, routes, or unit tests as surfaces merely because they exist; use tests only when they provide security evidence or a focused proof harness.',
+    'The listed resources are an inventory, not the whole authorization boundary. If this attacker path reveals an unlisted resource covered by a recorded inclusion or rule, add it with resource.catalog discover and request Auto-Reviewed touch before substantive research. Record the scope link; explicit exclusions still control. An approved discovered resource becomes eligible for a later track epoch.',
+    'For a web-facing theory, use available browser tools to inspect the actual application behavior and test discriminating requests within the recorded authorization. Browser tools are exposed when the Browser feature is enabled; if no usable browser target exists, record that limit in the surface checkpoint. Do not substitute a broad crawl for threat-model reasoning.',
     'Favor concrete source-to-sink reasoning and discriminating experiments over inventory scans. Search existing findings before creating a new one. Advance a candidate through the existing evidence, reproduction, independent-review, and report gates when authorized work can do so. A negative result must name its bounds and be recorded in durable memory before it supports surface completion.',
-    'After approximately 30 minutes or 25 substantive research actions, finish this epoch at a safe checkpoint and let the track rotate. Extend only to finish an actively progressing high-value proof. Record surface.update and then track.checkpoint with impact, tested theory, existing canonical evidence references, and the next action. Use complete only when the threat-model coverage state is complete and its evidence is durable. Use blocked only for a concrete external dependency after accessible work is exhausted. Otherwise defer with a useful next action. Then give a concise final response so the host can select the next surface.',
+    'For target-dependent theories, prioritize a discriminating test on the authorized target or faithful device/VM. Localhost is useful for building harnesses and source-level checks, but a localhost run alone does not validate target behavior. Check target availability once, then use the target where possible. If unavailable, record the exact target-validation gap in surface.update and the checkpoint next action; switch to a proof question that can be answered with available evidence instead of repeatedly running localhost proxies.',
+    ...(researchKitId === 'apple-security-bounty' ? [
+      'For iOS-specific behavior, inspect the Apple security device capability and use an authorized physical iPhone when one is available. Listing or describing a device is availability checking, not testing: when the theory can be exercised through an operator-built app, use the physical-iPhone install and launch tools and capture the observed result. The iOS Simulator is not a supported substitute. If device testing cannot be performed, state why in surface.update and the checkpoint next action; do not infer a negative on-device result from host tests.'
+    ] : []),
+    'After approximately 30 minutes or 25 substantive research actions, checkpoint at a safe boundary. Continue an actively progressing proof instead of rotating only because the action count was reached. If new evidence stops arriving, state the failed proof obligation and switch direction at the next checkpoint. Record surface.update and then track.checkpoint with impact, tested theory, existing canonical evidence references, validation (whether target behavior is required, where testing actually ran, and a concrete reason), and the next action. Listing a device is validation environment none. If target behavior is required but only localhost or no test was possible, explain the gap and put the target test in nextAction; that evidence raises actionability less. Use complete only when the threat-model coverage state is complete and its evidence is durable. Use blocked only for a concrete external dependency after accessible work is exhausted. Otherwise defer with a useful next action. Then give a concise final response so the host can select the next surface.',
   ].join('\n');
 }
 

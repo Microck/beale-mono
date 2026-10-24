@@ -1505,7 +1505,7 @@ code {
   gap: 7px;
   overflow: hidden;
   padding: 0 6px;
-  color: var(--muted-strong);
+  color: color-mix(in srgb, var(--text) 64%, var(--panel));
   font-size: 1rem;
   white-space: nowrap;
 }
@@ -1518,7 +1518,6 @@ code {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: color-mix(in srgb, var(--text) 64%, var(--panel));
   text-transform: capitalize;
 }
 
@@ -3078,7 +3077,11 @@ body.is-resizing-quick-chat {
 .workspace-session-item.active {
   border-color: transparent;
   background: var(--panel);
-  color: var(--muted-strong);
+  color: var(--text);
+}
+
+.workspace-session-item.active .workspace-session-title {
+  color: var(--text);
 }
 
 .workspace-new-research-session-indent {

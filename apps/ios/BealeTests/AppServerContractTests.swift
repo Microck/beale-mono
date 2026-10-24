@@ -322,9 +322,9 @@ final class AppServerContractTests: XCTestCase {
             {
               "ok": true,
               "controlVersion": 1,
-              "contractTimestamp": "2026-10-12T11:58:50.000Z",
+              "contractTimestamp": "2026-10-24T13:00:00.000Z",
               "capabilities": [
-                "session.typed-launch.v2",
+                "session.typed-launch.v3",
                 "session.exit-diagnostics",
                 "session.transport-path.v1",
                 "session.reconnect.v1",
@@ -405,9 +405,22 @@ final class AppServerContractTests: XCTestCase {
                 updatedAt: "2026-01-01T00:00:00.000Z", revision: 1
             )
         }
+        func memory(id: String, sessionIDs: [String]) -> AppServerWorkspaceMemoryNode {
+            AppServerWorkspaceMemoryNode(
+                id: id, sessionIds: sessionIDs, type: "note", title: "Synthetic memory",
+                summary: "", status: "candidate", confidence: 0.5, tags: [],
+                createdAt: "2026-01-01T00:00:00.000Z",
+                updatedAt: "2026-01-01T00:00:00.000Z", revision: 1,
+                duplicateMemories: nil
+            )
+        }
         let catalog = AppServerWorkspaceMemoryCatalog(
             schemaVersion: 4, workspaceId: "workspace-example", status: "ready",
-            nodeCount: 0, nodeTypeCounts: [:], nodes: [], leads: [],
+            nodeCount: 2, nodeTypeCounts: ["note": 2],
+            nodes: [
+                memory(id: "memory-current", sessionIDs: ["session-example"]),
+                memory(id: "memory-other", sessionIDs: ["session-other"])
+            ], leads: [],
             findings: [
                 claim(id: "finding-low", sessionIDs: ["session-example"], maturity: "observed", rating: "low"),
                 claim(id: "finding-high", sessionIDs: ["session-example"], maturity: "verified", rating: "high"),
@@ -418,6 +431,10 @@ final class AppServerContractTests: XCTestCase {
         XCTAssertEqual(catalog.sessionHeat(for: "session-example"), .high)
         XCTAssertEqual(catalog.sessionHeat(for: "session-other"), .critical)
         XCTAssertEqual(catalog.sessionHeat(for: "session-unknown"), .none)
+        XCTAssertEqual(catalog.findings(for: "session-example").map(\.id), ["finding-low", "finding-high", "finding-refuted"])
+        XCTAssertEqual(catalog.memories(for: "session-example").map(\.id), ["memory-current"])
+        XCTAssertTrue(catalog.findings(for: "session-unknown").isEmpty)
+        XCTAssertTrue(catalog.memories(for: "session-unknown").isEmpty)
     }
 
     func testValidatesCurrentWebSocketServerHello() throws {
@@ -432,7 +449,7 @@ final class AppServerContractTests: XCTestCase {
                 "version": "0.1.0",
                 "buildId": "build-current"
               },
-              "contractVersion": 46,
+              "contractVersion": 59,
               "schemas": {
                 "protocol": 1,
                 "session": 1,
@@ -627,7 +644,7 @@ final class AppServerContractTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let launch = try XCTUnwrap(object["launch"] as? [String: Any])
 
-        XCTAssertEqual(object["launchVersion"] as? Int, 2)
+        XCTAssertEqual(object["launchVersion"] as? Int, 3)
         XCTAssertEqual(launch["workspaceId"] as? String, "workspace-1")
         XCTAssertEqual(launch["promptMarkdown"] as? String, "Review the authorization boundary.")
         XCTAssertEqual(launch["researchProfileId"] as? String, "security-research")

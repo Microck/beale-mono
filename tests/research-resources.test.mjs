@@ -12,6 +12,7 @@ import {
   createResearchToolRegistry,
   researchHistoryReminder,
   ResearchResourceCatalog,
+  SurfaceStore,
 } from "../packages/research-agent/dist/index.js";
 
 test("Apple first-touch guidance is scoped to the Apple Security Bounty Research Kit", () => {
@@ -43,6 +44,12 @@ test("resource discovery is non-authoring and first touch requires relevance Aut
       kind: "service",
       locator: "excluded.example.test",
       source: "explicit_scope",
+    }, {
+      id: "asset_excluded_wildcard",
+      direction: "out_of_scope",
+      kind: "domain",
+      locator: "*.blocked.example.test",
+      source: "explicit_scope",
     }],
   });
   try {
@@ -50,6 +57,9 @@ test("resource discovery is non-authoring and first touch requires relevance Aut
       catalog,
       campaignObjective: "Research default components for an authorized ExampleCo campaign.",
       authorizationRecorded: true,
+      authorization: { recorded: true, source: "beale", description: "Default ExampleOS service components are in scope." },
+      scopeResources: [{ id: "asset_display_service", direction: "in_scope", kind: "service",
+        locator: "com.exampleco.DisplayService", source: "explicit_scope" }],
       environmentFingerprint: "platform-build-example-001",
       authorizeScopeRelevance: async (request) => {
         reviews.push(request);
@@ -97,6 +107,11 @@ test("resource discovery is non-authoring and first touch requires relevance Aut
     assert.match(firstTouch.result.output.reminder.join(" "), /official source releases/i);
     assert.match(firstTouch.result.output.reminder.join(" "), /upstream/i);
     assert.equal(reviews.length, 1);
+    const surfaceStore = new SurfaceStore({ databasePath, workspaceId: "workspace_example_campaign", resources: catalog });
+    try {
+      assert.equal(surfaceStore.list().surfaces.find((surface) => surface.id === resourceId).focusEligible, true);
+      assert.equal(surfaceStore.require(resourceId, true).root, true);
+    } finally { surfaceStore.close(); }
 
     const repeated = await registry.execute({
       id: "touch_service_control_again",
@@ -116,6 +131,35 @@ test("resource discovery is non-authoring and first touch requires relevance Aut
     });
     assert.equal(excludedTouch.result.status, "blocked");
     assert.match(excludedTouch.result.summary, /explicitly out of scope/i);
+    assert.equal(reviews.length, 1);
+
+    const crossKindExclusion = catalog.discover({ kind: "domain", name: "Excluded example host",
+      locator: "excluded.example.test", rationale: "Candidate host under the example campaign." });
+    const deniedCrossKind = await registry.execute({ id: "touch_excluded_other_kind", actionClass: "inspect",
+      toolName: "resource.catalog", input: { operation: "touch", resourceId: crossKindExclusion.id,
+        purpose: "Inspect the example host." } });
+    assert.equal(deniedCrossKind.result.status, "blocked");
+    assert.equal(reviews.length, 1);
+
+    const wildcardExclusion = catalog.discover({ kind: "service", name: "Excluded child host",
+      locator: "https://api.blocked.example.test/status", rationale: "Candidate example service." });
+    const deniedWildcard = await registry.execute({ id: "touch_excluded_wildcard", actionClass: "inspect",
+      toolName: "resource.catalog", input: { operation: "touch", resourceId: wildcardExclusion.id,
+        purpose: "Inspect the example service." } });
+    assert.equal(deniedWildcard.result.status, "blocked");
+    assert.equal(reviews.length, 1);
+
+    const noBoundaryTool = createResearchResourceTool({ catalog, authorizationRecorded: true,
+      authorizeScopeRelevance: async (request) => {
+        reviews.push(request);
+        return { decision: "relevant", source: "auto_review", reason: "Would approve without a boundary." };
+      } });
+    const unlisted = catalog.discover({ kind: "service", name: "Unlisted example service",
+      locator: "unlisted.example.test", rationale: "Candidate service." });
+    const noBoundary = await noBoundaryTool.execute({ input: { operation: "touch", resourceId: unlisted.id,
+      purpose: "Inspect this example service." } });
+    assert.equal(noBoundary.status, "blocked");
+    assert.match(noBoundary.summary, /recorded scope inclusion or rule/);
     assert.equal(reviews.length, 1);
 
     const database = new DatabaseSync(databasePath, { readOnly: true });
@@ -172,12 +216,66 @@ test("resource scope authorizer recognizes ambient platform dependencies without
     purpose: "Inspect the sandbox escape boundary.",
     campaignObjective: "Research the ExampleCo sandbox.",
     authorizationRecorded: true,
+    authorization: { recorded: true, source: "beale", description: "The ExampleCo sandbox and its default platform components are in scope." },
+    scopeResources: [{ id: "asset-sandbox", direction: "in_scope", kind: "service",
+      locator: "sandbox.example.test", source: "explicit_scope" }],
   });
   assert.equal(decision.decision, "relevant");
   assert.equal(decision.source, "auto_review");
-  assert.match(captured.systemPrompt, /default platform components and upstream or downstream sources/);
+  assert.match(captured.systemPrompt, /default platform components, and upstream or downstream sources/);
   assert.match(captured.prompt, /ExampleVM/);
-  assert.match(captured.systemPrompt, /does not.*grant authorization/i);
+  assert.match(captured.prompt, /sandbox\.example\.test/);
+  assert.match(captured.systemPrompt, /do not expand the recorded authorization boundary/i);
+});
+
+test("a changed recorded scope revokes ambient eligibility until Auto-Review runs again", async () => {
+  const root = await mkdtemp(join(tmpdir(), "beale-resource-scope-change-example-"));
+  const databasePath = join(root, "memory.sqlite");
+  const workspaceId = "workspace-scope-change-example";
+  const scopeResources = [{ id: "asset-example-family", direction: "in_scope", kind: "domain",
+    locator: "*.example.test", source: "explicit_scope" }];
+  const firstAuthorization = { recorded: true, source: "beale", scopeId: "scope-example-first",
+    description: "Example test services are within the recorded scope." };
+  const first = new ResearchResourceCatalog({ databasePath, workspaceId,
+    explicitResources: scopeResources, authorization: firstAuthorization });
+  let resourceId;
+  try {
+    resourceId = first.discover({ kind: "service", name: "Example API", locator: "api.example.test",
+      rationale: "A service under the recorded example family." }).id;
+    const tool = createResearchResourceTool({ catalog: first, authorizationRecorded: true,
+      authorization: firstAuthorization, scopeResources,
+      authorizeScopeRelevance: async () => ({ decision: "relevant", source: "auto_review",
+        reason: "The service fits the recorded example family." }) });
+    const result = await tool.execute({ input: { operation: "touch", resourceId,
+      purpose: "Inspect the example service." } });
+    assert.equal(result.status, "complete");
+    assert.equal(first.get(resourceId).reviewStatus, "relevant");
+  } finally { first.close(); }
+
+  const stale = new ResearchResourceCatalog({ databasePath, workspaceId,
+    explicitResources: scopeResources, authorization: firstAuthorization });
+  const nextAuthorization = { ...firstAuthorization, scopeId: "scope-example-second",
+    description: "The scope requires a renewed relevance decision." };
+  const next = new ResearchResourceCatalog({ databasePath, workspaceId,
+    explicitResources: scopeResources, authorization: nextAuthorization });
+  try {
+    assert.throws(() => stale.recordReview(resourceId, { decision: "relevant", source: "auto_review",
+      reason: "A stale review must not restore eligibility." }), /scope changed during resource review/);
+    assert.equal(next.get(resourceId).reviewStatus, "unreviewed");
+    const surfaces = new SurfaceStore({ databasePath, workspaceId, resources: next });
+    try { assert.equal(surfaces.list().surfaces.find((surface) => surface.id === resourceId).focusEligible, false); }
+    finally { surfaces.close(); }
+    let reviews = 0;
+    const tool = createResearchResourceTool({ catalog: next, authorizationRecorded: true,
+      authorization: nextAuthorization, scopeResources, authorizeScopeRelevance: async () => {
+        reviews += 1;
+        return { decision: "not_relevant", source: "auto_review", reason: "The renewed scope does not cover this service." };
+      } });
+    const result = await tool.execute({ input: { operation: "touch", resourceId,
+      purpose: "Continue inspecting the example service." } });
+    assert.equal(result.status, "blocked");
+    assert.equal(reviews, 1);
+  } finally { next.close(); stale.close(); await rm(root, { recursive: true, force: true }); }
 });
 
 test("resource catalog replaces stale explicit scope classification on a new active scope", async () => {

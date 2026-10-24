@@ -69,19 +69,65 @@ private struct SessionHeatPreferenceKey: PreferenceKey {
     }
 }
 
+private struct SessionVisibilityKey: EnvironmentKey {
+    static let defaultValue: Binding<Set<String>>? = nil
+}
+
+private extension EnvironmentValues {
+    var sessionVisibility: Binding<Set<String>>? {
+        get { self[SessionVisibilityKey.self] }
+        set { self[SessionVisibilityKey.self] = newValue }
+    }
+}
+
+private struct SessionChromeVisibility: ViewModifier {
+    @Environment(\.sessionVisibility) private var sessionVisibility
+    let screenID: String
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { updateVisibility(isVisible: true) }
+            .onDisappear { updateVisibility(isVisible: false) }
+    }
+
+    private func updateVisibility(isVisible: Bool) {
+        guard let sessionVisibility else { return }
+        var visibleScreens = sessionVisibility.wrappedValue
+        if isVisible {
+            visibleScreens.insert(screenID)
+        } else {
+            visibleScreens.remove(screenID)
+        }
+        sessionVisibility.wrappedValue = visibleScreens
+    }
+}
+
+private struct TopBarCircle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .frame(width: 40, height: 40)
+            .background(.white.opacity(0.10), in: Circle())
+            .overlay(Circle().strokeBorder(.white.opacity(0.16)))
+            .contentShape(Circle())
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var navigationPath = NavigationPath()
     @State private var showingSettings = false
     @State private var displayedSessionHeat: AppServerSessionHeat = .none
+    @State private var visibleSessionScreens: Set<String> = []
 
     var body: some View {
         ZStack {
             BealeGradientBackground(heat: displayedSessionHeat)
 
             VStack(spacing: 0) {
-                machineBar
+                if visibleSessionScreens.isEmpty {
+                    machineBar
+                }
                 NavigationStack(path: $navigationPath) {
                     Group {
                         if showingSettings {
@@ -95,6 +141,7 @@ struct ContentView: View {
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbarBackground(.hidden, for: .navigationBar)
                 }
+                .environment(\.sessionVisibility, $visibleSessionScreens)
             }
         }
         .onPreferenceChange(SessionHeatPreferenceKey.self) { heat in
@@ -116,6 +163,7 @@ struct ContentView: View {
         }
         .onChange(of: model.isConnected) { _, _ in
             navigationPath = NavigationPath()
+            visibleSessionScreens = []
             if model.isConnected { showingSettings = false }
         }
         .tint(BealeTheme.text)
@@ -140,9 +188,7 @@ struct ContentView: View {
             } label: {
                 Image(systemName: "line.3.horizontal")
                     .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 40, height: 40)
-                    .background(.white.opacity(0.10), in: Circle())
-                    .overlay(Circle().strokeBorder(.white.opacity(0.16)))
+                    .modifier(TopBarCircle())
             }
             .accessibilityLabel("Menu")
 
@@ -1359,7 +1405,9 @@ private struct RemoteSessionView: View {
     let workspace: AppServerWorkspace
     let session: AppServerWorkspaceSession
     @ObservedObject var model: AppModel
+    @Environment(\.dismiss) private var dismiss
     @State private var steeringInstruction = ""
+    @State private var showingStopConfirmation = false
 
     private var currentSession: AppServerWorkspaceSession {
         model.currentSession(session, in: workspace)
@@ -1426,16 +1474,39 @@ private struct RemoteSessionView: View {
         }
         .navigationTitle(currentSession.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden()
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .modifier(TopBarCircle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back")
+            }
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 1) {
+                    Text(currentSession.displayTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(currentSession.status.capitalized)
+                        .font(.caption2)
+                        .foregroundStyle(BealeTheme.muted)
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .combine)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
-                    SessionSubagentsView(workspace: workspace, session: currentSession, model: model)
+                    SessionDetailsView(workspace: workspace, session: currentSession, model: model)
                 } label: {
                     SessionStatusView(status: currentSession.status)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Session status: \(currentSession.status). Show subagents.")
+                .accessibilityLabel("Session status: \(currentSession.status). Show session details.")
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -1454,7 +1525,7 @@ private struct RemoteSessionView: View {
                                 in: workspace
                             )
                         },
-                        stop: { await model.stopSession(session, in: workspace) }
+                        stop: { showingStopConfirmation = true }
                     )
                 } else {
                     SessionSteeringComposer(
@@ -1468,7 +1539,7 @@ private struct RemoteSessionView: View {
                                 steeringInstruction = ""
                             }
                         },
-                        stop: { await model.stopSession(session, in: workspace) },
+                        stop: { showingStopConfirmation = true },
                         allowsStop: true
                     )
                 }
@@ -1484,14 +1555,27 @@ private struct RemoteSessionView: View {
                             steeringInstruction = ""
                         }
                     },
-                    stop: { false },
+                    stop: {},
                     allowsStop: false
                 )
             }
         }
+        .confirmationDialog(
+            "Stop this session?",
+            isPresented: $showingStopConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Stop Session", role: .destructive) {
+                Task { _ = await model.stopSession(session, in: workspace) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The active session will stop running.")
+        }
         .task(id: "\(session.id):\(currentSession.status)") {
             await model.followSession(session, in: workspace)
         }
+        .modifier(SessionChromeVisibility(screenID: "session:\(session.id):transcript"))
         .preference(
             key: SessionHeatPreferenceKey.self,
             value: model.sessionHeat(for: session, in: workspace)
@@ -1505,7 +1589,7 @@ private struct SessionApprovalComposer: View {
     let isStopping: Bool
     let error: String?
     let decide: (String) async -> Void
-    let stop: () async -> Bool
+    let stop: () -> Void
 
     private var title: String {
         if approval.isComputerUse { return "Approve this computer action?" }
@@ -1552,7 +1636,7 @@ private struct SessionApprovalComposer: View {
                 Spacer(minLength: 0)
 
                 Button {
-                    Task { _ = await stop() }
+                    stop()
                 } label: {
                     if isStopping {
                         ProgressView()
@@ -1585,7 +1669,7 @@ private struct SessionSteeringComposer: View {
     let isStopping: Bool
     let error: String?
     let send: () async -> Void
-    let stop: () async -> Bool
+    let stop: () -> Void
     let allowsStop: Bool
 
     private var hasInstruction: Bool {
@@ -1612,12 +1696,10 @@ private struct SessionSteeringComposer: View {
                     .background(BealeTheme.panel, in: RoundedRectangle(cornerRadius: 12))
 
                 Button {
-                    Task {
-                        if hasInstruction {
-                            await send()
-                        } else if allowsStop {
-                            _ = await stop()
-                        }
+                    if hasInstruction {
+                        Task { await send() }
+                    } else if allowsStop {
+                        stop()
                     }
                 } label: {
                     if isSending || isStopping {
@@ -1783,10 +1865,7 @@ private struct SessionStatusView: View {
     let status: String
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(BealeTheme.panel)
-                .frame(width: 28, height: 28)
+        Group {
             if status == "active" {
                 ProgressView()
                     .controlSize(.small)
@@ -1796,8 +1875,7 @@ private struct SessionStatusView: View {
                     .frame(width: 9, height: 9)
             }
         }
-        .frame(width: 32, height: 32)
-        .contentShape(Circle())
+        .modifier(TopBarCircle())
         .accessibilityLabel("Session status: \(status)")
     }
 
@@ -1811,10 +1889,20 @@ private struct SessionStatusView: View {
     }
 }
 
-private struct SessionSubagentsView: View {
+private enum SessionDetailsTab: String, CaseIterable, Identifiable {
+    case subagents = "Subagents"
+    case findings = "Findings"
+    case memories = "Memories"
+
+    var id: Self { self }
+}
+
+private struct SessionDetailsView: View {
     let workspace: AppServerWorkspace
     let session: AppServerWorkspaceSession
     @ObservedObject var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedTab: SessionDetailsTab = .subagents
 
     private var currentSession: AppServerWorkspaceSession {
         model.currentSession(session, in: workspace)
@@ -1832,53 +1920,183 @@ private struct SessionSubagentsView: View {
         subagents.filter { !$0.isActive }
     }
 
+    private var findings: [AppServerWorkspaceResearchClaim] {
+        model.memoryCatalog(for: workspace)?.findings(for: session.id) ?? []
+    }
+
+    private var memories: [AppServerWorkspaceMemoryNode] {
+        model.memoryCatalog(for: workspace)?.memories(for: session.id) ?? []
+    }
+
     var body: some View {
         List {
-                if model.isLoadingCollaboration(for: session), subagents.isEmpty {
-                    HStack {
-                        Spacer()
-                        ProgressView("Loading subagents…")
-                        Spacer()
-                    }
-                }
-
-                if let error = model.collaborationError(for: session) {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-
-                SubagentListSection(
-                    title: "Active",
-                    agents: active,
-                    workspace: workspace,
-                    session: currentSession,
-                    model: model
-                )
-                SubagentListSection(
-                    title: "Completed",
-                    agents: completed,
-                    workspace: workspace,
-                    session: currentSession,
-                    model: model
-                )
+            switch selectedTab {
+            case .subagents: subagentRows
+            case .findings: findingRows
+            case .memories: memoryRows
+            }
         }
-        .navigationTitle("Subagents")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden()
+        .toolbar(.hidden, for: .navigationBar)
         .scrollContentBackground(.hidden)
         .background(BealeGradientBackground(heat: model.sessionHeat(for: session, in: workspace)))
+        .safeAreaInset(edge: .top, spacing: 0) {
+            header
+        }
         .refreshable {
-            await model.loadCollaboration(for: session, in: workspace, force: true)
-            await model.loadTranscript(for: session, in: workspace, force: true)
+            if selectedTab == .subagents {
+                await model.loadCollaboration(for: session, in: workspace, force: true)
+                await model.loadTranscript(for: session, in: workspace, force: true)
+            } else {
+                await model.loadMemory(for: workspace, force: true)
+            }
         }
         .task(id: session.id) {
             await model.loadCollaboration(for: session, in: workspace)
+            await model.loadMemory(for: workspace)
         }
+        .modifier(SessionChromeVisibility(screenID: "session:\(session.id):details"))
         .preference(
             key: SessionHeatPreferenceKey.self,
             value: model.sessionHeat(for: session, in: workspace)
         )
+    }
+
+    private var header: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .modifier(TopBarCircle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back to session")
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(currentSession.displayTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text("Session Details · \(currentSession.status.capitalized)")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 4) {
+                ForEach(SessionDetailsTab.allCases) { tab in
+                    Button {
+                        selectedTab = tab
+                    } label: {
+                        Text(tab.rawValue)
+                            .font(.subheadline.weight(selectedTab == tab ? .semibold : .medium))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 36)
+                            .background(
+                                selectedTab == tab ? .white.opacity(0.22) : .clear,
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityValue(selectedTab == tab ? "Selected" : "")
+                }
+            }
+            .padding(4)
+            .background(.black.opacity(0.18), in: Capsule())
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea(edges: .top)
+        }
+    }
+
+    @ViewBuilder
+    private var subagentRows: some View {
+        if model.isLoadingCollaboration(for: session), subagents.isEmpty {
+            HStack {
+                Spacer()
+                ProgressView("Loading subagents…")
+                Spacer()
+            }
+        }
+        if let error = model.collaborationError(for: session) {
+            Label(error, systemImage: "exclamationmark.triangle")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+        SubagentListSection(
+            title: "Active",
+            agents: active,
+            workspace: workspace,
+            session: currentSession,
+            model: model
+        )
+        SubagentListSection(
+            title: "Completed",
+            agents: completed,
+            workspace: workspace,
+            session: currentSession,
+            model: model
+        )
+    }
+
+    @ViewBuilder
+    private var findingRows: some View {
+        if model.isLoadingMemory(for: workspace), model.memoryCatalog(for: workspace) == nil {
+            ProgressView("Loading findings…")
+        } else if let error = model.memoryError(for: workspace), model.memoryCatalog(for: workspace) == nil {
+            Label(error, systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+        } else if findings.isEmpty {
+            ContentUnavailableView(
+                "No Findings",
+                systemImage: "doc.text.magnifyingglass",
+                description: Text("No findings are linked to this session.")
+            )
+        } else {
+            Section("\(findings.count) \(findings.count == 1 ? "Finding" : "Findings")") {
+                ForEach(findings) { claim in
+                    NavigationLink {
+                        WorkspaceClaimDetailView(workspace: workspace, initialClaim: claim, model: model)
+                            .modifier(SessionChromeVisibility(screenID: "session:\(session.id):finding:\(claim.id)"))
+                    } label: {
+                        WorkspaceClaimRow(claim: claim)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var memoryRows: some View {
+        if model.isLoadingMemory(for: workspace), model.memoryCatalog(for: workspace) == nil {
+            ProgressView("Loading memories…")
+        } else if let error = model.memoryError(for: workspace), model.memoryCatalog(for: workspace) == nil {
+            Label(error, systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+        } else if memories.isEmpty {
+            ContentUnavailableView(
+                "No Memories",
+                systemImage: "internaldrive",
+                description: Text("No memories are linked to this session.")
+            )
+        } else {
+            Section("\(memories.count) \(memories.count == 1 ? "Memory" : "Memories")") {
+                ForEach(memories) { node in
+                    NavigationLink {
+                        WorkspaceMemoryDetailView(workspace: workspace, initialNode: node, model: model)
+                            .modifier(SessionChromeVisibility(screenID: "session:\(session.id):memory:\(node.id)"))
+                    } label: {
+                        WorkspaceMemoryRow(node: node)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1904,6 +2122,7 @@ private struct SubagentListSection: View {
                             agent: agent,
                             model: model
                         )
+                        .modifier(SessionChromeVisibility(screenID: "session:\(session.id):subagent:\(agent.path)"))
                     } label: {
                         SubagentListRow(
                             agent: agent,

@@ -5,6 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { openResearchDatabase } from "./database.js";
 import {
   normalizeResearchProfile,
+  effectiveResearchBoundaryInstructions,
   researchProfileHash,
   legacyResearchProfileHash,
   resolveResearchProfile,
@@ -259,7 +260,7 @@ function projectStoredProjectNotes(
         authorizationRequired && scopeOwner
           ? `${boundaryNoun} owner: ${boundedText(scopeOwner)}`
           : "",
-        ...profile.workspace.boundaryInstructions
+        ...effectiveResearchBoundaryInstructions(profile.workspace.boundaryInstructions)
           .slice(0, 16)
           .map((instruction) => `${boundaryNoun} instruction: ${boundedText(instruction, 1_000)}`),
         ...workspaceRules.map((rule) => `Workspace rule: ${boundedText(rule, 2_000)}`),
@@ -268,7 +269,7 @@ function projectStoredProjectNotes(
           : `${boundaryNoun} expiry or review date: no expiry recorded.`,
       ]
     : [
-        "Authorization: This is an operator-recorded authorized security research scope. Treat only explicitly in-scope assets as authorized; exclusions and constraints override research objectives.",
+        "Authorization: Follow the operator-recorded scope. A listed inclusion can define a broader class of assets; an unlisted instance may be researched only when it fits that recorded boundary after resource first-touch review. Exclusions and constraints override inclusions and research objectives.",
         workspaceName ? `Scope: ${boundedText(workspaceName)}` : "",
         scopeOwner ? `Scope owner or subject: ${boundedText(scopeOwner)}` : "",
         ...workspaceRules.map((rule) => `Workspace rule: ${boundedText(rule, 2_000)}`),
@@ -590,6 +591,8 @@ function projectStoredAuthorization(
     ...(scopeId ? { scopeId } : {}),
     ...(scopeName ? { scopeName } : {}),
     ...(scopeOwner ? { scopeOwner } : {}),
+    ...(description ? { description: boundedText(description, 4_000) } : {}),
+    ...(rules ? { rules: boundedText(rules, 4_000) } : {}),
     ...(activeFrom ? { activeFrom } : {}),
     ...(expiresAt ? { expiresAt } : {}),
   };

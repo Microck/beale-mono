@@ -45,6 +45,8 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenS
   const status = track?.status;
   const total = track?.surfaces.filter((surface) => surface.status !== 'excluded').length ?? 0;
   const complete = track?.surfaces.filter((surface) => surface.status === 'complete').length ?? 0;
+  const investigated = track?.surfaces.filter((surface) => surface.status !== 'excluded'
+    && (surface.epochs > 0 || surface.status === 'complete')).length ?? 0;
   const active = track?.surfaces.find((surface) => surface.surfaceId === track.activeSurfaceId);
   const scheduledRevisit = track?.surfaces.some((surface) => surface.revisitAfter && Date.parse(surface.revisitAfter) > Date.now());
   const action = !enabled ? null : !track || status === 'complete' || status === 'stopped' ? 'start'
@@ -57,16 +59,16 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenS
         : phase === 'selecting' ? scheduledRevisit ? 'Second look scheduled' : 'Selecting next surface'
           : `Researching ${active?.name ?? 'assigned surface'}`
     : null;
-  const statusTitle = track ? `${progress ?? status ?? 'Research track'} · ${complete} of ${total} surfaces complete` : undefined;
+  const statusTitle = track ? `${progress ?? status ?? 'Research track'} · ${investigated} of ${total} investigated · ${complete} complete` : undefined;
   const visibleError = error ?? (status === 'stopped' ? null : track?.lastError);
   return <div className="workspace-research-track" role="group" aria-label="Continuous research track">
     {visibleError ? <span className="workspace-research-track-error" role="alert" title={visibleError}>{visibleError}</span> : null}
     {track ? <details className="workspace-research-track-detail">
       <summary>Progress</summary>
       <div className="workspace-research-track-surface-list">
-        <strong>Pass {track.pass} · {complete} of {total} surfaces complete</strong>
+        <strong>Pass {track.pass} · {investigated} of {total} investigated · {complete} complete</strong>
         {track.surfaces.filter((surface) => surface.status !== 'excluded').map((surface) => <div key={surface.surfaceId} className="workspace-research-track-surface">
-          <strong>{surface.name}</strong><span>{surface.status.replaceAll('_', ' ')} · {surface.impact} impact · {surface.epochs} epochs</span>
+          <strong>{surface.name}</strong><span>{surface.status.replaceAll('_', ' ')} · {surface.impact} impact · actionability {surface.actionabilityScore}/100 · {surface.epochs} epochs{surface.validation ? ` · validation ${surface.validation.environment}` : ''}</span>
           {surface.nextAction ? <small>{surface.nextAction}</small> : null}
         </div>)}
       </div>
@@ -79,7 +81,7 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenS
       <span className="workspace-research-track-spinner" aria-hidden="true" />
       {phase === 'preparing' ? 'Preparing session' : phase === 'switching' ? 'Preparing next surface'
         : phase === 'selecting' ? scheduledRevisit ? 'Second look scheduled' : 'Selecting surface'
-          : `Researching · ${complete}/${total}`}
+          : `Researching · ${investigated}/${total} investigated`}
     </span> : null}
     {status === 'running' ? <button className="secondary-button" type="button" disabled={busy}
       onClick={() => void control('pause')}>Pause</button> : null}

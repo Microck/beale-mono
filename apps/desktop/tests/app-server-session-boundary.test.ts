@@ -165,6 +165,8 @@ describe('app-server session persistence boundary', () => {
           summary: 'Model turn completed.',
           payload: {
             type: 'turn_completed',
+            agentPath: '/root',
+            contextWindow: 500_000,
             usage: {
               input: 500_000,
               output: 100_000,
@@ -190,7 +192,8 @@ describe('app-server session persistence boundary', () => {
       } finally {
         sessionStore.close();
       }
-      await expect(getAppServerRunDetailForClient(database, context.run.id)).resolves.toMatchObject({
+      const canonicalDetail = await getAppServerRunDetailForClient(database, context.run.id);
+      expect(canonicalDetail).toMatchObject({
         nextStepSuggestions: saved,
         tokenUsage: {
           totalTokens: 2_500_000,
@@ -200,6 +203,10 @@ describe('app-server session persistence boundary', () => {
           cachePromptTokens: 2_400_000
         },
         activityCounts: { memorySearches: 1, memoryUpdates: 0 }
+      });
+      expect(canonicalDetail?.traceEvents.find((event) => event.id === 'event_canonical_session_usage')).toMatchObject({
+        type: 'model_message',
+        payload: { agentPath: '/root', contextWindow: 500_000, usage: { input: 500_000, cacheRead: 1_900_000 } }
       });
       const olderHistory = await getAppServerRunHistoryPageForClient(
         database, context.run.id, 'event_canonical_history_search'

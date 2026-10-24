@@ -78,6 +78,8 @@ export interface ResearchWorkspaceAuthorizationContext {
   scopeId?: string;
   scopeName?: string;
   scopeOwner?: string;
+  description?: string;
+  rules?: string;
   activeFrom?: string;
   expiresAt?: string;
 }

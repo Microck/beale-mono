@@ -30,7 +30,7 @@ import {
   BEALE_APP_SERVER_CONTROL_VERSION,
   MANAGED_TOOL_PLUGIN_IDS,
 } from "@beale/app-server-runtime/protocol";
-import { AppServerSessionStore, WORKSPACE_DIRECTORIES } from "../../packages/research-agent/dist/index.js";
+import { AppServerSessionStore, ResearchTrackStore, WORKSPACE_DIRECTORIES } from "../../packages/research-agent/dist/index.js";
 import {
   AppServerWorkerDatabaseBroker,
   AppServerWorkerDatabaseCoordinator,
@@ -147,14 +147,21 @@ test('the app-server reserves a safe research-track epoch and retains its pause 
   const registry = hostRegistryFixture(directory);
   registry.listWorkspaces = () => [{ workspaceId: 'workspace-test' }];
   const hostService = new AppServerHostService({ registry });
-  hostService.workspaceDetails = async () => ({
+  const details = async () => ({
     scope: { id: 'scope-example', expiresAt: null },
     targets: [{ id: 'local', ready: true }],
     surfaceMap: { surfaces: [{ id: 'surface-example', parentId: null, name: 'Example service',
       coverageState: { covered: false, unmetRequirements: ['surface_map', 'sinks'], unblockedFindingIds: [] },
       progressBlocker: null }] },
   });
-  const started = await hostService.workspaceResearchTrack('workspace-test', 'start');
+  hostService.workspaceDetails = details;
+  hostService.workspaceResearchTrackContext = details;
+  const collaboration = { mode: 'adaptive', subagentMode: 'advanced', intensity: 'normal',
+    providers: [{ provider: 'openai-codex', model: 'example-model', enabled: true }] };
+  const started = await hostService.workspaceResearchTrack('workspace-test', 'start', {
+    provider: { id: 'openai-codex', model: 'example-model', reasoningEffort: 'high' },
+    targetIds: ['local'], collaboration
+  });
   assert.equal(started.status, 'running');
   const due = await hostService.dueResearchTracks();
   assert.equal(due.length, 1);
@@ -162,12 +169,35 @@ test('the app-server reserves a safe research-track epoch and retains its pause 
   assert.equal(due[0].request.launch.shellSafetyMode, 'auto_review');
   assert.equal(due[0].request.launch.guardianEnabled, true);
   assert.deepEqual(due[0].request.launch.targetIds, ['local']);
+  assert.deepEqual(due[0].request.launch.collaboration, collaboration);
   assert.match(due[0].request.launch.promptMarkdown, /Assigned surface: Example service/u);
+  assert.match(due[0].request.launch.promptMarkdown, /use available browser tools/u);
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).activeSessionId,
     due[0].request.sessionId);
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'pause')).status, 'paused');
   hostService.recordResearchTrackEpochLaunchFailure('workspace-test', due[0].request.sessionId, 'Example failure');
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).status, 'paused');
+});
+
+test('research-track scheduler context reads authorization and surfaces without loading workspace memory', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-context-example-'));
+  temporaryDirectories.push(directory);
+  const registry = hostRegistryFixture(directory);
+  const operations = [];
+  const hostService = new AppServerHostService({ registry, invokeProtocol: async (operation) => {
+    operations.push(operation);
+    if (operation !== 'workspace.state') throw new Error('Full workspace memory must not be loaded.');
+    return { activeScope: { id: 'scope-example', expiresAt: null } };
+  } });
+  hostService.fleet.state = async () => ({ enabled: true,
+    workspaceTargets: { 'workspace-test': ['local'] }, browsers: [], machines: [] });
+  hostService.workspaceSurfaceMap = async () => ({ surfaces: [{ id: 'surface-example' }] });
+
+  const context = await hostService.workspaceResearchTrackContext(registry.resolveWorkspace('workspace-test'));
+  assert.deepEqual(context.scope, { id: 'scope-example', expiresAt: null });
+  assert.deepEqual(context.targets, [{ id: 'local', name: 'Local', ready: true }]);
+  assert.deepEqual(context.surfaceMap.surfaces, [{ id: 'surface-example' }]);
+  assert.deepEqual(operations, ['workspace.state']);
 });
 
 test('stopping a track session pauses research while a watchdog rotation continues it', async () => {
@@ -177,12 +207,14 @@ test('stopping a track session pauses research while a watchdog rotation continu
   registry.listWorkspaces = () => [{ workspaceId: 'workspace-test' }];
   const hostService = new AppServerHostService({ registry,
     invokeProtocol: async (operation) => operation === 'session.get' ? { status: 'stopped' } : null });
-  hostService.workspaceDetails = async () => ({
+  const details = async () => ({
     scope: { id: 'scope-example', expiresAt: null }, targets: [{ id: 'local', ready: true }],
     surfaceMap: { surfaces: [{ id: 'surface-example', parentId: null, name: 'Example service',
       coverageState: { covered: false, unmetRequirements: ['surface_map'], unblockedFindingIds: [] },
       progressBlocker: null }] },
   });
+  hostService.workspaceDetails = details;
+  hostService.workspaceResearchTrackContext = details;
   await hostService.workspaceResearchTrack('workspace-test', 'start');
   const first = (await hostService.dueResearchTracks())[0].request;
   assert.equal(first.launch.mode, 'research-track');
@@ -200,6 +232,43 @@ test('stopping a track session pauses research while a watchdog rotation continu
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'stop')).status, 'stopped');
 });
 
+test('a blocked track checkpoint advances to another surface in the same session', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-blocked-example-'));
+  temporaryDirectories.push(directory);
+  const registry = hostRegistryFixture(directory);
+  registry.listWorkspaces = () => [{ workspaceId: 'workspace-test' }];
+  const hostService = new AppServerHostService({ registry,
+    invokeProtocol: async (operation) => operation === 'session.get' ? { status: 'blocked' } : null });
+  const surfaces = ['surface-alpha', 'surface-beta'].map((id) => ({
+    id, parentId: null, name: id,
+    coverageState: { covered: false, unmetRequirements: ['sinks'], unblockedFindingIds: [] },
+    progressBlocker: null
+  }));
+  const details = async () => ({ scope: { id: 'scope-example', expiresAt: null },
+    targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
+  hostService.workspaceDetails = details;
+  hostService.workspaceResearchTrackContext = details;
+  await hostService.workspaceResearchTrack('workspace-test', 'start');
+  const first = (await hostService.dueResearchTracks())[0].request;
+  assert.match(first.launch.promptMarkdown, /surface-alpha/u);
+
+  surfaces[0].progressBlocker = { reason: 'External access required.' };
+  const store = new ResearchTrackStore({ databasePath: registry.storageForProfile('security-research').databasePath,
+    workspaceId: 'workspace-test', sessionId: first.sessionId });
+  try {
+    store.checkpoint({ surfaceId: 'surface-alpha', outcome: 'blocked', impact: 'high',
+      theory: 'Cross-boundary access requires a separate authorization.', nextAction: 'Request authorized access.',
+      evidenceRefs: [] }, surfaces[0]);
+  } finally { store.close(); }
+  await hostService.recordSessionTerminalState({ request: first, sessionId: first.sessionId,
+    attemptId: 'attempt-example-one', state: 'completed' });
+
+  const next = (await hostService.dueResearchTracks())[0].request;
+  assert.equal(next.sessionId, first.sessionId);
+  assert.match(next.launch.promptMarkdown, /surface-beta/u);
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).epochCount, 2);
+});
+
 test('an authorization change pauses a reserved research epoch before the next scheduler action', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-track-scope-example-'));
   temporaryDirectories.push(directory);
@@ -207,12 +276,14 @@ test('an authorization change pauses a reserved research epoch before the next s
   registry.listWorkspaces = () => [{ workspaceId: 'workspace-test' }];
   const hostService = new AppServerHostService({ registry });
   let scopeId = 'scope-example-one';
-  hostService.workspaceDetails = async () => ({
+  const details = async () => ({
     scope: { id: scopeId, expiresAt: null }, targets: [{ id: 'local', ready: true }],
     surfaceMap: { surfaces: [{ id: 'surface-example', parentId: null, name: 'Example service',
       coverageState: { covered: false, unmetRequirements: ['surface_map'], unblockedFindingIds: [] },
       progressBlocker: null }] },
   });
+  hostService.workspaceDetails = details;
+  hostService.workspaceResearchTrackContext = details;
   await hostService.workspaceResearchTrack('workspace-test', 'start');
   assert.equal((await hostService.dueResearchTracks()).length, 1);
   scopeId = 'scope-example-two';
@@ -1066,37 +1137,40 @@ test("exposes the in-Beale durable tool registry to Codex with enforced effect r
     "workspace-test",
     "workspace-prior-example",
   ]);
-  assert.equal(descriptors.get("lead.create").sideEffects, "write");
+  assert.equal(descriptors.get("resource.catalog").sideEffects, "write");
   assert.equal(descriptors.get("runbook.run").sideEffects, "process");
 
   await assert.rejects(
     callAppServerResearchTool({
       ...context,
-      toolName: "lead.create",
-      toolInput: { title: "Candidate", classification: "security.vulnerability", rating: "medium" },
+      toolName: "resource.catalog",
+      toolInput: { operation: "discover", kind: "service", name: "Example service",
+        locator: "service.example.test", rationale: "Potential example campaign component." },
     }, storage, "read"),
     /mutating research-tool operation/,
   );
 
   const created = await callAppServerResearchTool({
     ...context,
-    toolName: "lead.create",
-    toolInput: {
-      title: "Parser boundary candidate",
-      classification: "security.vulnerability",
-      rating: "medium",
-      summary: "A bounded candidate awaiting direct observation.",
-    },
+    toolName: "resource.catalog",
+    toolInput: { operation: "discover", kind: "service", name: "Example service",
+      locator: "service.example.test", rationale: "Potential example campaign component." },
   }, storage, "mutating");
   assert.equal(created.result.status, "complete", JSON.stringify(created.result));
 
   const listed = await callAppServerResearchTool({
     ...context,
-    toolName: "lead.list",
-    toolInput: { query: "parser boundary" },
-  }, storage, "read");
+    toolName: "resource.catalog",
+    toolInput: { operation: "list" },
+  }, storage, "mutating");
   assert.equal(listed.result.status, "complete");
-  assert.equal(listed.result.output.leads[0].title, "Parser boundary candidate");
+  assert.equal(listed.result.output.resources[0].name, "Example service");
+
+  const touch = await callAppServerResearchTool({ ...context, toolName: "resource.catalog",
+    toolInput: { operation: "touch", resourceId: created.result.output.resource.id,
+      purpose: "Inspect the example service." } }, storage, "mutating");
+  assert.equal(touch.result.status, "blocked");
+  assert.match(touch.result.summary, /recorded scope inclusion or rule/);
 });
 
 test("research Subject rebinding migrates workspace-owned research identity", () => {
@@ -2175,6 +2249,42 @@ test('app-server prepares and releases every VM in one selected-target session',
     'unused-generated-session'), /Synthetic VM preparation failure/u);
   assert.deepEqual(preparedIds, [vmTargets[0]]);
   assert.deepEqual(releasedIds, [vmTargets[0]]);
+});
+
+test("research track launch retains collaboration settings and enabled browser tools", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "beale-track-launch-"));
+  temporaryDirectories.push(directory);
+  const calls = [];
+  const service = new AppServerHostService({
+    registry: hostRegistryFixture(directory),
+    invokeProtocol: async (operation, options) => {
+      calls.push({ operation, options });
+      if (operation === "provider.describe") return { defaultSmallModels: {}, sessionTitleEffort: "medium", shellReviewEffort: "low" };
+      if (operation === "plugin.runtime") return {
+        managedPluginIds: MANAGED_TOOL_PLUGIN_IDS, skillDirs: [], selectedSkillIds: [], allowedMcpServers: []
+      };
+      if (operation === "session.get") throw new Error("Session not found: track-example");
+      if (operation === "session.create") return { revision: 1 };
+      throw new Error(`Unexpected operation: ${operation}`);
+    },
+  });
+  const collaboration = {
+    mode: "adaptive", subagentMode: "advanced", intensity: "normal",
+    providers: [{ provider: "openai-codex", model: "example-model", enabled: true }]
+  };
+  const request = sessionLaunchRequest(directory, { sessionId: "track-example" });
+  request.launch.mode = "research-track";
+  request.launch.collaboration = collaboration;
+  request.launch.shellSafetyMode = "auto_review";
+  const prepared = await service.prepareSession(request, "unused-generated-session");
+  const createCall = calls.find((call) => call.operation === "session.create");
+
+  assert.deepEqual(createCall.options.input.metadata.bealeRun.budget.collaboration, collaboration);
+  assert.deepEqual(createCall.options.input.metadata.appServerRestartLaunch.launch.collaboration, collaboration);
+  assert.deepEqual(JSON.parse(readFileSync(prepared.launch.collaborationConfigPath, "utf8")), collaboration);
+  assert.ok(prepared.launch.pluginRuntime.managedPluginIds.includes("beale-browser"));
+  assert.ok(appServerSessionArgs(prepared.launch, {}).includes("--managed-plugins"));
+  assert.ok(appServerSessionArgs(prepared.launch, {}).includes(MANAGED_TOOL_PLUGIN_IDS.join(",")));
 });
 
 test("app-server preserves launch options through restart metadata and runtime arguments", async () => {

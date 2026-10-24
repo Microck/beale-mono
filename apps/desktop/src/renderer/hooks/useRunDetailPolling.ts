@@ -20,6 +20,7 @@ const VERY_LARGE_RUN_DETAIL_POLL_MS = 2_000;
 export function useRunDetailPolling({
   selectedRunId,
   selectedRunState,
+  researchTrackRunning = false,
   continuationPending,
   projection,
   refreshKey,
@@ -27,6 +28,7 @@ export function useRunDetailPolling({
 }: {
   selectedRunId: string | null;
   selectedRunState: RunStatus | null;
+  researchTrackRunning?: boolean;
   continuationPending?: boolean;
   projection: RunDetailProjection;
   refreshKey: string | null;
@@ -115,7 +117,7 @@ export function useRunDetailPolling({
 
   useEffect(() => {
     const requestSeq = ++requestSeqRef.current;
-    if (!selectedRunId || selectedRunState === null) {
+    if (!selectedRunId || selectedRunState === null && !researchTrackRunning) {
       clearRunDetail();
       return undefined;
     }
@@ -143,7 +145,7 @@ export function useRunDetailPolling({
     let pollTimer: number | null = null;
     const scheduleNextPoll = (): void => {
       const needsEnrichment = runDetailNeedsEnrichment(detailRef.current, projection);
-      if (disposed || !shouldPollRunDetail(selectedRunState, detailRef.current, projection, continuationPending)) return;
+      if (disposed || !shouldPollRunDetail(selectedRunState, detailRef.current, projection, continuationPending, researchTrackRunning)) return;
       if (pollTimer !== null) window.clearTimeout(pollTimer);
       pollTimer = window.setTimeout(
         refreshRunDetail,
@@ -249,7 +251,7 @@ export function useRunDetailPolling({
       if (pollTimer !== null) window.clearTimeout(pollTimer);
       window.beale.cancelRunDetailRequests(selectedRunId);
     };
-  }, [clearRunDetail, continuationPending, onError, projection, refreshKey, selectedRunId, selectedRunState]);
+  }, [clearRunDetail, continuationPending, onError, projection, refreshKey, researchTrackRunning, selectedRunId, selectedRunState]);
 
   return {
     runDetail,
@@ -314,8 +316,10 @@ export function shouldPollRunDetail(
   snapshotStatus: RunStatus | null,
   detail: RunDetail | null,
   projection: RunDetailProjection,
-  continuationPending = false
+  continuationPending = false,
+  researchTrackRunning = false
 ): boolean {
+  if (researchTrackRunning) return true;
   if (runDetailNeedsEnrichment(detail, projection)) return true;
   if (continuationPending || detail?.run.status === 'active') return true;
   if (snapshotStatus === 'active') return true;

@@ -48,7 +48,7 @@ export interface ResourcePriorArtGetInput extends Omit<ResourcePriorArtListInput
 
 export const APP_SERVER_PROTOCOL_NAME = "app-server" as const;
 export const APP_SERVER_PROTOCOL_VERSION = 1 as const;
-export const APP_SERVER_CONTRACT_VERSION = 59 as const;
+export const APP_SERVER_CONTRACT_VERSION = 60 as const;
 export const APP_SERVER_RUNTIME_VERSION = "0.1.0" as const;
 export const APP_SERVER_PROTOCOL_WEBSOCKET_PATH = "/v1/session" as const;
 export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as const;
@@ -56,7 +56,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-23T02:02:07.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-24T13:00:00.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -439,6 +439,8 @@ export interface BealeWorkspaceResearchTrack {
     theory: string;
     nextAction: string;
     evidenceRefs: string[];
+    actionabilityScore: number;
+    validation: { targetDependent: boolean; environment: "device" | "vm" | "web" | "localhost" | "none"; reason: string } | null;
     epochs: number;
     noProgressEpochs: number;
     revisits: number;
@@ -515,6 +517,13 @@ export function decodeBealeWorkspaceResearchTrack(value: unknown): BealeWorkspac
       && impacts.includes(String(work.impact)) && typeof work.theory === "string"
       && typeof work.nextAction === "string" && Array.isArray(work.evidenceRefs)
       && work.evidenceRefs.every((ref: unknown) => typeof ref === "string")
+      && Number.isSafeInteger(work.actionabilityScore) && Number(work.actionabilityScore) >= 0
+      && Number(work.actionabilityScore) <= 100
+      && (work.validation === null || isRecord(work.validation)
+        && typeof work.validation.targetDependent === "boolean"
+        && ["device", "vm", "web", "localhost", "none"].includes(String(work.validation.environment))
+        && typeof work.validation.reason === "string" && work.validation.reason.trim().length > 0
+        && work.validation.reason.length <= 1_000)
       && Number.isSafeInteger(work.epochs) && Number.isSafeInteger(work.noProgressEpochs)
       && Number.isSafeInteger(work.revisits)
       && (work.revisitAfter === null || typeof work.revisitAfter === "string")

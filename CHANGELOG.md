@@ -6,7 +6,7 @@
 
 #### Added
 
-- Workspace Continuous research tracks now run bounded, reasoning-based security epochs across authorized surfaces with impact-aware rotation, durable per-surface checkpoints, blocker handling, a later second look at high-impact surfaces, and Start/Resume/Pause/Stop controls for local and connected app servers. The app-server owns scheduling and persistence; control contract v59 requires rebuilt Beale and app-server clients.
+- Workspace Continuous research tracks now run bounded, reasoning-based security epochs across authorized surfaces with impact-aware rotation, durable per-surface checkpoints, blocker handling, a later second look at high-impact surfaces, and Start/Resume/Pause/Stop controls for local and connected app servers. The app-server owns scheduling and persistence; control contract v60 requires rebuilt Beale and app-server clients.
 - Session commentary now marks context compaction and automatic recovery from a provider cybersecurity safeguard. Repeated safeguards still show the existing steering prompt.
 - Security surfaces can retain a progress blocker after accessible research is exhausted; the surface map shows blocked work and its reason. The updated control contract requires rebuilt Beale and app-server clients.
 - Guardian now uses the lead model to decide commands denied by Auto-Review, with complete direct-script inspection, path environment context, and actionable denials. The Permission agent setting is enabled by default for new local and Fleet sessions and can restore human overrides when disabled. Rebuild Beale and app-server together.
@@ -61,6 +61,11 @@
 
 #### Changed
 
+- Continuous research now reports investigated and completed surface counts separately and shows each surface's actionability score and validation environment. The session title uses investigated progress, so active tracks no longer remain at `0/X` until full coverage closes.
+- iOS asks for confirmation before stopping an active session from the message or approval composer.
+- Beale iOS session details now use a blurred header without the machine strip and switch between session-linked subagents, findings, and memories.
+- Beale iOS session views replace the machine selector strip with a glass-backed navigation bar containing the session title, status, and matching circular back and subagent controls.
+- Beale iOS now uses app-server control contract v60 and session launch v3, restoring connections and session launches with current app servers.
 - Start Track opens the New Research form with target, lead model, collaborator, and subagent choices. Its research objective is locked; the track builds its own prompts. Repeat, Goal Mode, and Add Context are unavailable. Session titles update with surface progress after each epoch begins, and the running track no longer duplicates its session button in Campaign. Existing track records add a collaboration column automatically; the updated control contract requires rebuilt Beale and app-server clients.
 - Workspace surface maps now materialize root surfaces from the active authorized resources before the first research session, so Continuous research can start in a new workspace. Scope changes refresh root eligibility without resetting unchanged resource review state.
 - Continuous research controls now sit at the far right of the workspace Campaign view buttons, with progress available in a compact dropdown instead of a separate row.
@@ -246,6 +251,8 @@
 
 #### Fixed
 
+- Running track sessions keep their commentary expanded and live detail polling active across completed or blocked epoch handoffs, including in remote session views. Session stop controls pause the track during a handoff.
+- Track session views now show the configured collaborator count and subagent mode, including tracks created before this fix, and read context usage and window size from canonical model turns.
 - Starting or resuming a research track now opens its session automatically once the session appears locally or on the selected fleet server. Workspace snapshots also discover canonical sessions created after opening a workspace.
 - Research track sessions now show heat from their attributed Findings even when their canonical session has no local research profile snapshot.
 - The session view resumes live detail polling when a research track starts its next attempt in the same session, and removes the prior attempt's provisional ending from the active transcript.
@@ -1453,6 +1460,8 @@
 
 #### Fixed
 
+- Research track status checks and epoch scheduling read only authorization, target readiness, and surface state, avoiding full workspace memory loads during handoffs.
+- Research track launches retain collaboration settings in canonical session metadata and tell web-facing epochs to use available Browser tools for focused evidence gathering.
 - Research track checkpoints now resolve memory ownership through workspace memberships after the memory graph migration. Unexpected checkpoint storage errors pause the track instead of consuming more epochs. Expected rotations and manual stops no longer display a false incomplete-epoch error; a timed rotation without a checkpoint identifies the missing checkpoint.
 - Continuous research waits for an epoch worker to exit and persist its terminal state before assigning another surface. A late stop from an earlier worker no longer pauses the next epoch; app-server records the source of host-initiated stops.
 - Continuous research workers now expose `track.checkpoint` as a core host tool. Worker and launch failures pause the track with the actual diagnostic instead of creating repeated empty sessions.
@@ -1484,6 +1493,8 @@
 
 #### Changed
 
+- Security research can add unlisted resources covered by recorded broad scope inclusions or rules. Resource first touch now sends the recorded boundary to Auto-Review, keeps explicit exclusions authoritative, and makes approved discoveries eligible for surface research; the Codex tool bridge uses the same review path. A scope change invalidates prior ambient approvals for renewed review. Older stored Security profile snapshots receive the updated guidance at prompt assembly without changing their saved hashes.
+- Research tracks now score surface actionability from fresh canonical evidence, decay stale or stalled work, prioritize child proof paths before exhausting resource roots, and return periodically to breadth. Checkpoints record the actual validation environment, reward localhost-only target evidence less, and prevent completion of target-dependent work from host-only tests. Existing track surface rows gain score and validation columns automatically. Epoch prompts favor authorized target execution and record unavailable device or VM validation as a coverage gap; control contract v60 requires rebuilt clients.
 - Security report creation now advances one verified finding with current reproduction, independent review, impact, and proof evidence. Historical review bindings from retired composite records remain valid until their reviewed content changes.
 - The Findings feature now creates only observed records with durable direct evidence through `finding.create`; model-facing lead creation and listing are removed. Existing proposed records remain in storage for compatibility and are excluded from normal finding catalogs and campaign context. Reported maps to disclosed findings; human board transitions retain their override audit trail.
 - Session storage schema v9 stops recording replay interval events; existing historical rows remain in the database. The surface map projects current first-touch state and active agent positions.

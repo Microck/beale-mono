@@ -74,7 +74,9 @@ test('research-track control decodes a bounded workspace progress snapshot', () 
     lastError: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
     surfaces: [{ surfaceId: 'surface-example', name: 'Example service', status: 'active', impact: 'high',
       theory: 'A privileged trust boundary may be crossed.', nextAction: 'Test the boundary.',
-      evidenceRefs: ['memory:memory-example'], epochs: 1, noProgressEpochs: 0, revisits: 0,
+      evidenceRefs: ['memory:memory-example'], actionabilityScore: 70,
+      validation: { targetDependent: true, environment: 'device', reason: 'Observed on a synthetic test device.' },
+      epochs: 1, noProgressEpochs: 0, revisits: 0,
       revisitAfter: null, lastWorkedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }],
   };
   assert.deepEqual(decodeBealeWorkspaceResearchTrack(snapshot), snapshot);
@@ -83,6 +85,10 @@ test('research-track control decodes a bounded workspace progress snapshot', () 
     /invalid workspace research track/);
   assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot,
     surfaces: [{ ...snapshot.surfaces[0], evidenceRefs: [12] }] }), /invalid workspace research track/);
+  assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot,
+    surfaces: [{ ...snapshot.surfaces[0], actionabilityScore: 101 }] }), /invalid workspace research track/);
+  assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot,
+    surfaces: [{ ...snapshot.surfaces[0], validation: { targetDependent: true, environment: 'unknown', reason: '' } }] }), /invalid workspace research track/);
 });
 
 test('research suggestion responses reject malformed lists and the wrong lane', () => {

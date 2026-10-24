@@ -221,6 +221,8 @@ test("stored workspace binding prefers the Beale research subject and redacts cr
       scopeId: "scope_recorded",
       scopeName: "Recorded workspace",
       scopeOwner: "Scope Owner",
+      description: "Authorized local research.",
+      rules: "Respect the recorded boundary.",
       activeFrom: "2026-01-01T00:00:00Z",
       expiresAt: "2027-01-01T00:00:00Z",
     });

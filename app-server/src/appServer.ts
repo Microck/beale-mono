@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
 import { installPreBealeEnvironmentAliases } from '@beale/research-agent/legacy-compatibility';
+import { researchTrackProgress } from '@beale/research-agent';
 import { installUndiciTypeOfServiceCompatibility } from '@beale/app-server-runtime/node-network-compatibility';
 import {
   BEALE_APP_SERVER_CAPABILITIES,
@@ -1133,9 +1134,8 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
           } else if (runtime.state === 'running' && Date.now() - Date.parse(runtime.startedAt) >= 60_000
             && trackTitleEpochs.get(track.id) !== `${track.pass}:${track.epochCount}`) {
             const surface = track.surfaces.find((work) => work.surfaceId === track.activeSurfaceId);
-            const complete = track.surfaces.filter((work) => work.status === 'complete').length;
-            const total = track.surfaces.filter((work) => work.status !== 'excluded').length;
-            const title = `Track · ${surface ? `Researching ${surface.name.slice(0, 80)}` : 'Selecting surface'} · ${complete}/${total}`;
+            const progress = researchTrackProgress(track);
+            const title = `Track · ${surface ? `Researching ${surface.name.slice(0, 60)}` : 'Selecting surface'} · ${progress.investigated}/${progress.total} investigated`;
             await hostCall(() => hostService.updateResearchTrackSessionTitle(
               runtime.request.launch.workspaceId, runtime.sessionId, track.epochCount, title));
             trackTitleEpochs.set(track.id, `${track.pass}:${track.epochCount}`);

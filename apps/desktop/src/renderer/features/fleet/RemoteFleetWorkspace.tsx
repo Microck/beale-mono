@@ -7,7 +7,9 @@ import { WorkspaceSidebar } from '../workspaces/WorkspaceSidebar';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { FleetBrowserSideView } from '../research/FleetBrowserSideView';
 import { SubagentDetailPanel } from '../research/MemorySidePanel';
+import { useResearchTrackSessionRunning } from '../../hooks/useResearchTrackSessionRunning';
 import { buildTraceDisplayEventsForAgentPath } from '../../view-models/traceDisplay';
+import { runningResearchTrackDetail } from '../../view-models/researchTrackSession';
 import { subagentSummaries } from '../../view-models/subagents';
 import { surfaceFocusSummary, type SurfaceFocusSummary } from '../../view-models/surfaceFocus';
 import { mergeRemoteSessionHistory, remoteRunDetail, remoteRunStatus, remoteSessionHistoryPage, remoteWorkspaceRegistry } from './remoteFleetProjection';
@@ -132,7 +134,8 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   }, [serverId, workspaceId, sessionId]);
   const workspace = catalog?.workspaces.find((item) => item.workspaceId === workspaceId);
   const session = catalog?.sessions.find((item) => item.id === sessionId && item.workspaceId === workspaceId);
-  const browserAvailable = Boolean(session && !['completed', 'failed', 'stopped'].includes(session.status));
+  const researchTrackRunning = useResearchTrackSessionRunning(workspaceId, sessionId, serverId);
+  const browserAvailable = Boolean(session && (researchTrackRunning || !['completed', 'failed', 'stopped'].includes(session.status)));
   const allowedTargets = new Set((workspaceId ? catalog?.workspaceTargets[workspaceId] ?? ['local'] : []).map((targetId) => (
     targetId === 'browser:in-agent' ? 'local' : targetId
   )));
@@ -167,7 +170,9 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   const providerRiskAcknowledgements = useMemo(() => Object.fromEntries(providerEntries.filter((provider) => provider.riskAcknowledged === true && isResearchProviderId(provider.providerId))
     .map((provider) => [provider.providerId, true])) as Partial<Record<ResearchModelProviderId, true>>, [providerEntries]);
   const mergedDetail = useMemo(() => mergeRemoteSessionHistory(detail, olderPages), [detail, olderPages]);
-  const runDetail = useMemo(() => remoteRunDetail(mergedDetail), [mergedDetail]);
+  const canonicalRunDetail = useMemo(() => remoteRunDetail(mergedDetail), [mergedDetail]);
+  const runDetail = useMemo(() => runningResearchTrackDetail(canonicalRunDetail, researchTrackRunning),
+    [canonicalRunDetail, researchTrackRunning]);
   const events = useMemo(() => runDetail ? buildTraceDisplayEventsForAgentPath(runDetail, null) : [], [runDetail]);
   const runStatus = runDetail?.run.status ?? remoteRunStatus(session?.status ?? '');
   const selectedSubagent = useMemo(() => {
@@ -267,6 +272,10 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
     setControlBusy(true);
     setControlError(null);
     try {
+      if (researchTrackRunning && workspaceId && (type === 'pause' || type === 'stop')) {
+        await window.beale.controlResearchTrack(workspaceId, 'pause', serverId);
+        return;
+      }
       if (type === 'resume' && instruction?.trim()) {
         await window.beale.controlFleetRemoteSession(serverId, sessionId, 'steer', instruction);
       }
