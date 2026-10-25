@@ -791,10 +791,6 @@ export function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    void loadTicketingSettings(false);
-  }, [loadTicketingSettings]);
-
-  useEffect(() => {
     if (!settingsOpen || settingsSection !== 'ticketing') return;
     void loadTicketingSettings(true);
   }, [loadTicketingSettings, settingsOpen, settingsSection]);

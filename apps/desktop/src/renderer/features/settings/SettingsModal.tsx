@@ -78,7 +78,7 @@ import {
 
 export type SettingsSection = 'general' | 'appearance' | 'providers' | 'ticketing' | 'profile' | 'prompt' | 'optional-features' | 'archive';
 
-const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'appearance', 'providers', 'ticketing', 'profile', 'prompt', 'optional-features', 'archive'];
+const SETTINGS_SECTIONS: SettingsSection[] = ['general', 'appearance', 'providers', 'profile', 'prompt', 'optional-features', 'archive'];
 
 export function SettingsSidebar({
   collapsed,

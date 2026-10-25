@@ -31,9 +31,6 @@ import type {
   ProviderModelDefaults,
   ProviderAuthenticationMethod,
   ProviderContextSize,
-  TicketingMode,
-  TicketingProviderId,
-  TicketingTarget,
   AppServerReportLocator,
   ReportContentUpdateInput,
   ReportTriageStatusUpdateInput,
@@ -68,7 +65,6 @@ import { DesktopRestartPromptController } from './desktopRestartPrompt';
 import { IosDeviceCaptureService } from './iosDeviceCaptureService';
 import { getWorkspaceEditorCatalogForHost, openWorkspaceInEditor } from './workspaceEditors';
 import { resolveContentLink } from './contentLinks';
-import { TicketingService } from './ticketingService';
 import { allowedBrowserUrl, InAgentBrowserBridge } from './inAgentBrowserBridge';
 import { FleetBrowserViewer } from './fleetBrowserViewer';
 import type { FleetBrowserInput } from '../shared/fleetBrowser';
@@ -101,7 +97,6 @@ const APP_NAME = 'Beale';
 let mainWindow: BrowserWindow | null = null;
 let workspaceService: WorkspaceService;
 let iosDeviceCaptureService: IosDeviceCaptureService;
-let ticketingService: TicketingService;
 let inAgentBrowserBridge: InAgentBrowserBridge | null = null;
 const fleetBrowserViewer = new FleetBrowserViewer((update) => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC_CHANNELS.fleetBrowserUpdate, update);
@@ -739,25 +734,15 @@ function registerIpc(): void {
     providerId: ResearchModelProviderId,
     method: ProviderAuthenticationMethod
   ) => workspaceService.setProviderPreferredAuthenticationMethod(providerId, method));
-  ipcMain.handle(IPC_CHANNELS.getTicketingSettings, () => ticketingService.getSettings());
-  ipcMain.handle(IPC_CHANNELS.setTicketingProvider, (_event, providerId: TicketingMode) =>
-    ticketingService.setProvider(providerId)
-  );
-  ipcMain.handle(IPC_CHANNELS.setTicketingHumanInTheLoop, (_event, enabled: boolean) =>
-    ticketingService.setHumanInTheLoop(enabled)
-  );
-  ipcMain.handle(IPC_CHANNELS.configureTicketingCredential, (_event, providerId: TicketingProviderId, apiKey: string) =>
-    ticketingService.configureCredential(providerId, apiKey)
-  );
-  ipcMain.handle(IPC_CHANNELS.removeTicketingCredential, (_event, providerId: TicketingProviderId) =>
-    ticketingService.removeCredential(providerId)
-  );
-  ipcMain.handle(IPC_CHANNELS.listTicketingTargets, (_event, providerId: TicketingProviderId) =>
-    ticketingService.listTargets(providerId)
-  );
-  ipcMain.handle(IPC_CHANNELS.setTicketingTarget, (_event, providerId: TicketingProviderId, target: TicketingTarget) =>
-    ticketingService.setTarget(providerId, target)
-  );
+  const ticketingUnavailable = (): never => { throw new Error('Ticketing is temporarily unavailable.'); };
+  ipcMain.handle(IPC_CHANNELS.getTicketingSettings, ticketingUnavailable);
+  ipcMain.handle(IPC_CHANNELS.setTicketingProvider, ticketingUnavailable);
+  ipcMain.handle(IPC_CHANNELS.setTicketingHumanInTheLoop, ticketingUnavailable);
+  ipcMain.handle(IPC_CHANNELS.configureTicketingCredential, ticketingUnavailable);
+  ipcMain.handle(IPC_CHANNELS.removeTicketingCredential, ticketingUnavailable);
+  ipcMain.handle(IPC_CHANNELS.listTicketingTargets, ticketingUnavailable);
+  ipcMain.handle(IPC_CHANNELS.setTicketingTarget, ticketingUnavailable);
+  ipcMain.handle(IPC_CHANNELS.submitReportTicket, ticketingUnavailable);
   ipcMain.handle(IPC_CHANNELS.getResearchProfiles, () => workspaceService.getResearchProfiles());
   ipcMain.handle(IPC_CHANNELS.getPromptTemplateSettings, (_event, profileId: ResearchProfileId) => workspaceService.getPromptTemplateSettings(profileId));
   ipcMain.handle(IPC_CHANNELS.getFeaturePromptSettings, () => workspaceService.getFeaturePromptSettings());
@@ -928,15 +913,8 @@ function registerIpc(): void {
     ipcMain.handle(IPC_CHANNELS.updateAutomation, (_event, input: AutomationUpdateInput) =>
       timedMainIpc('updateAutomation', { run: shortMetricId(input.runId) }, () => workspaceService.updateAutomation(input))
     );
-    ipcMain.handle(IPC_CHANNELS.listReportingReports, () =>
-    timedMainIpcAsync('listReportingReports', {}, async () => {
-      const reports = await workspaceService.listReportingReports();
-      void ticketingService.submitAutomatically(reports, (report) => workspaceService.getAppServerReport({
-        workspaceId: report.workspaceId,
-        reportId: report.id
-      }));
-      return reports;
-    })
+  ipcMain.handle(IPC_CHANNELS.listReportingReports, () =>
+    timedMainIpcAsync('listReportingReports', {}, () => workspaceService.listReportingReports())
   );
   ipcMain.handle(IPC_CHANNELS.getAppServerReport, (_event, locator: AppServerReportLocator) =>
     timedMainIpc('getAppServerReport', { report: shortMetricId(locator.reportId) }, () =>
@@ -984,12 +962,6 @@ function registerIpc(): void {
     });
     const path = result.filePaths[0] ?? null;
     return result.canceled || !path ? null : workspaceService.replaceReportRecording(locator, path);
-  });
-  ipcMain.handle(IPC_CHANNELS.submitReportTicket, async (_event, locator: AppServerReportLocator) => {
-    const report = (await workspaceService.listReportingReports()).find((candidate) =>
-      candidate.workspaceId === locator.workspaceId.trim() && candidate.id === locator.reportId.trim());
-    if (!report) throw new Error(`Report not found: ${locator.reportId}`);
-    return ticketingService.submit(report, workspaceService.getAppServerReport(locator));
   });
   ipcMain.handle(IPC_CHANNELS.openExternalUrl, async (_event, value: string) => {
     const url = new URL(value);
@@ -1230,14 +1202,6 @@ if (!hasSingleInstanceLock) {
         await restartBealeAppServer();
       }
     });
-    ticketingService = new TicketingService(
-      join(app.getPath('userData'), 'ticketing-settings.json'),
-      {
-        available: () => safeStorage.isEncryptionAvailable(),
-        encrypt: (value) => safeStorage.encryptString(value),
-        decrypt: (value) => safeStorage.decryptString(value)
-      }
-    );
     iosDeviceCaptureService = new IosDeviceCaptureService(
       broadcastIosDeviceCaptureState,
       broadcastIosDeviceCaptureFrame

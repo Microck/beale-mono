@@ -62,6 +62,7 @@
 
 #### Changed
 
+- Ticketing settings and submission are temporarily unavailable; Reporting remains available, and existing Ticketing configuration is retained for later use.
 - Workspace Campaign Track controls now use a compact icon row with hover progress and error details.
 - OpenRouter model choices refresh from OpenRouter's current tool-capable catalog, including context limits and pricing; the bundled catalog remains available when refresh fails.
 - Continuous research now reports investigated and completed surface counts separately and shows each surface's actionability score and validation environment.

@@ -6,7 +6,7 @@ import { SettingsSidebar, TicketingSettingsView } from '../src/renderer/features
 import type { AppServerReportSummary, TicketingSettings } from '../src/shared/types';
 
 describe('renderer ticketing settings', () => {
-  it('adds Ticketing to Agent Settings and defaults to local reports only', () => {
+  it('hides Ticketing from Agent Settings while retaining its saved configuration view', () => {
     const sidebar = renderToStaticMarkup(createElement(SettingsSidebar, {
       collapsed: false,
       section: 'ticketing',
@@ -27,8 +27,9 @@ describe('renderer ticketing settings', () => {
       onSetTarget: async () => undefined
     }));
 
-    expect(sidebar).toContain('lucide-ticket');
-    expect(sidebar).toContain('<span>Ticketing</span>');
+    expect(sidebar).not.toContain('lucide-ticket');
+    expect(sidebar).not.toContain('<span>Ticketing</span>');
+    expect(sidebar).toContain('aria-current="page"');
     expect(view).toContain('<h2 id="ticketing-system-heading">Ticketing</h2>');
     expect(view).toMatch(/aria-label="Local Reports Only"[^>]*checked=""/u);
     expect(view).toContain('GitHub Issues');
