@@ -954,18 +954,20 @@ test("Pi Agent adds research guidance when the knowledge plugin is enabled", asy
   assert.doesNotMatch(systemPrompt, /Never use the \$HOME environment variable/);
   assert.match(systemPrompt, /Use durable memory as a concise research graph/);
   assert.match(systemPrompt, /Search claims, knowledge memories, and runbooks together with history\.search early/);
-  assert.match(systemPrompt, /Evidence is attached to knowledge or finding records/);
-  assert.match(systemPrompt, /Record a finding with finding\.create only after direct observation/);
+  assert.match(systemPrompt, /Evidence is attached to knowledge or claim records/);
+  assert.match(systemPrompt, /Record an unobserved candidate with lead\.create/);
   assert.match(systemPrompt, /security-sensitive operation or state transition whose unsafe reachability can produce impact/);
   assert.doesNotMatch(systemPrompt, /- flow-endpoint \(Flow Endpoint\)/);
   assert.match(systemPrompt, /relevant successful trajectories/);
   assert.doesNotMatch(systemPrompt, /specific, testable, currently unproven security proposition/);
 });
 
-test("Pi Agent recognizes finding.create as the observed finding creation tool", async () => {
+test("Pi Agent recognizes Lead creation and observed finding creation", async () => {
   const contexts = [];
   const tools = [
     ["finding.list", "finding_list"],
+    ["lead.list", "lead_list"],
+    ["lead.create", "lead_create"],
     ["finding.create", "finding_create"],
     ["finding.transition", "finding_transition"],
   ].map(([name, transportName]) => {
@@ -990,7 +992,8 @@ test("Pi Agent recognizes finding.create as the observed finding creation tool",
   });
 
   assert.match(contexts[0].systemPrompt, /Use one canonical, evidence-gated research claim ledger/);
-  assert.match(contexts[0].systemPrompt, /Create a finding only through finding\.create after direct observation/);
+  assert.match(contexts[0].systemPrompt, /Create an unobserved candidate with lead\.create/);
+  assert.match(contexts[0].systemPrompt, /Use finding\.create when direct observation is already established/);
 });
 
 test("Pi Agent streams a tool request before long-running execution completes", async () => {

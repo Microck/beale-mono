@@ -519,7 +519,7 @@ describe('workspace dashboard', () => {
       runs: []
     }));
     expect(compactBoardHtml).toContain('campaign-board-lanes is-compact');
-    expect(compactBoardHtml).toContain('campaign-board-observed-heading');
+    expect(compactBoardHtml).toContain('campaign-board-lead-heading');
     expect(compactBoardHtml).not.toContain('campaign-board-reproduced-heading');
 
     const reportsHtml = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {

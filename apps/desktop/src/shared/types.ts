@@ -692,7 +692,7 @@ export interface AppServerMemoryDuplicateSummary {
 export interface AppServerResearchClaimDuplicateSummary {
   id: string;
   projection: 'lead' | 'finding';
-  maturity: 'proposed' | 'observed' | 'reproduced' | 'verified' | 'reported' | 'refuted';
+  maturity: 'lead' | 'observed' | 'reproduced' | 'verified' | 'refuted';
   rating: ResearchClaimRating;
   classification: string;
   title: string;
@@ -708,7 +708,7 @@ export interface AppServerFindingSummary {
   memoryNodeId: string | null;
   originSessionId: string | null;
   projection: 'lead' | 'finding';
-  maturity: 'proposed' | 'observed' | 'reproduced' | 'verified' | 'reported' | 'refuted';
+  maturity: 'lead' | 'observed' | 'reproduced' | 'verified' | 'refuted';
   rating: ResearchClaimRating;
   classification: string;
   title: string;

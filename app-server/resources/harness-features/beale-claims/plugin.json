@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "beale-claims",
   "version": "0.1.0",
-  "description": "Use for observed findings, their evidence, and revisions.",
+  "description": "Use for Leads, observed findings, their evidence, and revisions.",
   "author": "Beale",
   "license": "MIT",
   "extensions": {

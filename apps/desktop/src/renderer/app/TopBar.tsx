@@ -44,7 +44,6 @@ export const TopBar = memo(function TopBar({
   profilingEnabled,
   workspaceEditors,
   onOpenProfiling,
-  onOpenSessionOverview,
   onOpenWorkspaceInEditor,
   onAddWorkspace,
   onToggleRightSidenav,
@@ -71,7 +70,6 @@ export const TopBar = memo(function TopBar({
   profilingEnabled: boolean;
   workspaceEditors: WorkspaceEditorCatalog | null;
   onOpenProfiling: () => void;
-  onOpenSessionOverview?: () => void;
   onOpenWorkspaceInEditor: (editorId: WorkspaceEditorId) => void;
   onAddWorkspace: () => void;
   onToggleRightSidenav: () => void;
@@ -382,7 +380,6 @@ export const TopBar = memo(function TopBar({
           workspaceViewTitle={workspaceViewTitle}
           detail={activeRunDetail}
           surfaceFocus={surfaceFocus}
-          onOpenSessionOverview={onOpenSessionOverview}
         />
       ) : staticContextTitle ? (
         <StaticAppHeaderTitle primaryTitle={staticContextTitle.primary} secondaryTitle={staticContextTitle.secondary} icon={staticContextTitle.icon} />

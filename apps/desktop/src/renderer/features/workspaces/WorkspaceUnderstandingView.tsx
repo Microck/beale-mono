@@ -275,7 +275,7 @@ export function WorkspaceUnderstandingView({
   const [resourceEditState, setResourceEditState] = useState({ dirty: false, pending: false });
   const [pendingResourceNavigation, setPendingResourceNavigation] = useState<WorkspaceTopLevelView | null>(null);
   const [activeCampaignView, setActiveCampaignView] = useState<WorkspaceCampaignView>(() => workspaceCampaignView(initialView));
-  const [focusedBoardMaturity, setFocusedBoardMaturity] = useState<ClaimBoardMaturity>('observed');
+  const [focusedBoardMaturity, setFocusedBoardMaturity] = useState<ClaimBoardMaturity>('lead');
   const [clockNowMs, setClockNowMs] = useState(() => Date.now());
   const researchKit = researchKitDefinition(researchKitId);
   const dashboardViews = researchKit.refresh && !readOnly

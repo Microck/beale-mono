@@ -21,8 +21,8 @@ export const MANAGED_TOOL_PLUGINS = [
   },
   {
     id: "beale-claims", name: "Findings",
-    description: "Use for observed findings, their evidence, and revisions.",
-    tools: ["claim.get", "finding.list", "finding.create", "finding.revise", "finding.transition", "finding.completion_check"],
+    description: "Use for Leads, observed findings, their evidence, and revisions.",
+    tools: ["claim.get", "lead.list", "lead.create", "finding.list", "finding.create", "finding.revise", "finding.transition", "finding.completion_check"],
   },
   {
     id: "beale-runbooks", name: "Runbooks",

@@ -48,7 +48,7 @@ export interface ResourcePriorArtGetInput extends Omit<ResourcePriorArtListInput
 
 export const APP_SERVER_PROTOCOL_NAME = "app-server" as const;
 export const APP_SERVER_PROTOCOL_VERSION = 1 as const;
-export const APP_SERVER_CONTRACT_VERSION = 60 as const;
+export const APP_SERVER_CONTRACT_VERSION = 61 as const;
 export const APP_SERVER_RUNTIME_VERSION = "0.1.0" as const;
 export const APP_SERVER_PROTOCOL_WEBSOCKET_PATH = "/v1/session" as const;
 export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as const;
@@ -56,7 +56,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-24T13:00:00.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-25T00:00:00.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -1038,7 +1038,7 @@ export interface FleetState {
   lastMachineByWorkspace: Record<string, string>;
 }
 
-export const CLAIM_BOARD_MATURITIES = ["refuted", "observed", "reproduced", "verified", "reported"] as const;
+export const CLAIM_BOARD_MATURITIES = ["refuted", "lead", "observed", "reproduced", "verified"] as const;
 export type ClaimBoardMaturity = (typeof CLAIM_BOARD_MATURITIES)[number];
 
 export interface ClaimBoardTransitionRequest {
@@ -1120,8 +1120,8 @@ export interface AppServerProtocolDescriptor {
   schemas: {
     protocol: 1;
     session: 1;
-    memorySummary: 13;
-    finding: 6;
+    memorySummary: 14;
+    finding: 7;
     campaignGraph: 5;
     goalSuggestions: 1;
   };
@@ -1468,7 +1468,7 @@ export function appServerProtocolDescriptor(): AppServerProtocolDescriptor {
       buildId: appServerRuntimeBuildId(),
       nodeVersion: process.version,
     },
-    schemas: { protocol: 1, session: 1, memorySummary: 13, finding: 6, campaignGraph: 5, goalSuggestions: 1 },
+    schemas: { protocol: 1, session: 1, memorySummary: 14, finding: 7, campaignGraph: 5, goalSuggestions: 1 },
     capabilities: APP_SERVER_PROTOCOL_CAPABILITIES,
     transports: {
       appServer: {
@@ -1510,7 +1510,7 @@ export function appServerServerHello(sessionId: string, serverVersion: string): 
     sessionId,
     server: { name: APP_SERVER_PROTOCOL_NAME, version: serverVersion, buildId: appServerRuntimeBuildId() },
     contractVersion: APP_SERVER_CONTRACT_VERSION,
-    schemas: { protocol: 1, session: 1, memorySummary: 13, finding: 6, campaignGraph: 5, goalSuggestions: 1 },
+    schemas: { protocol: 1, session: 1, memorySummary: 14, finding: 7, campaignGraph: 5, goalSuggestions: 1 },
     capabilities: APP_SERVER_PROTOCOL_WEBSOCKET_CAPABILITIES,
   };
 }
@@ -1829,7 +1829,7 @@ export function decodeAppServerServerMessage(value: unknown): AppServerServerMes
 
 function validSchemaDescriptor(value: unknown): value is AppServerProtocolDescriptor["schemas"] {
   return isRecord(value) && value.protocol === 1 && value.session === 1
-    && value.memorySummary === 13 && value.finding === 6 && value.campaignGraph === 5;
+    && value.memorySummary === 14 && value.finding === 7 && value.campaignGraph === 5;
 }
 
 export interface BealeWorkspaceResearchClaimDuplicate {

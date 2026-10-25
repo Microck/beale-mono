@@ -396,22 +396,22 @@ export class ResearchClaimStore {
 
   /** Trusted host Findings board action; model-facing tools never call this path. */
   public transitionByHuman(id: string, expectedRevision: number, toStatus: FindingStatus): FindingSummary {
-    if (!["observed", "reproduced", "verified", "disclosed", "rejected"].includes(toStatus)) {
-      throw new Error(`Findings board cannot move a finding to ${toStatus}.`);
+    if (!["hypothesis", "observed", "reproduced", "verified", "rejected"].includes(toStatus)) {
+      throw new Error(`Findings board cannot move a claim to ${toStatus}.`);
     }
     const current = this.get(id);
-    if (!current || current.projection !== "finding") throw new Error("Finding not found in this workspace.");
+    if (!current) throw new Error("Claim not found in this workspace.");
     requireCanonicalClaim(current);
     if (current.revision !== expectedRevision) {
       throw new Error(`Research claim revision conflict for ${id}: expected ${expectedRevision}, found ${current.revision}.`);
     }
     if (current.status === toStatus && current.status !== "stale") {
-      throw new Error("Finding is already in this Findings board state.");
+      throw new Error("Claim is already in this Findings board state.");
     }
     if (current.workspaceId !== this.memoryGraph.getContext().workspaceId) {
-      throw new Error("Finding is outside the active workspace.");
+      throw new Error("Claim is outside the active workspace.");
     }
-    if (["reproduced", "verified", "disclosed"].includes(toStatus) && !current.stepsToReproduce.trim()) {
+    if (["reproduced", "verified"].includes(toStatus) && !current.stepsToReproduce.trim()) {
       throw new Error("Reproduced or later findings require steps to reproduce.");
     }
     const now = new Date().toISOString();
@@ -1825,13 +1825,11 @@ function claimProjection(
     ? "lead" as const
     : "finding" as const;
   const maturity = effective === "hypothesis"
-    ? "proposed" as const
+    ? "lead" as const
     : effective === "observed"
       ? "observed" as const
       : effective === "reproduced"
         ? "reproduced" as const
-        : effective === "disclosed"
-          ? "reported" as const
         : effective === "rejected"
           ? "refuted" as const
           : "verified" as const;

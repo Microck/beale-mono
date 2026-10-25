@@ -109,8 +109,8 @@ test('research workspace operations require explicit revisions for canonical imp
   for (const input of [null, { workspaceId: '', action: 'status' }, { workspaceId: 'workspace-example', action: 'reset' }, { workspaceId: 'workspace-example', action: 'checkpoint' }, { workspaceId: 'workspace-example', action: 'repair-preview' }, { workspaceId: 'workspace-example', action: 'repair', fingerprint: 'a'.repeat(64) }, { workspaceId: 'workspace-example', action: 'import', path: 'claims/example.json' }, { workspaceId: 'workspace-example', action: 'import', path: 'claims/example.json', expectedRevision: 1.5 }]) assert.throws(() => decodeWorkspaceProjectRequest(input));
 });
 
-test('finding board transitions accept versioned moves including reported', () => {
-  const input = { workspaceId: 'workspace-example', claimId: 'claim-example', expectedRevision: 2, targetMaturity: 'reported' };
+test('finding board transitions accept Lead and reject Reported', () => {
+  const input = { workspaceId: 'workspace-example', claimId: 'claim-example', expectedRevision: 2, targetMaturity: 'lead' };
   assert.deepEqual(decodeClaimBoardTransitionRequest(input), input);
   for (const invalid of [
     { ...input, workspaceId: '' },
@@ -118,6 +118,7 @@ test('finding board transitions accept versioned moves including reported', () =
     { ...input, expectedRevision: 0 },
     { ...input, expectedRevision: 1.5 },
     { ...input, targetMaturity: 'proposed' },
+    { ...input, targetMaturity: 'reported' },
   ]) assert.throws(() => decodeClaimBoardTransitionRequest(invalid));
 });
 
@@ -154,8 +155,8 @@ test("protocol describe omits removed workflow operations", () => {
   assert.ok(!descriptor.capabilities.some((capability) => capability.startsWith('session.workflows.')));
   assert.ok(!descriptor.operations.some((operation) => operation.startsWith('workflow.')));
   assert.match(descriptor.runtime.buildId, /^[a-f0-9]{24}$/);
-  assert.equal(descriptor.schemas.memorySummary, 13);
-  assert.equal(descriptor.schemas.finding, 6);
+  assert.equal(descriptor.schemas.memorySummary, 14);
+  assert.equal(descriptor.schemas.finding, 7);
   assert.equal(descriptor.schemas.campaignGraph, 5);
   assert.equal(descriptor.schemas.goalSuggestions, 1);
   assert.ok(descriptor.capabilities.includes("knowledge.findings"));

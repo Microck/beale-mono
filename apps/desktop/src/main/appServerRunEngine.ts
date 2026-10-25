@@ -1742,7 +1742,9 @@ export class AppServerRunEngine {
     if (event.kind === 'session.title') {
       const title = stringPayload(event.payload ?? {}, 'title');
       if (title) {
-        this.db.updateRunTitle(context.run.id, title.slice(0, 120));
+        if (this.db.getRun(context.run.id)?.title !== title) {
+          this.db.updateRunTitle(context.run.id, title.slice(0, 120));
+        }
         this.onChange({ workspaceRegistryChanged: true });
         return;
       }

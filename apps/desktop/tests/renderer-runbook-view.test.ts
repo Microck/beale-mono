@@ -118,11 +118,19 @@ describe('RunbookView', () => {
     expect(html).toContain('5 Cell Executions');
   });
 
-  it('distinguishes missing content from a runbook with no current cells after past executions', () => {
+  it('keeps a pending document loading and distinguishes a runbook with no current cells', () => {
     const props = { runbook: summary, loading: false, error: null, onBackToMain: () => undefined };
-    const unavailable = renderToStaticMarkup(createElement(RunbookView, { ...props, document: null }));
-    expect(unavailable).toContain('Runbook content is unavailable.');
-    expect(unavailable).not.toContain('This runbook has no cells.');
+    const pending = renderToStaticMarkup(createElement(RunbookView, { ...props, document: null }));
+    expect(pending).toContain('Loading runbook.');
+    expect(pending).not.toContain('This runbook has no cells.');
+
+    const failed = renderToStaticMarkup(createElement(RunbookView, {
+      ...props,
+      document: null,
+      error: 'The app-server returned a different runbook than the one selected.'
+    }));
+    expect(failed).toContain('The app-server returned a different runbook than the one selected.');
+    expect(failed).not.toContain('Loading runbook.');
 
     const empty = renderToStaticMarkup(createElement(RunbookView, {
       ...props,

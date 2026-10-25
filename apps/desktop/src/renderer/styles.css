@@ -1474,6 +1474,15 @@ code {
   color: var(--muted-strong);
 }
 
+.app-header-session-title,
+.app-header-surface-title {
+  color: color-mix(in srgb, var(--text) 64%, var(--panel));
+  font-size: 1rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
 .app-header-session-title {
   min-width: 0;
   height: 26px;
@@ -1488,11 +1497,7 @@ code {
   box-sizing: border-box;
   border-color: transparent;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 64%, var(--panel));
   padding: 0 6px;
-  font-size: 1rem;
-  font-weight: 400;
-  line-height: 1;
   -webkit-app-region: no-drag;
 }
 
@@ -1505,8 +1510,6 @@ code {
   gap: 7px;
   overflow: hidden;
   padding: 0 6px;
-  color: color-mix(in srgb, var(--text) 64%, var(--panel));
-  font-size: 1rem;
   white-space: nowrap;
 }
 
@@ -1518,20 +1521,6 @@ code {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-transform: capitalize;
-}
-
-.app-header-session-overview-button {
-  border: 0;
-  border-radius: 6px;
-  font-family: inherit;
-  cursor: pointer;
-}
-
-.app-header-session-overview-button:hover,
-.app-header-session-overview-button:focus-visible {
-  background: var(--header-control-active-background);
-  color: var(--text);
 }
 
 .app-header-divider {
@@ -9052,7 +9041,7 @@ button.runbook-catalog-item:not(.breakout-room-catalog-item):hover:not(:disabled
   vertical-align: -0.16em;
 }
 
-.campaign-claim-title-icon.maturity-proposed,
+.campaign-claim-title-icon.maturity-lead,
 .campaign-claim-title-icon.maturity-observed {
   color: var(--muted);
 }
@@ -9061,8 +9050,7 @@ button.runbook-catalog-item:not(.breakout-room-catalog-item):hover:not(:disabled
   color: var(--amber);
 }
 
-.campaign-claim-title-icon.maturity-verified,
-.campaign-claim-title-icon.maturity-reported {
+.campaign-claim-title-icon.maturity-verified {
   color: var(--green);
 }
 
@@ -12643,91 +12631,6 @@ button.runbook-catalog-item:not(.breakout-room-catalog-item):hover:not(:disabled
 
 .modal-panel.wide-modal {
   width: min(940px, calc(100vw - 36px));
-}
-
-.modal-panel.session-overview-dialog {
-  width: min(1180px, calc(100vw - 36px));
-  min-height: 240px;
-  border: 0;
-  border-radius: 34px;
-  corner-shape: squircle;
-  background: var(--panel-raised);
-  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.52);
-}
-
-.session-overview-dialog .modal-header {
-  padding: 16px 18px 10px;
-}
-
-.session-overview-dialog .modal-header h2 {
-  margin: 0;
-  color: var(--muted);
-  font-size: 1rem;
-  font-weight: 400;
-}
-
-.session-overview-dialog .modal-body {
-  display: grid;
-  align-items: center;
-  padding: 8px 24px 28px;
-}
-
-.session-overview-content {
-  min-width: 0;
-  display: grid;
-  gap: 20px;
-}
-
-.session-overview-summary {
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.session-overview-summary :is(h3, p) {
-  margin: 0;
-  font-weight: 400;
-}
-
-.session-overview-summary h3 {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 1.35rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.session-overview-summary p {
-  flex: 0 0 auto;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.session-overview-dialog .campaign-session-projection {
-  height: 72px;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--panel-strong) 76%, transparent);
-}
-
-.session-overview-dialog .campaign-session-projection .workspace-timeline-segment {
-  top: 26px;
-  height: 18px;
-  border-radius: 9px;
-}
-
-.session-overview-dialog .campaign-session-projection .workspace-timeline-memory-marker {
-  width: 5px;
-  height: 60px;
-  top: 5px;
-}
-
-.session-overview-dialog .campaign-session-projection :is(.workspace-timeline-runbook-marker, .workspace-timeline-report-marker) {
-  width: 16px;
-  height: 16px;
-  top: 27px;
 }
 
 .modal-backdrop.bottom-sheet-backdrop {

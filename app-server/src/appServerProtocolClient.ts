@@ -321,10 +321,12 @@ async function knowledgeOperation(operation: AppServerProtocolOperation, options
       const claims = new ResearchClaimStore(graph);
       try {
         const claim = claims.get(request.claimId);
-        if (!claim || claim.projection !== 'finding') throw new Error('Finding not found in this workspace.');
-        if (claim.maturity === request.targetMaturity) throw new Error('Finding is already in this Findings board state.');
+        if (!claim) throw new Error('Claim not found in this workspace.');
+        if (claim.maturity === request.targetMaturity) {
+          throw new Error('Claim is already in this Findings board state.');
+        }
         const toStatus = request.targetMaturity === 'refuted' ? 'rejected'
-          : request.targetMaturity === 'reported' ? 'disclosed' : request.targetMaturity;
+          : request.targetMaturity === 'lead' ? 'hypothesis' : request.targetMaturity;
         return claims.transitionByHuman(request.claimId, request.expectedRevision, toStatus);
       } finally {
         claims.close();

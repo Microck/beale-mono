@@ -258,7 +258,7 @@ export const RunbookView = memo(function RunbookView({
           </div>
         </header>
 
-        {loading ? (
+        {loading || (!document && !error) ? (
           <div className="runbook-view-state"><LoaderCircle className="runbook-view-spinner" size={18} aria-hidden="true" /> Loading runbook.</div>
         ) : error ? (
           <div className="runbook-view-state is-error"><CircleAlert size={18} aria-hidden="true" /> {error}</div>
@@ -284,9 +284,7 @@ export const RunbookView = memo(function RunbookView({
           </div>
         ) : document ? (
           <div className="runbook-view-state">This runbook has no cells.</div>
-        ) : (
-          <div className="runbook-view-state is-error">Runbook content is unavailable.</div>
-        )}
+        ) : null}
         <div className="memory-catalog-meta runbook-detail-tags">
           <span>Revision {runbook.contentRevision}</span>
           <span>{runbook.execution.completedRunCount} completed {runbook.execution.completedRunCount === 1 ? 'run' : 'runs'}</span>

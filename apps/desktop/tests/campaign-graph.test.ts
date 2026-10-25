@@ -93,7 +93,8 @@ describe('campaign graph projection', () => {
     expect(html.indexOf('aria-label="Finding rating filter"')).toBeLessThan(html.indexOf('aria-label="Finding author filter"'));
     expect(html).toContain('All Authors');
     expect(html.indexOf('aria-label="Finding rating filter"')).toBeLessThan(html.indexOf('0 refuted hidden'));
-    expect(html).toContain('campaign-board-reported-heading');
+    expect(html).toContain('campaign-board-lead-heading');
+    expect(html).not.toContain('campaign-board-reported-heading');
     expect(html).not.toContain('campaign-board-refuted-heading');
     expect(html.match(/class="main-side-scroll campaign-board-lane-scroll"/gu)).toHaveLength(4);
     expect(html.match(/class="campaign-board-lane-list"/gu)).toHaveLength(4);
@@ -115,17 +116,39 @@ describe('campaign graph projection', () => {
     expect(compact).not.toContain('aria-label="Finding class filter"');
     expect(compact).toContain('aria-label="Finding rating filter"');
     expect(compact).toContain('aria-label="Finding author filter"');
-    expect(compact).toContain('campaign-board-observed-heading');
+    expect(compact).toContain('campaign-board-lead-heading');
     expect(compact).not.toContain('campaign-board-reproduced-heading');
     expect(compact.match(/class="workspace-campaign-list-heading campaign-board-lane-heading"/gu)).toHaveLength(1);
     expect(compact).toContain('aria-label="Previous findings lane"');
     expect(compact).toContain('aria-label="Next findings lane"');
     expect(verified).toContain('campaign-board-verified-heading');
-    expect(verified).not.toContain('campaign-board-observed-heading');
-    expect(adjacentCampaignBoardMaturity('observed', -1)).toBeNull();
+    expect(verified).not.toContain('campaign-board-lead-heading');
+    expect(adjacentCampaignBoardMaturity('lead', -1)).toBeNull();
+    expect(adjacentCampaignBoardMaturity('lead', 1)).toBe('observed');
+    expect(adjacentCampaignBoardMaturity('observed', -1)).toBe('lead');
     expect(adjacentCampaignBoardMaturity('observed', 1)).toBe('reproduced');
-    expect(adjacentCampaignBoardMaturity('verified', 1)).toBe('reported');
-    expect(adjacentCampaignBoardMaturity('reported', 1)).toBeNull();
+    expect(adjacentCampaignBoardMaturity('verified', 1)).toBeNull();
+  });
+
+  it('shows Leads in the first lane and includes them in board filters', () => {
+    const lead = {
+      id: 'lead-example-parser', projection: 'lead', maturity: 'lead',
+      title: 'Example parser lead', summary: 'Inspect the example branch.', rating: 'medium',
+      classification: 'security.vulnerability', impact: '', status: 'hypothesis',
+      authors: [{ provider: 'openai-codex', model: 'example-model' }], evidence: [],
+      securityTracking: null, revision: 1
+    } as unknown as AppServerFindingSummary;
+    const memory = { leads: [lead], findings: [] } as unknown as AppServerMemorySummary;
+    expect(campaignBoardFindings(memory, 'lead')).toEqual([lead]);
+    expect(campaignBoardFindings(memory, 'observed')).toEqual([]);
+    expect(campaignBoardAuthorOptions(memory, [])).toHaveLength(2);
+    const html = renderToStaticMarkup(createElement(CampaignBoardView, {
+      memory, providerModelCatalog: [], workspaceName: 'Example Workspace', onOpenClaim: () => undefined,
+      onTransitionClaim: async () => undefined
+    }));
+    expect(html).toContain('campaign-board-lead-heading');
+    expect(html).toContain('Example parser lead');
+    expect(html).toContain('draggable="true"');
   });
 
   it('makes finding cards draggable when a canonical board transition is available', () => {
@@ -174,11 +197,12 @@ describe('campaign graph projection', () => {
       title: 'Example disproved path', rating: 'low', classification: 'security.vulnerability',
       authors: [], evidence: [], securityTracking: null, revision: 2
     } as unknown as AppServerFindingSummary;
+    const refutedLead = { ...refuted, id: 'lead-example-refuted', projection: 'lead', title: 'Example rejected lead' } as AppServerFindingSummary;
     const html = renderToStaticMarkup(createElement(CampaignBoardView, {
-      memory: { findings: [refuted] } as AppServerMemorySummary,
+      memory: { leads: [refutedLead], findings: [refuted] } as unknown as AppServerMemorySummary,
       providerModelCatalog: [], workspaceName: 'Example Workspace', onOpenClaim: () => undefined
     }));
-    expect(html).toContain('1 refuted hidden');
+    expect(html).toContain('2 refuted hidden');
     expect(html).not.toContain('Example disproved path');
     expect(html).not.toContain('campaign-board-refuted-heading');
   });

@@ -250,7 +250,6 @@ function searchWorkspaceHistory(
     for (const claim of selectedWorkspaceIds.length === 1 && selectedWorkspaceIds[0] === currentWorkspaceId
       ? options.claimStore.list()
       : options.claimStore.listSubjectReferences({ workspaceIds: selectedWorkspaceIds })) {
-      if (claim.projection !== "finding") continue;
       if (!selectedWorkspaceIdSet.has(claim.workspaceId)) continue;
       if (statuses.size && !statuses.has(claim.status)) continue;
       if (classifications.size && !classifications.has(claim.classification)) continue;

@@ -28,14 +28,12 @@ export const AppHeaderTitle = memo(function AppHeaderTitle({
   workspaceName,
   workspaceViewTitle,
   detail,
-  surfaceFocus,
-  onOpenSessionOverview
+  surfaceFocus
 }: {
   workspaceName: string;
   workspaceViewTitle?: string | null;
   detail: AppHeaderRun | null;
   surfaceFocus?: SurfaceFocusSummary | null;
-  onOpenSessionOverview?: () => void;
 }): JSX.Element {
   const workspaceLabel = displayWorkspaceHeaderName(workspaceName);
   const workspaceViewLabel = workspaceViewTitle?.trim() || null;
@@ -71,21 +69,9 @@ export const AppHeaderTitle = memo(function AppHeaderTitle({
         ) : null}
         {detail && sessionTitle ? (
           <>
-            {onOpenSessionOverview ? (
-              <button
-                aria-label={`Open Session Overview for ${sessionTitle}`}
-                className="app-header-session-title app-header-session-overview-button"
-                onClick={onOpenSessionOverview}
-                title={sessionTitle}
-                type="button"
-              >
-                <span>{sessionTitle}</span>
-              </button>
-            ) : (
-              <span className="app-header-session-title app-header-static-title" title={sessionTitle}>
-                <span>{sessionTitle}</span>
-              </span>
-            )}
+            <span className="app-header-session-title app-header-static-title" title={sessionTitle}>
+              <span>{sessionTitle}</span>
+            </span>
             {surfaceLabel ? (
               <span className="app-header-surface-title" title={surfaceLabel}>
                 <span className="app-header-surface-name">{surfaceFocus!.name}</span>

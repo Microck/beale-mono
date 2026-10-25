@@ -97,9 +97,20 @@ test("Findings board moves record human overrides while agent transitions remain
   try {
     const lead = claims.create({ title: "Example parser branch", classification: "security.vulnerability", rating: "medium" });
     const input = { ...context, claimId: lead.id, expectedRevision: lead.revision, targetMaturity: "observed" };
-    await assert.rejects(invokeAppServerProtocol("claim.board_transition", {
-      args: [], input, storage: { databasePath, artifactDirectoryPath },
-    }), /Finding not found/);
+    const boardLead = claims.create({ title: "Example review branch", classification: "security.vulnerability", rating: "low" });
+    const promoted = await invokeAppServerProtocol("claim.board_transition", {
+      args: [], input: { ...input, claimId: boardLead.id, expectedRevision: boardLead.revision },
+      storage: { databasePath, artifactDirectoryPath },
+    });
+    assert.equal(promoted.projection, "finding");
+    assert.equal(promoted.maturity, "observed");
+    assert.equal(promoted.operatorOverride, true);
+    const returnedToLead = await invokeAppServerProtocol("claim.board_transition", {
+      args: [], input: { ...input, claimId: boardLead.id, expectedRevision: promoted.revision, targetMaturity: "lead" },
+      storage: { databasePath, artifactDirectoryPath },
+    });
+    assert.equal(returnedToLead.projection, "lead");
+    assert.equal(returnedToLead.maturity, "lead");
 
     let observed = claims.transition(lead.id, {
       expectedRevision: lead.revision,
@@ -141,21 +152,18 @@ test("Findings board moves record human overrides while agent transitions remain
     assert.equal(verified.operatorOverride, true);
     assert.equal(verified.evidence.length, observed.evidence.length);
 
-    const reported = await invokeAppServerProtocol("claim.board_transition", {
+    await assert.rejects(invokeAppServerProtocol("claim.board_transition", {
       args: [], input: { ...input, expectedRevision: verified.revision, targetMaturity: "reported" },
       storage: { databasePath, artifactDirectoryPath },
-    });
-    assert.equal(reported.status, "disclosed");
-    assert.equal(reported.maturity, "reported");
-    assert.equal(reported.operatorOverride, true);
+    }), /targetMaturity/);
 
     const refuted = await invokeAppServerProtocol("claim.board_transition", {
-      args: [], input: { ...input, expectedRevision: reported.revision, targetMaturity: "refuted" },
+      args: [], input: { ...input, expectedRevision: verified.revision, targetMaturity: "refuted" },
       storage: { databasePath, artifactDirectoryPath },
     });
     assert.equal(refuted.status, "rejected");
     assert.equal(refuted.maturity, "refuted");
-    assert.equal(refuted.revision, reported.revision + 1);
+    assert.equal(refuted.revision, verified.revision + 1);
     assert.equal(refuted.operatorOverride, true);
     const summary = await invokeAppServerProtocol("memory.summary", {
       args: [], input: context, storage: { databasePath, artifactDirectoryPath },

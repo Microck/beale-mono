@@ -67,6 +67,7 @@ export function generateSessionTitle(promptMarkdown: string): string {
 
 export function displaySessionTitle(title: string | null | undefined, promptMarkdown = ''): string {
   const normalized = normalizeTitle(title ?? '');
+  if (normalized.length <= 120 && /^Researching\s+\S/u.test(normalized)) return normalized;
   if (!isGeneratedSessionTitle(normalized)) {
     return promptMarkdown ? generateSessionTitle(promptMarkdown) : SESSION_TITLE_FALLBACK;
   }

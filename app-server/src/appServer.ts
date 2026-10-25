@@ -4,7 +4,6 @@ import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
 import { installPreBealeEnvironmentAliases } from '@beale/research-agent/legacy-compatibility';
-import { researchTrackProgress } from '@beale/research-agent';
 import { installUndiciTypeOfServiceCompatibility } from '@beale/app-server-runtime/node-network-compatibility';
 import {
   BEALE_APP_SERVER_CAPABILITIES,
@@ -237,7 +236,6 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
   let fleetProxyScanInProgress = false;
   let automationScanInProgress = false;
   let researchTrackScanInProgress = false;
-  const trackTitleEpochs = new Map<string, string>();
   let closing = false;
 
   const notifyChange = (): void => {
@@ -1059,6 +1057,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     const effectiveRequest = request;
     const runtime = createSessionRuntime(effectiveRequest, prepared);
     sessions.set(sessionId, runtime);
+    if (prepared.trackTitle) deliverTrackTitle(runtime, prepared.trackTitle);
     evictOldestTerminalSessions();
     try {
       await launchPreparedSession(runtime, prepared, effectiveRequest.launch.continuation === undefined);
@@ -1159,14 +1158,13 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
           const track = await hostCall(() => hostService.workspaceResearchTrack(runtime.request.launch.workspaceId, 'status'));
           if (!track || track.status !== 'running' || track.activeSessionId !== runtime.sessionId) {
             stopSession(runtime.sessionId, 'track_state');
-          } else if (runtime.state === 'running' && Date.now() - Date.parse(runtime.startedAt) >= 60_000
-            && trackTitleEpochs.get(track.id) !== `${track.pass}:${track.epochCount}`) {
-            const surface = track.surfaces.find((work) => work.surfaceId === track.activeSurfaceId);
-            const progress = researchTrackProgress(track);
-            const title = `Track · ${surface ? `Researching ${surface.name.slice(0, 60)}` : 'Selecting surface'} · ${progress.investigated}/${progress.total} investigated`;
-            await hostCall(() => hostService.updateResearchTrackSessionTitle(
-              runtime.request.launch.workspaceId, runtime.sessionId, track.epochCount, title));
-            trackTitleEpochs.set(track.id, `${track.pass}:${track.epochCount}`);
+          } else {
+            const title = await hostCall(() => hostService.updateResearchTrackSessionTitle(
+              runtime.request.launch.workspaceId, runtime.sessionId));
+            if (title) {
+              deliverTrackTitle(runtime, title);
+              notifyChange();
+            }
           }
         } catch { /* A transient status read must not interrupt active research. */ }
       }
@@ -1922,6 +1920,12 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
       delivered = true;
     }
     if (!delivered) queueClientFrame(runtime, frame);
+  }
+
+  function deliverTrackTitle(runtime: SessionRuntime, title: string): void {
+    const event = { schemaVersion: 1, kind: 'session.title', timestamp: new Date().toISOString(),
+      payload: { eventId: `track-title-${randomUUID()}`, status: 'generated', title } };
+    deliverClientFrame(runtime, Buffer.from(JSON.stringify(appServerSessionEvent(runtime.sessionId, event))));
   }
 
   function flushPendingClientFrames(runtime: SessionRuntime, clientSocket: WebSocket): void {

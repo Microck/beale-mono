@@ -99,7 +99,7 @@ export type FindingStatus =
   | "rejected";
 
 export type ResearchClaimProjection = "lead" | "finding";
-export type ResearchClaimMaturity = "proposed" | "observed" | "reproduced" | "verified" | "reported" | "refuted";
+export type ResearchClaimMaturity = "lead" | "observed" | "reproduced" | "verified" | "refuted";
 export type ResearchClaimRating = "informational" | "low" | "medium" | "high" | "critical";
 
 export type FindingEvidenceKind =

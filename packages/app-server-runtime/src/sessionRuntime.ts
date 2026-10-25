@@ -4053,7 +4053,7 @@ async function createRuntimeConfig(args: {
         const fleetTools = createFleetTools((operation, input) => invokeResidentFleetOperation(operation, {
           ...input,
           ...(args.sessionId ? { sessionId: args.sessionId } : {}),
-        }));
+        }), args.sessionId);
         executableTools.push(...fleetTools);
         toolDescriptors.push(...fleetTools.map((tool) => tool.descriptor));
       }

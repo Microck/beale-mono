@@ -3,14 +3,13 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { FleetState } from '@beale/app-server-runtime/protocol';
-import type { HostEnvironment, RunDetail, RunRow, WorkspaceSnapshot } from '@shared/types';
+import type { HostEnvironment, RunDetail, WorkspaceSnapshot } from '@shared/types';
 import { AppHeaderTitle, StaticAppHeaderTitle, type AppHeaderViewIcon } from '../src/renderer/app/AppHeaderTitle';
 import { AppNavigationRail, ProviderLimitIndicator, resolveAppNavigationDestination } from '../src/renderer/app/AppNavigationRail';
 import { FleetSidebar } from '../src/renderer/features/fleet/FleetSidebar';
 import { FleetSettingsView } from '../src/renderer/features/settings/FleetSettingsView';
 import { SettingsSidebar } from '../src/renderer/features/settings/SettingsModal';
 import { headerMenuInlineEnd, rightmostHeaderMenuControl, TopBar } from '../src/renderer/app/TopBar';
-import { SessionOverviewDialog } from '../src/renderer/features/sessions/SessionOverviewDialog';
 import {
   activeRunDetailForSelection,
   appShellClassName,
@@ -43,23 +42,22 @@ describe('renderer app shell view model', () => {
     const sessionHeader = renderToStaticMarkup(createElement(AppHeaderTitle, {
       workspaceName: 'Parser',
       workspaceViewTitle: null,
-      detail: { run: { id: 'run_current', title: 'Inspect parser states', promptMarkdown: 'Inspect parser states' } } as RunDetail,
-      onOpenSessionOverview: () => undefined
+      detail: { run: { id: 'run_current', title: 'Inspect parser states', promptMarkdown: 'Inspect parser states' } } as RunDetail
     }));
-    expect(sessionHeader).toContain('class="app-header-session-title app-header-session-overview-button"');
-    expect(sessionHeader).toContain('aria-label="Open Session Overview for Inspect parser states"');
+    expect(sessionHeader).toContain('class="app-header-session-title app-header-static-title"');
+    expect(sessionHeader).toContain('title="Inspect parser states"');
+    expect(sessionHeader).not.toContain('<button');
     const focusedHeader = renderToStaticMarkup(createElement(AppHeaderTitle, {
       workspaceName: 'Parser',
       detail: { run: { id: 'run_current', title: 'Inspect parser states', promptMarkdown: '' } },
-      surfaceFocus: { name: 'Request parser', additionalCount: 2 },
-      onOpenSessionOverview: () => undefined
+      surfaceFocus: { name: 'Request parser', additionalCount: 2 }
     }));
     expect(focusedHeader).toContain('aria-label="Parser, Inspect parser states, Request parser +2"');
     expect(focusedHeader).toContain('title="Request parser +2"');
     expect(focusedHeader).not.toContain('app-header-surface-separator');
     expect(focusedHeader).toContain('class="app-header-surface-name">Request parser</span>');
     expect(focusedHeader).toContain('class="app-header-surface-count">+2</span>');
-    expect(focusedHeader).toContain('aria-label="Open Session Overview for Inspect parser states"');
+    expect(focusedHeader).not.toContain('<button');
     const singleSurfaceHeader = renderToStaticMarkup(createElement(AppHeaderTitle, {
       workspaceName: 'Parser', detail: { run: { id: 'run_current', title: 'Inspect parser states', promptMarkdown: '' } },
       surfaceFocus: { name: 'Request parser', additionalCount: 0 }
@@ -94,52 +92,6 @@ describe('renderer app shell view model', () => {
       expect(header.indexOf('class="app-header-divider"')).toBeLessThan(header.indexOf(mainTitle));
       expect(header.match(/class="app-header-divider"/gu)).toHaveLength(1);
     }
-  });
-
-  it('renders the active session Trail projection in a wide squircle overview dialog', () => {
-    const run = {
-      run: {
-        id: 'run_current',
-        title: 'Inspect parser states',
-        promptMarkdown: 'Inspect parser states',
-        createdAt: '2026-08-26T12:00:00.000Z'
-      },
-      engine: 'pi',
-      sessionRuns: [{
-        id: 'session_run_current',
-        runId: 'run_current',
-        attemptId: 'attempt_current',
-        status: 'completed',
-        terminationCause: null,
-        activityIntervals: [{
-          id: 'interval_current',
-          runId: 'run_current',
-          attemptId: 'attempt_current',
-          startedAt: '2026-08-26T12:00:00.000Z',
-          endedAt: '2026-08-26T12:30:00.000Z'
-        }]
-      }]
-    } as unknown as RunRow;
-    const html = renderToStaticMarkup(createElement(SessionOverviewDialog, {
-      memory: null,
-      memoryTypes: [],
-      nowMs: Date.parse('2026-08-26T13:00:00.000Z'),
-      onClose: () => undefined,
-      run,
-      sessionHeatPreferences: { heatOverrides: {}, paletteOverrides: {} }
-    }));
-
-    expect(html).toContain('class="modal-panel wide-modal session-overview-dialog"');
-    expect(html).toContain('>Session Overview</h2>');
-    expect(html).toContain('<h3>Inspect parser states</h3>');
-    expect(html).toContain('<p>30m</p>');
-    expect(html).toContain('class="campaign-session-projection"');
-    expect(html).toContain('complete session activity: 30m');
-    expect(html).toContain('class="workspace-timeline-segment"');
-
-    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
-    expect(styles).toMatch(/\.modal-panel\.session-overview-dialog\s*\{[^}]*width: min\(1180px, calc\(100vw - 36px\)\);[^}]*border-radius: 34px;[^}]*corner-shape: squircle;/u);
-    expect(styles).toMatch(/\.session-overview-dialog \.campaign-session-projection\s*\{[^}]*height: 72px;/u);
   });
 
   it('renders Settings after Fleet in the top group and reserves the bottom for limits', () => {
@@ -385,6 +337,7 @@ describe('renderer app shell view model', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const workspaceLabelStyles = styles.match(/\.app-header-workspace-title\s*\{([^}]*)\}/u)?.[1] ?? '';
     const secondaryLabelStyles = styles.match(/\.app-header-session-title\s*\{([^}]*)\}/u)?.[1] ?? '';
+    const sharedSessionSurfaceStyles = styles.match(/\.app-header-session-title,\s*\.app-header-surface-title\s*\{([^}]*)\}/u)?.[1] ?? '';
     expect(styles).toContain('--main-content-inline-start: calc(var(--navigation-rail-width) + var(--sidebar-width))');
     expect(styles).toMatch(/\.window-menu \.sidebar-toggle-button\s*\{[^}]*margin-left: 6px;/u);
     expect(styles).toMatch(/\.app-shell\.sidebar-collapsed\s*\{\s*--main-content-inline-start: var\(--navigation-rail-width\);/u);
@@ -396,9 +349,12 @@ describe('renderer app shell view model', () => {
       expect(labelStyles).toContain('align-self: center');
       expect(labelStyles).toContain('box-sizing: border-box');
       expect(labelStyles).toContain('padding: 0 6px');
-      expect(labelStyles).toContain('line-height: 1');
-      expect(labelStyles).toContain('font-size: 1rem');
     }
+    expect(workspaceLabelStyles).toContain('line-height: 1');
+    expect(workspaceLabelStyles).toContain('font-size: 1rem');
+    expect(sharedSessionSurfaceStyles).toContain('line-height: 1');
+    expect(sharedSessionSurfaceStyles).toContain('font-size: 1rem');
+    expect(sharedSessionSurfaceStyles).toContain('font-weight: 400');
     expect(styles).toMatch(/@media \(max-width: 820px\)[\s\S]*?\.app-shell\s*\{\s*--main-content-inline-start: var\(--navigation-rail-width\);/u);
     expect(styles).not.toContain('left: 180px;');
   });

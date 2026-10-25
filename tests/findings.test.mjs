@@ -26,6 +26,41 @@ import {
 
 const workspace = { workspaceId: "workspace_findings", workspaceName: "Findings", subjectId: "subject_findings", subjectName: "Findings" };
 
+test("model tools create, list, and promote Leads in the canonical claim lifecycle", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "beale-lead-lifecycle-example-"));
+  const graph = new MemoryGraphStore({ workspaceRoot, context: { ...workspace, sessionId: "session_lead_example" } });
+  const claims = new FindingStore(graph);
+  try {
+    const registry = createResearchToolRegistry(createFindingTools(claims));
+    const created = await registry.execute({ id: "lead_create_example", toolName: "lead.create", actionClass: "synthesize",
+      input: { title: "Example parser candidate", classification: "security.vulnerability", rating: "medium",
+        summary: "A frame length may reach an unchecked allocation." } });
+    assert.equal(created.result.status, "complete");
+    const lead = created.result.output;
+    assert.equal(lead.projection, "lead");
+    assert.equal(lead.maturity, "lead");
+    const duplicate = await registry.execute({ id: "lead_duplicate_example", toolName: "lead.create", actionClass: "synthesize",
+      input: { title: "Example parser candidate", classification: "security.vulnerability", rating: "medium" } });
+    assert.equal(duplicate.result.status, "error");
+    assert.match(duplicate.result.error.message, /Potential existing claims/);
+    const listed = await registry.execute({ id: "lead_list_example", toolName: "lead.list", actionClass: "recall", input: {} });
+    assert.equal(listed.result.output.leads.some((claim) => claim.id === lead.id), true);
+    const promoted = await registry.execute({ id: "lead_promote_example", toolName: "finding.transition", actionClass: "synthesize",
+      input: { id: lead.id, expectedRevision: lead.revision, toStatus: "observed",
+        reason: "The example parser branch is reachable.",
+        evidence: [{ kind: "code", referenceId: "src/example-parser.ts:42", summary: "Length reaches allocation." }] } });
+    assert.equal(promoted.result.status, "complete");
+    assert.equal(promoted.result.output.projection, "finding");
+    assert.equal(promoted.result.output.maturity, "observed");
+    const after = await registry.execute({ id: "lead_list_after_promotion", toolName: "lead.list", actionClass: "recall", input: {} });
+    assert.equal(after.result.output.leads.some((claim) => claim.id === lead.id), false);
+  } finally {
+    claims.close();
+    graph.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test("legacy risk and affected version fields remain readable and are dropped on the next finding revision", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "beale-legacy-finding-tracking-"));
   const graph = new MemoryGraphStore({ workspaceRoot, context: { ...workspace, sessionId: "session_legacy" } });
@@ -409,7 +444,8 @@ test("finding lifecycle is canonical, evidence-gated, and supports same-session 
     assert.equal(findingRegistry.listTools().some((tool) => tool.descriptor.name === "claim.board_transition"), false);
     assert.ok(createTool.parameters.required.includes("rating"));
     assert.ok(createTool.parameters.required.includes("evidence"));
-    assert.equal(findingRegistry.listTools().some((tool) => tool.descriptor.name === "lead.create" || tool.descriptor.name === "lead.list"), false);
+    assert.equal(findingRegistry.listTools().some((tool) => tool.descriptor.name === "lead.create"), true);
+    assert.equal(findingRegistry.listTools().some((tool) => tool.descriptor.name === "lead.list"), true);
     assert.deepEqual(createTool.parameters.properties.rating.enum, ["informational", "low", "medium", "high", "critical"]);
     const obsoleteVersionUpdate = await findingRegistry.execute({
       id: "finding_reject_affected_versions",
@@ -590,6 +626,7 @@ test("finding lifecycle is canonical, evidence-gated, and supports same-session 
       evidence: [{ kind: "disclosure", referenceId: "program:submission:123", summary: "Submission receipt." }],
     });
     assert.equal(finding.status, "disclosed");
+    assert.equal(finding.maturity, "verified");
     assert.deepEqual(finding.transitions.map((transition) => transition.revision), [1, 2, 3, 4, 5, 6, 7]);
     assert.deepEqual(finding.transitions.map((transition) => transition.toStatus), ["observed", "observed", "observed", "reproduced", "verified", "report_ready", "disclosed"]);
     assert.deepEqual(
@@ -791,7 +828,7 @@ function researchClaim(overrides = {}) {
   const now = "2026-08-23T12:00:00.000Z";
   return {
     id: "claim_default", workspaceId: "workspace_findings", subjectId: "subject", memoryNodeId: null,
-    originSessionId: "session", projection: "lead", maturity: "proposed",
+    originSessionId: "session", projection: "lead", maturity: "lead",
     rating: "informational",
     classification: "security.vulnerability", title: "Candidate", summary: "", impact: "", stepsToReproduce: "",
     securityTracking: null,

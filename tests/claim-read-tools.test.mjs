@@ -48,6 +48,8 @@ test("claim.get retrieves persisted evidence and audit context for the same ID b
   assert.deepEqual(lead.claim.authors, [{ provider: "example-provider", model: "example-model" }]);
   assert.equal(lead.transitions.items[0].actorId, "agent-example");
   assert.equal(lead.evidence.total, 0);
+  const leadSearch = await execute("history.search", { types: ["claims"], query: "formatting" });
+  assert.equal(leadSearch.output.results.some((result) => result.id === claim.id), true);
 
   claim = store.transition(claim.id, {
     expectedRevision: claim.revision, toStatus: "observed", reason: "Reviewed the example format documentation.",

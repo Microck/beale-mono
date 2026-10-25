@@ -36,6 +36,7 @@
 
 #### Removed
 
+- Removed the Desktop session title button and Session Overview dialog; the header retains the title as text.
 - Removed affected version tracking from findings, completion checks, tools, and client projections. Existing stored version fields are ignored; affected asset IDs remain in finding detail tags. Contract v57 requires rebuilt Beale and app-server clients.
 - Removed the derived finding Workflow field from tools, projections, and client views; attention and suggestion selection now use status directly. Workspace catalogs carry the canonical status, including stale provenance. Contract v56 requires rebuilt Beale and app-server clients.
 - Removed the derived `current`/`stale` freshness field from finding tools and client projections. Explicit stale status and its recorded reason remain available for known invalidation. Contract v55 requires rebuilt Beale and app-server clients.
@@ -252,6 +253,7 @@
 
 #### Fixed
 
+- Workspace runbook details now keep loading until their cells are applied and show a clear error if the app-server returns a different runbook.
 - Resuming a local research track now unlocks saved API keys for its lead and enabled collaborators before the app-server schedules the next epoch.
 - Desktop now handles incomplete app-server JSON replies without surfacing a raw parse error. Research-track status and session attachment reads retry; lost track-control and session-start replies reconcile against the committed state without replaying Start.
 - Running track sessions keep their commentary expanded and live detail polling active across completed or blocked epoch handoffs, including in remote session views. Session stop controls pause the track during a handoff.
@@ -401,8 +403,7 @@
 - Beale iOS workspace views can now start a new research session from a multiline request, using app-server-owned provider and safety policy before opening the live session commentary.
 - Desktop Lag Profiling can now be enabled from General settings and captures bounded renderer long tasks, event-loop delay, dropped-frame gaps, React commit cost, session projection work, input latency, and a correlated timing timeline. Its profiling overview ranks likely lag causes and writes the complete structured session to temporary JSONL.
 - Repository Resources now open an explicit Deep or Shallow clone dialog. Deep clones are the default for full-history research, while depth-one shallow clones remain available for prohibitively large repositories.
-- Desktop workspace Campaign views now include a four-lane Board beside Trail for Refuted, Observed, Reproduced, and Verified findings. Equal-width, independently scrolling swimlanes show their filtered finding counts, reuse Priority Claim cards with compact rating metadata and filtering that prefer the latest CVSS qualitative severity, explicitly exclude proposed Leads, and support inline Class and Rating filters; Trail and Board headings identify their active subview.
-- Active Desktop session titles in the app header now open a wide squircle Session Overview dialog with the session's activity projection.
+- Desktop workspace Campaign views now include a four-lane Board beside Trail for Lead, Observed, Reproduced, and Verified claims, with refuted claims in a separate list. Equal-width, independently scrolling lanes show filtered counts, reuse Priority Claim cards with compact rating metadata and filtering that prefer the latest CVSS qualitative severity, and support inline Class and Rating filters; Trail and Board headings identify their active subview.
 - Desktop workspace Campaign views use a consistently plural Memories label and align Memories and Runbooks headings with Highlights and Board.
 - Desktop Quick Chat opens compact, collapsible, closeable chat cards from the left sidenav and stacks concurrent chats leftward from the bottom-right corner. Quick chats run in an unlisted internal workspace with authenticated introspection tools for querying and editing registered Beale workspaces.
 - Desktop Agent Settings now includes an Archive view for archived Sessions and Channels. Hover archive controls replace sidebar activity ages, require confirmation, preserve durable research data, and allow both item types to be restored.
@@ -465,7 +466,7 @@
 - Runbooks now appear as one scope-aware list inside Campaign with an All Runbooks or No Runbooks filter. The standalone Runbooks sidenav view is removed, summary Runbook actions enter a runbooks-only Campaign projection, and selected runbooks open as nested Campaign details.
 - Expanded Campaign Memory rows now show an inline database icon colored by memory status: amber for neutral, green for positive, red for negative, and muted for unknown.
 - Subagent list rows now use status-colored robot icons for completed, interrupted, and errored agents, replacing them with the existing animated spinner while an agent is active.
-- Expanded Campaign Lead and Finding list icons now use claim-maturity colors: muted for proposed or observed, amber for reproduced, green for verified, and red for refuted.
+- Expanded Campaign Lead and Finding list icons now use claim-maturity colors: muted for Lead or Observed, amber for Reproduced, green for Verified, and red for Refuted.
 - Session summary Lead, Finding, and total Memories actions now enter Campaign with matching dropdown selections and show only the requested catalog lists.
 - Session summaries and expanded claim lists now use distinct lightbulb Lead and verified-badge Finding icons; list icons flow inline with naturally wrapping titles.
 - Selected Subagent commentary headers now place the live status spinner or dot immediately before the subagent name.
@@ -1464,6 +1465,7 @@
 
 #### Fixed
 
+- Continuous research sessions receive a surface-based title when created and update it for each new epoch. Active tracks repair stale titles and send title events to connected clients; Desktop preserves long surface titles instead of replacing them with the track prompt heading.
 - Starting a new Continuous research pass immediately after Stop now works while the prior worker exits. Each pass gets a distinct session, and the next pass waits for the prior worker to finish before launching.
 - A provider stream that ends with incomplete JSON before actionable model output now follows the bounded research-session retry path instead of failing the session on the first occurrence. Fleet research-track forwarding also retries incomplete status replies and reconciles lost control replies without replaying the action.
 - Artifact manifest writes now replace the complete file atomically, so concurrent runbook preparation cannot read an empty or partial manifest. Invalid manifest and runbook notebook JSON now produce a preservation-oriented error instead of a raw parser exception.
@@ -1500,11 +1502,13 @@
 
 #### Changed
 
+- The Findings board restores Lead as its first lane and removes Reported. Model tools can create and list Leads, then promote the same claim after direct observation; human board moves can also promote or return Leads. Disclosed claims remain in Verified while retaining their disclosure status. Control contract v61 and updated finding and memory-summary schemas require rebuilt clients and app servers.
+- Fleet research tools now show whether a VM is reserved by the current session, another session, or nobody without exposing owner IDs. Model-facing `fleet.stop` accepts only current-session reservations, and VM guidance checks shared lead/subagent ownership before declaring a capacity blocker.
 - Research tracks now rank surfaces by likely impact, available target validation, and stalled epochs. Session and first-touch guidance prioritize reachable vendor APIs and SDKs, seek new security surfaces after low-yield work, and keep third-party integrations outside the recorded boundary.
 - Security research can add unlisted resources covered by recorded broad scope inclusions or rules. Resource first touch now sends the recorded boundary to Auto-Review, keeps explicit exclusions authoritative, and makes approved discoveries eligible for surface research; the Codex tool bridge uses the same review path. A scope change invalidates prior ambient approvals for renewed review. Older stored Security profile snapshots receive the updated guidance at prompt assembly without changing their saved hashes.
 - Research tracks now score surface actionability from fresh canonical evidence, decay stale or stalled work, prioritize child proof paths before exhausting resource roots, and return periodically to breadth. Checkpoints record the actual validation environment, reward localhost-only target evidence less, and prevent completion of target-dependent work from host-only tests. Existing track surface rows gain score and validation columns automatically. Epoch prompts favor authorized target execution and record unavailable device or VM validation as a coverage gap; control contract v60 requires rebuilt clients.
 - Security report creation now advances one verified finding with current reproduction, independent review, impact, and proof evidence. Historical review bindings from retired composite records remain valid until their reviewed content changes.
-- The Findings feature now creates only observed records with durable direct evidence through `finding.create`; model-facing lead creation and listing are removed. Existing proposed records remain in storage for compatibility and are excluded from normal finding catalogs and campaign context. Reported maps to disclosed findings; human board transitions retain their override audit trail.
+- `finding.create` records directly observed claims with durable evidence; `lead.create` records Leads for promotion through the same lifecycle. Human board transitions retain their override audit trail.
 - Session storage schema v9 stops recording replay interval events; existing historical rows remain in the database. The surface map projects current first-touch state and active agent positions.
 - Only Goal mode exposes `session.disposition`; its model input is now achieved, continue, or waiting on a concrete external change. Ordinary sessions store their final response without a model-authored disposition, while existing disposition records remain readable.
 - Research goal suggestions now use one short model response per goal, compact security and surface context, and per-goal retries. Generated goals persist incrementally; version 3 caches replace the earlier bulk candidate pool and its strict grounding and similarity filters.

@@ -129,6 +129,7 @@ test("the default prompt keeps boundary guidance focused on scope and host safeg
   assert.match(toolsSection, /Tool routing:\n/);
   assert.match(toolsSection, /Resource first touch:\n/);
   assert.match(toolsSection, /Execution dependencies:\n/);
+  assert.match(toolsSection, /Before calling a VM slot occupied or a running guest unrelated, check fleet\.list/);
   assert.match(toolsSection, /Shell fallback:\n/);
   assert.doesNotMatch(toolsSection, /cross-workspace mutation|At evidence checkpoints|After repairing an execution dependency/);
   assert.match(session, /At evidence checkpoints, rank at most three candidates/);
@@ -199,8 +200,8 @@ test("discovery guidance treats existing findings as prior art while allowing re
   });
   assert.match(prompt, /When the user asks to find a vulnerability, a severity, or a bug class, pursue a distinct new candidate/);
   assert.match(prompt, /Work on an existing claim when the user directly asks for that claim or asks to continue, reproduce, verify, or report existing work/);
-  assert.match(prompt, /Before finding\.create, search and inspect plausible existing findings for the same root cause and affected condition/);
-  assert.match(prompt, /sharing a classification or severity never makes two findings duplicates/);
+  assert.match(prompt, /Before lead\.create or finding\.create, search and inspect plausible existing claims for the same root cause and affected condition/);
+  assert.match(prompt, /sharing a classification or severity never makes two claims duplicates/);
 });
 
 test("collaboration guidance separates delegation, documentation, profile protocol, and runtime policy", () => {

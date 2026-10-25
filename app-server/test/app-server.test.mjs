@@ -2374,7 +2374,14 @@ test('app-server prepares and releases every VM in one selected-target session',
 test("research track launch retains collaboration settings and enabled browser tools", async () => {
   const directory = mkdtempSync(join(tmpdir(), "beale-track-launch-"));
   temporaryDirectories.push(directory);
+  const trackStore = new ResearchTrackStore({ databasePath: join(directory, "memory.sqlite"), workspaceId: "workspace-test" });
+  const surface = { id: "surface-example", parentId: null, name: "Example service",
+    coverageState: { covered: false, unmetRequirements: ["surface_map"] }, progressBlocker: null };
+  trackStore.start({ scopeId: "scope-example", provider: { id: "openai-codex" }, targetIds: ["local"], surfaces: [surface] });
+  trackStore.reserveNext("track-example", [surface]);
+  trackStore.close();
   const calls = [];
+  let canonicalSession = null;
   const service = new AppServerHostService({
     registry: hostRegistryFixture(directory),
     invokeProtocol: async (operation, options) => {
@@ -2383,8 +2390,15 @@ test("research track launch retains collaboration settings and enabled browser t
       if (operation === "plugin.runtime") return {
         managedPluginIds: MANAGED_TOOL_PLUGIN_IDS, skillDirs: [], selectedSkillIds: [], allowedMcpServers: []
       };
-      if (operation === "session.get") throw new Error("Session not found: track-example");
-      if (operation === "session.create") return { revision: 1 };
+      if (operation === "session.get") {
+        if (!canonicalSession) throw new Error("Session not found: track-example");
+        return canonicalSession;
+      }
+      if (operation === "session.create") {
+        canonicalSession = { ...options.input, revision: 1 };
+        return canonicalSession;
+      }
+      if (operation === "session.append_event") return { revision: 2 };
       throw new Error(`Unexpected operation: ${operation}`);
     },
   });
@@ -2400,6 +2414,10 @@ test("research track launch retains collaboration settings and enabled browser t
   const createCall = calls.find((call) => call.operation === "session.create");
 
   assert.deepEqual(createCall.options.input.metadata.bealeRun.budget.collaboration, collaboration);
+  assert.equal(createCall.options.input.title, "Researching Example service");
+  assert.equal(prepared.trackTitle, "Researching Example service");
+  const titleCall = calls.find((call) => call.operation === "session.append_event");
+  assert.equal(titleCall, undefined);
   assert.deepEqual(createCall.options.input.metadata.appServerRestartLaunch.launch.collaboration, collaboration);
   assert.deepEqual(JSON.parse(readFileSync(prepared.launch.collaborationConfigPath, "utf8")), collaboration);
   assert.ok(prepared.launch.pluginRuntime.managedPluginIds.includes("beale-browser"));
@@ -2977,6 +2995,7 @@ test('automatically launches a reserved research-track epoch while the app-serve
   const upstream = await createFakeAppServerSessionHost();
   const hostService = testHostService(directory);
   let scanned = false;
+  let titleChecks = 0;
   hostService.dueResearchTracks = async () => {
     if (scanned) return [];
     scanned = true;
@@ -2989,11 +3008,28 @@ test('automatically launches a reserved research-track epoch while the app-serve
     return [{ request }];
   };
   hostService.workspaceResearchTrack = async () => ({ status: 'running', activeSessionId: 'session-track-example' });
+  hostService.updateResearchTrackSessionTitle = async () => {
+    titleChecks += 1;
+    return 'Researching Example service';
+  };
   const server = await startAppServer({ hostService, spawnSession: upstream.spawnSession });
   servers.push(server);
   await waitFor(() => server.listSessions().some((session) => session.sessionId === 'session-track-example'));
   assert.equal(server.listSessions().find((session) => session.sessionId === 'session-track-example')?.state, 'running');
+  await waitFor(() => titleChecks > 0);
+  const attachedResponse = await fetch(`${server.url}/v1/sessions/session-track-example/attachments`, {
+    method: 'POST', headers: { authorization: `Bearer ${server.operatorToken}` }
+  });
+  assert.equal(attachedResponse.status, 201);
+  const attached = await attachedResponse.json();
+  const messages = [];
+  const socket = await connect(webSocketUrl(server.url, attached.transport.path), attached.transport.token, messages);
+  socket.send(JSON.stringify(clientHello('session-track-example', 'beale-desktop')));
+  await waitFor(() => messages.some((message) => message.type === 'session.event'
+    && message.event.kind === 'session.title'
+    && message.event.payload.title === 'Researching Example service'));
   upstream.complete();
+  await waitForSocketClose(socket);
 });
 
 test('pauses a track when its terminal session state cannot be persisted', async () => {

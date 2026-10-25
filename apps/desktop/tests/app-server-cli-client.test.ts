@@ -13,6 +13,7 @@ import {
 import {
   decodeAppServerProtocolEnvelope,
   decodeAppServerMemorySummary,
+  getAppServerRunbookDocument,
   getAppServerProtocolDescriptor,
   invokeAppServerCliProtocol,
   invokeAppServerCliProtocolAsync,
@@ -25,7 +26,7 @@ const compatibleDescriptor = {
   protocolVersion: 1,
   contractVersion: APP_SERVER_CONTRACT_VERSION,
   runtime: { name: 'app-server', version: '0.1.0', buildId: 'fixture-build', nodeVersion: process.version },
-  schemas: { protocol: 1, session: 1, memorySummary: 13, finding: 6, campaignGraph: 5, goalSuggestions: 1 },
+  schemas: { protocol: 1, session: 1, memorySummary: 14, finding: 7, campaignGraph: 5, goalSuggestions: 1 },
   capabilities: [...APP_SERVER_PROTOCOL_CAPABILITIES],
   operations: ['protocol.describe'],
   transports: {
@@ -230,6 +231,62 @@ describe('app-server protocol client', () => {
           '--workspace-id', 'workspace_two',
           '--limit', '200', '--json'
         ]
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('unwraps the hosted runbook document for the selected workspace', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'beale-runbook-read-'));
+    createdDirectories.push(directory);
+    const document = {
+      runbookId: 'runbook-example', nbformat: 4, nbformatMinor: 5,
+      language: null, revision: 1, enabledFeatures: [], latestRun: null,
+      cells: [{
+        id: 'cell-example', type: 'markdown', source: 'Synthetic verification step',
+        features: [], active: true, executor: { kind: 'host', timeoutSeconds: 60 },
+        language: null, executionCount: null, latestRun: null, outputs: []
+      }]
+    };
+    let receivedBody: Record<string, unknown> | null = null;
+    const server = createServer((request, response) => {
+      if (request.url === '/health') {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({
+          ok: true,
+          controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
+          contractTimestamp: BEALE_APP_SERVER_CONTRACT_TIMESTAMP,
+          capabilities: BEALE_APP_SERVER_CAPABILITIES
+        }));
+        return;
+      }
+      let body = '';
+      request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8'); });
+      request.on('end', () => {
+        receivedBody = JSON.parse(body) as Record<string, unknown>;
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ controlVersion: BEALE_APP_SERVER_CONTROL_VERSION, result: document }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Expected a loopback test server.');
+      const url = `http://127.0.0.1:${address.port}`;
+      process.env.BEALE_APP_SERVER_STATE_FILE = join(directory, 'app-server.json');
+      writeFileSync(process.env.BEALE_APP_SERVER_STATE_FILE, JSON.stringify({
+        version: 1, hostMode: 'tray', pid: process.pid, host: '127.0.0.1',
+        port: address.port, localUrl: url, url,
+        operatorToken: 'test-operator-token', startedAt: new Date().toISOString()
+      }), 'utf8');
+
+      await expect(getAppServerRunbookDocument('workspace-example', 'runbook-example', {
+        databasePath: join(directory, 'memory.sqlite'), artifactDirectoryPath: join(directory, 'artifacts')
+      })).resolves.toEqual(document);
+      expect(receivedBody).toMatchObject({
+        operation: 'runbook.get',
+        input: { workspaceId: 'workspace-example', runbookId: 'runbook-example' }
       });
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));

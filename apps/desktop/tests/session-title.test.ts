@@ -13,6 +13,11 @@ describe('session title generation', () => {
     expect(displaySessionTitle("Let's perform deep vulnerability analysis on the Sample Parser open source library by ExampleCo")).toBe(SESSION_TITLE_FALLBACK);
   });
 
+  it('keeps a track surface title even when the surface name exceeds six words', () => {
+    const title = 'Researching Example service client library authentication and request routing';
+    expect(displaySessionTitle(title, '# Continuous research track')).toBe(title);
+  });
+
   it('prefers meaningful generated prompt headings over boilerplate sections', () => {
     const prompt = `## Next research session: ExampleCo Help Center first-party support/chat surface
 

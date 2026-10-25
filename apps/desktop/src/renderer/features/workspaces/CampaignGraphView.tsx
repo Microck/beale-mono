@@ -21,7 +21,7 @@ import { Modal } from '../../app/Modal';
 import { MainSideScrollRegion } from '../../app/MainSideScrollRegion';
 import { memoryTypeClassName, memoryTypeLabel, memoryTypeStyle } from '../research/MemoryTypeLabel';
 
-const CAMPAIGN_BOARD_MATURITIES: readonly ClaimBoardMaturity[] = ['observed', 'reproduced', 'verified', 'reported'];
+const CAMPAIGN_BOARD_MATURITIES: readonly ClaimBoardMaturity[] = ['lead', 'observed', 'reproduced', 'verified'];
 type CampaignBoardMaturity = ClaimBoardMaturity;
 export function adjacentCampaignBoardMaturity(maturity: ClaimBoardMaturity, direction: -1 | 1): ClaimBoardMaturity | null {
   const index = CAMPAIGN_BOARD_MATURITIES.indexOf(maturity);
@@ -69,7 +69,7 @@ export function CampaignBoardView({
   const [pendingClaimId, setPendingClaimId] = useState<string | null>(null);
   const [transitionError, setTransitionError] = useState<string | null>(null);
   const [refutedOpen, setRefutedOpen] = useState(false);
-  const [localFocusedMaturity, setLocalFocusedMaturity] = useState<ClaimBoardMaturity>('observed');
+  const [localFocusedMaturity, setLocalFocusedMaturity] = useState<ClaimBoardMaturity>('lead');
   const selectedMaturity = focusedMaturity && CAMPAIGN_BOARD_MATURITIES.includes(focusedMaturity)
     ? focusedMaturity : localFocusedMaturity;
   const focusMaturity = (maturity: ClaimBoardMaturity): void => {
@@ -97,7 +97,7 @@ export function CampaignBoardView({
     setDropTarget(null);
   };
 
-  const draggedClaim = memory?.findings.find((claim) => claim.id === draggedClaimId) ?? null;
+  const draggedClaim = [...(memory?.leads ?? []), ...(memory?.findings ?? [])].find((claim) => claim.id === draggedClaimId) ?? null;
 
   useEffect(() => {
     if (authorOptions.some((option) => option.value === authorFilter)) return;
@@ -162,7 +162,7 @@ export function CampaignBoardView({
             {refutedFindings.length.toLocaleString()} refuted hidden
           </button> : null}
         </div>
-        {pendingClaimId ? <p className="campaign-board-transition-pending" role="status">Updating finding status…</p> : null}
+        {pendingClaimId ? <p className="campaign-board-transition-pending" role="status">Updating claim status…</p> : null}
         {transitionError ? <p className="campaign-board-transition-error" role="alert">{transitionError}</p> : null}
       </header>
 
@@ -187,7 +187,8 @@ export function CampaignBoardView({
               onDrop={(event) => {
                 event.preventDefault();
                 clearDrag();
-                if (!draggedClaim || draggedClaim.maturity === maturity || !onTransitionClaim || pendingClaimId) return;
+                if (!draggedClaim || draggedClaim.maturity === maturity
+                  || !onTransitionClaim || pendingClaimId) return;
                 focusMaturity(maturity);
                 setPendingClaimId(draggedClaim.id);
                 setTransitionError(null);
@@ -223,7 +224,7 @@ export function CampaignBoardView({
                 updateKey={`${loading}:${ratingFilter}:${authorFilter}:${query}:${findings.map(({ id, revision }) => `${id}:${revision}`).join('|')}`}
               >
                 {loading ? <p className="campaign-board-empty">Loading findings.</p> : findings.length === 0 ? (
-                  <p className="campaign-board-empty">No {maturity} findings.</p>
+                  <p className="campaign-board-empty">{maturity === 'lead' ? 'No leads.' : `No ${maturity} findings.`}</p>
                 ) : findings.map((claim) => (
                   <CampaignClaimCard
                     claim={claim}
@@ -244,7 +245,7 @@ export function CampaignBoardView({
           );
         })}
       </div>
-      {refutedOpen ? <Modal onClose={() => setRefutedOpen(false)} title="Refuted findings">
+      {refutedOpen ? <Modal onClose={() => setRefutedOpen(false)} title="Refuted claims">
         <div className="campaign-board-refuted-list">
           {refutedFindings.length ? refutedFindings.map((claim) => <CampaignClaimCard
             claim={claim}
@@ -253,7 +254,7 @@ export function CampaignBoardView({
             active={openClaimId === claim.id}
             onOpenClaim={(id) => { setRefutedOpen(false); onOpenClaim(id); }}
             providerModelCatalog={providerModelCatalog}
-          />) : <p>No refuted findings.</p>}
+          />) : <p>No refuted claims.</p>}
         </div>
       </Modal> : null}
     </section>
@@ -317,7 +318,10 @@ export function campaignBoardFindings(
   filters: { rating: CampaignBoardRatingFilter; author?: string; query?: string } = { rating: 'all' }
 ): AppServerFindingSummary[] {
   const query = filters.query?.trim().toLocaleLowerCase() ?? '';
-  return (memory?.findings ?? []).filter((claim) => claim.maturity === maturity
+  const claims = maturity === 'lead' ? memory?.leads ?? []
+    : maturity === 'refuted' ? [...(memory?.leads ?? []), ...(memory?.findings ?? [])]
+      : memory?.findings ?? [];
+  return claims.filter((claim) => claim.maturity === maturity
     && (filters.rating === 'all' || campaignClaimRatingPresentation(claim).value === filters.rating)
     && (!filters.author || filters.author === 'all' || claim.authors.some((author) => campaignBoardAuthorKey(author) === filters.author))
     && (!query || [claim.id, claim.title, claim.summary, claim.impact, claim.classification, claim.status,
@@ -334,7 +338,7 @@ export function campaignBoardAuthorOptions(
   providerModelCatalog: readonly ResearchProviderModelCatalog[]
 ): Array<{ value: string; label: string }> {
   const authors = new Map<string, AppServerFindingSummary['authors'][number]>();
-  for (const finding of memory?.findings ?? []) {
+  for (const finding of [...(memory?.leads ?? []), ...(memory?.findings ?? [])]) {
     if (!CAMPAIGN_BOARD_MATURITIES.some((maturity) => maturity === finding.maturity)) continue;
     for (const author of finding.authors) if (author.model.trim()) authors.set(campaignBoardAuthorKey(author), author);
   }

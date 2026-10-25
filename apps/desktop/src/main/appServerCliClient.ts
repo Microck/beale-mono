@@ -1256,7 +1256,7 @@ function validFindingSummary(value: unknown): boolean {
     && (value.memoryNodeId === null || nonEmptyText(value.memoryNodeId))
     && (value.projection === 'lead' || value.projection === 'finding')
     && ['informational', 'low', 'medium', 'high', 'critical'].includes(String(value.rating))
-    && ['proposed', 'observed', 'reproduced', 'verified', 'reported', 'refuted'].includes(String(value.maturity))
+    && ['lead', 'observed', 'reproduced', 'verified', 'refuted'].includes(String(value.maturity))
     && nonEmptyText(value.classification)
     && nonEmptyText(value.title)
     && typeof value.stepsToReproduce === 'string'
@@ -1365,7 +1365,7 @@ function validResearchClaimDuplicateSummary(value: unknown): boolean {
   return isPlainRecord(value)
     && nonEmptyText(value.id)
     && (value.projection === 'lead' || value.projection === 'finding')
-    && ['proposed', 'observed', 'reproduced', 'verified', 'reported', 'refuted'].includes(String(value.maturity))
+    && ['lead', 'observed', 'reproduced', 'verified', 'refuted'].includes(String(value.maturity))
     && ['informational', 'low', 'medium', 'high', 'critical'].includes(String(value.rating))
     && nonEmptyText(value.classification)
     && nonEmptyText(value.title)

@@ -117,18 +117,66 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
   const context = store.getContext();
   const readableWorkspaces = readableWorkspaceCatalog(context.workspaceId, context.workspaceName, defaults.referenceWorkspaces);
   return [
-    findingTool("claim.get", "claim_get", "Read one finding by its stable ID, including evidence references, provenance, transition reasons, and duplicate relationships. workspaceId may select a host-verified same-Subject workspace and remains read-only. Results page each collection; use section and nextOffset with expectedReadRevision to read more without repeating the overview.", "read", {
+    findingTool("claim.get", "claim_get", "Read one lead or finding by its stable ID, including evidence references, provenance, transition reasons, and duplicate relationships. workspaceId may select a host-verified same-Subject workspace and remains read-only. Results page each collection; use section and nextOffset with expectedReadRevision to read more without repeating the overview.", "read", {
       type: "object",
       required: ["id"],
       properties: {
-        id: { type: "string", description: "Finding ID from history.search or finding.list; also accepts a retained duplicate ID." },
-        workspaceId: { type: "string", enum: readableWorkspaces.map((workspace) => workspace.workspaceId), description: "Workspace owning the finding. Omit for the current workspace; another advertised same-Subject workspace is read-only." },
+        id: { type: "string", description: "Claim ID from history.search, lead.list, or finding.list; also accepts a retained duplicate ID." },
+        workspaceId: { type: "string", enum: readableWorkspaces.map((workspace) => workspace.workspaceId), description: "Workspace owning the claim. Omit for the current workspace; another advertised same-Subject workspace is read-only." },
         section: { type: "string", enum: CLAIM_DETAIL_SECTIONS, description: "Defaults to all: overview plus the first page of each collection. Select one section for focused follow-up reads." },
         offset: { type: "integer", minimum: 0, description: "Collection offset, default 0. Follow a section's nextOffset; offsets above zero require expectedReadRevision." },
         limit: { type: "integer", minimum: 1, maximum: 50, description: "Rows per collection, default 10. Reduce for large evidence metadata or transition reasons." },
-        expectedReadRevision: { type: "string", description: "readRevision returned by claim.get, covering the finding and its related duplicate rows. If it changed, restart at offset 0; numeric revision remains the version used for edits." },
+        expectedReadRevision: { type: "string", description: "readRevision returned by claim.get, covering the claim and its related duplicate rows. If it changed, restart at offset 0; numeric revision remains the version used for edits." },
       },
     }, (input) => readClaimDetail(store, input, readableWorkspaces)),
+    findingTool("lead.list", "lead_list", "Browse a paged catalog of Leads; use history.search for search and claim.get for evidence, provenance, and transition history.", "read", {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        statuses: { type: "array", items: { type: "string", enum: FINDING_STATUSES } },
+        classifications: { type: "array", items: { type: "string" } },
+        limit: { type: "number", minimum: 1, maximum: 100 },
+        offset: { type: "integer", minimum: 0, description: "Use nextOffset to continue this filtered catalog." },
+        afterRevision: { type: "string" },
+      },
+    }, (input) => projectClaimCatalog(store, input, "leads")),
+    findingTool("lead.create", "lead_create", "Record an unobserved security candidate as the first claim stage. Search for the same issue first; likely matches block creation until inspected. Promote it with finding.transition after direct observation. The qualitative rating is an untrusted prioritization estimate.", "write", {
+      type: "object",
+      required: ["title", "classification", "rating"],
+      properties: {
+        title: { type: "string" },
+        classification: { type: "string", ...(defaults.classifications?.length ? { enum: [...defaults.classifications] } : {}), description: "A classification declared by the active research profile." },
+        summary: { type: "string" }, impact: { type: "string" },
+        rating: { type: "string", enum: RESEARCH_CLAIM_RATINGS, description: "Untrusted qualitative estimate: informational, low, medium, high, or critical." },
+        confidence: { type: "number", minimum: 0, maximum: 1 },
+        evidence: { type: "array", items: EVIDENCE_SCHEMA, description: "Optional clues or source references; direct observation is required before promotion to Observed." },
+        distinctFromClaimIds: { type: "array", items: { type: "string" }, description: "IDs of every suggested matching claim inspected with claim.get and found to describe a different root cause or affected condition." },
+        distinctReason: { type: "string", description: "Concrete reason the new Lead is distinct from inspected matches; required when distinctFromClaimIds is supplied." },
+      },
+    }, (input, context) => {
+      const draft = {
+        title: requiredString(input.title, "title"),
+        classification: requiredClassification(input.classification, defaults.classifications),
+        rating: requiredResearchClaimRating(input.rating),
+        ...(string(input.summary) ? { summary: string(input.summary)! } : {}),
+        ...(string(input.impact) ? { impact: string(input.impact)! } : {}),
+        ...(typeof input.confidence === "number" ? { confidence: input.confidence } : {}),
+        ...(Array.isArray(input.evidence) ? { evidence: input.evidence.map(parseEvidence) } : {}),
+      };
+      const matches = store.findCreationMatches(draft);
+      if (matches.length > 0) {
+        const reviewed = Array.isArray(input.distinctFromClaimIds)
+          ? new Set(input.distinctFromClaimIds.map((id) => requiredString(id, "distinctFromClaimIds[]")))
+          : new Set<string>();
+        if (!matches.every((match) => reviewed.has(match.id)) || !string(input.distinctReason)) {
+          throw new Error(`Potential existing claims: ${matches.map((match) => `${match.id} (${match.reason}; revision ${match.revision}; ${match.title})`).join("; ")}. Inspect each with claim.get. If it is the same issue, append evidence using finding.transition and refine it using finding.revise. If distinct, retry with all matching IDs in distinctFromClaimIds and a concrete distinctReason.`);
+        }
+      }
+      return store.create({
+        ...draft,
+        ...(matches.length > 0 ? { creationReason: `Lead created as distinct from ${matches.map((match) => match.id).join(", ")}: ${requiredString(input.distinctReason, "distinctReason")}` } : {}),
+      }, context?.modelAuthor, context?.agentId);
+    }),
     findingTool("finding.list", "finding_list", "Browse a paged catalog of evidence-backed findings; use history.search for search and claim.get for evidence, provenance, and transition history.", "read", {
       type: "object",
       properties: {
@@ -163,7 +211,7 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
         sourceRevision: { type: "string", description: "Exact component identity. Use kind:resource-id:value (for example git:webkit:abc123) when automatic same-resource invalidation is desired." },
         environmentFingerprint: { type: "string", description: "Exact target identity. Use environment:resource-id:value when automatic same-target invalidation is desired." },
         evidence: { type: "array", minItems: 1, items: EVIDENCE_SCHEMA, description: "At least one direct observation with a durable referenceId or contentHash is required." },
-        distinctFromClaimIds: { type: "array", items: { type: "string" }, description: "IDs of every suggested matching finding inspected with claim.get and found to describe a different root cause or affected condition." },
+        distinctFromClaimIds: { type: "array", items: { type: "string" }, description: "IDs of every suggested matching claim inspected with claim.get and found to describe a different root cause or affected condition." },
         distinctReason: { type: "string", description: "Concrete reason the new finding is distinct from inspected matches; required when distinctFromClaimIds is supplied." },
       },
     }, (input, context) => {
@@ -185,7 +233,7 @@ export function createFindingTools(store: ResearchClaimStore, defaults: FindingT
           ? new Set(input.distinctFromClaimIds.map((id) => requiredString(id, "distinctFromClaimIds[]")))
           : new Set<string>();
         if (!matches.every((match) => reviewed.has(match.id)) || !string(input.distinctReason)) {
-          throw new Error(`Potential existing findings: ${matches.map((match) => `${match.id} (${match.reason}; revision ${match.revision}; ${match.title})`).join("; ")}. Inspect each with claim.get. If it is the same issue, append evidence using finding.transition and refine it using finding.revise. If distinct, retry with all matching IDs in distinctFromClaimIds and a concrete distinctReason.`);
+          throw new Error(`Potential existing claims: ${matches.map((match) => `${match.id} (${match.reason}; revision ${match.revision}; ${match.title})`).join("; ")}. Inspect each with claim.get. If it is the same issue, append evidence using finding.transition and refine it using finding.revise. If distinct, retry with all matching IDs in distinctFromClaimIds and a concrete distinctReason.`);
         }
       }
       return store.createObserved({

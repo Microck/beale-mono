@@ -30,8 +30,10 @@ function remoteScope(details: BealeAppServerWorkspaceDetails): WorkspaceScopeVer
 }
 
 function remoteClaim(claim: BealeWorkspaceResearchClaim, workspaceId: string): AppServerFindingSummary {
-  const maturity = ['proposed', 'observed', 'reproduced', 'verified', 'reported', 'refuted'].includes(claim.maturity)
-    ? claim.maturity as AppServerFindingSummary['maturity'] : 'proposed';
+  const maturity = claim.maturity === 'reported' ? 'verified'
+    : claim.maturity === 'proposed' ? 'lead'
+      : ['lead', 'observed', 'reproduced', 'verified', 'refuted'].includes(claim.maturity)
+        ? claim.maturity as AppServerFindingSummary['maturity'] : 'lead';
   const status = ['hypothesis', 'observed', 'reproduced', 'verified', 'report_ready', 'disclosed', 'stale', 'rejected'].includes(claim.status)
     ? claim.status as AppServerFindingSummary['status'] : 'hypothesis';
   return {

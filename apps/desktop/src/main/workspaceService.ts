@@ -7153,7 +7153,7 @@ function workflowClaimPriority(workflow: ResearchProfileWorkflow, claim: AppServ
     : workflow.id === 'reporting'
       ? isReportableSecurityFinding(claim) ? 120 : claim.projection === 'finding' ? 25 : 0
       : claim.projection === 'lead' ? 40 : 30;
-  const maturityWeight = { proposed: 0, observed: 15, reproduced: 25, verified: 35, reported: 40, refuted: -50 }[claim.maturity];
+  const maturityWeight = { lead: 0, observed: 15, reproduced: 25, verified: 35, refuted: -50 }[claim.maturity];
   return typeWeight + maturityWeight + claim.confidence * 10;
 }
 

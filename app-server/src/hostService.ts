@@ -92,6 +92,7 @@ export type AppServerSessionStopCause = 'user' | 'track_control' | 'track_rotati
 interface AppServerSessionSummaryProjection {
   id?: unknown;
   workspaceId?: unknown;
+  title?: unknown;
   status?: unknown;
   prompt?: unknown;
   provider?: unknown;
@@ -128,6 +129,7 @@ interface AppServerProviderSemanticsProjection {
 export interface PreparedAppServerSession {
   sessionId: string;
   attemptId: string;
+  trackTitle?: string;
   launch: ResolvedAppServerSessionLaunch;
 }
 
@@ -937,6 +939,12 @@ export class AppServerHostService {
       ...(daybreakBlue ? { daybreakBlue: true } : {}),
       profileId
     });
+    const trackTitle = request.launch.mode === 'research-track'
+      ? this.researchTrackSessionTitle(storage.databasePath, workspace.workspaceId, sessionId)
+      : null;
+    if (request.launch.mode === 'research-track' && !trackTitle) {
+      throw new Error('The research track has no active surface assigned to this session.');
+    }
     const remoteShells: Record<string, Awaited<ReturnType<FleetService['prepareSessionTarget']>>> = {};
     try {
       for (const selectedId of selectedTargetIds) {
@@ -956,6 +964,7 @@ export class AppServerHostService {
       workspace,
       storage,
       prompt: request.launch.promptMarkdown,
+      ...(trackTitle ? { initialTitle: trackTitle.title } : {}),
       providerId,
       ...(model ? { model } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
@@ -975,6 +984,9 @@ export class AppServerHostService {
       restartLaunch,
       ...(continuation?.resumeAttemptId ? { parentAttemptId: continuation.resumeAttemptId } : {})
       });
+      if (request.launch.mode === 'research-track') {
+        await this.updateResearchTrackSessionTitle(workspace.workspaceId, sessionId);
+      }
     } catch (error) {
       await Promise.allSettled(Object.values(remoteShells).map((shell) => this.fleet.releaseSessionTarget(shell.machineId, sessionId)));
       throw error;
@@ -983,6 +995,7 @@ export class AppServerHostService {
     return {
       sessionId,
       attemptId,
+      ...(trackTitle ? { trackTitle: trackTitle.title } : {}),
       launch: {
         workspaceRoot: workspace.workspacePath,
         workspaceDirectories: [workspace.workspacePath],
@@ -1479,20 +1492,34 @@ export class AppServerHostService {
     return due;
   }
 
-  public async updateResearchTrackSessionTitle(workspaceId: string, sessionId: string, epochCount: number,
-    title: string): Promise<void> {
+  public async updateResearchTrackSessionTitle(workspaceId: string, sessionId: string): Promise<string | null> {
     const workspace = this.requireWorkspace(workspaceId);
     const storage = this.registry.storageForProfile(workspace.researchProfileId);
-    const store = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId: workspace.workspaceId });
+    const assignment = this.researchTrackSessionTitle(storage.databasePath, workspace.workspaceId, sessionId);
+    if (!assignment) return null;
+    const session = await this.invokeProtocol<AppServerSessionSummaryProjection>('session.get', {
+      args: ['session', 'get', '--session-id', sessionId], storage
+    });
+    if (session.title === assignment.title) return null;
+    await this.invokeProtocol('session.append_event', {
+      args: ['session', 'append-event', '--session-id', sessionId], storage,
+      input: { id: `track_title_${assignment.pass}_${assignment.epochCount}_${randomUUID()}`, kind: 'session.title',
+        timestamp: new Date().toISOString(), summary: 'Research track state updated.',
+        payload: { status: 'generated', title: assignment.title } }
+    });
+    return assignment.title;
+  }
+
+  private researchTrackSessionTitle(databasePath: string, workspaceId: string, sessionId: string):
+    { title: string; pass: number; epochCount: number } | null {
+    const store = new ResearchTrackStore({ databasePath, workspaceId });
     try {
       const track = store.get();
-      if (track?.status !== 'running' || track.activeSessionId !== sessionId || track.epochCount !== epochCount) return;
-      await this.invokeProtocol('session.append_event', {
-        args: ['session', 'append-event', '--session-id', sessionId], storage,
-        input: { id: `track_title_${track.pass}_${epochCount}`, kind: 'session.title',
-          timestamp: new Date().toISOString(), summary: 'Research track state updated.',
-          payload: { status: 'generated', title: title.slice(0, 120) } }
-      });
+      if (track?.status !== 'running' || track.activeSessionId !== sessionId) return null;
+      const surface = track.surfaces.find((item) => item.surfaceId === track.activeSurfaceId);
+      if (!surface) return null;
+      return { title: `Researching ${surface.name.trim().replace(/\s+/gu, ' ')}`.slice(0, 120),
+        pass: track.pass, epochCount: track.epochCount };
     } finally { store.close(); }
   }
 
@@ -1984,6 +2011,7 @@ export class AppServerHostService {
     workspace: AppServerHostWorkspace;
     storage: AppServerHostStorage;
     prompt: string;
+    initialTitle?: string;
     providerId: string;
     model?: string;
     reasoningEffort?: string;
@@ -2019,7 +2047,7 @@ export class AppServerHostService {
           id: input.sessionId,
           workspaceId: input.workspace.workspaceId,
           attemptId: input.attemptId,
-          title: generatedTitle(input.prompt),
+          title: input.initialTitle ?? generatedTitle(input.prompt),
           prompt: input.prompt,
           provider: input.providerId,
           model: input.model ?? 'default',
@@ -2176,7 +2204,7 @@ function pathFreeWorkspaceClaim(value: unknown): BealeWorkspaceMemoryCatalog['fi
       entry && typeof entry === 'object' && !Array.isArray(entry) ? [(entry as Record<string, unknown>).sessionId] : []
     ))]),
     projection,
-    maturity: nonEmpty(claim.maturity) ?? 'proposed',
+    maturity: nonEmpty(claim.maturity) ?? 'lead',
     status: nonEmpty(claim.status) ?? 'hypothesis',
     staleFromStatus: nonEmpty(claim.staleFromStatus),
     rating: researchClaimRating(claim.rating),
@@ -2214,7 +2242,7 @@ function pathFreeWorkspaceClaimDuplicate(
   return [{
     id,
     projection,
-    maturity: nonEmpty(claim.maturity) ?? 'proposed',
+    maturity: nonEmpty(claim.maturity) ?? 'lead',
     rating: researchClaimRating(claim.rating),
     classification,
     title,

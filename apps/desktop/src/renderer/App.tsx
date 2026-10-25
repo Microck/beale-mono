@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import type { CSSProperties } from 'react';
 import 'katex/dist/katex.min.css';
@@ -69,7 +69,6 @@ import { QuickChatDock, type QuickChatDescriptor } from './features/quick-chat/Q
 import { WorkspaceStartupView } from './features/workspaces/WorkspaceStartupView';
 import { WorkspaceCreationView } from './features/workspaces/WorkspaceCreationView';
 import { MainSessionWorkspace } from './features/sessions/MainSessionWorkspace';
-import { SessionOverviewDialog } from './features/sessions/SessionOverviewDialog';
 import { StartRunForm } from './features/sessions/StartRunForm';
 import { workspaceScopeDraftForConfigurationUpdate } from './features/workspaces/WorkspaceUnderstandingView';
 import type { WorkspaceConfigurationInput, WorkspaceDashboardView } from './features/workspaces/WorkspaceUnderstandingView';
@@ -394,7 +393,6 @@ export function App(): JSX.Element {
     setWorkspaceDashboardInitialView('board');
     if (workspaceId) setWorkspaceDashboardViewName('Campaign Findings');
   }, [snapshot?.workspace.workspaceId]);
-  const [sessionOverviewOpen, setSessionOverviewOpen] = useState(false);
   const [newResearchOpen, setNewResearchOpen] = useState(false);
   const [newResearchTrackMode, setNewResearchTrackMode] = useState(false);
   const [pendingTrackNavigation, setPendingTrackNavigation] = useState<{
@@ -442,6 +440,7 @@ export function App(): JSX.Element {
     return archivedQuickChats.filter((session) => !openRunIds.has(session.runId));
   }, [archivedQuickChats, quickChats]);
   const [selectedRunbookId, setSelectedRunbookId] = useState<string | null>(null);
+  const [runbookOpenVersion, setRunbookOpenVersion] = useState(0);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [selectedReportWorkspaceId, setSelectedReportWorkspaceId] = useState<string | null>(null);
   const [rightSidenavExpanded, setRightSidenavExpanded] = useState(false);
@@ -1065,7 +1064,11 @@ export function App(): JSX.Element {
     setSelectedReportWorkspaceId(null);
     setSelectedReportDocument(null);
     setReportError(null);
+    setSelectedRunbookDocument((current) => current?.runbookId === runbookId ? current : null);
+    setRunbookLoading(true);
+    setRunbookError(null);
     setSelectedRunbookId(runbookId);
+    setRunbookOpenVersion((current) => current + 1);
   }, []);
 
   const openAppServerReport = useCallback((reportId: string): void => {
@@ -1776,11 +1779,6 @@ export function App(): JSX.Element {
     () => snapshot?.runs.filter((row) => !isReportResourceRun(row.run)) ?? [],
     [snapshot?.runs]
   );
-  const activeSessionOverviewRun = useMemo(
-    () => snapshot?.runs.find((row) => row.run.id === selectedRunId) ?? null,
-    [selectedRunId, snapshot?.runs]
-  );
-  useEffect(() => setSessionOverviewOpen(false), [selectedRunId]);
   useEffect(() => {
     if (!selectedRunbookId || !researchPanelMemory || selectedRunbook) return;
     setSelectedRunbookId(null);
@@ -1800,11 +1798,9 @@ export function App(): JSX.Element {
     return request;
   }, []);
   const applyAppServerRunbookDocument = useCallback((document: AppServerRunbookDocument): void => {
-    startTransition(() => {
-      setSelectedRunbookDocument((current) => current && appServerRunbookDocumentUpdateKey(current) === appServerRunbookDocumentUpdateKey(document)
-        ? current
-        : document);
-    });
+    setSelectedRunbookDocument((current) => current && appServerRunbookDocumentUpdateKey(current) === appServerRunbookDocumentUpdateKey(document)
+      ? current
+      : document);
   }, []);
   useEffect(() => {
     if (!selectedRunbookId) {
@@ -1812,24 +1808,28 @@ export function App(): JSX.Element {
       return undefined;
     }
     let cancelled = false;
-    setRunbookLoading(selectedRunbookDocument?.runbookId !== selectedRunbookId);
+    setRunbookLoading(true);
     setRunbookError(null);
     setSelectedRunbookDocument((current) => current?.runbookId === selectedRunbookId ? current : null);
     void fetchAppServerRunbook(selectedRunbookId)
       .then((document) => {
-        if (cancelled || document.runbookId !== selectedRunbookId) return;
+        if (cancelled) return;
+        if (document.runbookId !== selectedRunbookId) {
+          throw new Error('The app-server returned a different runbook than the one selected.');
+        }
         applyAppServerRunbookDocument(document);
+        setRunbookLoading(false);
       })
       .catch((caught: unknown) => {
-        if (!cancelled) setRunbookError(errorMessage(caught));
-      })
-      .finally(() => {
-        if (!cancelled) setRunbookLoading(false);
+        if (!cancelled) {
+          setRunbookError(errorMessage(caught));
+          setRunbookLoading(false);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [applyAppServerRunbookDocument, fetchAppServerRunbook, selectedRunbook?.revision, selectedRunbookDocument?.runbookId, selectedRunbookId]);
+  }, [applyAppServerRunbookDocument, fetchAppServerRunbook, runbookOpenVersion, selectedRunbook?.revision, selectedRunbookId]);
 
   const runAppServerRunbook = useCallback(async (
     runbookId: string,
@@ -2038,7 +2038,6 @@ export function App(): JSX.Element {
     flushProfilingReport();
     setProfilingOpen(true);
   }, [flushProfilingReport]);
-  const openSessionOverview = useCallback(() => setSessionOverviewOpen(true), []);
   const toggleRightSidenav = useCallback(() => setRightSidenavExpanded((current) => !current), []);
   const changeResearchDetailsOpen = useCallback((expanded: boolean): void => {
     setRightSidenavExpanded(headerResearchControlsAvailable && expanded);
@@ -2257,7 +2256,6 @@ export function App(): JSX.Element {
         profilingEnabled={profilingState?.enabled ?? false}
         workspaceEditors={selectedFleetServerId === 'local' && headerResearchControlsAvailable ? workspaceEditors : null}
         onOpenProfiling={openProfiling}
-        onOpenSessionOverview={activeRunDetail && activeSessionOverviewRun ? openSessionOverview : undefined}
         onOpenWorkspaceInEditor={openWorkspaceInEditor}
         onAddWorkspace={beginWorkspaceCreation}
         onToggleRightSidenav={toggleRightSidenav}
@@ -2271,16 +2269,6 @@ export function App(): JSX.Element {
         }}
         onOpenQuickChat={openSelectedQuickChat}
       />
-      {sessionOverviewOpen && activeRunDetail && activeSessionOverviewRun ? (
-        <SessionOverviewDialog
-          memory={snapshot?.appServerMemory ?? activeRunDetail.appServerMemory ?? null}
-          memoryTypes={snapshot?.researchProfile.profile.memory.types ?? activeRunDetail.researchProfile?.profile.memory.types ?? []}
-          onClose={() => setSessionOverviewOpen(false)}
-          profileId={snapshot?.researchProfile.profile.id ?? activeRunDetail.researchProfile?.profile.id}
-          run={activeSessionOverviewRun}
-          sessionHeatPreferences={sessionHeatPreferences}
-        />
-      ) : null}
       <AppNavigationRail
         active={navigationDestination}
         selectedServerId={selectedFleetServerId}
