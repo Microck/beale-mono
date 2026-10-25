@@ -129,7 +129,6 @@ interface AppServerProviderSemanticsProjection {
 export interface PreparedAppServerSession {
   sessionId: string;
   attemptId: string;
-  trackTitle?: string;
   launch: ResolvedAppServerSessionLaunch;
 }
 
@@ -939,10 +938,10 @@ export class AppServerHostService {
       ...(daybreakBlue ? { daybreakBlue: true } : {}),
       profileId
     });
-    const trackTitle = request.launch.mode === 'research-track'
-      ? this.researchTrackSessionTitle(storage.databasePath, workspace.workspaceId, sessionId)
+    const trackAssignment = request.launch.mode === 'research-track'
+      ? this.researchTrackSessionAssignment(storage.databasePath, workspace.workspaceId, sessionId)
       : null;
-    if (request.launch.mode === 'research-track' && !trackTitle) {
+    if (request.launch.mode === 'research-track' && !trackAssignment) {
       throw new Error('The research track has no active surface assigned to this session.');
     }
     const remoteShells: Record<string, Awaited<ReturnType<FleetService['prepareSessionTarget']>>> = {};
@@ -964,7 +963,7 @@ export class AppServerHostService {
       workspace,
       storage,
       prompt: request.launch.promptMarkdown,
-      ...(trackTitle ? { initialTitle: trackTitle.title } : {}),
+      ...(trackAssignment ? { initialTitle: initialResearchTrackTitle(trackAssignment) } : {}),
       providerId,
       ...(model ? { model } : {}),
       ...(reasoningEffort ? { reasoningEffort } : {}),
@@ -984,9 +983,6 @@ export class AppServerHostService {
       restartLaunch,
       ...(continuation?.resumeAttemptId ? { parentAttemptId: continuation.resumeAttemptId } : {})
       });
-      if (request.launch.mode === 'research-track') {
-        await this.updateResearchTrackSessionTitle(workspace.workspaceId, sessionId);
-      }
     } catch (error) {
       await Promise.allSettled(Object.values(remoteShells).map((shell) => this.fleet.releaseSessionTarget(shell.machineId, sessionId)));
       throw error;
@@ -995,7 +991,6 @@ export class AppServerHostService {
     return {
       sessionId,
       attemptId,
-      ...(trackTitle ? { trackTitle: trackTitle.title } : {}),
       launch: {
         workspaceRoot: workspace.workspacePath,
         workspaceDirectories: [workspace.workspacePath],
@@ -1018,13 +1013,14 @@ export class AppServerHostService {
           authenticationPreferences: this.fleetBroker.token(sessionId) && request.launch.brokerAuthenticationPreferences
             ? request.launch.brokerAuthenticationPreferences
             : providerSettings.authenticationPreferences,
-          ...(request.launch.generateTitle
+          ...(request.launch.generateTitle || (request.launch.mode === 'research-track' && !request.launch.continuation?.resumeAttemptId)
             ? {
                 title: {
                   ...(providerDefaults?.smallModel || providerSemantics.defaultSmallModels[providerId]
                     ? { model: providerDefaults?.smallModel ?? providerSemantics.defaultSmallModels[providerId]! }
                     : {}),
-                  effort: providerSemantics.sessionTitleEffort
+                  effort: providerSemantics.sessionTitleEffort,
+                  ...(request.launch.mode === 'research-track' ? { style: 'research-track' as const } : {})
                 }
               }
             : {}),
@@ -1482,7 +1478,7 @@ export class AppServerHostService {
             provider: track.provider, ...(track.collaboration ? { collaboration: track.collaboration } : {}),
             shellSafetyMode: 'auto_review', guardianEnabled: true,
             ...(continuing ? { continuation: { fallbackPrompt: promptMarkdown } } : {}),
-            generateTitle: false } } });
+            generateTitle: true } } });
       } catch (error) {
         const track = store.get();
         if (track?.activeSessionId) store.finishEpoch(track.activeSessionId, false, errorMessage(error));
@@ -1492,34 +1488,15 @@ export class AppServerHostService {
     return due;
   }
 
-  public async updateResearchTrackSessionTitle(workspaceId: string, sessionId: string): Promise<string | null> {
-    const workspace = this.requireWorkspace(workspaceId);
-    const storage = this.registry.storageForProfile(workspace.researchProfileId);
-    const assignment = this.researchTrackSessionTitle(storage.databasePath, workspace.workspaceId, sessionId);
-    if (!assignment) return null;
-    const session = await this.invokeProtocol<AppServerSessionSummaryProjection>('session.get', {
-      args: ['session', 'get', '--session-id', sessionId], storage
-    });
-    if (session.title === assignment.title) return null;
-    await this.invokeProtocol('session.append_event', {
-      args: ['session', 'append-event', '--session-id', sessionId], storage,
-      input: { id: `track_title_${assignment.pass}_${assignment.epochCount}_${randomUUID()}`, kind: 'session.title',
-        timestamp: new Date().toISOString(), summary: 'Research track state updated.',
-        payload: { status: 'generated', title: assignment.title } }
-    });
-    return assignment.title;
-  }
-
-  private researchTrackSessionTitle(databasePath: string, workspaceId: string, sessionId: string):
-    { title: string; pass: number; epochCount: number } | null {
+  private researchTrackSessionAssignment(databasePath: string, workspaceId: string, sessionId: string):
+    { surfaceName: string; theory: string; nextAction: string } | null {
     const store = new ResearchTrackStore({ databasePath, workspaceId });
     try {
       const track = store.get();
       if (track?.status !== 'running' || track.activeSessionId !== sessionId) return null;
       const surface = track.surfaces.find((item) => item.surfaceId === track.activeSurfaceId);
       if (!surface) return null;
-      return { title: `Researching ${surface.name.trim().replace(/\s+/gu, ' ')}`.slice(0, 120),
-        pass: track.pass, epochCount: track.epochCount };
+      return { surfaceName: surface.name, theory: surface.theory, nextAction: surface.nextAction };
     } finally { store.close(); }
   }
 
@@ -2434,6 +2411,11 @@ function builtinPluginPath(directory: string, source: 'managed' | 'feature'): st
 function generatedTitle(prompt: string): string {
   const normalized = prompt.trim().replace(/\s+/gu, ' ');
   return normalized.slice(0, 120) || 'Beale research session';
+}
+
+function initialResearchTrackTitle(assignment: { nextAction: string; theory: string; surfaceName: string }): string {
+  const text = assignment.nextAction || assignment.theory || assignment.surfaceName;
+  return text.trim().replace(/\s+/gu, ' ').split(' ').slice(0, 6).join(' ').slice(0, 80) || 'Research Session';
 }
 
 function validatedIntrospectionEndpoint(

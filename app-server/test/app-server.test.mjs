@@ -2386,7 +2386,7 @@ test("research track launch retains collaboration settings and enabled browser t
     registry: hostRegistryFixture(directory),
     invokeProtocol: async (operation, options) => {
       calls.push({ operation, options });
-      if (operation === "provider.describe") return { defaultSmallModels: {}, sessionTitleEffort: "medium", shellReviewEffort: "low" };
+      if (operation === "provider.describe") return { defaultSmallModels: { 'openai-codex': 'example-small-model' }, sessionTitleEffort: "medium", shellReviewEffort: "low" };
       if (operation === "plugin.runtime") return {
         managedPluginIds: MANAGED_TOOL_PLUGIN_IDS, skillDirs: [], selectedSkillIds: [], allowedMcpServers: []
       };
@@ -2414,8 +2414,11 @@ test("research track launch retains collaboration settings and enabled browser t
   const createCall = calls.find((call) => call.operation === "session.create");
 
   assert.deepEqual(createCall.options.input.metadata.bealeRun.budget.collaboration, collaboration);
-  assert.equal(createCall.options.input.title, "Researching Example service");
-  assert.equal(prepared.trackTitle, "Researching Example service");
+  assert.equal(createCall.options.input.title, 'Map the attacker path and highest-impact');
+  assert.equal(prepared.launch.provider.title.model, 'example-small-model');
+  assert.equal(prepared.launch.provider.title.style, 'research-track');
+  const launchArgs = appServerSessionArgs(prepared.launch, {});
+  assert.equal(launchArgs[launchArgs.indexOf('--title-style') + 1], 'research-track');
   const titleCall = calls.find((call) => call.operation === "session.append_event");
   assert.equal(titleCall, undefined);
   assert.deepEqual(createCall.options.input.metadata.appServerRestartLaunch.launch.collaboration, collaboration);
@@ -2995,7 +2998,6 @@ test('automatically launches a reserved research-track epoch while the app-serve
   const upstream = await createFakeAppServerSessionHost();
   const hostService = testHostService(directory);
   let scanned = false;
-  let titleChecks = 0;
   hostService.dueResearchTracks = async () => {
     if (scanned) return [];
     scanned = true;
@@ -3008,15 +3010,10 @@ test('automatically launches a reserved research-track epoch while the app-serve
     return [{ request }];
   };
   hostService.workspaceResearchTrack = async () => ({ status: 'running', activeSessionId: 'session-track-example' });
-  hostService.updateResearchTrackSessionTitle = async () => {
-    titleChecks += 1;
-    return 'Researching Example service';
-  };
   const server = await startAppServer({ hostService, spawnSession: upstream.spawnSession });
   servers.push(server);
   await waitFor(() => server.listSessions().some((session) => session.sessionId === 'session-track-example'));
   assert.equal(server.listSessions().find((session) => session.sessionId === 'session-track-example')?.state, 'running');
-  await waitFor(() => titleChecks > 0);
   const attachedResponse = await fetch(`${server.url}/v1/sessions/session-track-example/attachments`, {
     method: 'POST', headers: { authorization: `Bearer ${server.operatorToken}` }
   });
@@ -3025,9 +3022,11 @@ test('automatically launches a reserved research-track epoch while the app-serve
   const messages = [];
   const socket = await connect(webSocketUrl(server.url, attached.transport.path), attached.transport.token, messages);
   socket.send(JSON.stringify(clientHello('session-track-example', 'beale-desktop')));
+  upstream.sendEvent({ schemaVersion: 1, kind: 'session.title', timestamp: new Date().toISOString(),
+    payload: { status: 'generated', title: 'Parser Boundary Verification', provider: 'openai-codex', model: 'example-small-model' } });
   await waitFor(() => messages.some((message) => message.type === 'session.event'
     && message.event.kind === 'session.title'
-    && message.event.payload.title === 'Researching Example service'));
+    && message.event.payload.title === 'Parser Boundary Verification'));
   upstream.complete();
   await waitForSocketClose(socket);
 });

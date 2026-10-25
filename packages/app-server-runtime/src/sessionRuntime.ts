@@ -321,6 +321,7 @@ interface ParsedArgs {
   titleEffort: ResearchModelEffort | undefined;
   titleModelDefault: string | undefined;
   titleEffortDefault: ResearchModelEffort | undefined;
+  titleStyle: 'research-track' | undefined;
   shellSafetyMode: ShellSafetyMode;
   guardianEnabled: boolean;
   shellReviewModels: Readonly<Record<string, string>> | undefined;
@@ -444,6 +445,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   let titleEffort: ResearchModelEffort | undefined;
   let titleModelDefault: string | undefined;
   let titleEffortDefault: ResearchModelEffort | undefined;
+  let titleStyle: 'research-track' | undefined;
   let shellSafetyMode: ShellSafetyMode = "auto_review";
   let guardianEnabled = true;
   let shellReviewModels: Readonly<Record<string, string>> | undefined;
@@ -592,6 +594,11 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       index += 1;
     } else if (arg === "--title-effort-default") {
       titleEffortDefault = parseReasoning(readOptionValue(argv, index, arg));
+      index += 1;
+    } else if (arg === "--title-style") {
+      const value = readOptionValue(argv, index, arg);
+      if (value !== 'research-track') throw new Error('Unsupported session title style.');
+      titleStyle = value;
       index += 1;
     } else if (arg === "--executor") {
       executor = parseExecutor(readOptionValue(argv, index, arg));
@@ -815,6 +822,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
     titleEffort,
     titleModelDefault,
     titleEffortDefault,
+    titleStyle,
     shellSafetyMode,
     guardianEnabled,
     shellReviewModels,
@@ -1643,6 +1651,7 @@ function usage(): string {
     "  --title-effort <level> Reasoning effort for session title generation (default: medium)",
     "  --title-model-default <model>  Host fallback used only when the profile has no applicable title model",
     "  --title-effort-default <level> Host fallback used only when the profile has no applicable title effort",
+    "  --title-style research-track  Name the current track investigation rather than its surface",
     "  --executor <kind>      agent (default: agent)",
     "  --max-tokens <n>       Max output tokens for real mode",
     "  --effort <level>       Model effort for real mode: minimal, low, medium, high, xhigh, max",
@@ -2403,6 +2412,7 @@ function startSessionTitleGeneration(
     model: route.model,
     prompt: args.prompt,
     effort: route.effort,
+    ...(args.titleStyle ? { style: args.titleStyle } : {}),
     researchProfile: resolvedResearchProfile.profile,
     authenticationPreferences: readProviderAuthenticationPreferences(),
     ...(signal ? { signal } : {}),

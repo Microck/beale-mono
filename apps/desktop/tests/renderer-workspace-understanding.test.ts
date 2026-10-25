@@ -50,8 +50,8 @@ describe('workspace dashboard', () => {
     const tabsStyles = styles.match(/\.workspace-dashboard-tabs\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceViewTabStyles = styles.match(/\.pill-view-tabs \.research-side-view-tab\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceViewTabButtonStyles = styles.match(/\.pill-view-tabs \.research-side-view-tab \.research-side-view-tab-activate\s*\{([^}]*)\}/)?.[1] ?? '';
-    const idleWorkspaceViewTabStyles = styles.match(/\.pill-view-tabs \.research-side-view-tab\.provider-settings-tab:not\(\.active\)\s*\{([^}]*)\}/)?.[1] ?? '';
-    const hoveredWorkspaceViewTabStyles = styles.match(/\.pill-view-tabs \.research-side-view-tab\.provider-settings-tab:not\(\.active\):is\(:hover, :focus-within\)\s*\{([^}]*)\}/)?.[1] ?? '';
+    const idleWorkspaceViewTabStyles = styles.match(/\.pill-view-tabs \.research-side-view-tab:not\(\.active\)\s*\{([^}]*)\}/)?.[1] ?? '';
+    const hoveredWorkspaceViewTabStyles = styles.match(/\.pill-view-tabs \.research-side-view-tab:not\(\.active\):is\(:hover, :focus-within\)\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceDashboardKitTabStyles = styles.match(/\.research-side-view-tab\.workspace-dashboard-kit-tab\s*\{([^}]*)\}/)?.[1] ?? '';
     const workspaceDashboardKitDividerStyles = styles.match(/\.workspace-dashboard-kit-tab::before\s*\{([^}]*)\}/)?.[1] ?? '';
     const campaignSubviewTabsStyles = styles.match(/\.workspace-campaign-subview-tabs\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -480,6 +480,8 @@ describe('workspace dashboard', () => {
     expect(html).toContain('class="workspace-campaign-subview-tabs research-side-view-tabs pill-view-tabs"');
     expect(html.indexOf('class="workspace-research-track"')).toBeGreaterThan(html.indexOf('class="workspace-campaign-subview-tabs'));
     expect(html.indexOf('class="workspace-research-track"')).toBeLessThan(html.indexOf('id="workspace-dashboard-campaign-board-panel"'));
+    expect(html).toContain('class="workspace-research-track-label"');
+    expect(html).toContain('aria-label="Progress: Loading track progress"');
     expect(html).not.toContain('Reasoning-based security research across the authorized scope.');
     expect(html).not.toContain('<span>Highlights</span>');
     expect(html).toContain('<span>Findings</span>');

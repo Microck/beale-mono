@@ -62,13 +62,14 @@
 
 #### Changed
 
+- Workspace Campaign Track controls now use a compact icon row with hover progress and error details.
 - OpenRouter model choices refresh from OpenRouter's current tool-capable catalog, including context limits and pricing; the bundled catalog remains available when refresh fails.
-- Continuous research now reports investigated and completed surface counts separately and shows each surface's actionability score and validation environment. The session title uses investigated progress, so active tracks no longer remain at `0/X` until full coverage closes.
+- Continuous research now reports investigated and completed surface counts separately and shows each surface's actionability score and validation environment.
 - iOS asks for confirmation before stopping an active session from the message or approval composer.
 - Beale iOS session details now use a blurred header without the machine strip and switch between session-linked subagents, findings, and memories.
 - Beale iOS session views replace the machine selector strip with a glass-backed navigation bar containing the session title, status, and matching circular back and subagent controls.
 - Beale iOS now uses app-server control contract v60 and session launch v3, restoring connections and session launches with current app servers.
-- Start Track opens the New Research form with target, lead model, collaborator, and subagent choices. Its research objective is locked; the track builds its own prompts. Repeat, Goal Mode, and Add Context are unavailable. Session titles update with surface progress after each epoch begins, and the running track no longer duplicates its session button in Campaign. Existing track records add a collaboration column automatically; the updated control contract requires rebuilt Beale and app-server clients.
+- Start Track opens the New Research form with target, lead model, collaborator, and subagent choices. Its research objective is locked; the track builds its own prompts. Repeat, Goal Mode, and Add Context are unavailable. The running track no longer duplicates its session button in Campaign. Existing track records add a collaboration column automatically; the updated control contract requires rebuilt Beale and app-server clients.
 - Workspace surface maps now materialize root surfaces from the active authorized resources before the first research session, so Continuous research can start in a new workspace. Scope changes refresh root eligibility without resetting unchanged resource review state.
 - Continuous research controls now sit at the far right of the workspace Campaign view buttons, with progress available in a compact dropdown instead of a separate row.
 - Workspace headers identify the active Campaign subview, including Findings, Memories, Runbooks, and Reports, on local and connected app servers.
@@ -1465,7 +1466,7 @@
 
 #### Fixed
 
-- Continuous research sessions receive a surface-based title when created and update it for each new epoch. Active tracks repair stale titles and send title events to connected clients; Desktop preserves long surface titles instead of replacing them with the track prompt heading.
+- Continuous research sessions use the configured small title model at the start of each epoch. Titles name the current investigation while the header shows the assigned surface; model title events reach connected clients. Rebuild app-server and the research runtime together.
 - Starting a new Continuous research pass immediately after Stop now works while the prior worker exits. Each pass gets a distinct session, and the next pass waits for the prior worker to finish before launching.
 - A provider stream that ends with incomplete JSON before actionable model output now follows the bounded research-session retry path instead of failing the session on the first occurrence. Fleet research-track forwarding also retries incomplete status replies and reconciles lost control replies without replaying the action.
 - Artifact manifest writes now replace the complete file atomically, so concurrent runbook preparation cannot read an empty or partial manifest. Invalid manifest and runbook notebook JSON now produce a preservation-oriented error instead of a raw parser exception.

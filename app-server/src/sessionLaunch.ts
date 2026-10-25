@@ -61,7 +61,7 @@ export interface ResolvedAppServerSessionLaunch {
     contextSize?: AppServerProviderContextSize;
     riskAcknowledgements: readonly AppServerProviderRiskAcknowledgement[];
     authenticationPreferences: Readonly<Record<string, AppServerProviderAuthenticationMethod>>;
-    title?: { model?: string; effort: string };
+    title?: { model?: string; effort: string; style?: 'research-track' };
     shellReview?: { models: Readonly<Record<string, string>>; effort: string };
   };
   shellSafetyMode: string;
@@ -161,6 +161,7 @@ export function appServerSessionArgs(
       args.push('--title-model-default', launch.provider.title.model);
     }
     args.push('--title-effort-default', launch.provider.title.effort);
+    if (launch.provider.title.style) args.push('--title-style', launch.provider.title.style);
   }
   if (launch.provider.model) args.push('--model', launch.provider.model);
   if (launch.provider.reasoningEffort) args.push('--effort', launch.provider.reasoningEffort);

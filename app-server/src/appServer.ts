@@ -1057,7 +1057,6 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     const effectiveRequest = request;
     const runtime = createSessionRuntime(effectiveRequest, prepared);
     sessions.set(sessionId, runtime);
-    if (prepared.trackTitle) deliverTrackTitle(runtime, prepared.trackTitle);
     evictOldestTerminalSessions();
     try {
       await launchPreparedSession(runtime, prepared, effectiveRequest.launch.continuation === undefined);
@@ -1158,13 +1157,6 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
           const track = await hostCall(() => hostService.workspaceResearchTrack(runtime.request.launch.workspaceId, 'status'));
           if (!track || track.status !== 'running' || track.activeSessionId !== runtime.sessionId) {
             stopSession(runtime.sessionId, 'track_state');
-          } else {
-            const title = await hostCall(() => hostService.updateResearchTrackSessionTitle(
-              runtime.request.launch.workspaceId, runtime.sessionId));
-            if (title) {
-              deliverTrackTitle(runtime, title);
-              notifyChange();
-            }
           }
         } catch { /* A transient status read must not interrupt active research. */ }
       }
@@ -1920,12 +1912,6 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
       delivered = true;
     }
     if (!delivered) queueClientFrame(runtime, frame);
-  }
-
-  function deliverTrackTitle(runtime: SessionRuntime, title: string): void {
-    const event = { schemaVersion: 1, kind: 'session.title', timestamp: new Date().toISOString(),
-      payload: { eventId: `track-title-${randomUUID()}`, status: 'generated', title } };
-    deliverClientFrame(runtime, Buffer.from(JSON.stringify(appServerSessionEvent(runtime.sessionId, event))));
   }
 
   function flushPendingClientFrames(runtime: SessionRuntime, clientSocket: WebSocket): void {

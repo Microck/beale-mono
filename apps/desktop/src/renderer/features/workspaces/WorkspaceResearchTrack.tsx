@@ -1,4 +1,5 @@
 import { useEffect, useState, type JSX } from 'react';
+import { ExternalLink, Gauge, LoaderCircle, Pause, Play, Route, Square, TriangleAlert } from 'lucide-react';
 import type { BealeWorkspaceResearchTrack } from '@beale/app-server-runtime/protocol';
 import type { BealeApi, ResearchModelProviderId } from '../../../shared/types';
 
@@ -49,6 +50,7 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenS
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progressOpen, setProgressOpen] = useState(false);
   const [observedSessionId, setObservedSessionId] = useState<string | null>(null);
   useEffect(() => {
     if (!workspaceId) { setLoading(false); return undefined; }
@@ -100,32 +102,48 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenS
     : null;
   const statusTitle = track ? `${progress ?? status ?? 'Research track'} · ${investigated} of ${total} investigated · ${complete} complete` : undefined;
   const visibleError = error ?? (status === 'stopped' ? null : track?.lastError);
-  return <div className="workspace-research-track" role="group" aria-label="Continuous research track">
-    {visibleError ? <span className="workspace-research-track-error" role="alert" title={visibleError}>{visibleError}</span> : null}
-    {track ? <details className="workspace-research-track-detail">
-      <summary>Progress</summary>
-      <div className="workspace-research-track-surface-list">
-        <strong>Pass {track.pass} · {investigated} of {total} investigated · {complete} complete</strong>
-        {track.surfaces.filter((surface) => surface.status !== 'excluded').map((surface) => <div key={surface.surfaceId} className="workspace-research-track-surface">
-          <strong>{surface.name}</strong><span>{surface.status.replaceAll('_', ' ')} · {surface.impact} impact · actionability {surface.actionabilityScore}/100 · {surface.epochs} epochs{surface.validation ? ` · validation ${surface.validation.environment}` : ''}</span>
-          {surface.nextAction ? <small>{surface.nextAction}</small> : null}
-        </div>)}
-      </div>
-    </details> : null}
-    {status !== 'running' && onOpenSession && observedSessionId ? <button className="secondary-button" type="button"
-      onClick={() => onOpenSession(observedSessionId)}>View session</button> : null}
-    {action ? <button className="primary-button" type="button" disabled={loading || busy}
-      onClick={() => action === 'start' && onStartTrack ? onStartTrack() : void control(action)} title={statusTitle}>{busy ? 'Working…' : label}</button> : null}
-    {status === 'running' ? <span className="workspace-research-track-status" role="status" title={statusTitle}>
-      <span className="workspace-research-track-spinner" aria-hidden="true" />
-      {phase === 'preparing' ? 'Preparing session' : phase === 'switching' ? 'Preparing next surface'
-        : phase === 'selecting' ? scheduledRevisit ? 'Second look scheduled' : 'Selecting surface'
-          : `Researching · ${investigated}/${total} investigated`}
-    </span> : null}
-    {status === 'running' ? <button className="secondary-button" type="button" disabled={busy}
-      onClick={() => void control('pause')}>Pause</button> : null}
-    {track && status !== 'complete' && status !== 'stopped' ? <button className="secondary-button" type="button"
-      disabled={busy} onClick={() => void control('stop')}>Stop</button> : null}
+  const progressLabel = loading ? 'Loading track progress' : statusTitle ?? 'Track not started';
+  return <div className="workspace-research-track" role="group" aria-label="Research track controls">
+    <span className="workspace-research-track-label">
+      <Route size={14} aria-hidden="true" /><span>Track</span>
+      {visibleError ? <span className="workspace-research-track-warning" role="alert" aria-label={`Track error: ${visibleError}`} tabIndex={0}>
+        <TriangleAlert size={11} aria-hidden="true" />
+        <span className="workspace-research-track-error" role="tooltip">{visibleError}</span>
+      </span> : null}
+    </span>
+    <div className="workspace-research-track-detail"
+      onMouseEnter={() => setProgressOpen(true)}
+      onMouseLeave={() => setProgressOpen(false)}
+      onFocus={() => setProgressOpen(true)}
+      onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setProgressOpen(false); }}
+      onKeyDown={(event) => { if (event.key === 'Escape') setProgressOpen(false); }}>
+      <button className="workspace-research-track-icon-button" type="button" aria-label={`Progress: ${progressLabel}`}
+        aria-expanded={progressOpen} aria-controls={progressOpen ? 'workspace-research-track-progress' : undefined} onClick={() => setProgressOpen(true)}>
+        <Gauge size={16} aria-hidden="true" />
+      </button>
+      {progressOpen ? <div className="workspace-research-track-surface-list" id="workspace-research-track-progress" role="region" aria-label="Track progress" tabIndex={0}>
+        <strong>Progress</strong>
+        <span>{progressLabel}</span>
+        {track ? <>
+          <span>Pass {track.pass} · {investigated} of {total} investigated · {complete} complete</span>
+          {track.surfaces.filter((surface) => surface.status !== 'excluded').map((surface) => <div key={surface.surfaceId} className="workspace-research-track-surface">
+            <strong>{surface.name}</strong><span>{surface.status.replaceAll('_', ' ')} · {surface.impact} impact · actionability {surface.actionabilityScore}/100 · {surface.epochs} epochs{surface.validation ? ` · validation ${surface.validation.environment}` : ''}</span>
+            {surface.nextAction ? <small>{surface.nextAction}</small> : null}
+          </div>)}
+        </> : null}
+      </div> : null}
+    </div>
+    {action ? <button className="workspace-research-track-icon-button" type="button" disabled={loading || busy}
+      aria-label={busy ? 'Working on track' : label} title={busy ? 'Working…' : label}
+      onClick={() => action === 'start' && onStartTrack ? onStartTrack() : void control(action)}>
+      {busy ? <LoaderCircle className="workspace-research-track-spinner" size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
+    </button> : null}
+    {status === 'running' ? <button className="workspace-research-track-icon-button" type="button" disabled={busy}
+      aria-label="Pause Track" title="Pause Track" onClick={() => void control('pause')}><Pause size={16} aria-hidden="true" /></button> : null}
+    {track && status !== 'complete' && status !== 'stopped' ? <button className="workspace-research-track-icon-button" type="button"
+      disabled={busy} aria-label="Stop Track" title="Stop Track" onClick={() => void control('stop')}><Square size={15} aria-hidden="true" /></button> : null}
+    {status !== 'running' && onOpenSession && observedSessionId ? <button className="workspace-research-track-icon-button" type="button"
+      aria-label="View Track session" title="View Track session" onClick={() => onOpenSession(observedSessionId)}><ExternalLink size={16} aria-hidden="true" /></button> : null}
   </div>;
 }
 

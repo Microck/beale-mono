@@ -39,12 +39,13 @@ describe('renderer research profile presentation', () => {
     expect(browserBaseUrl('about:blank')).toBe('about:blank');
   });
 
-  it('uses an accessible circular back button for campaign item details', () => {
+  it('uses accessible circular back buttons for nested details', () => {
     const campaign = renderToStaticMarkup(createElement(ResearchSideNestedHeader, {
       iconOnly: true, label: 'Campaign', name: 'Example finding title', onBack: () => undefined
     }));
     const subagent = renderToStaticMarkup(createElement(ResearchSideNestedHeader, {
-      label: 'Subagents', onBack: () => undefined
+      iconOnly: true, label: 'Subagents', name: 'Example subagent',
+      secondary: createElement('span', null, 'Example model'), onBack: () => undefined
     }));
 
     expect(campaign).toContain('aria-label="Back to Campaign"');
@@ -52,7 +53,12 @@ describe('renderer research profile presentation', () => {
     expect(campaign).toContain('class="is-icon-only"');
     expect(campaign).not.toContain('<span>Back to Campaign</span>');
     expect(campaign).toContain('class="research-side-nested-name" title="Example finding title">Example finding title</span>');
-    expect(subagent).toContain('<span>Back to Subagents</span>');
+    expect(subagent).toContain('aria-label="Back to Subagents"');
+    expect(subagent).toContain('class="is-icon-only"');
+    expect(subagent).not.toContain('<span>Back to Subagents</span>');
+    expect(subagent).toContain('title="Example subagent">Example subagent</span>');
+    expect(subagent).toContain('research-side-nested-secondary');
+    expect(subagent).toContain('Example model');
   });
 
   it('uses canonical session memory activity instead of the current trace projection', () => {

@@ -397,9 +397,6 @@ test('track start stores the selected model, targets, and collaboration on the o
 test('track epochs share a session, wait for worker exit, and ignore an obsolete stop', async () => {
   const state = fixture();
   let stopTransition = null;
-  let titleEvent = null;
-  const titleEvents = [];
-  let canonicalTitle = 'Continuous Track';
   const service = new AppServerHostService({ registry: {
     registryDirectory: join(dirname(state.databasePath), 'registry'),
     listWorkspaces: () => [{ workspaceId }],
@@ -410,12 +407,7 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
   }, invokeProtocol: async (operation, options) => {
     if (operation === 'session.transition') stopTransition = options.input;
-    if (operation === 'session.append_event') {
-      titleEvent = options.input;
-      titleEvents.push(titleEvent);
-      canonicalTitle = titleEvent.payload.title;
-    }
-    return operation === 'session.get' ? { status: 'completed', title: canonicalTitle } : {};
+    return operation === 'session.get' ? { status: 'completed' } : {};
   } });
   service.workspaceResearchTrackContext = async () => ({ scope: { id: 'scope-example' },
     targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
@@ -435,11 +427,7 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     assert.match(first.request.launch.promptMarkdown, /Official vendor APIs and SDKs may be covered/);
     assert.match(first.request.launch.promptMarkdown, /Third-party applications, customers, and accounts are not authorized/);
     assert.match(first.request.launch.promptMarkdown, /Checkpoint earlier when a root maps only low-impact paths/);
-    await service.updateResearchTrackSessionTitle(workspaceId, started.id);
-    assert.match(titleEvent.id, /^track_title_1_1_/u);
-    assert.equal(titleEvent.payload.title, 'Researching Example service');
-    await service.updateResearchTrackSessionTitle(workspaceId, started.id);
-    assert.equal(titleEvents.length, 1);
+    assert.equal(first.request.launch.generateTitle, true);
     assert.equal(first.request.launch.continuation, undefined);
     assert.deepEqual(await service.dueResearchTracks(new Date(), new Set([started.id])), []);
     await service.recordSessionTerminalState({ request: first.request, sessionId: started.id,
@@ -448,10 +436,7 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     assert.equal(second.request.sessionId, started.id);
     assert.equal(second.request.launch.continuation.fallbackPrompt, second.request.launch.promptMarkdown);
     assert.equal(second.request.launch.continuation.resumeAttemptId, undefined);
-    await service.updateResearchTrackSessionTitle(workspaceId, started.id);
-    assert.match(titleEvent.id, /^track_title_1_2_/u);
-    assert.equal(titleEvent.payload.title, 'Researching Example library');
-    assert.equal(titleEvents.length, 2);
+    assert.equal(second.request.launch.generateTitle, true);
     await service.recordSessionTerminalState({ request: first.request, sessionId: 'session-example-obsolete',
       attemptId: 'attempt-example-obsolete', state: 'stopped' });
     assert.equal(state.store.get().status, 'running');

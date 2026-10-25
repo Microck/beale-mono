@@ -23,6 +23,7 @@ export interface GenerateResearchSessionTitleOptions {
   provider: string;
   model: string;
   prompt: string;
+  style?: 'research-track';
   effort?: ThinkingLevel;
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -37,6 +38,12 @@ const SECURITY_TITLE_SYSTEM_PROMPT = [
   "Return only a plain-text title of 3 to 6 words.",
   "Preserve important target, component, and feature names.",
   "Do not use quotes, markdown, a trailing period, or generic wording such as Security Research.",
+].join(" ");
+const TRACK_TITLE_GUIDANCE = [
+  "This is one epoch of a continuing research session.",
+  "Name the concrete research question or proof step using the prior theory and next action.",
+  "The assigned surface appears separately in the interface; do not merely repeat its name.",
+  "Do not mention the track, epoch, pass, progress, or identifiers, and do not start with Researching.",
 ].join(" ");
 const DEFAULT_TITLE_TIMEOUT_MS = 30_000;
 const MAX_TITLE_PROMPT_CHARS = 16_000;
@@ -65,7 +72,7 @@ export async function generateResearchSessionTitle(
   timeout.unref();
 
   try {
-    const systemPrompt = options.researchProfile
+    const baseSystemPrompt = options.researchProfile
       ? [
           `Create a short title for a ${options.researchProfile.name} ${options.researchProfile.presentation.sessionLabel.toLowerCase()} from the user's research prompt.`,
           "Return only a plain-text title of 3 to 6 words.",
@@ -73,6 +80,9 @@ export async function generateResearchSessionTitle(
           `Do not use quotes, markdown, a trailing period, or generic wording such as ${options.researchProfile.name}.`,
         ].join(" ")
       : SECURITY_TITLE_SYSTEM_PROMPT;
+    const systemPrompt = options.style === 'research-track'
+      ? `${baseSystemPrompt} ${TRACK_TITLE_GUIDANCE}`
+      : baseSystemPrompt;
     const signal = options.signal
       ? AbortSignal.any([controller.signal, options.signal])
       : controller.signal;

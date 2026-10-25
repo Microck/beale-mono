@@ -106,3 +106,34 @@ test("research session titles use profile vocabulary", async () => {
   assert.match(systemPrompt, /field site/i);
   assert.doesNotMatch(systemPrompt, /security research/i);
 });
+
+test("track titles name the current investigation instead of repeating the surface", async () => {
+  let systemPrompt = "";
+  const title = await generateResearchSessionTitle({
+    provider: "fixture",
+    model: "fixture-small",
+    style: "research-track",
+    prompt: "Assigned surface: Example API. Prior theory: response cache key omits authorization. Next action: compare cross-account cache hits.",
+    models: {
+      getModel() { return { provider: "fixture", id: "fixture-small" }; },
+      async completeSimple(_model, context) {
+        systemPrompt = context.systemPrompt;
+        return {
+          role: "assistant",
+          content: [{ type: "text", text: "Cross-Account Cache Isolation" }],
+          api: "fixture",
+          provider: "fixture",
+          model: "fixture-small",
+          usage: {},
+          stopReason: "stop",
+          timestamp: Date.now(),
+        };
+      },
+    },
+  });
+
+  assert.equal(title, "Cross-Account Cache Isolation");
+  assert.match(systemPrompt, /prior theory and next action/i);
+  assert.match(systemPrompt, /surface appears separately/i);
+  assert.match(systemPrompt, /do not start with Researching/i);
+});

@@ -988,6 +988,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     <aside className={`main-session-side memory-catalog ${isBrowserSideView(activeView) ? 'view-browser' : `view-${activeView}`} ${visibleSelectedSubagentPath || visibleSelectedRunbookId || visibleSelectedReportId || selectedNode || selectedClaim ? 'has-nested-view' : ''}`} aria-label={`${viewSpaceLabel} details`}>
         {visibleSelectedSubagentPath ? (
           <ResearchSideNestedHeader
+            iconOnly
             label="Subagents"
             name={selectedSubagentName}
             primaryLeading={<SubagentStatusIndicator status={selectedSubagent?.status ?? 'unknown'} />}
@@ -997,7 +998,6 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 <span>{subagentModelDisplayName(selectedSubagent?.provider ?? null, selectedSubagent?.model ?? null, providerModelCatalog)}</span>
               </>
             )}
-            stackedInlineIdentity
             onBack={closeSubagentDetail}
           />
         ) : visibleSelectedRunbookId ? (
@@ -1493,7 +1493,6 @@ export function ResearchSideNestedHeader({
   name,
   primaryLeading,
   secondary,
-  stackedInlineIdentity = false,
   onBack
 }: {
   iconOnly?: boolean;
@@ -1502,11 +1501,10 @@ export function ResearchSideNestedHeader({
   name?: string;
   primaryLeading?: ReactNode;
   secondary?: ReactNode;
-  stackedInlineIdentity?: boolean;
   onBack: () => void;
 }): JSX.Element {
   return (
-    <header className={`research-side-nested-header${iconOnly ? ' is-campaign-item' : ''}${stackedInlineIdentity ? ' is-stacked-inline' : ''}`}>
+    <header className={`research-side-nested-header${iconOnly ? ' is-campaign-item' : ''}`}>
       <button
         aria-label={iconOnly ? `Back to ${label}` : undefined}
         className={iconOnly ? 'is-icon-only' : undefined}
@@ -1523,9 +1521,8 @@ export function ResearchSideNestedHeader({
           <span className="research-side-nested-primary">
             {primaryLeading}
             <span className="research-side-nested-name" title={name}>{name}</span>
-            {stackedInlineIdentity && secondary ? <span className="research-side-nested-secondary">{secondary}</span> : null}
           </span>
-          {!stackedInlineIdentity && secondary ? <span className="research-side-nested-secondary">{secondary}</span> : null}
+          {secondary ? <span className="research-side-nested-secondary">{secondary}</span> : null}
         </span>
       ) : null}
     </header>
@@ -1555,6 +1552,7 @@ export function SubagentDetailPanel({
   return (
     <aside className="main-session-side memory-catalog view-subagents has-nested-view" aria-label="Subagent details">
       <ResearchSideNestedHeader
+        iconOnly
         label={backLabel}
         name={name}
         primaryLeading={<SubagentStatusIndicator status={subagent.status ?? 'unknown'} />}
@@ -1564,7 +1562,6 @@ export function SubagentDetailPanel({
             <span>{subagentModelDisplayName(subagent.provider, subagent.model, providerModelCatalog)}</span>
           </>
         )}
-        stackedInlineIdentity
         onBack={onBack}
       />
       <div className="research-side-nested-content subagent-chat-content">
@@ -1711,7 +1708,7 @@ export function ResearchSideViewTabs({
   return (
     <>
       <header className="research-side-view-header">
-      <div className="research-side-view-tabs research-side-view-tabs-scrollable" role="tablist" aria-label={`Open ${viewSpaceLabel.toLocaleLowerCase()} detail views`}>
+      <div className="research-side-view-tabs research-side-view-tabs-scrollable pill-view-tabs" role="tablist" aria-label={`Open ${viewSpaceLabel.toLocaleLowerCase()} detail views`}>
         {openViews.map((view) => (
           <div className={`research-side-view-tab ${activeView === view ? 'active' : ''}`} key={view}>
             <button
@@ -2266,18 +2263,16 @@ export function SubagentCatalogSection({
                 <span className="subagent-catalog-identity">
                   <SubagentStatusIndicator status={agent.status} variant="robot" />
                   <strong className="subagent-catalog-name">{subagentDisplayName(agent.name)}</strong>
+                  <span className="subagent-catalog-model-identity">
+                    <SubagentProviderIcon provider={agent.provider} model={agent.model} />
+                    <span className="subagent-catalog-model">{subagentModelDisplayName(agent.provider, agent.model, providerModelCatalog)}</span>
+                  </span>
                 </span>
                 <span className="subagent-catalog-heading-trailing">
                   <CatalogTime value={agent.createdAt} nowMs={nowMs} />
                 </span>
               </span>
               <span className="subagent-catalog-preview">{agent.latestMessage || 'No message yet.'}</span>
-              <span className="subagent-catalog-footer">
-                <span className="subagent-catalog-model-identity">
-                  <SubagentProviderIcon provider={agent.provider} model={agent.model} />
-                  <span className="subagent-catalog-model">{subagentModelDisplayName(agent.provider, agent.model, providerModelCatalog)}</span>
-                </span>
-              </span>
             </button>
           ))
         ) : (
