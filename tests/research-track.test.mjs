@@ -176,6 +176,55 @@ test('actionability promotes child proof work, decays without evidence, and retu
   } finally { state.close(); }
 });
 
+test('track scheduling favors a testable higher-impact surface over a stalled low-impact path', () => {
+  const state = fixture();
+  try {
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces });
+    const update = state.database.prepare(`UPDATE app_server_research_track_surfaces
+      SET actionability_score=?, impact=?, validation_json=?, no_progress_epochs=?
+      WHERE workspace_id=? AND surface_id=?`);
+    update.run(82, 'low', JSON.stringify({ targetDependent: true, environment: 'none',
+      reason: 'The example hardware is unavailable for the required test.' }), 1,
+    workspaceId, surfaces[0].id);
+    update.run(55, 'high', JSON.stringify({ targetDependent: false, environment: 'localhost',
+      reason: 'The example parser can be checked from source.' }), 0,
+    workspaceId, surfaces[1].id);
+    assert.equal(state.store.reserveNext('session-example-prioritized', surfaces).surface.id, surfaces[1].id);
+  } finally { state.close(); }
+});
+
+test('track scheduling rotates away from hardware-dependent work without target validation', () => {
+  const state = fixture();
+  try {
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces });
+    state.database.prepare(`UPDATE app_server_research_track_surfaces
+      SET actionability_score=70, impact='high', validation_json=?
+      WHERE workspace_id=? AND surface_id=?`).run(JSON.stringify({ targetDependent: true,
+      environment: 'none', reason: 'The example device is unavailable for target validation.' }),
+    workspaceId, surfaces[0].id);
+    state.database.prepare(`UPDATE app_server_research_track_surfaces SET actionability_score=55
+      WHERE workspace_id=? AND surface_id=?`).run(workspaceId, surfaces[1].id);
+    assert.equal(state.store.reserveNext('session-example-hardware-rotation', surfaces).surface.id, surfaces[1].id);
+  } finally { state.close(); }
+});
+
+test('track scheduling does not favor low-impact work solely because it yields easy evidence', () => {
+  const state = fixture();
+  try {
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces });
+    state.database.prepare(`UPDATE app_server_research_track_surfaces
+      SET actionability_score=80, impact='low' WHERE workspace_id=? AND surface_id=?`)
+      .run(workspaceId, surfaces[0].id);
+    state.database.prepare(`UPDATE app_server_research_track_surfaces
+      SET actionability_score=65, impact='medium' WHERE workspace_id=? AND surface_id=?`)
+      .run(workspaceId, surfaces[1].id);
+    assert.equal(state.store.reserveNext('session-example-impact-rotation', surfaces).surface.id, surfaces[1].id);
+  } finally { state.close(); }
+});
+
 test('target-dependent localhost evidence records a gap and raises actionability less than device evidence', async () => {
   const state = fixture();
   try {
@@ -373,9 +422,13 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     assert.equal(first.request.sessionId, started.id);
     assert.deepEqual(first.request.launch.collaboration, collaboration);
     assert.match(first.request.launch.promptMarkdown, /Selected execution targets: local/);
+    assert.match(first.request.launch.promptMarkdown, /briefly compare the eligible roots in surface.list before deep work/);
     assert.match(first.request.launch.promptMarkdown, /listed resources are an inventory/);
     assert.match(first.request.launch.promptMarkdown, /authorized physical iPhone/);
     assert.match(first.request.launch.promptMarkdown, /localhost run alone does not validate target behavior/);
+    assert.match(first.request.launch.promptMarkdown, /Official vendor APIs and SDKs may be covered/);
+    assert.match(first.request.launch.promptMarkdown, /Third-party applications, customers, and accounts are not authorized/);
+    assert.match(first.request.launch.promptMarkdown, /Checkpoint earlier when a root maps only low-impact paths/);
     await service.updateResearchTrackSessionTitle(workspaceId, started.id, 1, 'Track · Researching Example service · 0/2');
     assert.equal(titleEvent.id, 'track_title_1_1');
     assert.equal(titleEvent.payload.title, 'Track · Researching Example service · 0/2');
@@ -521,6 +574,32 @@ test('track respects blockers, changes in coverage, and a new audit pass', () =>
     state.store.control('stop');
     assert.equal(state.store.start({ scopeId: 'scope-example-new', provider: { id: 'openai-codex' },
       targetIds: ['local'], surfaces }).pass, 2);
+  } finally { state.close(); }
+});
+
+test('stopping an active track permits an immediate new pass with a distinct session', () => {
+  const state = fixture();
+  try {
+    const first = state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces });
+    state.store.reserveNext(first.id, surfaces);
+    const stopped = state.store.control('stop');
+    assert.equal(stopped.status, 'stopped');
+    assert.equal(stopped.activeSessionId, null);
+    assert.equal(stopped.activeSurfaceId, null);
+    assert.equal(stopped.surfaces.find((surface) => surface.surfaceId === surfaces[0].id).status, 'deferred');
+    state.database.prepare('UPDATE app_server_research_tracks SET active_session_id=? WHERE workspace_id=?')
+      .run(first.id, workspaceId);
+    const second = state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces });
+    assert.equal(second.pass, 2);
+    assert.notEqual(second.id, first.id);
+    assert.equal(second.createdAt, second.updatedAt);
+    assert.equal(state.store.finishEpoch(first.id, true).id, second.id);
+    assert.equal(state.store.get().status, 'running');
+    const history = state.database.prepare('SELECT snapshot_json FROM app_server_research_track_history WHERE workspace_id=?')
+      .get(workspaceId);
+    assert.equal(JSON.parse(history.snapshot_json).status, 'stopped');
   } finally { state.close(); }
 });
 

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
@@ -6,7 +6,9 @@ import {
   openSync,
   readFileSync,
   readSync,
+  renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -185,7 +187,12 @@ export function loadResearchStorageManifest(
     };
   }
 
-  const parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as unknown;
+  let parsed: unknown;
+  try { parsed = JSON.parse(readFileSync(manifestPath, "utf8")) as unknown; }
+  catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    throw new Error("Research storage manifest contains incomplete or invalid JSON. Preserve and repair it before saving artifacts.", { cause: error });
+  }
   if (!isRecord(parsed)) {
     throw new Error(`Storage manifest must be a JSON object: ${manifestPath}`);
   }
@@ -227,15 +234,23 @@ export function saveResearchStorageManifest(
   };
 
   mkdirSync(dirname(manifestPath), { recursive: true });
-  writeFileSync(
-    manifestPath,
-    `${JSON.stringify({
-      schemaVersion: next.schemaVersion,
-      updatedAt: next.updatedAt,
-      artifacts: next.artifacts,
-    }, null, 2)}\n`,
-    "utf8",
-  );
+  const temporaryPath = `${manifestPath}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(
+      temporaryPath,
+      `${JSON.stringify({
+        schemaVersion: next.schemaVersion,
+        updatedAt: next.updatedAt,
+        artifacts: next.artifacts,
+      }, null, 2)}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    renameSync(temporaryPath, manifestPath);
+  } finally {
+    if (existsSync(temporaryPath)) {
+      try { unlinkSync(temporaryPath); } catch { /* Preserve the original write failure. */ }
+    }
+  }
 
   return next;
 }

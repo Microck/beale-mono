@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAppServerMemorySummaryAsync } from '../src/main/appServerCliClient';
+import { WorkspaceService } from '../src/main/workspaceService';
 import {
   BEALE_APP_SERVER_CAPABILITIES,
   BEALE_APP_SERVER_CONTRACT_TIMESTAMP,
@@ -251,6 +252,83 @@ describe('beale app-server client', () => {
     process.env.BEALE_APP_SERVER_COMMAND = 'definitely-not-a-real-beale-launcher';
     await expect(fetchExistingAppServerCanonicalResult(record, path)).resolves.toEqual({ revision: 7 });
     expect(requests).toBe(3);
+  });
+
+  it.each(['empty', 'truncated', 'truncated property'] as const)('retries an incomplete research-track status response (%s)', async (bodyKind) => {
+    let requests = 0;
+    await startStubServer((request, response) => {
+      if (request.url === '/health') {
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+          ok: true, controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
+          contractTimestamp: BEALE_APP_SERVER_CONTRACT_TIMESTAMP, capabilities: BEALE_APP_SERVER_CAPABILITIES
+        }));
+        return;
+      }
+      requests += 1;
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(requests === 1 ? bodyKind === 'empty' ? ''
+        : bodyKind === 'truncated' ? '{"controlVersion":1,"result":'
+          : '{"controlVersion":1,"result":{"status":"running"'
+        : JSON.stringify({ controlVersion: BEALE_APP_SERVER_CONTROL_VERSION, result: { status: 'stopped' } }));
+    });
+    const record = discoveryRecord({ url: serverUrl });
+    writeFileSync(process.env.BEALE_APP_SERVER_STATE_FILE!, JSON.stringify(record), 'utf8');
+    await expect(invokeAppServerOperation({ operation: 'workspace.research_track',
+      input: { workspaceId: 'workspace-example', action: 'status' } })).resolves.toEqual({ status: 'stopped' });
+    expect(requests).toBe(2);
+  });
+
+  it('does not replay a research-track control whose response body is missing', async () => {
+    let requests = 0;
+    await startStubServer((request, response) => {
+      if (request.url === '/health') {
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+          ok: true, controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
+          contractTimestamp: BEALE_APP_SERVER_CONTRACT_TIMESTAMP, capabilities: BEALE_APP_SERVER_CAPABILITIES
+        }));
+        return;
+      }
+      requests += 1;
+      response.writeHead(200, { 'content-type': 'application/json' }).end();
+    });
+    const record = discoveryRecord({ url: serverUrl });
+    writeFileSync(process.env.BEALE_APP_SERVER_STATE_FILE!, JSON.stringify(record), 'utf8');
+    await expect(invokeAppServerOperation({ operation: 'workspace.research_track',
+      input: { workspaceId: 'workspace-example', action: 'start' } })).rejects.toMatchObject({
+      name: 'AppServerIncompleteResponseError', operation: 'workspace.research_track'
+    });
+    expect(requests).toBe(1);
+  });
+
+  it('reads back a committed track start when its control response is incomplete', async () => {
+    const actions: string[] = [];
+    const track = {
+      id: 'track-example', workspaceId: 'workspace-example', status: 'running', pass: 1,
+      scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'],
+      activeSessionId: null, activeSurfaceId: null, epochCount: 0, lastError: null,
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', surfaces: []
+    };
+    await startStubServer((request, response) => {
+      if (request.url === '/health') {
+        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+          ok: true, controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
+          contractTimestamp: BEALE_APP_SERVER_CONTRACT_TIMESTAMP, capabilities: BEALE_APP_SERVER_CAPABILITIES
+        }));
+        return;
+      }
+      let body = '';
+      request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8'); });
+      request.on('end', () => {
+        const action = JSON.parse(body).input.action as string;
+        actions.push(action);
+        response.writeHead(200, { 'content-type': 'application/json' }).end(action === 'start' ? ''
+          : JSON.stringify({ controlVersion: BEALE_APP_SERVER_CONTROL_VERSION, result: track }));
+      });
+    });
+    writeFileSync(process.env.BEALE_APP_SERVER_STATE_FILE!, JSON.stringify(discoveryRecord({ url: serverUrl })), 'utf8');
+    const service = Object.create(WorkspaceService.prototype) as WorkspaceService;
+    await expect(service.controlResearchTrack('workspace-example', 'start')).resolves.toEqual(track);
+    expect(actions).toEqual(['start', 'status']);
   });
 
   it('bounds existing-session retries when the connection keeps resetting', async () => {
@@ -854,6 +932,44 @@ describe('beale app-server client', () => {
     expect(started.sessionId).toBe('session-timeout-recovery');
     expect(started.token).toBe('recovered-session-token');
     expect(started.url).toBe(`${serverUrl.replace('http', 'ws')}/v1/sessions/session-timeout-recovery/transport`);
+  });
+
+  it('recovers a committed session start and attachment after incomplete JSON replies', async () => {
+    let starts = 0;
+    let attachments = 0;
+    await startStubServer((request, response) => {
+      if (request.url === '/v1/sessions' && request.method === 'POST') {
+        starts += 1;
+        request.resume();
+        response.writeHead(201, { 'content-type': 'application/json' });
+        response.end();
+        return;
+      }
+      if (request.url === '/v1/sessions/session-incomplete' && request.method === 'GET') {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
+          session: appServerSessionEntry('session-incomplete', 'running') }));
+        return;
+      }
+      if (request.url === '/v1/sessions/session-incomplete/attachments' && request.method === 'POST') {
+        attachments += 1;
+        response.writeHead(201, { 'content-type': 'application/json' });
+        response.end(attachments === 1 ? '' : JSON.stringify({
+          controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
+          session: appServerSessionEntry('session-incomplete', 'running'),
+          transport: { path: '/v1/sessions/session-incomplete/transport', protocolVersion: 1,
+            authentication: 'bearer', token: 'recovered-token', reconnect: 'replay' }
+        }));
+        return;
+      }
+      response.writeHead(404).end();
+    });
+    const started = await startAppServerSession(discoveryRecord({ url: serverUrl }),
+      sessionLaunchRequest('session-incomplete'), { recoveryTimeoutMs: 1_000 });
+    expect(started.sessionId).toBe('session-incomplete');
+    expect(started.token).toBe('recovered-token');
+    expect(starts).toBe(1);
+    expect(attachments).toBe(2);
   });
 });
 

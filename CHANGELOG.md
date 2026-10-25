@@ -61,6 +61,7 @@
 
 #### Changed
 
+- OpenRouter model choices refresh from OpenRouter's current tool-capable catalog, including context limits and pricing; the bundled catalog remains available when refresh fails.
 - Continuous research now reports investigated and completed surface counts separately and shows each surface's actionability score and validation environment. The session title uses investigated progress, so active tracks no longer remain at `0/X` until full coverage closes.
 - iOS asks for confirmation before stopping an active session from the message or approval composer.
 - Beale iOS session details now use a blurred header without the machine strip and switch between session-linked subagents, findings, and memories.
@@ -251,6 +252,8 @@
 
 #### Fixed
 
+- Resuming a local research track now unlocks saved API keys for its lead and enabled collaborators before the app-server schedules the next epoch.
+- Desktop now handles incomplete app-server JSON replies without surfacing a raw parse error. Research-track status and session attachment reads retry; lost track-control and session-start replies reconcile against the committed state without replaying Start.
 - Running track sessions keep their commentary expanded and live detail polling active across completed or blocked epoch handoffs, including in remote session views. Session stop controls pause the track during a handoff.
 - Track session views now show the configured collaborator count and subagent mode, including tracks created before this fix, and read context usage and window size from canonical model turns.
 - Starting or resuming a research track now opens its session automatically once the session appears locally or on the selected fleet server. Workspace snapshots also discover canonical sessions created after opening a workspace.
@@ -1423,6 +1426,7 @@
 
 #### Added
 
+- Bore can store versioned, immutable iOS session checkpoints and fixed host-job receipts in a registered workspace through authenticated app-server endpoints. Hosted auxiliary completions can select the saved Lead provider, model, and authentication preferences without exposing credentials to Bore.
 - The first focus of a surface in a workspace starts a foundation discoverer once. Surface coverage now uses explicit map, sink, question, connection, child-surface, and unblocked-finding criteria; observed or reproduced findings can carry a reversible progress blocker.
 
 - Added an authenticated Fleet pairing QR operation that encodes the app-server’s stored endpoint and token as a PNG. The updated control contract requires rebuilt Desktop and app-server binaries.
@@ -1460,6 +1464,9 @@
 
 #### Fixed
 
+- Starting a new Continuous research pass immediately after Stop now works while the prior worker exits. Each pass gets a distinct session, and the next pass waits for the prior worker to finish before launching.
+- A provider stream that ends with incomplete JSON before actionable model output now follows the bounded research-session retry path instead of failing the session on the first occurrence. Fleet research-track forwarding also retries incomplete status replies and reconciles lost control replies without replaying the action.
+- Artifact manifest writes now replace the complete file atomically, so concurrent runbook preparation cannot read an empty or partial manifest. Invalid manifest and runbook notebook JSON now produce a preservation-oriented error instead of a raw parser exception.
 - Research track status checks and epoch scheduling read only authorization, target readiness, and surface state, avoiding full workspace memory loads during handoffs.
 - Research track launches retain collaboration settings in canonical session metadata and tell web-facing epochs to use available Browser tools for focused evidence gathering.
 - Research track checkpoints now resolve memory ownership through workspace memberships after the memory graph migration. Unexpected checkpoint storage errors pause the track instead of consuming more epochs. Expected rotations and manual stops no longer display a false incomplete-epoch error; a timed rotation without a checkpoint identifies the missing checkpoint.
@@ -1493,6 +1500,7 @@
 
 #### Changed
 
+- Research tracks now rank surfaces by likely impact, available target validation, and stalled epochs. Session and first-touch guidance prioritize reachable vendor APIs and SDKs, seek new security surfaces after low-yield work, and keep third-party integrations outside the recorded boundary.
 - Security research can add unlisted resources covered by recorded broad scope inclusions or rules. Resource first touch now sends the recorded boundary to Auto-Review, keeps explicit exclusions authoritative, and makes approved discoveries eligible for surface research; the Codex tool bridge uses the same review path. A scope change invalidates prior ambient approvals for renewed review. Older stored Security profile snapshots receive the updated guidance at prompt assembly without changing their saved hashes.
 - Research tracks now score surface actionability from fresh canonical evidence, decay stale or stalled work, prioritize child proof paths before exhausting resource roots, and return periodically to breadth. Checkpoints record the actual validation environment, reward localhost-only target evidence less, and prevent completion of target-dependent work from host-only tests. Existing track surface rows gain score and validation columns automatically. Epoch prompts favor authorized target execution and record unavailable device or VM validation as a coverage gap; control contract v60 requires rebuilt clients.
 - Security report creation now advances one verified finding with current reproduction, independent review, impact, and proof evidence. Historical review bindings from retired composite records remain valid until their reviewed content changes.

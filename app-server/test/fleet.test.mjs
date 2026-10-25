@@ -4,7 +4,27 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { APP_SERVER_PROTOCOL_VERSION, APP_SERVER_SESSION_LAUNCH_VERSION, BEALE_APP_SERVER_CAPABILITIES, BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION } from '@beale/app-server-runtime/protocol';
-import { FleetService, assertCompatibleRemoteAppServerDescriptor, probeFleetAppServerStatus } from '../dist/fleet.js';
+import { FleetIncompleteResponseError, FleetService, assertCompatibleRemoteAppServerDescriptor, probeFleetAppServerStatus } from '../dist/fleet.js';
+
+test('remote research-track status retries an incomplete JSON reply without replaying control', async () => {
+  const fleet = new FleetService();
+  fleet.connectedRemoteAppServer = async () => ({ url: 'https://remote.example.test', operatorToken: 'synthetic-token' });
+  const originalFetch = globalThis.fetch;
+  const actions = [];
+  globalThis.fetch = async (_url, options) => {
+    actions.push(JSON.parse(options.body).input.action);
+    return actions.length === 1 || actions.at(-1) === 'start' ? new Response('', { status: 200 })
+      : Response.json({ controlVersion: BEALE_APP_SERVER_CONTROL_VERSION, result: null });
+  };
+  try {
+    assert.equal(await fleet.callRemote('server-example', 'workspace.research_track',
+      { workspaceId: 'workspace-example', action: 'status' }), null);
+    assert.deepEqual(actions, ['status', 'status']);
+    await assert.rejects(fleet.callRemote('server-example', 'workspace.research_track',
+      { workspaceId: 'workspace-example', action: 'start' }), FleetIncompleteResponseError);
+    assert.deepEqual(actions, ['status', 'status', 'start']);
+  } finally { globalThis.fetch = originalFetch; }
+});
 
 test('workspace-scoped Fleet state skips VM discovery for Local-only targets', async () => {
   const root = mkdtempSync(join(tmpdir(), 'beale-fleet-targets-example-'));

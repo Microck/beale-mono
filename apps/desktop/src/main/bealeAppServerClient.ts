@@ -241,7 +241,16 @@ export async function startAppServerSession(
     const detail = await describeResponse(response);
     throw new Error(`The Beale app-server rejected the session request (${response.status}): ${detail}`);
   }
-  const payload: unknown = await response.json().catch(() => null);
+  let payload: unknown;
+  try {
+    payload = await readOperationResponse(response, 'session.start');
+  } catch (error) {
+    if (!(error instanceof AppServerIncompleteResponseError) || !request.sessionId) throw error;
+    const recovered = await recoverTimedOutSessionStart(record, request.sessionId,
+      request.launch.attemptId ?? '', options.recoveryTimeoutMs ?? SESSION_START_RECOVERY_TIMEOUT_MS);
+    if (recovered) return recovered;
+    throw error;
+  }
   let decoded;
   try {
     decoded = decodeBealeAppServerSessionStartResult(payload);
@@ -310,26 +319,34 @@ export async function attachAppServerSession(
   record: BealeAppServerDiscovery,
   sessionId: string
 ): Promise<AppServerSessionAttachment> {
-  const response = await fetch(
-    `${appServerControlUrl(record)}${BEALE_APP_SERVER_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/attachments`,
-    {
-      method: 'POST',
-      headers: { authorization: `Bearer ${record.operatorToken}` },
-      signal: AbortSignal.timeout(SESSION_REQUEST_TIMEOUT_MS)
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetch(
+      `${appServerControlUrl(record)}${BEALE_APP_SERVER_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/attachments`,
+      {
+        method: 'POST',
+        headers: { authorization: `Bearer ${record.operatorToken}` },
+        signal: AbortSignal.timeout(SESSION_REQUEST_TIMEOUT_MS)
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`The Beale app-server could not attach session ${sessionId} (${response.status}): ${await describeResponse(response)}`);
     }
-  );
-  if (!response.ok) {
-    throw new Error(`The Beale app-server could not attach session ${sessionId} (${response.status}): ${await describeResponse(response)}`);
+    let payload: unknown;
+    try { payload = await readOperationResponse(response, 'session.attach'); }
+    catch (error) {
+      if (error instanceof AppServerIncompleteResponseError && attempt === 0) continue;
+      throw error;
+    }
+    const decoded = decodeBealeAppServerSessionAttachResult(payload);
+    if (decoded.session.sessionId !== sessionId) {
+      throw new Error('The Beale app-server returned a mismatched session attachment.');
+    }
+    return {
+      sessionId,
+      url: appServerWebSocketUrl(appServerControlUrl(record), decoded.transport.path),
+      token: decoded.transport.token
+    };
   }
-  const decoded = decodeBealeAppServerSessionAttachResult(await response.json());
-  if (decoded.session.sessionId !== sessionId) {
-    throw new Error('The Beale app-server returned a mismatched session attachment.');
-  }
-  return {
-    sessionId,
-    url: appServerWebSocketUrl(appServerControlUrl(record), decoded.transport.path),
-    token: decoded.transport.token
-  };
 }
 
 export async function fetchAppServerSession(
@@ -426,15 +443,25 @@ export async function fetchExistingAppServerCanonicalResult<T>(
 }
 
 export class AppServerReadTransportError extends Error {
-  constructor(readonly operation: 'session.read' | 'memory.summary', readonly attempts: number, cause: unknown) {
-    super(`The Beale app-server ${operation} read failed after ${attempts} attempt(s): fetch failed (${appServerTransportCode(cause) ?? 'connection failure'}).`, { cause });
+  constructor(readonly operation: 'session.read' | 'memory.summary' | 'research_track.status', readonly attempts: number, cause: unknown) {
+    const detail = cause instanceof AppServerIncompleteResponseError
+      ? 'incomplete response body' : `fetch failed (${appServerTransportCode(cause) ?? 'connection failure'})`;
+    super(`The Beale app-server ${operation} read failed after ${attempts} attempt(s): ${detail}.`, { cause });
     this.name = 'AppServerReadTransportError';
+  }
+}
+
+export class AppServerIncompleteResponseError extends Error {
+  constructor(readonly operation: string, cause?: unknown) {
+    super(`The Beale app-server ${operation} response ended before its JSON body was complete. Check the current state before retrying a control action.`,
+      { cause });
+    this.name = 'AppServerIncompleteResponseError';
   }
 }
 
 async function retryExistingAppServerRead<T>(
   record: BealeAppServerDiscovery,
-  operation: 'session.read' | 'memory.summary',
+  operation: 'session.read' | 'memory.summary' | 'research_track.status',
   callerSignal: AbortSignal | undefined,
   read: (current: BealeAppServerDiscovery, signal: AbortSignal) => Promise<T>
 ): Promise<T> {
@@ -468,6 +495,9 @@ export async function invokeAppServerOperation<T>(request: {
   // Session enrichment uses POST for this idempotent read. Keep it on the
   // existing host, and never apply its retry policy to mutating operations.
   const existingHostRead = request.operation === 'memory.summary';
+  const trackStatusRead = (request.operation === 'workspace.research_track'
+    || request.operation === 'fleet.remote_research_track')
+    && isRecord(request.input) && request.input.action === 'status';
   const server = existingHostRead ? readLiveBealeAppServerDiscovery() : await ensureBealeAppServerRunning();
   if (!server) throw new Error('The Beale app-server hosting memory.summary is unavailable. Reads will not launch a replacement host.');
   const body = JSON.stringify({
@@ -484,17 +514,34 @@ export async function invokeAppServerOperation<T>(request: {
       signal
     });
     if (!response.ok) throw new Error(`app-server ${request.operation} failed: ${await describeResponse(response)}`);
-    const payload = await response.json() as { controlVersion?: unknown; result?: unknown };
-    if (payload.controlVersion !== BEALE_APP_SERVER_CONTROL_VERSION) throw new Error('The app-server returned an incompatible operation response.');
+    const payload = await readOperationResponse(response, request.operation);
+    if (!isRecord(payload) || payload.controlVersion !== BEALE_APP_SERVER_CONTROL_VERSION
+      || !Object.hasOwn(payload, 'result')) {
+      throw new Error('The app-server returned an incompatible operation response.');
+    }
     return payload.result as T;
   };
   return existingHostRead
     ? retryExistingAppServerRead(server, 'memory.summary', request.signal, execute)
+    : trackStatusRead
+      ? retryExistingAppServerRead(server, 'research_track.status', request.signal, execute)
     : execute(server, request.signal ?? AbortSignal.timeout(5 * 60_000));
 }
 
+async function readOperationResponse(response: Response, operation: string): Promise<unknown> {
+  let body: string;
+  try { body = await response.text(); }
+  catch (error) { throw new AppServerIncompleteResponseError(operation, error); }
+  if (!body.trim()) throw new AppServerIncompleteResponseError(operation);
+  try { return JSON.parse(body) as unknown; }
+  catch (error) {
+    if (error instanceof SyntaxError) throw new AppServerIncompleteResponseError(operation, error);
+    throw new Error(`The Beale app-server ${operation} returned malformed JSON.`, { cause: error });
+  }
+}
+
 function isAppServerTransportFailure(error: unknown): boolean {
-  return appServerTransportCode(error) !== undefined
+  return error instanceof AppServerIncompleteResponseError || appServerTransportCode(error) !== undefined
     || (error instanceof TypeError && error.message === 'fetch failed');
 }
 

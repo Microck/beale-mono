@@ -18,6 +18,8 @@ import type {
 } from "@earendil-works/pi-ai";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { brokeredModels } from "./model-broker.js";
+import { currentOpenRouterModels, refreshOpenRouterModels } from "./openrouter-models.js";
+export { refreshOpenRouterModels } from "./openrouter-models.js";
 
 // The session-scoped broker capability stays in the runtime process. Tools and
 // plugin child processes must not inherit it through their environment.
@@ -749,6 +751,7 @@ export async function verifyProviderAuth(
   modelId?: string,
   options: FileCredentialStoreOptions = {},
 ): Promise<AuthVerifyResult> {
+  if (providerId === "openrouter") await refreshOpenRouterModels();
   const store = createCredentialStore(options);
   const models = appServerModels({
     credentials: store,
@@ -919,6 +922,24 @@ function appServerModels(
     });
 
     models.setProvider(augmentedProvider);
+  }
+
+  const openRouter = models.getProvider("openrouter");
+  if (openRouter) {
+    models.setProvider(new Proxy(openRouter, {
+      get(target, property, receiver) {
+        if (property === "getModels") {
+          return () => {
+            const live = currentOpenRouterModels();
+            if (!live) return target.getModels();
+            const auto = target.getModels().find((model) => model.id === "auto");
+            return mergeProviderModels(live, auto ? [auto] : []);
+          };
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }));
   }
 
   return models;

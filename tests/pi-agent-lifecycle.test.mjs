@@ -1645,6 +1645,53 @@ test("Pi Agent retries an unexpected server error immediately in the same sessio
   )?.payload.delayMs, 0);
 });
 
+test("Pi Agent retries an incomplete provider JSON response before committing output", async () => {
+  const contexts = [];
+  const result = await runResearchAgent({
+    prompt: "Continue the authorized synthetic parser review after an incomplete model response.",
+    executor: createPiAgentExecutor({
+      provider: "faux",
+      model: "faux-model",
+      models: createScriptedModels([
+        assistantError("Unexpected end of JSON input"),
+        assistant("## Result\nRecovered after the incomplete provider response."),
+      ], contexts),
+    }),
+  });
+
+  assert.equal(result.agentRun.status, "complete");
+  assert.equal(contexts.length, 2);
+  assert.match(result.agentRun.output.text, /Recovered after the incomplete provider response/);
+  assert.ok(result.agentRun.output.raw.agentEvents.some((event) =>
+    event.type === "model_retry" && event.retry === 1 && event.delayMs === 0));
+});
+
+test("Pi Agent retries a thrown provider JSON parse error in the running session", async () => {
+  let attempts = 0;
+  const models = createScriptedModels([assistant("## Result\nRecovered after a thrown parser error.")]);
+  const result = await runResearchAgent({
+    prompt: "Continue the authorized synthetic parser review after a thrown provider error.",
+    executor: createPiAgentExecutor({
+      provider: "faux",
+      model: "faux-model",
+      models: {
+        ...models,
+        streamSimple(...args) {
+          attempts += 1;
+          if (attempts === 1) throw new SyntaxError("Unexpected end of JSON input");
+          return models.streamSimple(...args);
+        },
+      },
+    }),
+  });
+
+  assert.equal(result.agentRun.status, "complete");
+  assert.equal(attempts, 2);
+  assert.match(result.agentRun.output.text, /Recovered after a thrown parser error/);
+  assert.ok(result.agentRun.output.raw.agentEvents.some((event) =>
+    event.type === "model_retry" && event.retry === 1 && event.delayMs === 0));
+});
+
 test("Pi Agent retries a provider WebSocket failure immediately in the same session", async () => {
   const contexts = [];
   const liveEvents = [];

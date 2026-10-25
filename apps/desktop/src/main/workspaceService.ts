@@ -9,7 +9,7 @@ import { bundledPluginsRequiredByResearchKit, composeResearchPromptWithContext, 
 import { WORKSPACE_PRIMARY_DIRECTORY_MISSING_MESSAGE } from '../shared/ipc';
 import { fleetBrowserViewerTargetId } from '../shared/fleet';
 import { findingRevisionContext } from './findingRevisionContext';
-import { AppServerReadTransportError, fetchBealeProviderUsageLimits, invokeAppServerOperation } from './bealeAppServerClient';
+import { AppServerIncompleteResponseError, AppServerReadTransportError, fetchBealeProviderUsageLimits, invokeAppServerOperation } from './bealeAppServerClient';
 import { decodeBealeWorkspaceResearchTrack, decodeBealeWorkspaceSurfaceMap, decodeClaimBoardTransitionRequest, decodeFleetAppServerStatuses, decodeFleetPairingQrCode, type BealeProviderLimitId, type BealeProviderUsageLimits, type FleetSshTestInput, type FleetSshTestResult, type FleetState, type ResourcePriorArtPage, type ResourcePriorArtDetail, type ResourcePriorArtListInput } from '@beale/app-server-runtime/protocol';
 import {
   WorkspaceDatabase,
@@ -1046,8 +1046,18 @@ export class WorkspaceService {
   public async controlResearchTrack(workspaceId: string, action: 'start' | 'pause' | 'resume' | 'stop', serverId?: string,
     configuration?: import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrackRequest['configuration']): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrack> {
     const operation = serverId ? 'fleet.remote_research_track' : 'workspace.research_track';
-    const result = decodeBealeWorkspaceResearchTrack(await invokeAppServerOperation({ operation,
-      input: { workspaceId, action, ...(serverId ? { serverId } : {}), ...(configuration ? { configuration } : {}) } }));
+    let response: unknown;
+    try {
+      response = await invokeAppServerOperation({ operation,
+        input: { workspaceId, action, ...(serverId ? { serverId } : {}), ...(configuration ? { configuration } : {}) } });
+    } catch (error) {
+      if (!(error instanceof AppServerIncompleteResponseError)) throw error;
+      const current = await this.getResearchTrack(workspaceId, serverId).catch(() => null);
+      if (current && (action === 'start' || action === 'resume' ? current.status === 'running'
+        : action === 'pause' ? current.status === 'paused' : current.status === 'stopped')) return current;
+      throw error;
+    }
+    const result = decodeBealeWorkspaceResearchTrack(response);
     if (!result) throw new Error('The research track was not returned by app-server.');
     return result;
   }

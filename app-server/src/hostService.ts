@@ -31,7 +31,7 @@ import {
   type AppServerSessionLaunchRequest,
   decodeFleetSshTestInput
 } from '@beale/app-server-runtime/protocol';
-import { getProviderModelCatalog, readWorkspaceProject, readWorkspaceResearchCacheState, resolveStoredResearchWorkspaceBinding, workspaceResearchIndexNeedsRebuild } from '@beale/app-server-runtime/runtime-services';
+import { getProviderModelCatalog, refreshOpenRouterModels, readWorkspaceProject, readWorkspaceResearchCacheState, resolveStoredResearchWorkspaceBinding, workspaceResearchIndexNeedsRebuild } from '@beale/app-server-runtime/runtime-services';
 import { applyFeaturePromptOverrides, bundledPluginsRequiredByResearchKit, decodeResearchPluginCatalog, researchKitsRequiringBundledPlugin, validateResearchSystemPromptTemplate, verifyBrokerModelAccess, ResearchResourceCatalog, ResearchTrackStore, type ResearchTrackSurfaceState, type ResearchTrackSurfaceProjection } from '@beale/research-agent';
 import { runWorkspaceCheckpoint, workspaceOperationKey } from './workspaceCheckpoints.js';
 import { projectWorkspaceDetails } from './workspaceDetails.js';
@@ -52,7 +52,7 @@ import {
 } from './sessionLaunch.js';
 import { longSessionRecoveryFallbackPrompt } from './sessionRecovery.js';
 import { AppServerWorkerDatabaseCoordinator } from './workerDatabaseBroker.js';
-import { FleetService } from './fleet.js';
+import { FleetIncompleteResponseError, FleetService } from './fleet.js';
 import { FleetRemoteController } from './fleetRemote.js';
 import { FleetModelBrokerQueue } from './fleetModelBrokerQueue.js';
 import type { ModelBrokerRequest } from '@beale/research-agent';
@@ -60,6 +60,7 @@ import { FleetWorkspaceStore } from './fleetWorkspace.js';
 import { ProviderUsageLimitsService } from './providerUsageLimits.js';
 import { defaultDiscoveryPath, readDiscoveryRecord } from './discovery.js';
 import { createAppServerPairingQrCode } from './pairing.js';
+import { readBoreHostReceipt, saveBoreCheckpoint, saveBoreHostReceipt } from './boreCheckpoint.js';
 
 type ProtocolInvoker = <T>(
   operation: AppServerProtocolOperation,
@@ -275,13 +276,14 @@ export class AppServerHostService {
     };
   }
 
-  public providerCatalog(): BealeAppServerProviderCatalog {
+  public async providerCatalog(): Promise<BealeAppServerProviderCatalog> {
     const settings = this.registry.providerSettings();
     const connectedProviderIds = new Set([
       ...(settings.defaultProviderId ? [settings.defaultProviderId] : []),
       ...Object.keys(settings.modelDefaults),
       ...Object.keys(settings.authenticationPreferences)
     ]);
+    if (connectedProviderIds.has('openrouter')) await refreshOpenRouterModels();
     return {
       controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
       defaultProviderId: settings.defaultProviderId,
@@ -311,6 +313,21 @@ export class AppServerHostService {
     return serverId ? this.fleet.remoteProviderUsageLimits(serverId, providerId, refresh) : this.providerUsage.read(providerId, refresh);
   }
 
+  public async boreCheckpoint(workspaceId: string, session: unknown): Promise<unknown> {
+    const workspace = this.requireWorkspace(workspaceId);
+    return saveBoreCheckpoint(workspace.workspacePath, session);
+  }
+
+  public async boreHostReceipt(workspaceId: string, receipt: unknown): Promise<unknown> {
+    const workspace = this.requireWorkspace(workspaceId);
+    return saveBoreHostReceipt(workspace.workspacePath, receipt);
+  }
+
+  public async boreHostReceiptStatus(workspaceId: string, sessionId: string, jobId: string): Promise<unknown> {
+    const workspace = this.requireWorkspace(workspaceId);
+    return readBoreHostReceipt(workspace.workspacePath, sessionId, jobId);
+  }
+
   public async executeOperation(request: {
     operation: AppServerProtocolOperation;
     args?: readonly string[];
@@ -318,6 +335,30 @@ export class AppServerHostService {
     profileId?: string;
     signal?: AbortSignal;
   }): Promise<unknown> {
+    if (request.operation === 'provider.complete' && isRecord(request.input)
+      && request.input.useHostDefaults === true) {
+      const input = request.input;
+      const settings = this.registry.providerSettings();
+      const provider = settings.defaultProviderId;
+      const defaults = provider ? settings.modelDefaults[provider] : undefined;
+      if (!provider || !defaults?.leadModel) throw new Error('No Beale Lead provider and model are configured.');
+      if (typeof input.systemPrompt !== 'string' || input.systemPrompt.length > 2_000
+        || typeof input.prompt !== 'string' || input.prompt.length > 8_000) {
+        throw new Error('Invalid hosted completion input.');
+      }
+      return this.invokeProtocol('provider.complete', {
+        args: [],
+        input: {
+          provider, model: defaults.leadModel,
+          systemPrompt: input.systemPrompt, prompt: input.prompt,
+          maxTokens: 500,
+          ...(defaults.reasoningEffort ? { effort: defaults.reasoningEffort } : {}),
+          authenticationPreferences: settings.authenticationPreferences,
+          ...(provider === 'openai-codex' ? { codexAuthFile: resolveAppServerCodexAuthFile() } : {})
+        },
+        ...(request.signal ? { signal: request.signal } : {})
+      });
+    }
     if (request.operation.startsWith('fleet.')) {
       const input = isRecord(request.input) ? request.input : {};
       if (request.operation === 'fleet.state') return input.workspaceId === undefined
@@ -337,10 +378,22 @@ export class AppServerHostService {
       }
       if (request.operation === 'fleet.remote_catalog') return this.fleet.remoteCatalog(nonEmpty(input.serverId) ?? '');
       if (request.operation === 'fleet.remote_workspace_details') return this.fleet.remoteWorkspaceDetails(nonEmpty(input.serverId) ?? '', nonEmpty(input.workspaceId) ?? '');
-      if (request.operation === 'fleet.remote_research_track') return this.fleet.callRemote(
-        nonEmpty(input.serverId) ?? '', 'workspace.research_track',
-        { ...decodeBealeWorkspaceResearchTrackRequest({ workspaceId: input.workspaceId,
-          action: input.action ?? 'status', ...(input.configuration ? { configuration: input.configuration } : {}) }) });
+      if (request.operation === 'fleet.remote_research_track') {
+        const serverId = nonEmpty(input.serverId) ?? '';
+        const trackRequest = decodeBealeWorkspaceResearchTrackRequest({ workspaceId: input.workspaceId,
+          action: input.action ?? 'status', ...(input.configuration ? { configuration: input.configuration } : {}) });
+        try {
+          return await this.fleet.callRemote(serverId, 'workspace.research_track', { ...trackRequest });
+        } catch (error) {
+          if (!(error instanceof FleetIncompleteResponseError) || trackRequest.action === 'status') throw error;
+          const current = await this.fleet.callRemote<BealeWorkspaceResearchTrack | null>(serverId,
+            'workspace.research_track', { workspaceId: trackRequest.workspaceId, action: 'status' }).catch(() => null);
+          if (current && (trackRequest.action === 'start' || trackRequest.action === 'resume'
+            ? current.status === 'running' : trackRequest.action === 'pause'
+              ? current.status === 'paused' : current.status === 'stopped')) return current;
+          throw error;
+        }
+      }
       if (request.operation === 'fleet.remote_workspace_document') {
         if (input.kind !== 'runbook' && input.kind !== 'report') throw new Error('Invalid remote workspace document kind.');
         return this.fleet.remoteWorkspaceDocument(
@@ -559,7 +612,7 @@ export class AppServerHostService {
         : request.operation.startsWith('suggestion.')
         ? this.hostedSuggestionInput(request.operation, request.input, workspace, storage)
         : request.operation === 'prompt.expand'
-          ? this.hostedPromptExpansionInput(request.input, workspace, storage)
+          ? await this.hostedPromptExpansionInput(request.input, workspace, storage)
           : request.input
       : request.input;
     const result = await this.invokeProtocol(request.operation, {
@@ -659,16 +712,17 @@ export class AppServerHostService {
     };
   }
 
-  private hostedPromptExpansionInput(
+  private async hostedPromptExpansionInput(
     input: unknown,
     workspace: AppServerHostWorkspace,
     storage: AppServerHostStorage
-  ): Record<string, unknown> {
+  ): Promise<Record<string, unknown>> {
     if (!isRecord(input)) throw new Error('Research prompt expansion input is required.');
     const settings = this.registry.providerSettings();
     const requestedProvider = isRecord(input.provider) ? nonEmpty(input.provider.id) : undefined;
     const providerId = requestedProvider ?? settings.defaultProviderId;
     if (!providerId) throw new Error('No Lead provider is configured for this Beale host.');
+    if (providerId === 'openrouter') await refreshOpenRouterModels();
 
     const connectedProviderIds = new Set([
       ...(settings.defaultProviderId ? [settings.defaultProviderId] : []),
@@ -1345,7 +1399,8 @@ export class AppServerHostService {
     } finally { store.close(); }
   }
 
-  public async dueResearchTracks(at = new Date(), activeSessionIds: ReadonlySet<string> = new Set()): Promise<DueAppServerAutomation[]> {
+  public async dueResearchTracks(at = new Date(), activeSessionIds: ReadonlySet<string> = new Set(),
+    busyWorkspaceIds: ReadonlySet<string> = new Set()): Promise<DueAppServerAutomation[]> {
     const due: DueAppServerAutomation[] = [];
     for (const summary of this.registry.listWorkspaces()) {
       const workspace = this.registry.resolveWorkspace(summary.workspaceId);
@@ -1354,7 +1409,7 @@ export class AppServerHostService {
       const store = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId: workspace.workspaceId });
       try {
         let track = store.get();
-        if (!track || track.status !== 'running') continue;
+        if (!track || track.status !== 'running' || busyWorkspaceIds.has(workspace.workspaceId)) continue;
         if (workspace.memoryBackend === 'disabled') {
           store.pauseWithError('Workspace memory was disabled. Re-enable memory before resuming the research track.');
           continue;
@@ -1405,7 +1460,7 @@ export class AppServerHostService {
         const promptMarkdown = researchTrackEpochPrompt(assignment.track.id, assignment.track.pass,
           assignment.surface, work, details.surfaceMap.surfaces.length, assignment.track.targetIds,
           workspace.researchKitId);
-        const continuing = assignment.track.pass > 1 || assignment.track.epochCount > 1;
+        const continuing = assignment.track.epochCount > 1;
         due.push({ dueAt: at.toISOString(), request: { launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
           sessionId, launch: { workspaceId: workspace.workspaceId,
             mode: 'research-track',
@@ -2653,18 +2708,19 @@ function researchTrackEpochPrompt(
     `Work direction: ${surface.parentId ? 'depth on a mapped attacker path' : 'breadth on a resource root'}.`,
     `Prior impact estimate: ${work.impact}. Prior theory: ${work.theory || 'Unexamined.'}`,
     `Current actionability: ${work.actionabilityScore}/100.`,
+    `Prior validation: ${work.validation ? `${work.validation.environment}; target-dependent=${work.validation.targetDependent}; ${work.validation.reason}` : 'No target-validation result recorded.'}`,
     `Next action: ${work.nextAction}`,
     `Selected execution targets: ${targetIds.join(', ')}.`,
     '',
-    'Conduct one bounded, reasoning-based security research epoch on this assigned surface. Start with attacker control, trust boundaries, assets, plausible unauthorized effects, and the strongest high-impact theory. Use surface.focus. Coordinate with its first-touch foundation scout when one starts. Investigate reachable security-relevant sinks and possible cross-surface chains. Do not treat files, routes, or unit tests as surfaces merely because they exist; use tests only when they provide security evidence or a focused proof harness.',
-    'The listed resources are an inventory, not the whole authorization boundary. If this attacker path reveals an unlisted resource covered by a recorded inclusion or rule, add it with resource.catalog discover and request Auto-Reviewed touch before substantive research. Record the scope link; explicit exclusions still control. An approved discovered resource becomes eligible for a later track epoch.',
+    'Conduct one bounded, reasoning-based security research epoch on this assigned surface. For a previously unexamined resource root, briefly compare the eligible roots in surface.list before deep work so an easy but low-value root does not consume the epoch. Start with attacker control, trust boundaries, assets, plausible unauthorized effects, and the strongest high-impact theory. State the next discriminating proof question and whether the available environment can answer it before lengthy tool work. Use surface.focus. Coordinate with its first-touch foundation scout when one starts. Investigate reachable security-relevant sinks and possible cross-surface chains. Do not treat files, routes, or unit tests as surfaces merely because they exist; use tests only when they provide security evidence or a focused proof harness.',
+    'The listed resources are an inventory, not the whole authorization boundary. If this attacker path reveals an unlisted resource covered by a recorded inclusion or rule, add it with resource.catalog discover and request Auto-Reviewed touch before substantive research. Record the scope link; explicit exclusions still control. An approved discovered resource becomes eligible for a later track epoch. Official vendor APIs and SDKs may be covered even when their source was not attached. Third-party applications, customers, and accounts are not authorized just because they integrate with an in-scope vendor. Treat sample implementations as context unless independently included; prioritize the vendor-owned API or SDK behavior and impacts.',
     'For a web-facing theory, use available browser tools to inspect the actual application behavior and test discriminating requests within the recorded authorization. Browser tools are exposed when the Browser feature is enabled; if no usable browser target exists, record that limit in the surface checkpoint. Do not substitute a broad crawl for threat-model reasoning.',
-    'Favor concrete source-to-sink reasoning and discriminating experiments over inventory scans. Search existing findings before creating a new one. Advance a candidate through the existing evidence, reproduction, independent-review, and report gates when authorized work can do so. A negative result must name its bounds and be recorded in durable memory before it supports surface completion.',
-    'For target-dependent theories, prioritize a discriminating test on the authorized target or faithful device/VM. Localhost is useful for building harnesses and source-level checks, but a localhost run alone does not validate target behavior. Check target availability once, then use the target where possible. If unavailable, record the exact target-validation gap in surface.update and the checkpoint next action; switch to a proof question that can be answered with available evidence instead of repeatedly running localhost proxies.',
+    'Favor concrete source-to-sink reasoning and discriminating experiments over inventory scans. After initial mapping, compare newly discovered child surfaces and covered resources by likely impact, attacker reachability, and target-relevant evidence available per next step; move beyond obvious entry points when their proof value falls. Search existing findings before creating a new one. Advance a candidate through the existing evidence, reproduction, independent-review, and report gates when authorized work can do so. A negative result must name its bounds and be recorded in durable memory before it supports surface completion.',
+    'For target-dependent theories, prioritize a discriminating test on the authorized target or faithful device/VM. Localhost is useful for building harnesses and source-level checks, but a localhost run alone does not validate target behavior. Check target availability once, then use the target where possible. If unavailable, complete bounded source-level work that can still change the theory, record the exact target-validation gap in surface.update and the checkpoint next action, and defer to another in-scope surface when no distinct accessible proof step remains. Do not repeatedly run localhost proxies for the same blocked target question.',
     ...(researchKitId === 'apple-security-bounty' ? [
       'For iOS-specific behavior, inspect the Apple security device capability and use an authorized physical iPhone when one is available. Listing or describing a device is availability checking, not testing: when the theory can be exercised through an operator-built app, use the physical-iPhone install and launch tools and capture the observed result. The iOS Simulator is not a supported substitute. If device testing cannot be performed, state why in surface.update and the checkpoint next action; do not infer a negative on-device result from host tests.'
     ] : []),
-    'After approximately 30 minutes or 25 substantive research actions, checkpoint at a safe boundary. Continue an actively progressing proof instead of rotating only because the action count was reached. If new evidence stops arriving, state the failed proof obligation and switch direction at the next checkpoint. Record surface.update and then track.checkpoint with impact, tested theory, existing canonical evidence references, validation (whether target behavior is required, where testing actually ran, and a concrete reason), and the next action. Listing a device is validation environment none. If target behavior is required but only localhost or no test was possible, explain the gap and put the target test in nextAction; that evidence raises actionability less. Use complete only when the threat-model coverage state is complete and its evidence is durable. Use blocked only for a concrete external dependency after accessible work is exhausted. Otherwise defer with a useful next action. Then give a concise final response so the host can select the next surface.',
+    'After approximately 30 minutes or 25 substantive research actions, checkpoint at a safe boundary. Checkpoint earlier when a root maps only low-impact paths, a required environment is unavailable, or the next proof step no longer offers useful evidence; let the scheduler try another surface. Continue an actively progressing proof instead of rotating only because the action count was reached. If new evidence stops arriving, state the failed proof obligation and switch direction at the next checkpoint. Record surface.update and then track.checkpoint with impact, tested theory, existing canonical evidence references, validation (whether target behavior is required, where testing actually ran, and a concrete reason), and the next action. Listing a device is validation environment none. If target behavior is required but only localhost or no test was possible, explain the gap and put the target test in nextAction; that evidence raises actionability less. Use complete only when the threat-model coverage state is complete and its evidence is durable. Use blocked only for a concrete external dependency after accessible work is exhausted. Otherwise defer with a useful next action. Then give a concise final response so the host can select the next surface.',
   ].join('\n');
 }
 

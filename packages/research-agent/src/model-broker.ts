@@ -123,6 +123,10 @@ export async function completeBrokerModelRequest(request: ModelBrokerRequest,
   daybreakMode: 'blue' | 'red' = 'blue'): Promise<AssistantMessage> {
   const router = new ProviderAuthenticationRouter(authenticationPreferences);
   const { createAuthenticatedModels } = await import("./auth.js");
+  if (request.model.provider === "openrouter") {
+    const { refreshOpenRouterModels } = await import("./openrouter-models.js");
+    await refreshOpenRouterModels();
+  }
   const models = createAuthenticatedModels({ authContext: router.authContext(), ...(codexAuthFile ? { codexAuthFile } : {}) });
   const providerId = request.model.provider === "openai" ? "openai-codex" : request.model.provider;
   const initialModel = router.routePiModel(models, providerId, request.model.id);
@@ -176,6 +180,10 @@ export async function verifyBrokerModelAccess(providerId: string, modelId: strin
     throw new Error("This provider-specific subscription SDK cannot yet run through the Fleet model broker.");
   }
   const { createAuthenticatedModels } = await import("./auth.js");
+  if (providerId === "openrouter") {
+    const { refreshOpenRouterModels } = await import("./openrouter-models.js");
+    await refreshOpenRouterModels();
+  }
   const models = createAuthenticatedModels({ authContext: router.authContext(), ...(codexAuthFile ? { codexAuthFile } : {}) });
   const model = router.routePiModel(models, providerId, modelId);
   if (!model) throw new Error(`The primary has no brokered model ${providerId}/${modelId}.`);

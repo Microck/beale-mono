@@ -15,6 +15,7 @@ import {
   writeResearchModelConfig,
 } from "../packages/research-agent/dist/index.js";
 import { providerSemanticsDescriptor } from "../packages/research-agent/dist/harness.js";
+import { parseOpenRouterModels, refreshOpenRouterModels } from "../packages/research-agent/dist/openrouter-models.js";
 
 test("OpenAI auxiliary requests default to GPT-6 Luna", () => {
   assert.equal(providerSemanticsDescriptor().defaultSmallModels["openai-codex"], "gpt-6-luna");
@@ -148,6 +149,37 @@ test("provider catalogs expose current supplemental models to frontends", () => 
   assert.equal(glm53?.maxTokens, 128_000);
   assert.equal(openrouter?.providerName, "OpenRouter");
   assert.ok(openrouter?.models.some((model) => model.id === "auto"));
+});
+
+test("OpenRouter refresh exposes current tool models to catalogs and execution", async () => {
+  const source = { data: [{
+    id: "example-org/current-model", name: "ExampleCo: Current Model",
+    architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] },
+    supported_parameters: ["tools", "reasoning"],
+    reasoning: { mandatory: true, supported_efforts: ["low", "high", "max"] },
+    context_length: 262_144,
+    top_provider: { max_completion_tokens: 65_536 },
+    pricing: { prompt: "0.000002", completion: "0.000008", input_cache_read: "0.000001" },
+  }, {
+    id: "example-org/no-tools", name: "ExampleCo: No Tools",
+    architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+    supported_parameters: [], context_length: 32_768,
+    top_provider: { max_completion_tokens: 4_096 }, pricing: {},
+  }] };
+  assert.equal(parseOpenRouterModels(source).length, 1);
+  await refreshOpenRouterModels(async () => new Response(JSON.stringify(source)));
+  const catalog = getProviderModelCatalog("openrouter")[0];
+  const model = catalog.models.find((entry) => entry.id === "example-org/current-model");
+  assert.equal(model?.name, "ExampleCo: Current Model");
+  assert.equal(model?.contextWindow, 262_144);
+  assert.equal(model?.maxTokens, 65_536);
+  assert.deepEqual(model?.effortLevels, ["low", "high", "max"]);
+  assert.equal(catalog.models.some((entry) => entry.id === "example-org/no-tools"), false);
+  assert.ok(catalog.models.some((entry) => entry.id === "auto"));
+  const executable = createAuthenticatedModels().getModel("openrouter", "example-org/current-model");
+  assert.deepEqual(executable?.input, ["text", "image"]);
+  assert.equal(executable?.cost.input, 2);
+  assert.equal(executable?.cost.output, 8);
 });
 
 test("provider catalog reports Pi model names and model-specific effort levels", () => {

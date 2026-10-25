@@ -13,6 +13,13 @@ const execFileAsync = promisify(execFile);
 const VM_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const WORKSPACE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 
+export class FleetIncompleteResponseError extends Error {
+  constructor(readonly operation: AppServerProtocolOperation, cause?: unknown) {
+    super(`Remote app-server ${operation} returned an incomplete JSON response. Check the current state before retrying a control action.`, { cause });
+    this.name = 'FleetIncompleteResponseError';
+  }
+}
+
 export function normalizeBrowserHomePage(value: unknown): string {
   if (typeof value !== 'string' || value.length > 2048) throw new Error('Browser home page must be an HTTP or HTTPS URL.');
   try {
@@ -312,16 +319,25 @@ export class FleetService {
 
   public async callRemote<T>(serverId: string, operation: AppServerProtocolOperation, input: Record<string, unknown>, timeoutMs = 5 * 60_000): Promise<T> {
     const server = await this.connectedRemoteAppServer(serverId);
-    const response = await fetch(server.url + BEALE_APP_SERVER_OPERATIONS_PATH, {
-      method: 'POST', headers: { authorization: `Bearer ${server.operatorToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ operation, input }), redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!response.ok) throw new Error(`Remote app-server ${operation} failed (${response.status}).`);
-    const payload: unknown = await response.json();
-    if (!isRecord(payload) || payload.controlVersion !== BEALE_APP_SERVER_CONTROL_VERSION) {
-      throw new Error('Remote app-server response has an incompatible control contract.');
+    const statusRead = operation === 'workspace.research_track' && input.action === 'status';
+    for (let attempt = 0; ; attempt += 1) {
+      const response = await fetch(server.url + BEALE_APP_SERVER_OPERATIONS_PATH, {
+        method: 'POST', headers: { authorization: `Bearer ${server.operatorToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ operation, input }), redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) throw new Error(`Remote app-server ${operation} failed (${response.status}).`);
+      let payload: unknown;
+      try { payload = await response.json(); }
+      catch (error) {
+        if (statusRead && attempt === 0) continue;
+        throw new FleetIncompleteResponseError(operation, error);
+      }
+      if (!isRecord(payload) || payload.controlVersion !== BEALE_APP_SERVER_CONTROL_VERSION
+        || !Object.hasOwn(payload, 'result')) {
+        throw new Error('Remote app-server response has an incompatible control contract.');
+      }
+      return payload.result as T;
     }
-    return payload.result as T;
   }
 
   public async remoteMachines(): Promise<FleetMachine[]> {

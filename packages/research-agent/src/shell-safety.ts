@@ -793,6 +793,10 @@ async function reviewShellCommand(input: {
   }
 
   const useOfficialClaude = input.reviewer.provider === "anthropic";
+  if (input.reviewer.provider === "openrouter") {
+    const { refreshOpenRouterModels } = await import("./openrouter-models.js");
+    await refreshOpenRouterModels();
+  }
   let model = useOfficialClaude
     ? undefined
     : input.authenticationRouter.routePiModel(input.models, input.reviewer.provider, input.reviewer.model);

@@ -223,6 +223,8 @@ test("resource scope authorizer recognizes ambient platform dependencies without
   assert.equal(decision.decision, "relevant");
   assert.equal(decision.source, "auto_review");
   assert.match(captured.systemPrompt, /default platform components, and upstream or downstream sources/);
+  assert.match(captured.systemPrompt, /official vendor SDK or API can be covered by a broad vendor or product inclusion/i);
+  assert.match(captured.systemPrompt, /third-party application, merchant, or account does not inherit authorization/i);
   assert.match(captured.prompt, /ExampleVM/);
   assert.match(captured.prompt, /sandbox\.example\.test/);
   assert.match(captured.systemPrompt, /do not expand the recorded authorization boundary/i);

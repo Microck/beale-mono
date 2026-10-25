@@ -88,6 +88,9 @@ test("default prompt uses plain guidance lines and bullets only for feature and 
   assert.match(prompt, /do not promote them as security findings without evidence of a security consequence/);
   assert.match(prompt, /Unknown reachability and unexplored chains remain open questions, not blocked findings/);
   assert.match(prompt, /pursue all authorized work available without it first, including pre-auth research/);
+  assert.match(prompt, /Prefer core APIs, SDKs, and trust boundaries over low-impact examples/);
+  assert.match(prompt, /third party's application or account does not become authorized merely because it uses an in-scope vendor product/);
+  assert.match(prompt, /discover covered official components through their provenance and recorded scope rules/);
   assert.match(prompt, /an independent review marked needs-work are work to pursue, not reasons to mark a finding Blocked/);
   assert.match(prompt, /Treat its gaps as the next research or review steps/);
   assert.match(prompt, /Use one canonical, evidence-gated research claim ledger[^\n]*\nThe active profile declares/);

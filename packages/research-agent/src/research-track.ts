@@ -65,6 +65,13 @@ const INITIAL_ROOT_ACTIONABILITY = 35;
 const INITIAL_CHILD_ACTIONABILITY = 55;
 const ACTIONABILITY_DECAY_INTERVAL_MS = 6 * 60 * 60_000;
 
+function schedulingScore(work: ResearchTrackSurfaceState): number {
+  const impact = { unknown: 0, low: -25, medium: 0, high: 10, critical: 20 }[work.impact];
+  const targetValidationGap = work.validation?.targetDependent
+    && (work.validation.environment === "none" || work.validation.environment === "localhost") ? 30 : 0;
+  return work.actionabilityScore + impact - targetValidationGap - work.noProgressEpochs * 10;
+}
+
 export function researchTrackProgress(track: Pick<ResearchTrackSnapshot, "surfaces">): {
   investigated: number; complete: number; total: number;
 } {
@@ -184,12 +191,12 @@ export class ResearchTrackStore {
       throw new Error("A research track requires 1 to 16 distinct research targets.");
     }
     const existing = this.get();
-    if (existing?.status === "running" || existing?.activeSessionId
+    if (existing?.status === "running" || existing?.activeSessionId && existing.status !== "stopped"
       || (existing?.status === "paused" || existing?.status === "waiting") && !input.replaceUnfinished) {
       throw new Error("This workspace already has an unfinished research track.");
     }
     const now = new Date().toISOString();
-    const id = existing?.id ?? `track_${randomUUID().replaceAll("-", "")}`;
+    const id = `track_${randomUUID().replaceAll("-", "")}`;
     this.#database.exec("BEGIN IMMEDIATE");
     try {
       if (existing) this.#database.prepare(`INSERT INTO app_server_research_track_history
@@ -200,12 +207,12 @@ export class ResearchTrackStore {
         (workspace_id, id, status, pass, scope_id, provider_json, target_ids_json, collaboration_json, active_session_id,
          active_surface_id, epoch_count, last_surface_id, consecutive_surface_epochs, last_error, created_at, updated_at)
         VALUES (?, ?, 'running', ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, 0, NULL, ?, ?)
-        ON CONFLICT(workspace_id) DO UPDATE SET status='running', pass=excluded.pass,
+        ON CONFLICT(workspace_id) DO UPDATE SET id=excluded.id, status='running', pass=excluded.pass,
           scope_id=excluded.scope_id, provider_json=excluded.provider_json,
           target_ids_json=excluded.target_ids_json, collaboration_json=excluded.collaboration_json,
           active_session_id=NULL, active_surface_id=NULL,
           epoch_count=0, last_surface_id=NULL, consecutive_surface_epochs=0,
-          last_error=NULL, updated_at=excluded.updated_at`)
+          last_error=NULL, created_at=excluded.created_at, updated_at=excluded.updated_at`)
         .run(this.#workspaceId, id, (existing?.pass ?? 0) + 1, required(input.scopeId, "scopeId"),
           JSON.stringify(input.provider), JSON.stringify(input.targetIds),
           input.collaboration ? JSON.stringify(input.collaboration) : null, now, now);
@@ -259,10 +266,25 @@ export class ResearchTrackStore {
       throw new Error("Only a paused or waiting research track can resume.");
     }
     if (action === "pause" && track.status !== "running") throw new Error("Only a running research track can pause.");
-    const status = action === "resume" ? "running" : action === "pause" ? "paused" : "stopped";
+    if (action === "stop") {
+      this.#database.exec("BEGIN IMMEDIATE");
+      try {
+        if (track.activeSurfaceId) {
+          this.#database.prepare(`UPDATE app_server_research_track_surfaces SET status='deferred', updated_at=?
+            WHERE workspace_id=? AND surface_id=? AND status='active'`)
+            .run(new Date().toISOString(), this.#workspaceId, track.activeSurfaceId);
+        }
+        this.#database.prepare(`UPDATE app_server_research_tracks SET status='stopped', active_session_id=NULL,
+          active_surface_id=NULL, last_error=NULL, updated_at=? WHERE workspace_id=?`)
+          .run(new Date().toISOString(), this.#workspaceId);
+        this.#database.exec("COMMIT");
+      } catch (error) { this.#database.exec("ROLLBACK"); throw error; }
+      return this.get()!;
+    }
+    const status = action === "resume" ? "running" : "paused";
     this.#database.prepare(`UPDATE app_server_research_tracks SET status=?,
       last_error=CASE WHEN ? THEN NULL ELSE last_error END, updated_at=? WHERE workspace_id=?`)
-      .run(status, action === "resume" || action === "stop" ? 1 : 0, new Date().toISOString(), this.#workspaceId);
+      .run(status, action === "resume" ? 1 : 0, new Date().toISOString(), this.#workspaceId);
     return this.get()!;
   }
 
@@ -295,7 +317,7 @@ export class ResearchTrackStore {
       const surface = byId.get(work.surfaceId);
       const parent = surface?.parentId ? workById.get(surface.parentId) : null;
       const recentParent = parent?.lastWorkedAt && Date.now() - Date.parse(parent.lastWorkedAt) < 60 * 60_000;
-      return work.actionabilityScore + (surface?.parentId && work.epochs === 0 && recentParent ? 10 : 0);
+      return schedulingScore(work) + (surface?.parentId && work.epochs === 0 && recentParent ? 10 : 0);
     };
     const rank = (left: ResearchTrackSurfaceState, right: ResearchTrackSurfaceState): number =>
       score(right) - score(left)

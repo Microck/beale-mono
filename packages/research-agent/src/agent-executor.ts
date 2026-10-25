@@ -370,6 +370,10 @@ export function createPiAgentExecutor(
     name: `pi:${options.provider}/${options.model}:agent`,
     ...(controlToolDescriptors.length > 0 ? { collaborationTools: controlToolDescriptors } : {}),
     async execute(input) {
+      if (options.provider === "openrouter") {
+        const { refreshOpenRouterModels } = await import("./openrouter-models.js");
+        await refreshOpenRouterModels();
+      }
       const authenticationRouter = new ProviderAuthenticationRouter(options.authenticationPreferences);
       const models =
         options.models ??
@@ -1986,6 +1990,7 @@ function isSafetyGuardrailAssistantError(message: AssistantMessage): boolean {
 function isRecoverableAssistantError(message: AssistantMessage): boolean {
   const normalized = message.errorMessage?.toLowerCase() ?? "";
   return isRetryableAssistantError(message)
+    || normalized.includes("unexpected end of json input")
     || normalized.includes("websocket error")
     || normalized.includes("websocket connection")
     || normalized.includes("websocket closed")

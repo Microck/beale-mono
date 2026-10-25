@@ -13,6 +13,8 @@ import {
   BEALE_APP_SERVER_MAX_REPLAY_BYTES,
   BEALE_APP_SERVER_MAX_REPLAY_FRAMES,
   BEALE_APP_SERVER_OPERATIONS_PATH,
+  BEALE_APP_SERVER_BORE_CHECKPOINTS_PATH,
+  BEALE_APP_SERVER_BORE_RECEIPTS_PATH,
   BEALE_APP_SERVER_PROVIDERS_PATH,
   BEALE_APP_SERVER_PROVIDER_LIMITS_PATH,
   BEALE_APP_SERVER_QUICK_CHATS_PATH,
@@ -560,6 +562,32 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
       return;
     }
     requireOperator(request);
+    if (request.method === 'GET' && url.pathname === BEALE_APP_SERVER_BORE_CHECKPOINTS_PATH) {
+      sendJson(response, 200, { schemaVersion: 1, checkpointVersion: 1, hostReceiptVersion: 1 });
+      return;
+    }
+    const boreReceiptMatch = request.method === 'GET'
+      ? /^\/v1\/bore\/receipts\/([0-9a-f-]{36})$/iu.exec(url.pathname) : null;
+    if (boreReceiptMatch) {
+      const workspaceId = url.searchParams.get('workspaceId') ?? '';
+      const sessionId = url.searchParams.get('sessionId') ?? '';
+      const receipt = await hostCall(() => hostService.boreHostReceiptStatus(workspaceId, sessionId, boreReceiptMatch[1]!));
+      if (!receipt) throw new HttpError(404, 'Bore receipt not found.');
+      sendJson(response, 200, receipt);
+      return;
+    }
+    if (request.method === 'POST' && (url.pathname === BEALE_APP_SERVER_BORE_CHECKPOINTS_PATH
+      || url.pathname === BEALE_APP_SERVER_BORE_RECEIPTS_PATH)) {
+      const body = await readJsonBody(request, 24_576);
+      if (!isRecord(body) || typeof body.workspaceId !== 'string') {
+        throw new HttpError(400, 'A registered workspace ID is required.');
+      }
+      const result = url.pathname === BEALE_APP_SERVER_BORE_CHECKPOINTS_PATH
+        ? await hostCall(() => hostService.boreCheckpoint(body.workspaceId as string, body.session))
+        : await hostCall(() => hostService.boreHostReceipt(body.workspaceId as string, body.receipt));
+      sendJson(response, 200, result);
+      return;
+    }
     const proxiedSessionId = proxySessionId(url.pathname);
     const proxied = proxiedSessionId ? fleetProxySessions.get(proxiedSessionId) : null;
     if (proxied) {
@@ -567,7 +595,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
       return;
     }
     if (request.method === 'GET' && url.pathname === BEALE_APP_SERVER_PROVIDERS_PATH) {
-      sendJson(response, 200, hostService.providerCatalog());
+      sendJson(response, 200, await hostService.providerCatalog());
       return;
     }
     if (request.method === 'GET' && url.pathname === BEALE_APP_SERVER_PROVIDER_LIMITS_PATH) {
@@ -1143,14 +1171,19 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
         } catch { /* A transient status read must not interrupt active research. */ }
       }
       const service = hostService as AppServerHostService & {
-        dueResearchTracks?: (at?: Date, activeSessionIds?: ReadonlySet<string>) => Promise<Array<{ request: AppServerSessionLaunchRequest }>>;
+        dueResearchTracks?: (at?: Date, activeSessionIds?: ReadonlySet<string>,
+          busyWorkspaceIds?: ReadonlySet<string>) => Promise<Array<{ request: AppServerSessionLaunchRequest }>>;
         recordResearchTrackEpochLaunchFailure?: (workspaceId: string, sessionId: string, reason: string) => void;
       };
       if (typeof service.dueResearchTracks !== 'function') return;
       const activeSessionIds = new Set([...sessions.values()]
         .filter((runtime) => !isTerminal(runtime.state) || runtime.terminalPersistencePending)
         .map((runtime) => runtime.sessionId));
-      const tracks = await service.dueResearchTracks(new Date(), activeSessionIds);
+      const busyWorkspaceIds = new Set([...sessions.values()]
+        .filter((runtime) => runtime.request.launch.mode === 'research-track'
+          && (!isTerminal(runtime.state) || runtime.terminalPersistencePending))
+        .map((runtime) => runtime.request.launch.workspaceId));
+      const tracks = await service.dueResearchTracks(new Date(), activeSessionIds, busyWorkspaceIds);
       for (const track of tracks) {
         const sessionId = track.request.sessionId;
         if (!sessionId || closing) break;

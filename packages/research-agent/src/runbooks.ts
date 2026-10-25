@@ -1128,7 +1128,12 @@ export class RunbookStore {
 
   private readNotebook(row: RunbookRow): RunbookNotebook {
     const path = this.absolutePath(row.relative_path);
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    let parsed: unknown;
+    try { parsed = JSON.parse(readFileSync(path, "utf8")) as unknown; }
+    catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      throw new Error("Runbook artifact contains incomplete or invalid JSON. Preserve and repair it before preparing the runbook again.", { cause: error });
+    }
     if (!isRecord(parsed) || parsed.nbformat !== 4 || !Array.isArray(parsed.cells) || !isRecord(parsed.metadata)) {
       throw new Error(`Runbook artifact is not a supported app-server nbformat 4 notebook: ${row.id}`);
     }

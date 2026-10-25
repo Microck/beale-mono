@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { BealeWorkspaceResearchTrack } from '@beale/app-server-runtime/protocol';
+import type { BealeApi } from '../src/shared/types';
 import { ensureDefaultResearchCollaborator, normalizeResearchCollaboration } from '../src/shared/collaboration';
 import {
   collaborationRequiresCyberPolicyAcknowledgement,
   selectedSessionProviderIds,
   selectNextAvailableCollaborator
 } from '../src/renderer/features/sessions/StartRunForm';
+import { researchTrackProviderIds, resumeResearchTrack } from '../src/renderer/features/workspaces/WorkspaceResearchTrack';
 
 describe('research collaboration normalization', () => {
   it('normalizes legacy room protocol controls to lax channel semantics', () => {
@@ -61,6 +64,57 @@ describe('research collaboration normalization', () => {
       ...input,
       collaboration: { ...normalizeResearchCollaboration(input.collaboration), mode: 'solo' }
     })).toEqual(['openai-codex', 'anthropic']);
+  });
+
+  it('requests credentials for a resumed track lead and enabled collaborators', () => {
+    expect(researchTrackProviderIds({
+      provider: { id: 'openai-codex' },
+      collaboration: { providers: [
+        { provider: 'openrouter', model: 'auto', reasoningEffort: 'medium', enabled: true },
+        { provider: 'zai', model: 'glm-5.3', reasoningEffort: 'off', enabled: true },
+        { provider: 'xai', model: 'grok-4.3', reasoningEffort: 'medium', enabled: false }
+      ] }
+    })).toEqual(['openai-codex', 'openrouter', 'zai']);
+  });
+
+  it('unlocks a saved collaborator key before resuming a local track', async () => {
+    const track = { id: 'track-example', workspaceId: 'workspace-example', status: 'paused', pass: 1,
+      scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'],
+      collaboration: { providers: [
+        { provider: 'openrouter', model: 'auto', reasoningEffort: 'medium', enabled: true }
+      ] }, activeSessionId: null, activeSurfaceId: null, epochCount: 0, lastError: null,
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', surfaces: []
+    } satisfies BealeWorkspaceResearchTrack;
+    const calls: string[] = [];
+    const api = {
+      getProviderCredentialAccessRequest: vi.fn(async () => {
+        calls.push('check');
+        return { providerIds: ['openrouter'] as const };
+      }),
+      unlockProviderApiKeys: vi.fn(async () => { calls.push('unlock'); }),
+      controlResearchTrack: vi.fn(async () => { calls.push('resume'); return track; })
+    } as unknown as Pick<BealeApi, 'getProviderCredentialAccessRequest' | 'unlockProviderApiKeys' | 'controlResearchTrack'>;
+
+    await resumeResearchTrack(track, undefined, api);
+
+    expect(api.getProviderCredentialAccessRequest).toHaveBeenCalledWith(['openai-codex', 'openrouter']);
+    expect(api.unlockProviderApiKeys).toHaveBeenCalledWith(['openrouter']);
+    expect(api.controlResearchTrack).toHaveBeenCalledWith('workspace-example', 'resume', undefined);
+    expect(calls).toEqual(['check', 'unlock', 'resume']);
+  });
+
+  it('leaves remote track credentials on the selected app-server', async () => {
+    const track = { workspaceId: 'workspace-example', provider: { id: 'openrouter' } } as unknown as BealeWorkspaceResearchTrack;
+    const api = {
+      getProviderCredentialAccessRequest: vi.fn(), unlockProviderApiKeys: vi.fn(),
+      controlResearchTrack: vi.fn(async () => track)
+    } as unknown as Pick<BealeApi, 'getProviderCredentialAccessRequest' | 'unlockProviderApiKeys' | 'controlResearchTrack'>;
+
+    await resumeResearchTrack(track, 'server-example', api);
+
+    expect(api.getProviderCredentialAccessRequest).not.toHaveBeenCalled();
+    expect(api.unlockProviderApiKeys).not.toHaveBeenCalled();
+    expect(api.controlResearchTrack).toHaveBeenCalledWith('workspace-example', 'resume', 'server-example');
   });
 
   it('allows distinct models from one provider while preventing exact duplicates', () => {

@@ -18,6 +18,24 @@ import {
   RunbookStore,
 } from "../packages/research-agent/dist/index.js";
 
+test("runbook reads report an incomplete notebook without replacing its artifact", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "app-server-runbook-incomplete-"));
+  const layout = ensureResearchStorageLayout(createResearchStorageLayout({ workspaceRoot }));
+  const store = new RunbookStore(getDefaultMemoryDatabasePath(workspaceRoot), layout,
+    { sessionId: "session-example", workspaceId: "workspace-example", workspaceName: "Example" });
+  try {
+    const { runbook } = store.create({ title: "Synthetic proof", purpose: "Review a synthetic parser.", cells: [] });
+    const artifact = listResearchStorageArtifacts(layout).find((entry) => entry.id === runbook.artifactId);
+    assert.ok(artifact);
+    await writeFile(artifact.path, "", "utf8");
+    assert.throws(() => store.get(runbook.id), /Runbook artifact contains incomplete or invalid JSON/u);
+    assert.equal(await readFile(artifact.path, "utf8"), "");
+  } finally {
+    store.close();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test("runbook tools expose bounded artifact operations", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "app-server-runbook-tools-"));
   const layout = ensureResearchStorageLayout(createResearchStorageLayout({ workspaceRoot }));

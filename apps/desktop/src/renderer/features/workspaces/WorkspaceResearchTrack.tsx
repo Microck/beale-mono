@@ -1,5 +1,41 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { BealeWorkspaceResearchTrack } from '@beale/app-server-runtime/protocol';
+import type { BealeApi, ResearchModelProviderId } from '../../../shared/types';
+
+const MODEL_PROVIDERS = new Set<ResearchModelProviderId>(['openai-codex', 'anthropic', 'xai', 'zai', 'openrouter']);
+
+export function researchTrackProviderIds(track: Pick<BealeWorkspaceResearchTrack, 'provider' | 'collaboration'>): ResearchModelProviderId[] {
+  const providerIds = new Set<ResearchModelProviderId>();
+  if (isResearchModelProviderId(track.provider.id)) providerIds.add(track.provider.id);
+  const collaborators: unknown = track.collaboration?.providers;
+  for (const collaborator of Array.isArray(collaborators) ? collaborators as unknown[] : []) {
+    if (!isRecord(collaborator)) continue;
+    if (collaborator.enabled !== false && isResearchModelProviderId(collaborator.provider)) {
+      providerIds.add(collaborator.provider);
+    }
+  }
+  return [...providerIds];
+}
+
+function isResearchModelProviderId(value: unknown): value is ResearchModelProviderId {
+  return typeof value === 'string' && MODEL_PROVIDERS.has(value as ResearchModelProviderId);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export async function resumeResearchTrack(
+  track: BealeWorkspaceResearchTrack,
+  serverId?: string,
+  api: Pick<BealeApi, 'getProviderCredentialAccessRequest' | 'unlockProviderApiKeys' | 'controlResearchTrack'> = window.beale
+): Promise<BealeWorkspaceResearchTrack> {
+  if (!serverId) {
+    const access = await api.getProviderCredentialAccessRequest(researchTrackProviderIds(track));
+    if (access.providerIds.length > 0) await api.unlockProviderApiKeys(access.providerIds);
+  }
+  return api.controlResearchTrack(track.workspaceId, 'resume', serverId);
+}
 
 export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenSession, onStartTrack, onTrackResumed }: {
   workspaceId: string;
@@ -35,7 +71,10 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenS
     if (busy) return;
     setBusy(true);
     setError(null);
-    try { const value = await window.beale.controlResearchTrack(workspaceId, action, serverId);
+    try {
+      const value = action === 'resume' && track
+        ? await resumeResearchTrack(track, serverId)
+        : await window.beale.controlResearchTrack(workspaceId, action, serverId);
       setTrack(value);
       if (action === 'resume') onTrackResumed?.(value);
       if (value.activeSessionId && value.activeSessionPhase === 'researching') setObservedSessionId(value.activeSessionId); }

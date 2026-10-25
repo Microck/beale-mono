@@ -50,13 +50,14 @@ export class ResearchProviderAuthService {
   private readonly externalLoginDeadlines = new Map<ResearchProviderId, number>();
   private readonly latestStarts = new Map<ResearchProviderId, ResearchProviderOAuthStartResult>();
   private modelCatalog: ResearchProviderModelCatalog[] | null = null;
+  private modelCatalogLoadedAt = 0;
 
   public async getStatuses(): Promise<ResearchProviderStatus[]> {
     return Promise.all(SUPPORTED_PROVIDERS.map((providerId) => this.getStatus(providerId)));
   }
 
   public async getModelCatalog(): Promise<ResearchProviderModelCatalog[]> {
-    if (this.modelCatalog) return this.modelCatalog;
+    if (this.modelCatalog && Date.now() - this.modelCatalogLoadedAt < 15 * 60_000) return this.modelCatalog;
     const catalogs = await Promise.all(
       MODEL_PROVIDERS.map(async (providerId) => {
         const result = await runAppServerCommand(
@@ -71,6 +72,7 @@ export class ResearchProviderAuthService {
       })
     );
     this.modelCatalog = catalogs;
+    this.modelCatalogLoadedAt = Date.now();
     return catalogs;
   }
 

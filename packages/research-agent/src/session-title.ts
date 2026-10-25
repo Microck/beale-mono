@@ -5,6 +5,7 @@ import {
   type ThinkingLevel,
 } from "@earendil-works/pi-ai";
 import { createAuthenticatedModels } from "./auth.js";
+import { refreshOpenRouterModels } from "./openrouter-models.js";
 import { completeClaudeAgentText } from "./claude-agent-executor.js";
 import {
   ProviderAuthenticationRouter,
@@ -45,6 +46,7 @@ const MAX_TITLE_WORDS = 6;
 export async function generateResearchSessionTitle(
   options: GenerateResearchSessionTitleOptions,
 ): Promise<string> {
+  if (options.provider === "openrouter") await refreshOpenRouterModels();
   const useOfficialClaude = options.provider === "anthropic";
   const authenticationRouter = new ProviderAuthenticationRouter(options.authenticationPreferences);
   const models = useOfficialClaude

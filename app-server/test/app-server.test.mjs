@@ -44,6 +44,7 @@ import {
 import { WorkspaceDatabase } from "../dist/workspaceDatabase.js";
 import { initializeWorkspaceProjectAsync } from "../dist/workspaceCheckpoints.js";
 import { WorkspaceRegistry } from "../dist/workspaceRegistryStore.js";
+import { FleetIncompleteResponseError } from "../dist/fleet.js";
 
 const requireFromHere = createRequire(import.meta.url);
 const WebSocket = requireFromHere("ws");
@@ -51,6 +52,35 @@ const WebSocket = requireFromHere("ws");
 const servers = [];
 const temporaryDirectories = [];
 const originalMockMode = process.env.BEALE_APP_SERVER_MOCK;
+
+test('host-default auxiliary completion uses Beale provider and authentication settings', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-bore-provider-'));
+  temporaryDirectories.push(directory);
+  let invocation;
+  const registry = {
+    ...hostRegistryFixture(directory),
+    providerSettings: () => ({
+      defaultProviderId: 'openrouter',
+      modelDefaults: { openrouter: { leadModel: 'example/model', reasoningEffort: 'high' } },
+      authenticationPreferences: { openrouter: 'api_key' }, riskAcknowledgements: [],
+    }),
+  };
+  const host = new AppServerHostService({ registry, invokeProtocol: async (operation, options) => {
+    invocation = { operation, options };
+    return { text: '{"probe_id":"own-container-round-trip"}', usage: {} };
+  } });
+  const result = await host.executeOperation({ operation: 'provider.complete', input: {
+    useHostDefaults: true, provider: 'attacker-choice', model: 'attacker-model',
+    systemPrompt: 'Choose a compiled probe.', prompt: '{"probe_ids":["own-container-round-trip"]}',
+    authenticationPreferences: { openrouter: 'subscription' },
+  } });
+  assert.equal(result.text, '{"probe_id":"own-container-round-trip"}');
+  assert.equal(invocation.operation, 'provider.complete');
+  assert.equal(invocation.options.input.provider, 'openrouter');
+  assert.equal(invocation.options.input.model, 'example/model');
+  assert.deepEqual(invocation.options.input.authenticationPreferences, { openrouter: 'api_key' });
+  assert.equal(invocation.options.input.useHostDefaults, undefined);
+});
 
 test("released research-index state cannot block core workspace state", async () => {
   const directory = mkdtempSync(join(tmpdir(), "beale-workspace-state-isolation-"));
@@ -232,6 +262,33 @@ test('stopping a track session pauses research while a watchdog rotation continu
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'stop')).status, 'stopped');
 });
 
+test('a new track pass waits for the stopped worker and starts a fresh session', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-restart-example-'));
+  temporaryDirectories.push(directory);
+  const registry = hostRegistryFixture(directory);
+  registry.listWorkspaces = () => [{ workspaceId: 'workspace-test' }];
+  const hostService = new AppServerHostService({ registry });
+  hostService.workspaceResearchTrackContext = async () => ({
+    scope: { id: 'scope-example', expiresAt: null },
+    targets: [{ id: 'local', ready: true }],
+    surfaceMap: { surfaces: [{ id: 'surface-example', parentId: null, name: 'Example service',
+      coverageState: { covered: false, unmetRequirements: ['surface_map'], unblockedFindingIds: [] },
+      progressBlocker: null }] },
+  });
+  const first = await hostService.workspaceResearchTrack('workspace-test', 'start');
+  const [firstEpoch] = await hostService.dueResearchTracks();
+  assert.equal(firstEpoch.request.sessionId, first.id);
+  const stopped = await hostService.workspaceResearchTrack('workspace-test', 'stop');
+  assert.equal(stopped.activeSessionId, null);
+  const second = await hostService.workspaceResearchTrack('workspace-test', 'start');
+  assert.notEqual(second.id, first.id);
+  assert.deepEqual(await hostService.dueResearchTracks(new Date(), new Set([first.id]),
+    new Set(['workspace-test'])), []);
+  const [secondEpoch] = await hostService.dueResearchTracks();
+  assert.equal(secondEpoch.request.sessionId, second.id);
+  assert.equal(secondEpoch.request.launch.continuation, undefined);
+});
+
 test('a blocked track checkpoint advances to another surface in the same session', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-track-blocked-example-'));
   temporaryDirectories.push(directory);
@@ -309,6 +366,22 @@ test('a connected primary forwards research-track control to its owning app-serv
     input: { workspaceId: 'workspace-test', action: 'start',
       configuration: { provider: { id: 'openai-codex', model: 'example-model', reasoningEffort: 'high' },
         targetIds: ['local'], collaboration: { subagentMode: 'advanced' } } } });
+});
+
+test('remote research-track control checks committed state after an incomplete reply', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-remote-recovery-example-'));
+  temporaryDirectories.push(directory);
+  const hostService = new AppServerHostService({ registry: hostRegistryFixture(directory) });
+  const actions = [];
+  hostService.fleet.callRemote = async (_serverId, _operation, input) => {
+    actions.push(input.action);
+    if (input.action === 'start') throw new FleetIncompleteResponseError('workspace.research_track');
+    return { id: 'track-example', status: 'running' };
+  };
+  const result = await hostService.executeOperation({ operation: 'fleet.remote_research_track',
+    input: { serverId: 'server-example', workspaceId: 'workspace-test', action: 'start' } });
+  assert.equal(result.status, 'running');
+  assert.deepEqual(actions, ['start', 'status']);
 });
 
 test('keeps a hosted session starting until the runtime readiness handshake completes', async () => {
@@ -584,6 +657,53 @@ test("control plane requires the operator bearer token", async () => {
     operations: "/v1/operations",
     shutdown: "/v1/server/shutdown",
   });
+});
+
+test('Bore checkpoint route requires operator auth and returns path-free hash', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-bore-route-'));
+  temporaryDirectories.push(directory);
+  const hostService = new AppServerHostService({ registry: hostRegistryFixture(directory) });
+  const server = await startAppServer({ hostService, operatorToken: 'operator-secret' });
+  servers.push(server);
+  const body = { workspaceId: 'workspace-test', session: {
+    schemaVersion: 1, id: '11111111-2222-4333-8444-555555555555',
+    prompt: 'Test a synthetic app boundary.', startedAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:01:00Z', status: 'paused', planner: 'Beale: example/model',
+    environment: { platform: 'iOS', osVersion: '19.0', osBuild: 'example', hardwareModel: 'iPhone-example',
+      bundleID: 'org.example.bore', appVersion: '1', entitlementProfile: 'baseline', executionContext: 'foreground app' },
+    observations: [],
+  } };
+  const unauthorized = await fetch(`${server.url}/v1/bore/checkpoints`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  });
+  assert.equal(unauthorized.status, 401);
+  const capabilities = await fetch(`${server.url}/v1/bore/checkpoints`, {
+    headers: { authorization: 'Bearer operator-secret' },
+  });
+  assert.deepEqual(await capabilities.json(), { schemaVersion: 1, checkpointVersion: 1, hostReceiptVersion: 1 });
+  const authorized = await fetch(`${server.url}/v1/bore/checkpoints`, {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer operator-secret' },
+    body: JSON.stringify(body),
+  });
+  assert.equal(authorized.status, 200);
+  const result = await authorized.json();
+  assert.equal(result.sessionId, body.session.id);
+  assert.match(result.contentHash, /^[0-9a-f]{64}$/u);
+  assert.equal(JSON.stringify(result).includes(directory), false);
+  const jobId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const receipt = await fetch(`${server.url}/v1/bore/receipts`, {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer operator-secret' },
+    body: JSON.stringify({ workspaceId: 'workspace-test', receipt: {
+      schemaVersion: 1, jobId, sessionId: body.session.id, kind: 'proof-cycle', status: 'completed',
+      completedAt: '2026-01-01T00:02:00Z', steps: [{ name: 'build-proof', status: 'completed' }],
+    } }),
+  });
+  assert.equal(receipt.status, 200);
+  const lookup = await fetch(`${server.url}/v1/bore/receipts/${jobId}?workspaceId=workspace-test&sessionId=${body.session.id}`, {
+    headers: { authorization: 'Bearer operator-secret' },
+  });
+  assert.equal(lookup.status, 200);
+  assert.deepEqual((await lookup.json()).steps, [{ name: 'build-proof', status: 'completed' }]);
 });
 
 test("a primary proxies a remote-owned VM session through its guest transport", async () => {

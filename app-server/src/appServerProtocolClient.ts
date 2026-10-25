@@ -19,6 +19,7 @@ import {
   listAppServerReportSummaries,
   getAuthStatus,
   getProviderModelCatalog,
+  refreshOpenRouterModels,
   getKnowledgeReport,
   getKnowledgeRunbook,
   expandStoredResearchPrompt,
@@ -217,7 +218,10 @@ async function authOperation(operation: AppServerProtocolOperation, options: Inv
       await logoutAuthProvider(providerId);
       return { providerId, removed: true };
     }
-    case 'model.list': return { providers: getProviderModelCatalog(providerId === 'list' ? undefined : providerId) };
+    case 'model.list': {
+      if (!providerId || providerId === 'list' || providerId === 'openrouter') await refreshOpenRouterModels();
+      return { providers: getProviderModelCatalog(providerId === 'list' ? undefined : providerId) };
+    }
     default: throw new Error(`Unsupported app-server auth operation: ${operation}`);
   }
 }

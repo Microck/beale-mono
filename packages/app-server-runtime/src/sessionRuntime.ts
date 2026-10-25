@@ -93,6 +93,7 @@ import {
   createHarnessFeedbackTool,
   getAuthStatus,
   getProviderModelCatalog,
+  refreshOpenRouterModels,
   generateResearchSessionTitle,
   listAuthProviders,
   loadResearchSkillsFromDirectory,
@@ -1833,6 +1834,8 @@ async function resolveCliResearchProfile(args: Pick<
   if (resolvedResearchProfile.profile.id !== "security-research") {
     throw new Error("Beale runs only Security research sessions.");
   }
+  if ([resolvedResearchProfile.profile.modelJobs.sessionTitle, resolvedResearchProfile.profile.modelJobs.shellReview]
+    .some((job) => job?.provider === "openrouter")) await refreshOpenRouterModels();
   validateResearchProfileModelJobs(resolvedResearchProfile.profile);
 
   return {
@@ -1981,7 +1984,7 @@ export async function main(
     }
 
     if (argv[0] === "models") {
-      handleModelsCommand(argv.slice(1));
+      await handleModelsCommand(argv.slice(1));
       return;
     }
 
@@ -2768,6 +2771,9 @@ async function validateCollaborationProviders(
   collaboration: ResearchCollaborationConfig,
   cybersecurity: boolean,
 ): Promise<void> {
+  if (collaboration.providers.some((provider) => provider.enabled && provider.provider === "openrouter")) {
+    await refreshOpenRouterModels();
+  }
   const enabled = collaboration.providers.filter((provider) => provider.enabled);
   if (enabled.length === 0) throw new Error("Collaboration mode requires at least one enabled provider.");
   for (const preference of enabled) {
@@ -5166,12 +5172,13 @@ async function handleAuthCommand(argv: readonly string[]): Promise<void> {
   );
 }
 
-function handleModelsCommand(argv: readonly string[]): void {
+async function handleModelsCommand(argv: readonly string[]): Promise<void> {
   const command = argv[0] ?? "list";
   if (command !== "list") {
     throw new Error("Usage: appServer models list [provider] [--json]");
   }
   const providerId = argv.find((value, index) => index > 0 && !value.startsWith("--"));
+  if (!providerId || providerId === "openrouter") await refreshOpenRouterModels();
   const catalogs = getProviderModelCatalog(providerId);
   if (providerId && catalogs.length === 0) {
     throw new Error(`Unknown provider: ${providerId}`);

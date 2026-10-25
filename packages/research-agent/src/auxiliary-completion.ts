@@ -1,5 +1,6 @@
 import type { AssistantMessage, Models, ThinkingLevel } from "@earendil-works/pi-ai";
 import { createAuthenticatedModels } from "./auth.js";
+import { refreshOpenRouterModels } from "./openrouter-models.js";
 import { completeClaudeAgentText } from "./claude-agent-executor.js";
 import {
   ProviderAuthenticationRouter,
@@ -48,6 +49,8 @@ export async function completeAuxiliaryText(
     });
     return completion;
   }
+
+  if (options.provider === "openrouter") await refreshOpenRouterModels();
 
   const authenticationRouter = new ProviderAuthenticationRouter(options.authenticationPreferences);
   const models = options.models

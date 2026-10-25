@@ -9,6 +9,7 @@ import {
   type AuthVerifyResult,
   type FileCredentialStoreOptions,
 } from "./auth.js";
+import { refreshOpenRouterModels } from "./openrouter-models.js";
 
 export type ResearchModelEffort =
   | "minimal"
@@ -146,6 +147,7 @@ export async function resolveResearchModelConfig(
   });
 
   if (provider) {
+    if (provider === "openrouter") await refreshOpenRouterModels();
     if (process.env.APP_SERVER_MODEL_BROKER_URL) {
       const catalog = getProviderModelCatalog(provider)[0];
       const selected = model ? catalog?.models.find((candidate) => candidate.id === model) : catalog?.models[0];

@@ -131,6 +131,15 @@ export function bealeAppServerWorkspaceDetailsPath(workspaceId: string): string 
 export const BEALE_APP_SERVER_PROVIDERS_PATH = "/v1/providers" as const;
 export const BEALE_APP_SERVER_PROVIDER_LIMITS_PATH = "/v1/providers/limits" as const;
 export const BEALE_APP_SERVER_OPERATIONS_PATH = "/v1/operations" as const;
+export const BEALE_APP_SERVER_BORE_CHECKPOINTS_PATH = "/v1/bore/checkpoints" as const;
+export const BEALE_APP_SERVER_BORE_RECEIPTS_PATH = "/v1/bore/receipts" as const;
+export interface BealeBoreContract {
+  schemaVersion: 1;
+  checkpointVersion: 1;
+  hostReceiptVersion: 1;
+}
+export interface BealeBoreCheckpointResult { schemaVersion: 1; sessionId: string; contentHash: string; }
+export interface BealeBoreHostReceiptResult { schemaVersion: 1; jobId: string; contentHash: string; }
 export const BEALE_APP_SERVER_SHUTDOWN_PATH = "/v1/server/shutdown" as const;
 export const BEALE_APP_SERVER_SUPERVISOR_LOCAL_PORT = 47_175 as const;
 export const BEALE_APP_SERVER_SUPERVISOR_HTTPS_PORT = 47_176 as const;
