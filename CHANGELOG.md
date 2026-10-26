@@ -6,12 +6,17 @@
 
 #### Changed
 
+- Session transcripts consistently call the root agent Lead in message routes and navigation.
+- Inter-agent transcript messages now show a connected, muted header with sender, recipient, and message type above a rounded message body.
+- Session collaboration rows now distinguish agent messages, follow-up tasks, and room messages, and show readable sender and recipient names when recorded.
 - Session tool activity labels use action verbs and include available surface, feature, plugin, resource, and reference names.
 - Following a live session transcript now slides existing content upward as new items and lines arrive.
 - New session transcript messages reveal character by character in order, with their icons growing into place. Existing history and reduced-motion views render immediately.
 
 #### Fixed
 
+- Legacy messages to Lead recover the subagent sender name when a matching message tool request is available.
+- Inter-agent messages and collaboration packets remain visible in root and participant session transcripts, with sender and recipient labels.
 - Memory save activity in session transcripts includes the memory title when available.
 - File edit activity in session transcripts names the edited path.
 - Reasoning summaries remain visible in session transcripts when commentary from the same response arrives.

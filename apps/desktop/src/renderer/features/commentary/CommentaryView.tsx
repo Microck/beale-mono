@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { ArrowLeft, BookOpen, Bot, Brain, ChevronRight, CircleAlert, Database, FileText, Terminal, Wrench } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Bot, Brain, ChevronRight, CircleAlert, Database, FileText, Terminal, Wrench } from 'lucide-react';
 import type {
   ApprovalRecord,
   PolicyReviewDecision,
@@ -665,18 +665,18 @@ export const CommentaryView = memo(function CommentaryView({
   return (
     <section
       className={`main-trace-view main-commentary-view${newResearch ? ' new-research-session-view' : ''}${showBackToMain ? ' is-subagent-trace' : ''}${loading ? ' is-loading' : ''}`}
-      aria-label={newResearch ? 'New Research' : 'Agent commentary'}
+      aria-label={newResearch ? 'New Research' : showBackToMain ? 'Subagent commentary' : 'Lead commentary'}
       data-commentary-state={state}
     >
       {showBackButton ? (
         <button
           type="button"
           className="back-to-main-button trace-back-to-main-button"
-          title="Return to the main agent commentary"
+          title="Return to Lead commentary"
           onClick={onBackToMain}
         >
           <ArrowLeft size={14} />
-          <span>Back to Main</span>
+          <span>Back to Lead</span>
         </button>
       ) : null}
       {loading ? <SessionLoadingState label="Loading session" /> : null}
@@ -956,13 +956,35 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   const hasSearchHighlight = searchHighlightTerms(searchHighlightQuery).length > 0;
   const label = commentaryMessageLabel(message.kind, message.taskAction);
   const icon = commentaryMessageIcon(message.kind, message.toolName);
-  const communicationClass = message.kind === 'task' ? 'agent-communication-outbound' : '';
+  const hasAgentHeader = message.kind === 'task' && message.taskAction !== 'spawn';
+  const communicationClass = message.kind === 'task'
+    ? (message.taskAuthorAgentPath && message.taskAuthorAgentPath !== '/root') || message.taskRecipientAgentPath === '/root'
+      ? 'agent-communication-inbound'
+      : 'agent-communication-outbound'
+    : '';
   const reasoningTraceLines = message.kind === 'progress'
     ? message.reasoningTraceLines?.length ? message.reasoningTraceLines : [message.contentMarkdown]
     : [];
+  const messageContent = message.kind === 'marker' || message.kind === 'progress' ? null : (
+    <div className="main-commentary-message-content">
+      {message.kind === 'tool' ? (
+        <CommentaryToolMessageContent
+          message={message}
+          hasSearchHighlight={hasSearchHighlight}
+          searchHighlightQuery={searchHighlightQuery}
+          onRequestToolCallDetail={onRequestToolCallDetail}
+        />
+      ) : hasSearchHighlight ? (
+        renderSearchHighlightedText(message.contentMarkdown, searchHighlightQuery)
+      ) : (
+        renderTraceProseText(message.contentMarkdown, message.kind === 'commentary' ? 'reasoning' : 'agent_output')
+      )}
+      {message.abortNotice ? <p className="main-commentary-abort-notice">{message.abortNotice}</p> : null}
+    </div>
+  );
   return (
     <article
-      className={`main-commentary-message kind-${message.kind} ${communicationClass} ${selected ? 'selected' : ''}${animateIcon ? ' is-streamed' : ''}`}
+      className={`main-commentary-message kind-${message.kind} ${communicationClass} ${hasAgentHeader ? 'has-agent-header' : ''} ${selected ? 'selected' : ''}${animateIcon ? ' is-streamed' : ''}`}
       data-commentary-event-id={message.id}
       data-commentary-window-item={windowed ? '' : undefined}
       data-commentary-trace-id={message.traceEventId ?? undefined}
@@ -986,25 +1008,23 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
             </div>
           ))}
         </div>
+      ) : hasAgentHeader ? (
+        <div className="main-commentary-agent-card">
+          <div className="main-commentary-agent-header">
+            <div className="main-commentary-agent-route">
+              <span className="main-commentary-agent-name" title={message.taskOrigin}>{message.taskOrigin ?? 'Lead'}</span>
+              <ArrowRight size={14} aria-hidden="true" />
+              <span className="main-commentary-agent-name" title={message.taskDestination}>{message.taskDestination ?? 'Unknown recipient'}</span>
+            </div>
+            <span className="main-commentary-agent-type">{label}</span>
+          </div>
+          {messageContent}
+        </div>
       ) : (
         <>
           {icon ? <span className="main-commentary-message-icon" aria-hidden="true">{icon}</span> : null}
-          {label ? <span className="main-commentary-message-label">{label}</span> : null}
-          <div className="main-commentary-message-content">
-            {message.kind === 'tool' ? (
-              <CommentaryToolMessageContent
-                message={message}
-                hasSearchHighlight={hasSearchHighlight}
-                searchHighlightQuery={searchHighlightQuery}
-                onRequestToolCallDetail={onRequestToolCallDetail}
-              />
-            ) : hasSearchHighlight ? (
-              renderSearchHighlightedText(message.contentMarkdown, searchHighlightQuery)
-            ) : (
-              renderTraceProseText(message.contentMarkdown, message.kind === 'commentary' ? 'reasoning' : 'agent_output')
-            )}
-            {message.abortNotice ? <p className="main-commentary-abort-notice">{message.abortNotice}</p> : null}
-          </div>
+          {label ? <span className="main-commentary-message-label">{label}{message.taskRoute ? ` · ${message.taskRoute}` : ''}</span> : null}
+          {messageContent}
         </>
       )}
     </article>
@@ -1256,6 +1276,11 @@ function commentaryMessagesRenderEqual(left: CommentaryMessage, right: Commentar
     left.kind !== right.kind ||
     left.markerType !== right.markerType ||
     left.taskAction !== right.taskAction ||
+    left.taskAuthorAgentPath !== right.taskAuthorAgentPath ||
+    left.taskRecipientAgentPath !== right.taskRecipientAgentPath ||
+    left.taskOrigin !== right.taskOrigin ||
+    left.taskDestination !== right.taskDestination ||
+    left.taskRoute !== right.taskRoute ||
     left.toolName !== right.toolName ||
     left.toolCount !== right.toolCount ||
     left.contentMarkdown !== right.contentMarkdown ||
@@ -1404,6 +1429,11 @@ export function commentaryMessageLabel(
   kind: CommentaryMessage['kind'],
   taskAction?: CommentaryMessage['taskAction']
 ): string | null {
-  if (kind === 'task') return taskAction === 'spawn' ? 'Subagent Spawn' : 'Subagent Follow-up';
+  if (kind === 'task') {
+    if (taskAction === 'spawn') return 'New subagent task';
+    if (taskAction === 'followup') return 'Follow-up task';
+    if (taskAction === 'room_message') return 'Room message';
+    return 'Message';
+  }
   return null;
 }

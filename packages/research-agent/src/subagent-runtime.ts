@@ -901,6 +901,7 @@ export class SubagentManager {
     void this.emitSessionActivity(target, {
       type: triggerTurn ? "followup" : "message",
       authorAgentPath: author.path,
+      recipientAgentPath: target.path,
       message,
     });
     return { delivered: true, target: target.path, triggered_turn: triggerTurn && wasIdle };
@@ -1380,7 +1381,7 @@ export class SubagentManager {
 
   private emitSessionActivity(
     session: SubagentSession,
-    activity: Pick<SubagentActivity, "type" | "message" | "authorAgentPath">,
+    activity: Pick<SubagentActivity, "type" | "message" | "authorAgentPath" | "recipientAgentPath">,
   ): Promise<void> {
     const surfaceId = session.surfaceId
       ? this.options.surfaceStore?.current(session.id)?.id ?? session.surfaceId

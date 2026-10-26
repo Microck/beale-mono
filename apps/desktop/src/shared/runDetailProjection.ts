@@ -26,6 +26,11 @@ const COMMENTARY_EVENT_PAYLOAD_KEYS = [
   'transcriptMessageId',
   'type',
   'action',
+  'authorAgentPath',
+  'recipientAgentPath',
+  'roomName',
+  'roomTitle',
+  'packetKind',
   'recoveryKind',
   'awaitingSteering',
   'contextPhase',
@@ -75,6 +80,11 @@ const COMMENTARY_CONTENT_PAYLOAD_KEYS = [
 const COMMENTARY_SUBAGENT_PAYLOAD_KEYS = [
   'type',
   'action',
+  'authorAgentPath',
+  'recipientAgentPath',
+  'roomName',
+  'roomTitle',
+  'packetKind',
   'agentId',
   'agentPath',
   'parentAgentId',
@@ -115,6 +125,7 @@ export function projectRunDetailForRenderer<TDetail extends RunDetail | RunDetai
 ): TDetail {
   if (projection === 'full') return detail;
   const targetedAgentPath = typeof projection === 'object' ? projection.agentPath : undefined;
+  const legacyAuthors = legacyMessageAuthors(detail.traceEvents);
   const traceEvents = targetedAgentPath === undefined
     ? detail.traceEvents
     : detail.traceEvents.filter((event) => includedInAgentCommentaryProjection(event, targetedAgentPath));
@@ -124,7 +135,7 @@ export function projectRunDetailForRenderer<TDetail extends RunDetail | RunDetai
   return {
     ...detail,
     traceEvents: traceEvents.map((event) => projectCommentaryTraceEvent(
-      event,
+      withLegacyMessageAuthor(event, legacyAuthors.get(event.id)),
       targetedAgentPath !== undefined && isSubagentActivityEvent(event)
     )),
     transcriptMessages: transcriptMessages.map(projectCommentaryTranscriptMessage),
@@ -139,6 +150,7 @@ export function projectRunDetailForRenderer<TDetail extends RunDetail | RunDetai
 export function projectRunHistoryPageForRenderer(page: RunHistoryPage, projection: RunDetailProjection): RunHistoryPage {
   if (projection === 'full') return page;
   const targetedAgentPath = typeof projection === 'object' ? projection.agentPath : undefined;
+  const legacyAuthors = legacyMessageAuthors(page.traceEvents);
   const traceEvents = targetedAgentPath === undefined
     ? page.traceEvents
     : page.traceEvents.filter((event) => includedInAgentCommentaryProjection(event, targetedAgentPath));
@@ -148,10 +160,62 @@ export function projectRunHistoryPageForRenderer(page: RunHistoryPage, projectio
   return {
     ...page,
     traceEvents: traceEvents.map((event) => projectCommentaryTraceEvent(
-      event,
+      withLegacyMessageAuthor(event, legacyAuthors.get(event.id)),
       targetedAgentPath !== undefined && isSubagentActivityEvent(event)
     )),
     transcriptMessages: transcriptMessages.map(projectCommentaryTranscriptMessage)
+  };
+}
+
+function legacyMessageAuthors(events: readonly TraceEventRecord[]): Map<string, string> {
+  const requestsByMessage = new Map<string, Array<{ event: TraceEventRecord; author: string }>>();
+  for (const event of events) {
+    if (event.payload.appServerKind !== 'tool.requested' || event.payload.toolName !== 'send_message') continue;
+    const input = recordValue(recordValue(event.payload.payload)?.normalizedInputs);
+    const target = stringValue(input?.target);
+    const message = stringValue(input?.message);
+    const author = traceEventAgentPath(event);
+    if ((target !== 'root' && target !== '/root') || !message || !author?.startsWith('/root/')) continue;
+    const requests = requestsByMessage.get(message) ?? [];
+    requests.push({ event, author });
+    requestsByMessage.set(message, requests);
+  }
+  const authors = new Map<string, string>();
+  for (const event of events) {
+    const activity = event.payload.type === 'subagent.activity'
+      ? event.payload
+      : recordValue(event.payload.payload);
+    if (activity?.type !== 'subagent.activity' || activity.action !== 'message'
+      || stringValue(activity.authorAgentPath)) continue;
+    const recipient = stringValue(activity.recipientAgentPath) ?? stringValue(activity.agentPath);
+    const message = stringValue(activity.message);
+    if (recipient !== '/root' || !message) continue;
+    const activityTime = Date.parse(event.createdAt);
+    if (!Number.isFinite(activityTime)) continue;
+    const matching = (requestsByMessage.get(message) ?? []).filter(({ event: request }) => {
+      const requestTime = Date.parse(request.createdAt);
+      return request.attemptId === event.attemptId
+        && request.sequence < event.sequence
+        && Number.isFinite(requestTime)
+        && activityTime - requestTime >= 0
+        && activityTime - requestTime <= 60_000;
+    });
+    const distinctAuthors = new Set(matching.map(({ author }) => author));
+    if (distinctAuthors.size === 1) authors.set(event.id, matching[0]!.author);
+  }
+  return authors;
+}
+
+function withLegacyMessageAuthor(event: TraceEventRecord, author: string | undefined): TraceEventRecord {
+  if (!author) return event;
+  const direct = event.payload.type === 'subagent.activity';
+  const activity = direct ? event.payload : recordValue(event.payload.payload);
+  if (!activity || stringValue(activity.authorAgentPath)) return event;
+  return {
+    ...event,
+    payload: direct
+      ? { ...event.payload, authorAgentPath: author }
+      : { ...event.payload, payload: { ...activity, authorAgentPath: author } }
   };
 }
 
@@ -283,11 +347,17 @@ function boundSubagentActivityMessages(payload: Record<string, unknown>): void {
   delete payload.text;
   delete payload.outputText;
   delete payload.reasoningSummaryTexts;
-  if (typeof payload.message === 'string') payload.message = boundedScaffoldValue(payload.message);
+  if (typeof payload.message === 'string') payload.message = boundedSubagentActivityText(payload, payload.message);
   const nestedPayload = recordValue(payload.payload);
   if (nestedPayload && typeof nestedPayload.message === 'string') {
-    nestedPayload.message = boundedScaffoldValue(nestedPayload.message);
+    nestedPayload.message = boundedSubagentActivityText(nestedPayload, nestedPayload.message);
   }
+}
+
+function boundedSubagentActivityText(payload: Record<string, unknown>, message: string): string {
+  const action = stringValue(payload.action);
+  const limit = action === 'message' || action === 'followup' || action === 'room_packet' ? 8_192 : 256;
+  return message.length > limit ? `${message.slice(0, limit - 1)}…` : message;
 }
 
 function projectedSourceCursor(
