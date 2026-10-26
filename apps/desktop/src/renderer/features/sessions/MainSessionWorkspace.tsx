@@ -280,7 +280,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     onResearchDetailsOpenChange(true);
   };
   const closeWorkspaceClaim = (): void => {
-    onResearchDetailsOpenChange(false);
+    setSelectedWorkspaceClaimId(null);
   };
   const closeWorkspaceMemory = (): void => {
     onResearchDetailsOpenChange(false);

@@ -6173,6 +6173,12 @@ button.session-summary-item:hover:not(:disabled),
   gap: 10px;
 }
 
+.research-side-campaign-detail-header {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
 .research-side-nested-header button {
   min-width: 0;
   width: auto;

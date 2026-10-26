@@ -277,7 +277,8 @@ export function researchSideNavigationForSelectedDetail(
   selectedSubagentPath: string | null,
   selectedRunbookId: string | null,
   selectedReportId: string | null,
-  enabledViews: readonly ResearchSideView[]
+  enabledViews: readonly ResearchSideView[],
+  selectedWorkspaceCampaignItem = false
 ): ResearchSideNavigationState {
   if (selectedSubagentPath && enabledViews.includes('subagents')) {
     return researchSideNavigationReducer(state, { type: 'open', view: 'subagents' });
@@ -287,6 +288,9 @@ export function researchSideNavigationForSelectedDetail(
   }
   if (selectedReportId && enabledViews.includes('reports')) {
     return researchSideNavigationReducer(state, { type: 'open', view: 'reports' });
+  }
+  if (selectedWorkspaceCampaignItem && enabledViews.includes('memory')) {
+    return researchSideNavigationReducer(state, { type: 'open', view: 'memory' });
   }
   return state;
 }
@@ -463,7 +467,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     selectedSubagentPath,
     selectedRunbookId,
     selectedReportId,
-    enabledViews
+    enabledViews,
+    viewSpace === 'workspace' && Boolean(selectedClaimId || selectedMemoryNodeId)
   );
   const detailsOpen = expanded ?? visibleNavigation.openViews.length > 0;
   const activeView = (visibleSelectedNodeId || visibleSelectedClaimId) && enabledViews.includes('memory') ? 'memory' : visibleNavigation.activeView;
@@ -708,6 +713,12 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       setSelectedClaimIdState(null);
     }
   }, [enabledViewsKey, featureAvailability.memory]);
+
+  useEffect(() => {
+    if ((selectedClaimId || selectedMemoryNodeId) && featureAvailability.memory) {
+      dispatchNavigation({ type: 'open', view: 'memory' });
+    }
+  }, [featureAvailability.memory, selectedClaimId, selectedMemoryNodeId]);
 
   useEffect(() => {
     if (selectedSubagentPath && subagentsAvailable) {
@@ -1073,12 +1084,41 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             onBack={() => selectedMemoryNodeId === undefined ? setSelectedNodeId(null) : onBackToMemory?.()}
           />
         ) : selectedClaim ? (
-          <ResearchSideNestedHeader
-            iconOnly
-            label={campaignLabel}
-            name={selectedClaim.title}
-            onBack={closeClaimDetail}
-          />
+          viewSpace === 'workspace' ? (
+            <div className="research-side-campaign-detail-header">
+              <ResearchSideViewTabs
+                activeView={activeView}
+                enabledViews={enabledViews}
+                labels={{ memory: campaignLabel, reports: reportLabel }}
+                browserContextLabels={browserContextLabels}
+                openViews={visibleNavigation.openViews}
+                viewSpaceLabel={viewSpaceLabel}
+                onActivate={(view) => { closeClaimDetail(); openDetails(view); }}
+                onClose={async (view, action) => {
+                  if (view === 'memory') closeClaimDetail();
+                  await closeDetails(view, action);
+                }}
+                onOpen={(view) => { closeClaimDetail(); openDetails(view); }}
+                confirmDefaultBrowserContextClose={fleetBrowserMachine === null}
+                browserContextModeLoading={fleetBrowserMachine === undefined}
+                onCreateBrowserContext={!browserContextsEnabled || fleetBrowserMachine ? undefined : (label) => window.beale.createBrowserContext(label).then(() => undefined)}
+                onRenameBrowserContext={!browserContextsEnabled || fleetBrowserMachine ? undefined : (id, label) => window.beale.renameBrowserContext(id, label).then(() => undefined)}
+              />
+              <ResearchSideNestedHeader
+                iconOnly
+                label={campaignLabel}
+                name={selectedClaim.title}
+                onBack={closeClaimDetail}
+              />
+            </div>
+          ) : (
+            <ResearchSideNestedHeader
+              iconOnly
+              label={campaignLabel}
+              name={selectedClaim.title}
+              onBack={closeClaimDetail}
+            />
+          )
         ) : (
           <ResearchSideViewTabs
             activeView={activeView}

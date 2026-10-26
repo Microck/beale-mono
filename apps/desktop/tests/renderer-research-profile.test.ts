@@ -380,6 +380,18 @@ describe('renderer research profile presentation', () => {
     }));
     expect(leadDetail).toContain('aria-label="Lead detail views"');
     expect(leadDetail).toContain('Example parser lead');
+
+    const finding = claim('finding_example', 'Example parser finding');
+    finding.projection = 'finding';
+    const workspaceFindingDetail = renderToStaticMarkup(createElement(ResearchSidePanel, {
+      ...sidePanelProps,
+      memory: { nodes: [], edges: [], runbooks: [], leads: [], findings: [finding],
+        contextWorkspaceId: finding.workspaceId, contextSubjectId: finding.subjectId } as never,
+      viewSpace: 'workspace', expanded: true, selectedClaimId: finding.id
+    }));
+    expect(workspaceFindingDetail).toContain('aria-label="Open workspace detail views"');
+    expect(workspaceFindingDetail).toContain('<span>Campaign</span></button>');
+    expect(workspaceFindingDetail).toContain('aria-label="Back to Campaign"');
   });
 
   it('starts finding details on Breakdown with tabs below the status and timestamp', () => {
