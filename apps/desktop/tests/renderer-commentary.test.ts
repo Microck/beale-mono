@@ -23,11 +23,81 @@ import {
 import {
   commentaryMessagesForSession,
   commentaryRepositoryMetadataForScope,
-  commentaryToolUsageText
+  commentaryToolUsageText,
+  type CommentaryMessage
 } from '../src/renderer/view-models/commentary';
+import {
+  advanceCommentaryStreaming,
+  initialCommentaryStreamingState,
+  reconcileCommentaryStreaming,
+  visibleCommentaryMessages
+} from '../src/renderer/features/commentary/commentaryStreaming';
 import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay';
 import { buildTraceDisplayEventsForAgentPath } from '../src/renderer/view-models/traceDisplay';
 import { deferredResearchTrackDetail, runningResearchTrackDetail } from '../src/renderer/view-models/researchTrackSession';
+
+describe('commentary character streaming', () => {
+  const message = (id: string, contentMarkdown: string, kind: CommentaryMessage['kind'] = 'commentary'): CommentaryMessage => ({
+    id, traceEventId: id, kind, contentMarkdown, createdAt: '2026-01-01T00:00:00.000Z'
+  });
+
+  it('shows existing history immediately, then reveals new messages in order by character', () => {
+    const history = message('history', 'Already recorded.');
+    const tool = message('tool', 'Read file', 'tool');
+    const commentary = message('commentary', 'Done.');
+    let state = initialCommentaryStreamingState('run-example', [history]);
+    state = reconcileCommentaryStreaming(state, 'run-example', [history, tool, commentary], true);
+
+    expect(visibleCommentaryMessages(state, [history, tool, commentary]).map((entry) => entry.contentMarkdown))
+      .toEqual(['Already recorded.', '']);
+    state = advanceCommentaryStreaming(state);
+    expect(visibleCommentaryMessages(state, [history, tool, commentary]).map((entry) => entry.contentMarkdown))
+      .toEqual(['Already recorded.', 'R']);
+    for (let index = 0; index < 9; index += 1) state = advanceCommentaryStreaming(state);
+    expect(visibleCommentaryMessages(state, [history, tool, commentary]).map((entry) => entry.contentMarkdown))
+      .toEqual(['Already recorded.', 'Read file', '']);
+    state = advanceCommentaryStreaming(state);
+    expect(visibleCommentaryMessages(state, [history, tool, commentary]).at(-1)?.contentMarkdown).toBe('D');
+  });
+
+  it('extends a streamed message and keeps earlier paginated history visible', () => {
+    const initial = message('current', 'Hi');
+    const older = message('older', 'Earlier.');
+    let state = initialCommentaryStreamingState('run-example', [initial]);
+    state = reconcileCommentaryStreaming(state, 'run-example', [older, message('current', 'Hi 👋')], true);
+    expect(visibleCommentaryMessages(state, [older, message('current', 'Hi 👋')]).map((entry) => entry.contentMarkdown))
+      .toEqual(['Earlier.', 'Hi']);
+    state = advanceCommentaryStreaming(state);
+    expect(visibleCommentaryMessages(state, [older, message('current', 'Hi 👋')]).at(-1)?.contentMarkdown).toBe('Hi ');
+    state = advanceCommentaryStreaming(state);
+    expect(visibleCommentaryMessages(state, [older, message('current', 'Hi 👋')]).at(-1)?.contentMarkdown).toBe('Hi 👋');
+  });
+
+  it('flushes the queue for reduced motion or search and resets when the session changes', () => {
+    const first = message('first', 'First');
+    const next = message('next', 'Second');
+    let state = reconcileCommentaryStreaming(initialCommentaryStreamingState('run-one', [first]), 'run-one', [first, next], true);
+    state = reconcileCommentaryStreaming(state, 'run-one', [first, next], false);
+    expect(state.pending).toHaveLength(0);
+    expect(visibleCommentaryMessages(state, [first, next])).toEqual([first, next]);
+    state = reconcileCommentaryStreaming(state, 'run-two', [message('other', 'Existing')], true);
+    expect(state.pending).toHaveLength(0);
+    expect(state.animatedIds.size).toBe(0);
+  });
+
+  it('lets a terminal answer stream without waiting for collapsed activity', () => {
+    const history = message('history', 'Earlier.');
+    const tool = message('tool', 'Long tool update', 'tool');
+    const answer = message('answer', 'Complete.', 'final_answer');
+    let state = reconcileCommentaryStreaming(
+      initialCommentaryStreamingState('run-example', [history]), 'run-example', [history, tool], true
+    );
+    state = reconcileCommentaryStreaming(state, 'run-example', [history, tool, answer], true, true);
+    expect(state.pending.map((entry) => entry.id)).toEqual(['answer']);
+    expect(visibleCommentaryMessages(state, [history, tool, answer]).map((entry) => entry.contentMarkdown))
+      .toEqual(['Earlier.', 'Long tool update', '']);
+  });
+});
 
 describe('renderer commentary projection', () => {
   it('shows the stored failure reason when a session ends before producing transcript events', () => {

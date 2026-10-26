@@ -4,6 +4,10 @@
 
 ### Beale
 
+#### Changed
+
+- New session transcript messages reveal character by character in order, with their icons growing into place. Existing history and reduced-motion views render immediately.
+
 #### Fixed
 
 - Finding details opened from the workspace keep the Campaign view tab visible and return to its list when leaving the finding.
