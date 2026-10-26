@@ -1999,6 +1999,10 @@ export function App(): JSX.Element {
   });
   const shellClassName = `${appShellClassName({
     sessionHeat,
+    sessionInProgress: selectedFleetServerId === 'local'
+      && selectedRunId !== null
+      && (selectedRunState === 'active' || selectedResearchTrackRunning)
+      && !newResearchOpen && !settingsOpen && !fleetOpen && !reportsOpen && !automationsOpen && !pluginsOpen,
     platform: windowControlPlatform,
     windowChromeState,
     sidebarCollapsed

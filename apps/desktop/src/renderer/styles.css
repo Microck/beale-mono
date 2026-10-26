@@ -1176,6 +1176,33 @@ code {
   );
 }
 
+.app-shell::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: -30% -20%;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(ellipse 42% 58% at 22% 24%, color-mix(in srgb, var(--session-heat-window-surface) 48%, transparent), transparent 78%),
+    radial-gradient(ellipse 48% 54% at 76% 14%, color-mix(in srgb, var(--session-heat-window-surface) 38%, transparent), transparent 80%),
+    linear-gradient(115deg, transparent 30%, color-mix(in srgb, var(--session-heat-window-surface) 12%, transparent) 52%, transparent 72%);
+  transform-origin: center top;
+  animation: session-heat-aurora 18s ease-in-out infinite alternate;
+  animation-play-state: paused;
+  transition: opacity 650ms ease;
+}
+
+.app-shell.session-in-progress::before {
+  opacity: 1;
+  animation-play-state: running;
+}
+
+@keyframes session-heat-aurora {
+  from { transform: translate3d(-5%, 0, 0) rotate(-4deg) scale(1.02); }
+  to { transform: translate3d(6%, 4%, 0) rotate(4deg) scale(1.12); }
+}
+
 .app-shell.window-edge-flush {
   border-radius: 0;
 }
@@ -18308,6 +18335,10 @@ button.research-goal-choice:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .app-shell::before {
+    animation: none;
+  }
+
   .main-steer-stop svg {
     animation: none;
   }

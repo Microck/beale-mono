@@ -592,15 +592,17 @@ describe('renderer app shell view model', () => {
     expect(
       appShellClassName({
         sessionHeat: 'high',
+        sessionInProgress: true,
         platform: 'linux',
         windowChromeState: { isMaximized: true, isFullScreen: false },
         sidebarCollapsed: true
       })
-    ).toBe('app-shell session-heat-high platform-linux window-edge-flush sidebar-collapsed');
+    ).toBe('app-shell session-heat-high session-in-progress platform-linux window-edge-flush sidebar-collapsed');
 
     expect(
       appShellClassName({
         sessionHeat: 'none',
+        sessionInProgress: false,
         platform: 'darwin',
         windowChromeState: { isMaximized: false, isFullScreen: true },
         sidebarCollapsed: false
