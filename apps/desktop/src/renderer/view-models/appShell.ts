@@ -46,6 +46,7 @@ export function shouldShowHeaderResearchControls(input: {
 
 export function appShellClassName(input: {
   sessionHeat: SessionHeat;
+  sessionInProgress: boolean;
   platform: HostEnvironment['platform'];
   windowChromeState: WindowChromeState;
   sidebarCollapsed: boolean;
@@ -53,6 +54,7 @@ export function appShellClassName(input: {
   return [
     'app-shell',
     `session-heat-${input.sessionHeat}`,
+    input.sessionInProgress ? 'session-in-progress' : '',
     `platform-${input.platform}`,
     input.windowChromeState.isMaximized || input.windowChromeState.isFullScreen ? 'window-edge-flush' : '',
     input.windowChromeState.isFullScreen ? 'window-full-screen' : '',

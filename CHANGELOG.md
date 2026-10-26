@@ -6,6 +6,7 @@
 
 #### Changed
 
+- Active sessions animate overlapping aurora ribbons through the window's profile-colored heat gradient; reduced-motion settings keep them still.
 - The active session stop icon makes a brief quarter turn followed by a longer pause to indicate ongoing work.
 - Model labels retain GPT and Claude family prefixes and collapse repeated DeepSeek prefixes.
 - The session model selector uses a roomier raised menu styled alongside the Collaboration menu.
@@ -19,6 +20,7 @@
 
 #### Fixed
 
+- Aurora ribbons darken the window background in dark themes and lighten it in light themes to preserve text contrast.
 - The session context usage tooltip has a larger hover target while the circle stays in place.
 - Legacy messages to Lead recover the subagent sender name when a matching message tool request is available.
 - Inter-agent messages and collaboration packets remain visible in root and participant session transcripts, with sender and recipient labels.
