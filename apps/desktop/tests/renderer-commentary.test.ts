@@ -274,6 +274,11 @@ describe('renderer commentary projection', () => {
       .toBe('Reading C:\\Users\\Public\\Parser.ts');
     expect(commentaryToolUsageText('file.read', 3)).toBe('Reading 3 files');
     expect(commentaryToolUsageText('file.read', 3, undefined, true)).toBe('Reading 3 files');
+    expect(commentaryToolUsageText('file.edit', 1)).toBe('Editing a file');
+    expect(commentaryToolUsageText('file.edit', 1, 'src/Parser.ts')).toBe('Editing src/Parser.ts');
+    expect(commentaryToolUsageText('file.edit', 1, '/Users/alice/repo/src/Parser.ts'))
+      .toBe('Editing ~/repo/src/Parser.ts');
+    expect(commentaryToolUsageText('file.edit', 2)).toBe('Editing 2 files');
     expect(commentaryToolUsageText('memory.get', 3)).toBe('Reading 3 memories');
     expect(commentaryToolUsageText('memory.search', 3)).toBe('Searching memory with 3 queries');
     expect(commentaryToolUsageText('history.search', 3)).toBe('Searching workspace history with 3 queries');
@@ -384,6 +389,22 @@ describe('renderer commentary projection', () => {
       .toBe('Reading src/parser.ts');
     expect(messages.find((message) => message.toolName === 'shell.run')?.contentMarkdown)
       .toBe('Running npm test');
+  });
+
+  it('names the edited file in a session tool row', () => {
+    const detail = runDetail('Update the parser.');
+    const messages = commentaryMessagesForSession(detail, [
+      toolEvent('edit-request', 'tool.requested', 'file.edit', 'edit', { path: 'src/parser.ts', oldText: 'old', newText: 'new' }),
+      toolEvent('edit-result', 'tool.observed', 'file.edit', 'edit', { path: 'src/parser.ts' }, { path: 'src/parser.ts' })
+    ]);
+    const observationOnly = commentaryMessagesForSession(detail, [
+      toolEvent('edit-only-result', 'tool.observed', 'file.edit', 'edit-only', { path: 'src/token.ts' }, { path: 'src/token.ts' })
+    ]);
+
+    expect(messages.find((message) => message.toolName === 'file.edit')?.contentMarkdown)
+      .toBe('Editing src/parser.ts');
+    expect(observationOnly.find((message) => message.toolName === 'file.edit')?.contentMarkdown)
+      .toBe('Editing src/token.ts');
   });
 
   it('formats tool input and output values for expanded details', () => {

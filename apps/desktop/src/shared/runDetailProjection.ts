@@ -374,7 +374,8 @@ function toolLabelInputKeys(toolName: string): readonly string[] {
     case 'runbook.append': return ['id', 'status', 'expectedRevision'];
     case 'runbook.edit': return ['id', 'cellId', 'expectedRevision'];
     case 'runbook.run': return ['id', 'cellId', 'startCellId', 'endCellId'];
-    case 'file.read': return ['path'];
+    case 'file.read':
+    case 'file.edit': return ['path'];
     case 'surface.get':
     case 'surface.focus': return ['surfaceId'];
     case 'surface.list': return ['parentId', 'resourceId'];

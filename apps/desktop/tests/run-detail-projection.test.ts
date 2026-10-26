@@ -523,6 +523,7 @@ describe('run detail commentary projection', () => {
     ['resource.catalog', { operation: 'discover', name: 'Example parser', hidden: 'not rendered' }, { operation: 'discover', name: 'Example parser' }],
     ['surface.get', { surfaceId: 'surface_example', hidden: 'not rendered' }, { surfaceId: 'surface_example' }],
     ['surface.list', { parentId: 'surface_example', hidden: 'not rendered' }, { parentId: 'surface_example' }],
+    ['file.edit', { path: 'src/parser.ts', oldText: 'not rendered', newText: 'not rendered' }, { path: 'src/parser.ts' }],
     ['features.load', { features: ['code-navigation'], hidden: 'not rendered' }, { features: ['code-navigation'] }],
     ['plugins.load', { plugins: ['example-plugin'], hidden: 'not rendered' }, { plugins: ['example-plugin'] }]
   ])('retains %s inputs needed for collapsed commentary labels', (toolName, inputs, expectedInputs) => {
