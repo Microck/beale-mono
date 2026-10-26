@@ -1636,7 +1636,7 @@ describe('renderer commentary projection', () => {
     expect(html).toContain('Recheck the synthetic fixture.');
   });
 
-  it('labels the unknown origin on older messages without sender metadata', () => {
+  it('uses a generic agent origin on older messages without sender metadata', () => {
     const messages = commentaryMessagesForSession(runDetail('Coordinate the review.'), [
       displayEvent('message', {
         type: 'subagent.activity',
@@ -1649,7 +1649,7 @@ describe('renderer commentary projection', () => {
     const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
       message: messages[0]!, searchHighlightQuery: '', selected: false
     }));
-    expect(html).toContain('Unknown sender');
+    expect(messages[0]?.taskOrigin).toBe('Agent');
     expect(html).toContain('Reviewer');
   });
 
@@ -1667,8 +1667,9 @@ describe('renderer commentary projection', () => {
       message: messages[0]!, searchHighlightQuery: '', selected: false
     }));
     expect(html).toContain('agent-communication-inbound');
-    expect(html).toContain('Unknown sender');
+    expect(messages[0]?.taskOrigin).toBe('Subagent');
     expect(html).toContain('Lead');
+    expect(html).not.toContain('Unknown sender');
   });
 
   it('shows subagent failures as terminal Commentary messages', () => {

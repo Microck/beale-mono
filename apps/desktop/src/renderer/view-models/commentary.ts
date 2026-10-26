@@ -357,7 +357,11 @@ function subagentActivityMessage(event: TraceDisplayEvent): CommentaryMessage | 
   const recipientLabel = recipient
     ? action === 'room_packet' && !recipientAgentPath ? `room "${recipient}"` : agentDisplayName(recipient)
     : null;
-  const taskOrigin = action === 'spawned' ? null : taskAuthorAgentPath ? agentDisplayName(taskAuthorAgentPath) : 'Unknown sender';
+  const taskOrigin = action === 'spawned'
+    ? null
+    : taskAuthorAgentPath
+      ? agentDisplayName(taskAuthorAgentPath)
+      : taskRecipientAgentPath === '/root' ? 'Subagent' : 'Agent';
   const taskDestination = action === 'spawned' ? null : recipientLabel ?? 'Unknown recipient';
   const taskRoute = taskAuthorAgentPath && recipientLabel
     ? `${agentDisplayName(taskAuthorAgentPath)} → ${recipientLabel}`

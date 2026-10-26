@@ -7374,7 +7374,6 @@ button.subagent-catalog-item:hover:not(:disabled),
 .main-commentary-agent-card {
   width: min(86%, 620px);
   min-width: 0;
-  overflow: hidden;
   border-radius: 14px;
 }
 
@@ -7383,16 +7382,18 @@ button.subagent-catalog-item:hover:not(:disabled),
 }
 
 .main-commentary-agent-header {
+  position: relative;
+  z-index: 0;
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
-  padding: 8px 13px;
+  padding: 8px 13px 18px;
   border-radius: 14px 14px 0 0;
   background: color-mix(in srgb, var(--panel-raised) 78%, var(--panel));
   color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.3;
+  font-size: 1rem;
+  line-height: 1.4;
 }
 
 .main-commentary-agent-route {
@@ -7400,7 +7401,7 @@ button.subagent-catalog-item:hover:not(:disabled),
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .main-commentary-agent-route svg {
@@ -7417,17 +7418,18 @@ button.subagent-catalog-item:hover:not(:disabled),
 .main-commentary-agent-type {
   flex: 0 0 auto;
   margin-left: auto;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  font-size: 1rem;
+  font-weight: 500;
   white-space: nowrap;
 }
 
 .main-commentary-message.kind-task.has-agent-header .main-commentary-message-content {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: none;
-  border-radius: 0 0 14px 14px;
+  margin-top: -10px;
+  border-radius: 14px;
 }
 
 .main-commentary-message:is(.kind-progress, .kind-tool, .kind-error) {

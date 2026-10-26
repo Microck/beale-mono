@@ -1012,7 +1012,7 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
         <div className="main-commentary-agent-card">
           <div className="main-commentary-agent-header">
             <div className="main-commentary-agent-route">
-              <span className="main-commentary-agent-name" title={message.taskOrigin}>{message.taskOrigin ?? 'Unknown sender'}</span>
+              <span className="main-commentary-agent-name" title={message.taskOrigin}>{message.taskOrigin ?? 'Agent'}</span>
               <ArrowRight size={14} aria-hidden="true" />
               <span className="main-commentary-agent-name" title={message.taskDestination}>{message.taskDestination ?? 'Unknown recipient'}</span>
             </div>
