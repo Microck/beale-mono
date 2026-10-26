@@ -11274,6 +11274,17 @@ button.runbook-catalog-item:not(.breakout-room-catalog-item):hover:not(:disabled
   color: var(--red);
 }
 
+.main-steer-stop svg {
+  transform-origin: center;
+  animation: main-steer-stop-quarter-turn 2.5s ease-in-out infinite;
+}
+
+@keyframes main-steer-stop-quarter-turn {
+  0% { transform: rotate(0deg); }
+  14% { transform: rotate(90deg); }
+  100% { transform: rotate(90deg); }
+}
+
 .main-steer-stop:hover:not(:disabled) {
   background: var(--red-soft);
   color: var(--red);
@@ -18295,6 +18306,10 @@ button.research-goal-choice:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .main-steer-stop svg {
+    animation: none;
+  }
+
   .main-commentary-message.is-streamed .main-commentary-message-icon {
     animation: none;
   }

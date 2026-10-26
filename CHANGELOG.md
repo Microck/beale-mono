@@ -6,6 +6,7 @@
 
 #### Changed
 
+- The active session stop icon makes a brief quarter turn followed by a longer pause to indicate ongoing work.
 - Model labels retain GPT and Claude family prefixes and collapse repeated DeepSeek prefixes.
 - The session model selector uses a roomier raised menu styled alongside the Collaboration menu.
 - The session Collaboration control opens an anchored menu above the composer and uses singular wording for one collaborator.
