@@ -7288,6 +7288,13 @@ button.subagent-catalog-item:hover:not(:disabled),
   padding: 10px 13px;
 }
 
+.main-commentary-message.agent-communication-inbound .main-commentary-message-content {
+  max-width: min(86%, 620px);
+  border-radius: 14px;
+  background: var(--panel-raised);
+  padding: 10px 13px;
+}
+
 .main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-prose,
 .main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown,
 .main-commentary-message.agent-communication-outbound .main-commentary-message-content .main-trace-markdown strong,

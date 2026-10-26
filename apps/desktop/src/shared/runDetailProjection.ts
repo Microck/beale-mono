@@ -26,6 +26,11 @@ const COMMENTARY_EVENT_PAYLOAD_KEYS = [
   'transcriptMessageId',
   'type',
   'action',
+  'authorAgentPath',
+  'recipientAgentPath',
+  'roomName',
+  'roomTitle',
+  'packetKind',
   'recoveryKind',
   'awaitingSteering',
   'contextPhase',
@@ -75,6 +80,11 @@ const COMMENTARY_CONTENT_PAYLOAD_KEYS = [
 const COMMENTARY_SUBAGENT_PAYLOAD_KEYS = [
   'type',
   'action',
+  'authorAgentPath',
+  'recipientAgentPath',
+  'roomName',
+  'roomTitle',
+  'packetKind',
   'agentId',
   'agentPath',
   'parentAgentId',
@@ -283,11 +293,17 @@ function boundSubagentActivityMessages(payload: Record<string, unknown>): void {
   delete payload.text;
   delete payload.outputText;
   delete payload.reasoningSummaryTexts;
-  if (typeof payload.message === 'string') payload.message = boundedScaffoldValue(payload.message);
+  if (typeof payload.message === 'string') payload.message = boundedSubagentActivityText(payload, payload.message);
   const nestedPayload = recordValue(payload.payload);
   if (nestedPayload && typeof nestedPayload.message === 'string') {
-    nestedPayload.message = boundedScaffoldValue(nestedPayload.message);
+    nestedPayload.message = boundedSubagentActivityText(nestedPayload, nestedPayload.message);
   }
+}
+
+function boundedSubagentActivityText(payload: Record<string, unknown>, message: string): string {
+  const action = stringValue(payload.action);
+  const limit = action === 'message' || action === 'followup' || action === 'room_packet' ? 8_192 : 256;
+  return message.length > limit ? `${message.slice(0, limit - 1)}…` : message;
 }
 
 function projectedSourceCursor(

@@ -236,6 +236,7 @@ describe('renderer commentary projection', () => {
     expect(commentaryMessageLabel('tool')).toBeNull();
     expect(commentaryMessageLabel('task', 'spawn')).toBe('Subagent Spawn');
     expect(commentaryMessageLabel('task', 'followup')).toBe('Subagent Follow-up');
+    expect(commentaryMessageLabel('task', 'message')).toBe('Agent Message');
     expect(commentaryMessageLabel('final_answer')).toBeNull();
     expect(commentaryMessageLabel('error')).toBeNull();
   });
@@ -1580,8 +1581,38 @@ describe('renderer commentary projection', () => {
     expect(messages.map(({ kind, taskAction, contentMarkdown }) => [kind, taskAction, contentMarkdown])).toEqual([
       ['task', 'spawn', 'Inspect the parser boundary.'],
       ['task', 'followup', 'Also check the length conversion.'],
-      ['task', 'followup', 'Compare the result with the caller contract.']
+      ['task', 'message', 'Compare the result with the caller contract.']
     ]);
+  });
+
+  it('labels inter-agent messages with their sender and recipient', () => {
+    const messages = commentaryMessagesForSession(runDetail('Coordinate the review.'), [
+      displayEvent('peer-message', {
+        type: 'subagent.activity',
+        action: 'message',
+        agentPath: '/root/builder',
+        authorAgentPath: '/root/reviewer',
+        message: 'Check the synthetic parser fixture.'
+      }, { source: 'system' }),
+      displayEvent('room-message', {
+        type: 'subagent.activity',
+        action: 'room_packet',
+        agentPath: '/root/reviewer',
+        authorAgentPath: '/root/reviewer',
+        roomTitle: 'Example review room',
+        message: 'The synthetic boundary is covered.'
+      }, { source: 'system' })
+    ], { includeInitialPrompt: false });
+
+    expect(messages.map((message) => [message.taskAction, message.taskRoute, message.contentMarkdown])).toEqual([
+      ['message', '/root/reviewer → /root/builder', 'Check the synthetic parser fixture.'],
+      ['message', '/root/reviewer → room "Example review room"', 'The synthetic boundary is covered.']
+    ]);
+    const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
+      message: messages[0]!, searchHighlightQuery: '', selected: false
+    }));
+    expect(html).toContain('agent-communication-inbound');
+    expect(html).toContain('Agent Message · /root/reviewer → /root/builder');
   });
 
   it('shows subagent failures as terminal Commentary messages', () => {

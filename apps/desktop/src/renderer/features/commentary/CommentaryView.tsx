@@ -956,7 +956,11 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   const hasSearchHighlight = searchHighlightTerms(searchHighlightQuery).length > 0;
   const label = commentaryMessageLabel(message.kind, message.taskAction);
   const icon = commentaryMessageIcon(message.kind, message.toolName);
-  const communicationClass = message.kind === 'task' ? 'agent-communication-outbound' : '';
+  const communicationClass = message.kind === 'task'
+    ? message.taskAuthorAgentPath && message.taskAuthorAgentPath !== '/root'
+      ? 'agent-communication-inbound'
+      : 'agent-communication-outbound'
+    : '';
   const reasoningTraceLines = message.kind === 'progress'
     ? message.reasoningTraceLines?.length ? message.reasoningTraceLines : [message.contentMarkdown]
     : [];
@@ -989,7 +993,7 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
       ) : (
         <>
           {icon ? <span className="main-commentary-message-icon" aria-hidden="true">{icon}</span> : null}
-          {label ? <span className="main-commentary-message-label">{label}</span> : null}
+          {label ? <span className="main-commentary-message-label">{label}{message.taskRoute ? ` · ${message.taskRoute}` : ''}</span> : null}
           <div className="main-commentary-message-content">
             {message.kind === 'tool' ? (
               <CommentaryToolMessageContent
@@ -1256,6 +1260,8 @@ function commentaryMessagesRenderEqual(left: CommentaryMessage, right: Commentar
     left.kind !== right.kind ||
     left.markerType !== right.markerType ||
     left.taskAction !== right.taskAction ||
+    left.taskAuthorAgentPath !== right.taskAuthorAgentPath ||
+    left.taskRoute !== right.taskRoute ||
     left.toolName !== right.toolName ||
     left.toolCount !== right.toolCount ||
     left.contentMarkdown !== right.contentMarkdown ||
@@ -1404,6 +1410,6 @@ export function commentaryMessageLabel(
   kind: CommentaryMessage['kind'],
   taskAction?: CommentaryMessage['taskAction']
 ): string | null {
-  if (kind === 'task') return taskAction === 'spawn' ? 'Subagent Spawn' : 'Subagent Follow-up';
+  if (kind === 'task') return taskAction === 'spawn' ? 'Subagent Spawn' : taskAction === 'message' ? 'Agent Message' : 'Subagent Follow-up';
   return null;
 }

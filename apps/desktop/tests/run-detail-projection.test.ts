@@ -349,6 +349,71 @@ describe('run detail commentary projection', () => {
     expect(subagentSummaries([projected])[0]?.status).toBe('completed');
   });
 
+  it('retains routed inter-agent messages in the compact root transcript', () => {
+    const message = 'Synthetic peer update. '.repeat(24);
+    const activity = traceEvent('peer-message', {
+      source: 'system',
+      type: 'model_message',
+      payload: {
+        type: 'subagent.activity',
+        action: 'message',
+        agentPath: '/root/reviewer',
+        authorAgentPath: '/root',
+        recipientAgentPath: '/root/reviewer',
+        message,
+        privateDiagnostic: 'not rendered'
+      }
+    });
+    const packet = traceEvent('room-packet', {
+      source: 'system',
+      type: 'model_message',
+      payload: {
+        type: 'subagent.activity',
+        action: 'room_packet',
+        agentPath: '/root/reviewer',
+        authorAgentPath: '/root/reviewer',
+        roomName: 'example-review',
+        roomTitle: 'Example review room',
+        packetKind: 'observation',
+        message: 'Synthetic room packet.'
+      }
+    });
+    const projected = projectRunDetailForRenderer(
+      runDetail({ traceEvents: [activity, packet] }),
+      { mode: 'commentary', agentPath: null }
+    );
+
+    expect(projected.traceEvents[0]?.payload).toMatchObject({
+      type: 'subagent.activity',
+      action: 'message',
+      authorAgentPath: '/root',
+      recipientAgentPath: '/root/reviewer',
+      message
+    });
+    expect(projected.traceEvents[1]?.payload).toMatchObject({
+      action: 'room_packet',
+      authorAgentPath: '/root/reviewer',
+      roomTitle: 'Example review room',
+      packetKind: 'observation'
+    });
+    expect(JSON.stringify(projected.traceEvents)).not.toContain('not rendered');
+    const messages = commentaryMessagesForSession(
+      projected,
+      buildTraceDisplayEventsForAgentPath(projected, null),
+      { includeInitialPrompt: false }
+    );
+    expect(messages[0]).toMatchObject({
+      taskAction: 'message',
+      taskRoute: '/root → /root/reviewer',
+      contentMarkdown: message.trim()
+    });
+    expect(messages[1]).toMatchObject({
+      taskAction: 'message',
+      taskRoute: '/root/reviewer → room "Example review room"',
+      contentMarkdown: 'Synthetic room packet.'
+    });
+  });
+
   it('keeps bounded surface locations from child focus and spawn events in the root summary', () => {
     const surfaceTrail = [
       { id: 'asset-example', name: 'Example service' },

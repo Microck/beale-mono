@@ -18,7 +18,9 @@ export interface CommentaryMessage {
   traceEventId: string | null;
   kind: CommentaryMessageKind;
   markerType?: 'compaction' | 'safeguard_recovery';
-  taskAction?: 'spawn' | 'followup';
+  taskAction?: 'spawn' | 'followup' | 'message';
+  taskAuthorAgentPath?: string;
+  taskRoute?: string;
   toolName?: string;
   toolCount?: number;
   toolCalls?: CommentaryToolCall[];
@@ -324,18 +326,31 @@ function commentaryMessageKind(event: TraceDisplayEvent): CommentaryMessageKind 
 }
 
 function subagentActivityMessage(event: TraceDisplayEvent): CommentaryMessage | null {
-  const action = payloadString(event, 'action');
-  if (payloadString(event, 'type') !== 'subagent.activity' || !action) return null;
-  const task = ['spawned', 'message', 'followup'].includes(action);
+  const activity = event.payload.type === 'subagent.activity'
+    ? event.payload
+    : unknownRecord(event.payload.payload);
+  const action = stringValue(activity.action);
+  if (activity.type !== 'subagent.activity' || !action) return null;
+  const task = ['spawned', 'message', 'followup', 'room_packet'].includes(action);
   const error = action === 'errored' || action === 'interrupted';
   if (!task && !error) return null;
-  const contentMarkdown = payloadString(event, 'message') ?? (error ? event.summary.trim() : null);
+  const contentMarkdown = stringValue(activity.message) ?? (error ? event.summary.trim() : null);
   if (!contentMarkdown) return null;
+  const taskAction = action === 'spawned' ? 'spawn' : action === 'followup' ? 'followup' : 'message';
+  const taskAuthorAgentPath = stringValue(activity.authorAgentPath)
+    ?? (action === 'room_packet' ? stringValue(activity.agentPath) : null);
+  const recipient = stringValue(activity.recipientAgentPath)
+    ?? (action === 'room_packet'
+      ? stringValue(activity.roomTitle) ?? stringValue(activity.roomName)
+      : stringValue(activity.agentPath));
+  const taskRoute = taskAuthorAgentPath && recipient
+    ? `${taskAuthorAgentPath} → ${action === 'room_packet' && !stringValue(activity.recipientAgentPath) ? `room "${recipient}"` : recipient}`
+    : null;
   return {
     id: `${task ? 'task' : 'error'}:${event.id}`,
     traceEventId: event.id,
     kind: task ? 'task' : 'error',
-    ...(task ? { taskAction: action === 'spawned' ? 'spawn' as const : 'followup' as const } : {}),
+    ...(task ? { taskAction, ...(taskAuthorAgentPath ? { taskAuthorAgentPath } : {}), ...(taskRoute ? { taskRoute } : {}) } : {}),
     contentMarkdown,
     createdAt: event.createdAt
   };

@@ -350,6 +350,43 @@ describe('renderer trace display view models', () => {
       'transcript:message_child'
     ]);
   });
+
+  it('keeps inter-agent communication in root and participant transcripts', () => {
+    const communication = (
+      id: string,
+      sequence: number,
+      action: 'message' | 'room_packet',
+      agentPath: string,
+      authorAgentPath: string,
+      recipientAgentPath?: string
+    ): TraceEventRecord => traceEvent({
+      id,
+      sequence,
+      type: 'model_message',
+      payload: {
+        type: 'subagent.activity', action, agentPath, authorAgentPath,
+        ...(recipientAgentPath ? { recipientAgentPath } : {}),
+        message: 'Synthetic peer update.'
+      }
+    });
+    const detail = runDetail({ traceEvents: [
+      traceEvent({ id: 'child-reasoning', sequence: 1, payload: { agentPath: '/root/reviewer', text: 'Private progress.' } }),
+      communication('root-to-reviewer', 2, 'message', '/root/reviewer', '/root'),
+      communication('reviewer-to-root', 3, 'message', '/root', '/root/reviewer'),
+      communication('reviewer-to-builder', 4, 'message', '/root/builder', '/root/reviewer'),
+      communication('reviewer-room-packet', 5, 'room_packet', '/root/reviewer', '/root/reviewer')
+    ] });
+
+    expect(buildTraceDisplayEventsForAgentPath(detail, null).map((event) => event.id)).toEqual([
+      'root-to-reviewer', 'reviewer-to-root', 'reviewer-to-builder', 'reviewer-room-packet'
+    ]);
+    expect(buildTraceDisplayEventsForAgentPath(detail, '/root/reviewer').map((event) => event.id)).toEqual([
+      'child-reasoning', 'root-to-reviewer', 'reviewer-to-root', 'reviewer-to-builder', 'reviewer-room-packet'
+    ]);
+    expect(buildTraceDisplayEventsForAgentPath(detail, '/root/builder').map((event) => event.id)).toEqual([
+      'reviewer-to-builder'
+    ]);
+  });
 });
 
 function group(input: Partial<TraceTimelineGroup> = {}): TraceTimelineGroup {

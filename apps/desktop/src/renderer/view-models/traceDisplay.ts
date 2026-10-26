@@ -6,7 +6,8 @@ import {
   traceCategoryForEvent,
   traceEventOutcome,
   tracePayloadArray,
-  tracePayloadPrimitive
+  tracePayloadPrimitive,
+  tracePayloadRecord
 } from '../traceClassification';
 import type { TraceCategoryId } from '../traceClassification';
 
@@ -312,9 +313,32 @@ function buildTraceDisplayEventsFromRecords(
 
 function traceEventMatchesAgentPath(event: TraceEventRecord, agentPath: string | null): boolean {
   const eventAgentPath = traceAgentPath(event);
+  const communication = subagentCommunication(event);
+  if (communication) {
+    return !agentPath
+      || eventAgentPath === agentPath
+      || communication.authorAgentPath === agentPath
+      || communication.recipientAgentPath === agentPath;
+  }
   return agentPath
     ? eventAgentPath === agentPath
     : !eventAgentPath || eventAgentPath === '/root';
+}
+
+function subagentCommunication(event: TraceEventRecord): {
+  authorAgentPath: string | null;
+  recipientAgentPath: string | null;
+} | null {
+  const payload = event.payload.type === 'subagent.activity'
+    ? event.payload
+    : tracePayloadRecord(event.payload, 'payload');
+  if (payload?.type !== 'subagent.activity') return null;
+  const action = stringRecordValue(payload, 'action');
+  if (action !== 'message' && action !== 'followup' && action !== 'room_packet') return null;
+  return {
+    authorAgentPath: stringRecordValue(payload, 'authorAgentPath') ?? (action === 'room_packet' ? stringRecordValue(payload, 'agentPath') : null),
+    recipientAgentPath: stringRecordValue(payload, 'recipientAgentPath') ?? (action === 'room_packet' ? null : stringRecordValue(payload, 'agentPath'))
+  };
 }
 
 function transcriptMessageMatchesAgentPath(
