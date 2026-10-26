@@ -45,14 +45,14 @@ export const OPTIONAL_PROVIDER_MODELS = Object.freeze([
   {
     providerId: 'anthropic',
     modelId: CLAUDE_FABLE_MODEL_ID,
-    name: 'Fable 5',
+    name: 'Claude Fable 5',
     accessNote: 'Available by default, but its safeguards may decline cybersecurity requests even for Cyber Verification Program members.',
     enabledByDefault: true
   },
   {
     providerId: 'anthropic',
     modelId: CLAUDE_MYTHOS_MODEL_ID,
-    name: 'Mythos 5',
+    name: 'Claude Mythos 5',
     accessNote: 'Requires approved access and is primarily available to approved commercial users.',
     enabledByDefault: false
   }

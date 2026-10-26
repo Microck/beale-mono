@@ -585,20 +585,20 @@ describe('renderer provider settings', () => {
     };
 
     const defaultHtml = render({});
-    expect(defaultHtml).toContain('<strong>Fable 5</strong>');
+    expect(defaultHtml).toContain('<strong>Claude Fable 5</strong>');
     expect(defaultHtml).toContain('may decline cybersecurity requests even for Cyber Verification Program members');
-    expect(defaultHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Fable 5<\/strong>[\s\S]*?<\/span><input type="checkbox" checked=""\/><\/label>/u);
-    expect(defaultHtml).toContain('<strong>Mythos 5</strong>');
+    expect(defaultHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Claude Fable 5<\/strong>[\s\S]*?<\/span><input type="checkbox" checked=""\/><\/label>/u);
+    expect(defaultHtml).toContain('<strong>Claude Mythos 5</strong>');
     expect(defaultHtml).toContain('primarily available to approved commercial users');
-    expect(defaultHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Mythos 5<\/strong>[\s\S]*?<\/span><input type="checkbox"\/><\/label>/u);
+    expect(defaultHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Claude Mythos 5<\/strong>[\s\S]*?<\/span><input type="checkbox"\/><\/label>/u);
     expect(defaultHtml).not.toContain('value="claude-mythos-5"');
 
     const mythosHtml = render({ mythos: true });
-    expect(mythosHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Mythos 5<\/strong>[\s\S]*?<\/span><input type="checkbox" checked=""\/><\/label>/u);
-    expect(mythosHtml).toContain('<option value="claude-mythos-5">Mythos 5</option>');
+    expect(mythosHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Claude Mythos 5<\/strong>[\s\S]*?<\/span><input type="checkbox" checked=""\/><\/label>/u);
+    expect(mythosHtml).toContain('<option value="claude-mythos-5">Claude Mythos 5</option>');
 
     const fableDisabledHtml = render({ fableDisabled: true });
-    expect(fableDisabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Fable 5<\/strong>[\s\S]*?<\/span><input type="checkbox"\/><\/label>/u);
+    expect(fableDisabledHtml).toMatch(/<label><span class="provider-optional-model-copy"><strong>Claude Fable 5<\/strong>[\s\S]*?<\/span><input type="checkbox"\/><\/label>/u);
     expect(fableDisabledHtml).not.toContain('value="claude-fable-5"');
   });
 

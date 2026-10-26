@@ -110,7 +110,7 @@ describe('renderer session composer', () => {
     expect(html).toContain('aria-label="Model settings for the next agent turn"');
     expect(providerIconIndex).toBeGreaterThanOrEqual(0);
     expect(modelNameIndex).toBeGreaterThan(providerIconIndex);
-    expect(html).toContain('class="model-selection-picker-model">5.6 Sol</span>');
+    expect(html).toContain('class="model-selection-picker-model">GPT-5.6 Sol</span>');
     expect(html).toContain('class="model-selection-picker-effort">Medium</span>');
     expect(html).not.toContain('aria-label="Model for the next agent turn"');
     expect(html).not.toContain('aria-label="Reasoning effort for the next agent turn"');

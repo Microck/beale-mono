@@ -66,13 +66,17 @@ describe('renderer formatting helpers', () => {
     expect(clampPriorityScoreForDisplay(Number.NaN)).toBe(0);
   });
 
-  it('omits implied leading provider prefixes from model names', () => {
-    expect(researchModelNameLabel('openai-codex', 'GPT-5.6 Sol')).toBe('5.6 Sol');
+  it('keeps model family names and collapses a repeated DeepSeek prefix', () => {
+    expect(researchModelNameLabel('openai-codex', 'GPT-5.6 Sol')).toBe('GPT-5.6 Sol');
     expect(researchModelNameLabel('openai-codex', 'gpt-5.6-sol')).toBe('gpt-5.6-sol');
     expect(researchModelNameLabel('openai-codex', 'Legacy GPT-5.6')).toBe('Legacy GPT-5.6');
-    expect(researchModelNameLabel('anthropic', 'Claude Opus 5')).toBe('Opus 5');
+    expect(researchModelNameLabel('anthropic', 'Claude Opus 5')).toBe('Claude Opus 5');
     expect(researchModelNameLabel('anthropic', 'claude-sonnet-4-6')).toBe('claude-sonnet-4-6');
     expect(researchModelNameLabel('anthropic', 'Legacy Claude Sonnet')).toBe('Legacy Claude Sonnet');
+    expect(researchModelNameLabel('openrouter', 'Deepseek: Deepseek R1')).toBe('DeepSeek R1');
+    expect(researchModelNameLabel('openrouter', 'DeepSeek: DeepSeek-V3')).toBe('DeepSeek-V3');
+    expect(researchModelNameLabel('openrouter', 'Deepseek: Coder V2')).toBe('Deepseek: Coder V2');
+    expect(researchModelNameLabel('openrouter', 'Deepseek: Deepseeker')).toBe('Deepseek: Deepseeker');
   });
 
   it('formats compact time since labels from minutes through years', () => {

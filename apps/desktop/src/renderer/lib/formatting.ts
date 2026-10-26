@@ -15,10 +15,8 @@ export function traceLabel(value: string): string {
     .join(' ');
 }
 
-export function researchModelNameLabel(providerId: ResearchModelProviderId, name: string): string {
-  if (providerId === 'openai-codex') return name.replace(/^GPT-/u, '');
-  if (providerId === 'anthropic') return name.replace(/^Claude\s+/u, '');
-  return name;
+export function researchModelNameLabel(_providerId: ResearchModelProviderId, name: string): string {
+  return name.replace(/^Deepseek:\s+Deepseek\b/iu, 'DeepSeek');
 }
 
 export function researchModelDisplayName(
