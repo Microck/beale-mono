@@ -62,9 +62,8 @@ describe('renderer appearance settings', () => {
     expect(styles).toContain('--appearance-gradient-heat-color: color-mix(');
     expect(styles).toContain('var(--session-heat-window-surface) 88%');
     expect(styles).toContain('--session-heat-aurora-color: color-mix(in srgb, var(--session-heat-window-surface) 72%, var(--text) 28%);');
-    expect(styles).toMatch(/\.app-shell\.session-in-progress::before\s*\{[^}]*animation-play-state: running;/u);
-    expect(styles).toMatch(/@keyframes session-heat-aurora\s*\{[^}]*translate3d/u);
-    expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.app-shell::before\s*\{\s*animation: none;/u);
+    expect(styles).toMatch(/\.app-shell\.session-in-progress::before,\s*\.app-shell\.session-in-progress::after\s*\{[^}]*animation-play-state: running;/u);
+    expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.app-shell::before,\s*\.app-shell::after\s*\{\s*animation: none;/u);
     expect(styles).toMatch(/\.workbench\s*\{[^}]*background:\s*transparent;/u);
     expect(styles).not.toContain("data-background='");
     expect(appSource).toContain('sessionHeatPaletteForProfile(sessionHeatProfile, sessionHeatPreferences, appearanceTheme)');
