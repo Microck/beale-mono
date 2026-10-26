@@ -6,7 +6,7 @@
 
 #### Changed
 
-- An active session softly animates the window's profile-colored heat gradient; reduced-motion settings keep it still.
+- An active session animates a drifting highlight across the window's profile-colored heat gradient; reduced-motion settings keep it still.
 - The active session stop icon makes a brief quarter turn followed by a longer pause to indicate ongoing work.
 - Model labels retain GPT and Claude family prefixes and collapse repeated DeepSeek prefixes.
 - The session model selector uses a roomier raised menu styled alongside the Collaboration menu.
