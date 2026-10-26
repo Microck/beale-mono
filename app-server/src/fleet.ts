@@ -675,11 +675,12 @@ export class FleetService {
   public async cloneForSession(
     baseId: string,
     owner: { machineId: string; sessionId: string; workspaceId?: string },
+    skipMachineId?: string,
   ): Promise<FleetMachine> {
-    const key = `${baseId}\0${owner.machineId}\0${owner.sessionId}`;
+    const key = `${baseId}\0${owner.machineId}\0${owner.sessionId}\0${skipMachineId ?? ''}`;
     const pending = this.sessionClones.get(key);
     if (pending) return pending;
-    const clone = this.cloneForSessionOnce(baseId, owner);
+    const clone = this.cloneForSessionOnce(baseId, owner, skipMachineId);
     this.sessionClones.set(key, clone);
     void clone.finally(() => { if (this.sessionClones.get(key) === clone) this.sessionClones.delete(key); }).catch(() => undefined);
     return clone;
@@ -688,6 +689,7 @@ export class FleetService {
   private async cloneForSessionOnce(
     baseId: string,
     owner: { machineId: string; sessionId: string; workspaceId?: string },
+    skipMachineId?: string,
   ): Promise<FleetMachine> {
     validOwner(owner);
     const state = await this.state();
@@ -702,13 +704,18 @@ export class FleetService {
     const suffix = createHash('sha256').update(`${baseId}\0${owner.machineId}\0${owner.sessionId}`).digest('hex').slice(0, 16);
     const prefix = `beale-${base.name.slice(0, 64)}-${suffix}`;
     for (const existing of state.machines.filter((machine) => machine.name === prefix || machine.name.startsWith(`${prefix}-`))) {
+      if (existing.id === skipMachineId || !existing.canRun || existing.base) continue;
       const claim = this.read().owners[existing.id];
-      if (claim?.machineId === owner.machineId && claim.sessionId === owner.sessionId) return existing;
-      if (existing.name === prefix && !claim && !existing.base) {
+      if ((claim?.machineId === owner.machineId && claim.sessionId === owner.sessionId) || !claim) {
         const config = this.read();
-        config.machines[existing.id] = { ...(config.machines[existing.id] ?? config.machines[baseId]!), base: false, sessionClone: true };
+        const inherited = config.machines[baseId]!;
+        const saved = config.machines[existing.id] ?? inherited;
+        config.machines[existing.id] = { ...saved, base: false, canRun: true, canClone: false, sessionClone: true,
+          sshUser: saved.sshUser ?? inherited.sshUser,
+          sshIdentityFile: saved.sshIdentityFile ?? inherited.sshIdentityFile,
+          sshKnownHostsFile: saved.sshKnownHostsFile ?? inherited.sshKnownHostsFile };
         this.write(config);
-        await this.reserve(existing.id, owner);
+        if (!claim) await this.reserve(existing.id, owner);
         return existing;
       }
     }
@@ -742,33 +749,54 @@ export class FleetService {
     const owner = { machineId: this.machineId(), sessionId };
     const selected = (await this.state()).machines.find((machine) => machine.id === match[2]);
     if (!selected || (match[1] === 'run' ? !selected.canRun : !selected.canClone)) throw new Error('Fleet VM target is unavailable.');
-    const machineId = match[1] === 'clone'
+    let cloned = match[1] === 'clone';
+    let machineId = cloned
       ? (await this.cloneForSession(selected.id, owner)).id
       : selected.id;
-    try {
-      if (match[1] === 'run') await this.reserve(machineId, owner);
-      await this.start(machineId, owner);
-      let connection: Awaited<ReturnType<FleetService['connection']>> | null = null;
-      for (let attempt = 0; attempt < 20; attempt += 1) {
-        try {
-          connection = await this.connection(machineId);
-          const args = sshConnectionArgs(connection.sshHost, connection.sshUser, connection.sshIdentityFile,
-            connection.sshKnownHostsFile, connection.machine.backend);
-          const guestCwd = (await this.runner.run('ssh', [...args,
-            connection.machine.guestPlatform === 'win32'
-              ? 'powershell.exe -NoProfile -NonInteractive -Command "(Get-Location).Path"'
-              : 'pwd'], 5_000)).trim().split(/\r?\n/u)[0];
-          if (!guestCwd) throw new Error('Fleet VM did not report its working directory.');
-          return { machineId, sshArgs: args, guestPlatform: connection.machine.guestPlatform, guestCwd };
-        } catch (error) {
-          if (attempt === 19) throw error;
-          await new Promise((resolve) => setTimeout(resolve, 1_500));
+    for (let recovery = 0; ; recovery += 1) {
+      try {
+        if (!cloned) await this.reserve(machineId, owner);
+        if (!this.read().machines[machineId]?.sshUser) throw new Error('Fleet VM SSH user is not configured.');
+        await this.start(machineId, owner);
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          try {
+            const connection = await this.connection(machineId);
+            const args = sshConnectionArgs(connection.sshHost, connection.sshUser, connection.sshIdentityFile,
+              connection.sshKnownHostsFile, connection.machine.backend);
+            const guestCwd = (await this.runner.run('ssh', [...args,
+              connection.machine.guestPlatform === 'win32'
+                ? 'powershell.exe -NoProfile -NonInteractive -Command "(Get-Location).Path"'
+                : 'pwd'], 5_000)).trim().split(/\r?\n/u)[0];
+            if (!guestCwd) throw new Error('Fleet VM did not report its working directory.');
+            return { machineId, sshArgs: args, guestPlatform: connection.machine.guestPlatform, guestCwd };
+          } catch (error) {
+            if (attempt === 59) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 1_500));
+          }
         }
+        throw new Error('Fleet VM SSH connection is unavailable.');
+      } catch (error) {
+        const state = recovery === 0 ? await this.state().catch(() => null) : null;
+        const failed = state?.machines.find((machine) => machine.id === machineId);
+        const unusable = !failed || failed.state !== 'running' || !failed.sshConfigured;
+        const allowed = this.read().workspaceTargets[workspaceId] ?? ['local', 'browser:in-agent'];
+        const alternative = !cloned && unusable ? state?.machines.find((machine) => machine.canClone
+          && machine.state === 'stopped' && machine.sshConfigured && machine.guestPlatform === selected.guestPlatform
+          && allowed.includes(`vm:clone:${machine.id}`)) : null;
+        const replacementBaseId = cloned ? selected.id : alternative?.id;
+        const replace = recovery === 0 && unusable && Boolean(replacementBaseId);
+        await this.releaseSessionTarget(machineId, sessionId).catch(() => undefined);
+        if (!replace) throw error;
+        if (cloned) {
+          const config = this.read();
+          if (config.machines[machineId]) {
+            config.machines[machineId]!.canRun = false;
+            this.write(config);
+          }
+        }
+        machineId = (await this.cloneForSession(replacementBaseId!, owner, cloned ? machineId : undefined)).id;
+        cloned = true;
       }
-      throw new Error('Fleet VM SSH connection is unavailable.');
-    } catch (error) {
-      await this.releaseSessionTarget(machineId, sessionId).catch(() => undefined);
-      throw error;
     }
   }
 

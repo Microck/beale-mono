@@ -1467,6 +1467,7 @@
 
 #### Fixed
 
+- Continuous research can recover an unavailable Fleet VM during resume by starting it or preparing a fresh worker from an allowed clone base. Reused clones restore inherited SSH settings, and unusable workers are excluded from automatic reuse.
 - Continuous research sessions use the configured small title model at the start of each epoch. Titles name the current investigation while the header shows the assigned surface; model title events reach connected clients. Rebuild app-server and the research runtime together.
 - Starting a new Continuous research pass immediately after Stop now works while the prior worker exits. Each pass gets a distinct session, and the next pass waits for the prior worker to finish before launching.
 - A provider stream that ends with incomplete JSON before actionable model output now follows the bounded research-session retry path instead of failing the session on the first occurrence. Fleet research-track forwarding also retries incomplete status replies and reconciles lost control replies without replaying the action.

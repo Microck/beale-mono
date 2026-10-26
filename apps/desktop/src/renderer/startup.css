@@ -65,8 +65,6 @@ body,
   -webkit-app-region: drag;
 }
 
-.initial-app-topbar strong { font-weight: 500; }
-
 .initial-app-sidebar {
   display: grid;
   align-content: start;
@@ -103,10 +101,4 @@ body,
   display: block;
   object-fit: contain;
   margin-bottom: -16px;
-}
-
-.initial-app-workspace strong {
-  color: #d4d4d4;
-  font-size: 14px;
-  font-weight: 600;
 }

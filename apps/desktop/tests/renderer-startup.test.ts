@@ -16,12 +16,12 @@ describe('renderer startup', () => {
     expect(source).toContain('if (!workbenchReady) return <InitialAppShell />;');
     expect(source).toContain("import './startup.css';");
     expect(source).not.toContain("import './styles.css';");
-    expect(html).toContain('No Workspace Selected');
+    expect(html).not.toContain('No Workspace Selected');
     expect(html).toContain('Choose a known workspace');
     expect(html).toContain('class="new-research-welcome-icon"');
     expect(html).toContain('alt="Beale"');
     const workspaceContent = html.slice(html.indexOf('<main'));
-    expect(workspaceContent.indexOf('new-research-welcome-icon')).toBeLessThan(workspaceContent.indexOf('No Workspace Selected'));
+    expect(workspaceContent.indexOf('new-research-welcome-icon')).toBeLessThan(workspaceContent.indexOf('Choose a known workspace'));
     expect(html).toContain('aria-busy="false"');
     expect(html).not.toContain('Starting Beale');
     expect(html).not.toContain('role="status"');
@@ -35,11 +35,11 @@ describe('renderer startup', () => {
     const startupStyles = readFileSync(new URL('../src/renderer/startup.css', import.meta.url), 'utf8');
     const buttonStyles = styles.match(/\.workspace-startup-content button\s*\{([^}]*)\}/u)?.[1] ?? '';
 
-    expect(html).toContain('No Workspace Selected');
+    expect(html).not.toContain('No Workspace Selected');
     expect(html).toContain('Choose a known workspace');
     expect(html).toContain('class="new-research-welcome-icon"');
     expect(html).toContain('alt="Beale"');
-    expect(html.indexOf('new-research-welcome-icon')).toBeLessThan(html.indexOf('No Workspace Selected'));
+    expect(html.indexOf('new-research-welcome-icon')).toBeLessThan(html.indexOf('Choose a known workspace'));
     expect(html).toContain('Add Workspace');
     expect(html).toContain('aria-busy="false"');
     expect(html).not.toContain('Loading workspaces');

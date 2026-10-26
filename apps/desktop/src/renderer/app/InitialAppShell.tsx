@@ -6,7 +6,6 @@ export function InitialAppShell(): JSX.Element {
     <div className="initial-app-shell" aria-busy="false">
       <header className="initial-app-topbar">
         <span aria-hidden="true" />
-        <strong>No Workspace Selected</strong>
       </header>
       <aside className="initial-app-sidebar" aria-hidden="true">
         <span className="initial-app-button" />
@@ -15,7 +14,6 @@ export function InitialAppShell(): JSX.Element {
       </aside>
       <main className="initial-app-workspace" aria-label="No workspace selected">
         <BealeWelcomeIcon />
-        <strong>No Workspace Selected</strong>
         <span>Choose a known workspace from the sidebar or add one to begin.</span>
       </main>
     </div>

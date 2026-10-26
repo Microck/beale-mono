@@ -1657,13 +1657,17 @@ export class AppServerHostService {
     const scopeId = nonEmpty(activeScope?.id);
     const fleet = await this.fleet.state();
     const allowed = new Set(fleet.workspaceTargets[workspace.workspaceId] ?? ['local', 'browser:in-agent']);
+    const recoveryBases = fleet.machines.filter((machine) => machine.canClone && machine.state === 'stopped'
+      && machine.sshConfigured && !machine.owner && allowed.has(`vm:clone:${machine.id}`));
     const targets: BealeAppServerWorkspaceDetails['targets'] = [
       { id: 'local', name: 'Local', ready: true },
       ...fleet.browsers.filter((browser) => browser.enabled).map((browser) => ({
         id: `browser:${browser.id}`, name: browser.name, ready: fleet.enabled
       })),
       ...fleet.machines.flatMap((machine) => [
-        ...(machine.canRun ? [{ id: `vm:run:${machine.id}`, name: `${machine.name} · Run`, ready: fleet.enabled && machine.sshConfigured && machine.state !== 'unknown' && !machine.owner }] : []),
+        ...(machine.canRun ? [{ id: `vm:run:${machine.id}`, name: `${machine.name} · Run`,
+          ready: fleet.enabled && !machine.owner && (machine.sshConfigured && machine.state !== 'unknown'
+            || recoveryBases.some((base) => base.guestPlatform === machine.guestPlatform)) }] : []),
         ...(machine.canClone ? [{ id: `vm:clone:${machine.id}`, name: `${machine.name} · Clone`, ready: fleet.enabled && machine.sshConfigured && machine.state === 'stopped' && !machine.owner }] : [])
       ])
     ].filter((target) => allowed.has(target.id));

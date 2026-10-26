@@ -3368,12 +3368,6 @@ body.is-resizing-quick-chat {
   text-align: center;
 }
 
-.workspace-startup-content strong {
-  color: var(--text);
-  font-size: 1.08rem;
-  font-weight: 600;
-}
-
 .workspace-startup-content button {
   display: inline-flex;
   align-items: center;

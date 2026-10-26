@@ -426,6 +426,125 @@ test('Fleet prepares direct VM shell access from the primary and releases its re
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('Fleet resumes a clone target by replacing an unbootable session VM', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'beale-fleet-recovery-example-'));
+  const machines = new Map([['example-base', false]]);
+  const clones = [];
+  const runner = {
+    async run(command, args) {
+      if (command === 'tart' && args[0] === 'list') return JSON.stringify([...machines].map(([Name, Running]) => ({ Name, Running })));
+      if (command === 'tart' && args[0] === 'clone') {
+        clones.push(args[2]);
+        machines.set(args[2], false);
+        return '';
+      }
+      if (command === 'tart' && args[0] === 'stop') { machines.set(args[1], false); return ''; }
+      if (command === 'tart' && args[0] === 'ip') return '192.0.2.10\n';
+      if (command === 'ssh' && args.at(-1) === 'pwd') return '/Users/example\n';
+      throw new Error('Unexpected Fleet command.');
+    },
+    launch(command, args) {
+      assert.equal(command, 'tart');
+      if (args[1] === clones[0]) throw new Error('Synthetic VM launch failure.');
+      machines.set(args[1], true);
+    },
+  };
+  try {
+    const fleet = new FleetService(join(root, 'fleet.json'), 'darwin', runner);
+    await fleet.configure({ action: 'set-machine', machineId: 'tart:example-base', base: true,
+      canRun: false, canClone: true, sshUser: 'example' });
+    await fleet.configure({ action: 'set-workspace-targets', workspaceId: 'workspace-example',
+      targetIds: ['vm:clone:tart:example-base'] });
+    const prepared = await fleet.prepareSessionTarget('vm:clone:tart:example-base', 'workspace-example', 'session-example');
+    assert.equal(clones.length, 2);
+    assert.equal(prepared.machineId, `tart:${clones[1]}`);
+    assert.equal(prepared.guestCwd, '/Users/example');
+    const state = await fleet.state();
+    assert.equal(state.machines.find((machine) => machine.id === `tart:${clones[0]}`)?.canRun, false);
+    assert.equal(state.machines.find((machine) => machine.id === `tart:${clones[0]}`)?.owner, null);
+    assert.equal(state.machines.find((machine) => machine.id === prepared.machineId)?.owner?.sessionId, 'session-example');
+    await fleet.releaseSessionTarget(prepared.machineId, 'session-example');
+    const resumed = await fleet.prepareSessionTarget('vm:clone:tart:example-base', 'workspace-example', 'session-example');
+    assert.equal(resumed.machineId, prepared.machineId);
+    assert.equal(clones.length, 2);
+    await fleet.releaseSessionTarget(resumed.machineId, 'session-example');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Fleet restores inherited SSH settings when reusing a session clone', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'beale-fleet-clone-ssh-example-'));
+  const machines = new Map([['example-base', false]]);
+  const runner = {
+    async run(command, args) {
+      if (command === 'tart' && args[0] === 'list') return JSON.stringify([...machines].map(([Name, Running]) => ({ Name, Running })));
+      if (command === 'tart' && args[0] === 'clone') { machines.set(args[2], false); return ''; }
+      if (command === 'tart' && args[0] === 'ip') return '192.0.2.10\n';
+      if (command === 'tart' && args[0] === 'stop') { machines.set(args[1], false); return ''; }
+      if (command === 'ssh' && args.at(-1) === 'pwd') return '/Users/example\n';
+      throw new Error('Unexpected Fleet command.');
+    },
+    launch(_command, args) { machines.set(args[1], true); },
+  };
+  try {
+    const fleet = new FleetService(join(root, 'fleet.json'), 'darwin', runner);
+    await fleet.configure({ action: 'set-machine', machineId: 'tart:example-base', base: true,
+      canRun: false, canClone: true, sshUser: 'example' });
+    await fleet.configure({ action: 'set-workspace-targets', workspaceId: 'workspace-example',
+      targetIds: ['vm:clone:tart:example-base'] });
+    const first = await fleet.prepareSessionTarget('vm:clone:tart:example-base', 'workspace-example', 'session-example');
+    await fleet.releaseSessionTarget(first.machineId, 'session-example');
+    await fleet.configure({ action: 'set-machine', machineId: first.machineId, sshUser: '' });
+    const resumed = await fleet.prepareSessionTarget('vm:clone:tart:example-base', 'workspace-example', 'session-example');
+    assert.equal(resumed.machineId, first.machineId);
+    assert.equal((await fleet.state()).machines.find((machine) => machine.id === first.machineId)?.sshUser, 'example');
+    await fleet.releaseSessionTarget(resumed.machineId, 'session-example');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Fleet replaces a stopped run target with an allowed clone target', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'beale-fleet-run-recovery-example-'));
+  const machines = new Map([['example-vm', false], ['example-base', false]]);
+  let cloneName = null;
+  const runner = {
+    async run(command, args) {
+      if (command === 'tart' && args[0] === 'list') return JSON.stringify([...machines].map(([Name, Running]) => ({ Name, Running })));
+      if (command === 'tart' && args[0] === 'clone') { cloneName = args[2]; machines.set(cloneName, false); return ''; }
+      if (command === 'tart' && args[0] === 'ip') return '192.0.2.10\n';
+      if (command === 'tart' && args[0] === 'stop') { machines.set(args[1], false); return ''; }
+      if (command === 'ssh' && args.at(-1) === 'pwd') return '/Users/example\n';
+      throw new Error('Unexpected Fleet command.');
+    },
+    launch(_command, args) {
+      if (args[1] === 'example-vm') throw new Error('Synthetic VM launch failure.');
+      machines.set(args[1], true);
+    },
+  };
+  try {
+    const fleet = new FleetService(join(root, 'fleet.json'), 'darwin', runner);
+    await fleet.configure({ action: 'set-machine', machineId: 'tart:example-vm', canRun: true,
+      canClone: false, sshUser: 'example' });
+    await fleet.configure({ action: 'set-machine', machineId: 'tart:example-base', base: true,
+      canRun: false, canClone: true, sshUser: 'example' });
+    await fleet.configure({ action: 'set-workspace-targets', workspaceId: 'workspace-example',
+      targetIds: ['vm:run:tart:example-vm', 'vm:clone:tart:example-base'] });
+    const prepared = await fleet.prepareSessionTarget('vm:run:tart:example-vm', 'workspace-example', 'session-example');
+    assert.equal(prepared.machineId, `tart:${cloneName}`);
+    assert.equal(prepared.guestCwd, '/Users/example');
+    assert.equal((await fleet.state()).machines.find((machine) => machine.id === 'tart:example-vm')?.owner, null);
+    await fleet.releaseSessionTarget(prepared.machineId, 'session-example');
+    await fleet.configure({ action: 'set-machine', machineId: 'tart:example-vm', sshUser: '' });
+    const recovered = await fleet.prepareSessionTarget('vm:run:tart:example-vm', 'workspace-example', 'session-ssh-example');
+    assert.notEqual(recovered.machineId, prepared.machineId);
+    assert.equal(recovered.guestCwd, '/Users/example');
+    await fleet.releaseSessionTarget(recovered.machineId, 'session-ssh-example');
+    await fleet.configure({ action: 'set-workspace-targets', workspaceId: 'workspace-example',
+      targetIds: ['vm:run:tart:example-vm'] });
+    await assert.rejects(fleet.prepareSessionTarget('vm:run:tart:example-vm', 'workspace-example', 'session-other'),
+      /SSH user is not configured/);
+    assert.equal((await fleet.state()).machines.filter((machine) => machine.name.startsWith('beale-')).length, 2);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('Fleet tests draft SSH settings without saving them or starting a base', async () => {
   const root = mkdtempSync(join(tmpdir(), 'beale-fleet-ssh-test-'));
   const machines = new Map([['example-base', false], ['example-worker', true]]);

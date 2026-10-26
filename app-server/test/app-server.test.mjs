@@ -230,6 +230,31 @@ test('research-track scheduler context reads authorization and surfaces without 
   assert.deepEqual(operations, ['workspace.state']);
 });
 
+test('research-track target readiness accepts an allowed VM recovery base', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-vm-recovery-example-'));
+  temporaryDirectories.push(directory);
+  const registry = hostRegistryFixture(directory);
+  const hostService = new AppServerHostService({ registry, invokeProtocol: async () => ({
+    activeScope: { id: 'scope-example', expiresAt: null }
+  }) });
+  const runTarget = { id: 'tart:example-vm', name: 'example-vm', canRun: true, canClone: false,
+    state: 'stopped', sshConfigured: false, guestPlatform: 'darwin', owner: null };
+  const cloneBase = { id: 'tart:example-base', name: 'example-base', canRun: false, canClone: true,
+    state: 'stopped', sshConfigured: true, guestPlatform: 'darwin', owner: null };
+  hostService.fleet.state = async () => ({ enabled: true,
+    workspaceTargets: { 'workspace-test': ['local', 'vm:run:tart:example-vm', 'vm:clone:tart:example-base'] },
+    browsers: [], machines: [runTarget, cloneBase] });
+  hostService.workspaceSurfaceMap = async () => ({ surfaces: [] });
+  const workspace = registry.resolveWorkspace('workspace-test');
+  const recoverable = await hostService.workspaceResearchTrackContext(workspace);
+  assert.equal(recoverable.targets.find((target) => target.id === 'vm:run:tart:example-vm')?.ready, true);
+  hostService.fleet.state = async () => ({ enabled: true,
+    workspaceTargets: { 'workspace-test': ['local', 'vm:run:tart:example-vm'] },
+    browsers: [], machines: [runTarget, cloneBase] });
+  const unavailable = await hostService.workspaceResearchTrackContext(workspace);
+  assert.equal(unavailable.targets.find((target) => target.id === 'vm:run:tart:example-vm')?.ready, false);
+});
+
 test('stopping a track session pauses research while a watchdog rotation continues it', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-track-stop-example-'));
   temporaryDirectories.push(directory);

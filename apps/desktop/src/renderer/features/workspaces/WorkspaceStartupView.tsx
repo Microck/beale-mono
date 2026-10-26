@@ -11,7 +11,6 @@ export function WorkspaceStartupView({
     <main className="workspace-startup-view wide-content-container" aria-busy="false" aria-label="No workspace selected">
       <div className="workspace-startup-content">
         <BealeWelcomeIcon />
-        <strong>No Workspace Selected</strong>
         <span>Choose a known workspace from the sidebar or add one to begin.</span>
         <button type="button" onClick={onAddWorkspace}>
           <FolderPlus aria-hidden="true" size={15} />

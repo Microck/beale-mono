@@ -2214,7 +2214,10 @@ export function App(): JSX.Element {
         workspaceRegistryLoading={selectedFleetServerId === 'local' ? startupPhase === 'shell' || startupPhase === 'registry' : !remoteCatalog}
         rightSidenavAvailable={selectedFleetServerId === 'local' && headerResearchControlsAvailable}
         rightSidenavExpanded={selectedFleetServerId === 'local' && rightSidenavExpanded && headerResearchControlsAvailable}
-        contextualTitleVisible={!settingsOpen && !fleetOpen && !reportsOpen && !automationsOpen && !pluginsOpen}
+        contextualTitleVisible={!settingsOpen && !fleetOpen && !reportsOpen && !automationsOpen && !pluginsOpen
+          && (selectedFleetServerId === 'local'
+            ? Boolean(snapshot || workspaceDraft || newResearchOpen)
+            : Boolean(remoteWorkspaceId || remoteResearchOpen))}
         staticContextTitle={settingsOpen
           ? { primary: 'Agent Settings', secondary: settingsSectionLabel(settingsSection), icon: settingsSectionHeaderIcon(settingsSection) }
           : fleetOpen
