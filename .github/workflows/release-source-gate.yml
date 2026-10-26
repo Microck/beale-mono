@@ -1,8 +1,9 @@
-name: Main source gate
+# The default branch runs this metadata-only gate without checking out PR code.
+name: Release source gate
 
 on:
   pull_request_target:
-    branches: [main]
+    branches: [release]
     types: [opened, reopened, synchronize, edited, ready_for_review]
 
 permissions:
@@ -10,15 +11,15 @@ permissions:
 
 jobs:
   source:
-    name: staging-to-main
+    name: main-to-release
     runs-on: ubuntu-latest
     steps:
-      - name: Require the staging branch in this repository
+      - name: Require the main branch in this repository
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
-          if [[ "$HEAD_REF" != "staging" || "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]]; then
-            echo "Only this repository's staging branch may target main."
+          if [[ "$HEAD_REF" != "main" || "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]]; then
+            echo "Only this repository's main branch may target release."
             exit 1
           fi
