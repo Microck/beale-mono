@@ -6,6 +6,7 @@
 
 #### Changed
 
+- Track progress lists retained attacker paths and outcomes, and shows automatic pause reasons directly.
 - Active sessions animate overlapping aurora ribbons through the window's profile-colored heat gradient; reduced-motion settings keep them still.
 - The active session stop icon makes a brief quarter turn followed by a longer pause to indicate ongoing work.
 - Model labels retain GPT and Claude family prefixes and collapse repeated DeepSeek prefixes.
@@ -43,6 +44,7 @@
 
 #### Fixed
 
+- Research track scheduling retains testable high-impact paths for deeper work and moves to another available surface after three unproductive epochs on one surface. Checkpoints preserve distinct attacker paths with evidence-backed outcomes across epochs. Existing track surfaces gain an empty attacker-path ledger; control contract v62 requires rebuilt Beale and app-server clients.
 - Research tracks continue with another eligible surface when an agent retires the assigned surface. Automatic pause reasons remain visible after the worker exits.
 - Guardian-enabled tracks recover worker exits without terminal session records, close the interrupted attempt, and review durable progress in the next epoch instead of pausing. The selected Guardian setting persists across epochs; existing track rows gain a default-enabled column. Rebuild Beale and app-server together for the updated control contract.
 - Stopping an individual research epoch no longer pauses its track; an explicit track pause still does.

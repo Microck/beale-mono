@@ -124,11 +124,13 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenS
       {progressOpen ? <div className="workspace-research-track-surface-list" id="workspace-research-track-progress" role="region" aria-label="Track progress" tabIndex={0}>
         <strong>Progress</strong>
         <span>{progressLabel}</span>
+        {status === 'paused' && track?.lastError ? <span>Pause reason: {track.lastError}</span> : null}
         {status === 'paused' && !track?.lastError ? <span>Paused with track controls. Resume Track to continue research.</span> : null}
         {track ? <>
           <span>Pass {track.pass} · {investigated} of {total} investigated · {complete} complete</span>
           {track.surfaces.filter((surface) => surface.status !== 'excluded').map((surface) => <div key={surface.surfaceId} className="workspace-research-track-surface">
             <strong>{surface.name}</strong><span>{surface.status.replaceAll('_', ' ')} · {surface.impact} impact · actionability {surface.actionabilityScore}/100 · {surface.epochs} epochs{surface.validation ? ` · validation ${surface.validation.environment}` : ''}</span>
+            {surface.angles.length > 0 ? <small>Attacker paths: {surface.angles.map((angle) => `${angle.name} (${angle.status.replaceAll('_', ' ')})`).join(' · ')}</small> : null}
             {surface.nextAction ? <small>{surface.nextAction}</small> : null}
           </div>)}
         </> : null}

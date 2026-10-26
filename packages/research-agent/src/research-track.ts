@@ -14,6 +14,14 @@ export interface ResearchTrackValidation {
   reason: string;
 }
 
+export interface ResearchTrackAngle {
+  name: string;
+  status: "open" | "supported" | "ruled_out" | "blocked";
+  proofQuestion: string;
+  evidenceRefs: string[];
+  nextAction: string;
+}
+
 export interface ResearchTrackSurfaceState {
   surfaceId: string;
   name: string;
@@ -22,6 +30,7 @@ export interface ResearchTrackSurfaceState {
   theory: string;
   nextAction: string;
   evidenceRefs: string[];
+  angles: ResearchTrackAngle[];
   actionabilityScore: number;
   validation: ResearchTrackValidation | null;
   epochs: number;
@@ -67,10 +76,13 @@ const INITIAL_CHILD_ACTIONABILITY = 55;
 const ACTIONABILITY_DECAY_INTERVAL_MS = 6 * 60 * 60_000;
 
 function schedulingScore(work: ResearchTrackSurfaceState): number {
-  const impact = { unknown: 0, low: -25, medium: 0, high: 10, critical: 20 }[work.impact];
+  const testableAngle = work.angles.some((angle) => angle.status === "open" || angle.status === "supported");
+  const impact = { unknown: 0, low: -25, medium: 0,
+    high: testableAngle ? 30 : 10, critical: testableAngle ? 40 : 20 }[work.impact];
   const targetValidationGap = work.validation?.targetDependent
-    && (work.validation.environment === "none" || work.validation.environment === "localhost") ? 30 : 0;
-  return work.actionabilityScore + impact - targetValidationGap - work.noProgressEpochs * 10;
+    && (work.validation.environment === "none" || work.validation.environment === "localhost") ? 50 : 0;
+  return work.actionabilityScore + impact + (testableAngle && targetValidationGap === 0 ? 15 : 0)
+    - targetValidationGap - work.noProgressEpochs * 10;
 }
 
 export function researchTrackProgress(track: Pick<ResearchTrackSnapshot, "surfaces">): {
@@ -115,6 +127,7 @@ export class ResearchTrackStore {
         evidence_refs_json TEXT NOT NULL, epochs INTEGER NOT NULL, no_progress_epochs INTEGER NOT NULL,
         revisits INTEGER NOT NULL, revisit_after TEXT, last_worked_at TEXT, updated_at TEXT NOT NULL,
         actionability_score INTEGER NOT NULL DEFAULT 35, score_updated_at TEXT, validation_json TEXT,
+        angles_json TEXT NOT NULL DEFAULT '[]',
         PRIMARY KEY(workspace_id, surface_id)
       );
       CREATE TABLE IF NOT EXISTS app_server_research_track_history (
@@ -148,6 +161,9 @@ export class ResearchTrackStore {
     if (!surfaceColumns.some((column) => column.name === "validation_json")) {
       this.#database.exec("ALTER TABLE app_server_research_track_surfaces ADD COLUMN validation_json TEXT");
     }
+    if (!surfaceColumns.some((column) => column.name === "angles_json")) {
+      this.#database.exec("ALTER TABLE app_server_research_track_surfaces ADD COLUMN angles_json TEXT NOT NULL DEFAULT '[]'");
+    }
   }
 
   public close(): void { this.#database.close(); }
@@ -172,6 +188,7 @@ export class ResearchTrackStore {
         surfaceId: String(surface.surface_id), name: String(surface.name), status: surface.status as ResearchTrackWorkStatus,
         impact: surface.impact as ResearchTrackImpact, theory: String(surface.theory),
         nextAction: String(surface.next_action), evidenceRefs: JSON.parse(String(surface.evidence_refs_json)) as string[],
+        angles: JSON.parse(String(surface.angles_json)) as ResearchTrackAngle[],
         epochs: Number(surface.epochs), noProgressEpochs: Number(surface.no_progress_epochs),
         actionabilityScore: decayedActionability(Number(surface.actionability_score),
           nullable(surface.score_updated_at) ?? String(surface.updated_at), Date.now()),
@@ -373,6 +390,7 @@ export class ResearchTrackStore {
     theory: string;
     nextAction: string;
     evidenceRefs: string[];
+    angles?: ResearchTrackAngle[];
     validation?: ResearchTrackValidation;
   }, surface: ResearchTrackSurfaceProjection): ResearchTrackSurfaceState {
     const track = this.get();
@@ -391,8 +409,14 @@ export class ResearchTrackStore {
     if (evidenceRefs.some((ref) => !this.#validEvidenceRef(ref))) {
       throw new Error("Track checkpoints may cite only existing canonical evidence in this workspace.");
     }
+    const angles = this.#mergeAngles(work.angles, input.angles, evidenceRefs);
     if (input.outcome === "complete" && !evidenceRefs.some((ref) => this.#validEvidenceRef(ref, work.lastWorkedAt))) {
       throw new Error("Completed track work must cite canonical evidence updated during this research epoch.");
+    }
+    if (input.outcome === "complete" && (input.impact === "high" || input.impact === "critical")
+      && !evidenceRefs.some((ref) => ref.startsWith("finding:"))
+      && angles.filter((angle) => angle.status === "supported" || angle.status === "ruled_out").length < 2) {
+      throw new Error("Complete high-impact track work only after testing two distinct attacker paths or citing a finding.");
     }
     const secondLook = input.outcome === "complete" && (input.impact === "high" || input.impact === "critical") && work.revisits === 0;
     const status = input.outcome === "continue" || input.outcome === "defer" || secondLook ? "deferred" : input.outcome;
@@ -426,13 +450,48 @@ export class ResearchTrackStore {
       : Math.max(0, Math.min(100, work.actionabilityScore + (freshEvidence
         ? evidenceGain + (IMPACT_RANK[input.impact] - 2) * 8 : -18)));
     this.#database.prepare(`UPDATE app_server_research_track_surfaces SET status=?, impact=?, theory=?, next_action=?,
-      evidence_refs_json=?, no_progress_epochs=?, revisits=?, revisit_after=?, actionability_score=?, score_updated_at=?, validation_json=?, updated_at=?
+      evidence_refs_json=?, angles_json=?, no_progress_epochs=?, revisits=?, revisit_after=?, actionability_score=?, score_updated_at=?, validation_json=?, updated_at=?
       WHERE workspace_id=? AND surface_id=?`)
       .run(status, input.impact, bounded(input.theory, 2_000), bounded(nextAction, 2_000),
-        JSON.stringify(evidenceRefs), changed ? 0 : prior.noProgressEpochs + 1,
+        JSON.stringify(evidenceRefs), JSON.stringify(angles), changed ? 0 : prior.noProgressEpochs + 1,
         input.outcome === "complete" ? prior.revisits + 1 : prior.revisits,
         revisitAfter, actionabilityScore, now, validation ? JSON.stringify(validation) : null, now, this.#workspaceId, input.surfaceId);
     return this.get()!.surfaces.find((work) => work.surfaceId === input.surfaceId)!;
+  }
+
+  #mergeAngles(previous: readonly ResearchTrackAngle[], updates: readonly ResearchTrackAngle[] | undefined,
+    checkpointEvidence: readonly string[]): ResearchTrackAngle[] {
+    if (updates === undefined) return [...previous];
+    if (!Array.isArray(updates) || updates.length < 1 || updates.length > 4) {
+      throw new Error("Record 1 to 4 distinct attacker paths at each track checkpoint.");
+    }
+    const merged = new Map(previous.map((angle) => [angle.name.toLowerCase(), angle]));
+    const seen = new Set<string>();
+    for (const angle of updates) {
+      if (!angle || typeof angle !== "object") throw new Error("A track attacker path is malformed.");
+      const name = required(angle.name, "angle name");
+      const proofQuestion = required(angle.proofQuestion, "angle proofQuestion");
+      const nextAction = required(angle.nextAction, "angle nextAction");
+      if (name.length > 160 || proofQuestion.length > 500 || nextAction.length > 500
+        || !["open", "supported", "ruled_out", "blocked"].includes(angle.status)
+        || !Array.isArray(angle.evidenceRefs) || angle.evidenceRefs.length > 8
+        || !angle.evidenceRefs.every((ref: unknown) => typeof ref === "string" && ref.length <= 168)) {
+        throw new Error("A track attacker path exceeds its bounds or has an invalid status.");
+      }
+      const key = name.toLowerCase();
+      if (seen.has(key)) throw new Error("A track checkpoint cannot repeat an attacker path.");
+      seen.add(key);
+      const refs = [...new Set(angle.evidenceRefs as string[])];
+      if (refs.some((ref) => !checkpointEvidence.includes(ref) || !this.#validEvidenceRef(ref))) {
+        throw new Error("Track attacker path evidence must be cited by the checkpoint and exist in this workspace.");
+      }
+      if ((angle.status === "supported" || angle.status === "ruled_out") && refs.length === 0) {
+        throw new Error("A tested attacker path needs canonical evidence; record negative evidence in memory.");
+      }
+      merged.set(key, { name, status: angle.status, proofQuestion, evidenceRefs: refs, nextAction });
+    }
+    if (merged.size > 24) throw new Error("A track surface can retain at most 24 attacker paths.");
+    return [...merged.values()];
   }
 
   public finishEpoch(sessionId: string, succeeded: boolean, diagnostic?: string,
@@ -450,12 +509,15 @@ export class ResearchTrackStore {
     }
     const noProgressEpochs = work ? work.noProgressEpochs + (work.status === "active" ? noProgressIncrement : 0) : 0;
     const repeatedNoProgress = work?.status !== "excluded" && noProgressEpochs >= 3;
+    const otherSurfaceAvailable = track.surfaces.some((surface) => surface.surfaceId !== work?.surfaceId
+      && surface.status !== "complete" && surface.status !== "blocked" && surface.status !== "excluded");
+    const pauseForNoProgress = repeatedNoProgress && !otherSurfaceAvailable;
     this.#database.prepare(`UPDATE app_server_research_tracks SET active_session_id=NULL, active_surface_id=NULL,
       status=CASE WHEN ? THEN 'paused' ELSE status END,
-      last_error=CASE WHEN status='paused' AND last_error IS NOT NULL THEN last_error ELSE ? END,
+      last_error=CASE WHEN status='paused' THEN last_error ELSE ? END,
       updated_at=? WHERE workspace_id=?`)
-      .run(repeatedNoProgress ? 1 : 0,
-        repeatedNoProgress ? "Three epochs on one surface produced no durable progress. Review its theory or scope before resuming."
+      .run(pauseForNoProgress ? 1 : 0,
+        pauseForNoProgress ? "Three epochs on one surface produced no durable progress. Review its theory or scope before resuming."
           : succeeded ? null : bounded(diagnostic ?? "The research epoch ended before completion.", 1_000), now, this.#workspaceId);
     return this.get();
   }
@@ -513,19 +575,29 @@ export class ResearchTrackStore {
 }
 
 export function createResearchTrackTool(store: ResearchTrackStore, surface: (id: string) => ResearchTrackSurfaceProjection): ResearchExecutableTool {
-  const parameters = { type: "object", required: ["surfaceId", "outcome", "impact", "theory", "nextAction", "evidenceRefs", "validation"],
+  const parameters = { type: "object", required: ["surfaceId", "outcome", "impact", "theory", "nextAction", "evidenceRefs", "angles", "validation"],
     additionalProperties: false, properties: {
       surfaceId: { type: "string" }, outcome: { type: "string", enum: ["continue", "defer", "blocked", "complete"] },
       impact: { type: "string", enum: ["unknown", "low", "medium", "high", "critical"] },
       theory: { type: "string", description: "The concrete attacker-control-to-impact theory tested this epoch, including contrary evidence." },
       nextAction: { type: "string", description: "The next positive proof step, revisit trigger, or unblock condition." },
       evidenceRefs: { type: "array", items: { type: "string" }, description: "Existing canonical IDs as finding:id, memory:id, runbook:id, or report:id. A negative result should be recorded in a memory first." },
+      angles: { type: "array", minItems: 1, maxItems: 4,
+        description: "Update 1 to 4 distinct attacker paths. Preserve earlier paths by name; tested outcomes need canonical evidence cited in evidenceRefs.",
+        items: { type: "object", required: ["name", "status", "proofQuestion", "evidenceRefs", "nextAction"],
+          additionalProperties: false, properties: {
+            name: { type: "string", description: "Distinct attacker-controlled route or trust boundary, not a file or test name." },
+            status: { type: "string", enum: ["open", "supported", "ruled_out", "blocked"] },
+            proofQuestion: { type: "string", description: "The observation that would distinguish this path from a harmless behavior." },
+            evidenceRefs: { type: "array", items: { type: "string" } },
+            nextAction: { type: "string", description: "Specific next proof step, or why this path was ruled out or blocked." }
+          } } },
       validation: { type: "object", required: ["targetDependent", "environment", "reason"], additionalProperties: false,
         description: "State whether the theory needs target behavior, where it was actually tested, and why. Device availability checks alone count as none. Explain a target-validation gap when only localhost or no test was possible.",
         properties: { targetDependent: { type: "boolean" }, environment: { type: "string", enum: ["device", "vm", "web", "localhost", "none"] }, reason: { type: "string" } } },
     } };
   return { descriptor: { name: "track.checkpoint", transportName: "track_checkpoint",
-    description: "Record substantive progress on the surface assigned to this continuous research track epoch. Completing work requires covered threat-model state and existing durable evidence. Use defer when rotation is due; ordinary uncertainty is not a blocker.",
+    description: "Record substantive progress and distinct attacker paths on the assigned surface. Completing high-impact work without a finding requires two evidence-backed tested paths. Use defer when rotation is due; ordinary uncertainty is not a blocker.",
     actionClasses: ["synthesize"], sideEffects: "write", requiredPermissions: ["research-resource:inventory"], inputSchema: parameters },
     parameters, async execute(action: ResearchToolAction, _context?: ResearchToolExecutionContext) {
       const startedAt = new Date().toISOString();
@@ -537,11 +609,13 @@ export function createResearchTrackTool(store: ResearchTrackStore, surface: (id:
         if (outcome !== "continue" && outcome !== "defer" && outcome !== "blocked" && outcome !== "complete") throw new Error("Invalid track outcome.");
         if (impact !== "unknown" && impact !== "low" && impact !== "medium" && impact !== "high" && impact !== "critical") throw new Error("Invalid impact estimate.");
         if (!Array.isArray(input.evidenceRefs) || !input.evidenceRefs.every((ref) => typeof ref === "string")) throw new Error("evidenceRefs must be strings.");
+        if (!Array.isArray(input.angles)) throw new Error("angles must contain 1 to 4 attacker paths.");
         const validation = input.validation;
         if (!validation || typeof validation !== "object" || Array.isArray(validation)) throw new Error("validation is required.");
         const output = store.checkpoint({ surfaceId, outcome, impact,
           theory: required(input.theory, "theory"), nextAction: required(input.nextAction, "nextAction"),
-          evidenceRefs: input.evidenceRefs as string[], validation: validation as ResearchTrackValidation }, surface(surfaceId));
+          evidenceRefs: input.evidenceRefs as string[], angles: input.angles as ResearchTrackAngle[],
+          validation: validation as ResearchTrackValidation }, surface(surfaceId));
         return { action, status: "complete", startedAt, completedAt: new Date().toISOString(),
           summary: "Research track checkpoint recorded.", output, followUpActions: [] };
       } catch (error) {
