@@ -246,7 +246,8 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
     setLaunchError(null);
     try {
       if (trackMode) {
-        const track = await window.beale.controlResearchTrack(workspaceId, 'start', serverId, researchTrackConfiguration(input));
+        const track = await window.beale.controlResearchTrack(workspaceId, 'start', serverId,
+          researchTrackConfiguration(input, guardianEnabled));
         onTrackStarted?.(track);
         return;
       }
