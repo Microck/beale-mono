@@ -362,7 +362,7 @@ function toolLabelInputKeys(toolName: string): readonly string[] {
     case 'memory.search': return ['query'];
     case 'history.mark_duplicate': return ['type', 'id', 'parentId'];
     case 'history.undo_duplicate': return ['type', 'id'];
-    case 'memory.save': return ['type', 'status'];
+    case 'memory.save': return ['type', 'title', 'status'];
     case 'memory.link': return ['fromId', 'relation', 'toId'];
     case 'memory.correct': return ['id', 'status'];
     case 'memory.get': return ['id'];
@@ -394,7 +394,7 @@ function toolLabelInputKeys(toolName: string): readonly string[] {
 
 function toolLabelResultKeys(toolName: string): readonly string[] {
   switch (toolName) {
-    case 'memory.save': return ['id', 'type', 'status', 'revision'];
+    case 'memory.save': return ['id', 'type', 'title', 'status', 'revision'];
     case 'runbook.create':
     case 'runbook.append':
     case 'runbook.edit': return ['title', 'status', 'revision'];

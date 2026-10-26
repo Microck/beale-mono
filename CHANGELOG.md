@@ -12,6 +12,7 @@
 
 #### Fixed
 
+- Memory save activity in session transcripts includes the memory title when available.
 - File edit activity in session transcripts names the edited path.
 - Reasoning summaries remain visible in session transcripts when commentary from the same response arrives.
 - The live session scrollbar appears for user scrolling without flashing during automatic transcript following.

@@ -427,17 +427,47 @@ describe('run detail commentary projection', () => {
       toolActionId: 'memory-save-one',
       toolName: 'memory.save',
       normalizedInputs: { type: 'primitive', title: 'Parser boundary' },
-      result: { id: 'memory_one', type: 'primitive', status: 'draft', revision: 1, body: 'hidden' }
+      result: { id: 'memory_one', type: 'primitive', title: 'Parser boundary', status: 'draft', revision: 1, body: 'hidden' }
     });
 
     const projected = projectCommentaryTraceEvent(observed);
 
+    expect((projected.payload.payload as { normalizedInputs?: unknown }).normalizedInputs).toEqual({
+      type: 'primitive',
+      title: 'Parser boundary'
+    });
     expect((projected.payload.payload as { result?: unknown }).result).toEqual({
       id: 'memory_one',
       type: 'primitive',
+      title: 'Parser boundary',
       status: 'draft',
       revision: 1
     });
+  });
+
+  it('keeps the memory name in the compact transcript before and after save completes', () => {
+    const requested = toolEvent('request', 'tool.requested', {
+      toolActionId: 'memory-save-one',
+      toolName: 'memory.save',
+      normalizedInputs: { type: 'test_strategy', title: 'Parser regression suite', body: 'hidden memory body' }
+    });
+    const observed = toolEvent('observation', 'tool.observed', {
+      toolActionId: 'memory-save-one',
+      toolName: 'memory.save',
+      normalizedInputs: { type: 'test_strategy', title: 'Parser regression suite', body: 'hidden memory body' },
+      result: { id: 'memory_example', type: 'test_strategy', status: 'draft', revision: 1 }
+    });
+    const label = (traceEvents: TraceEventRecord[]): string | undefined => {
+      const projected = projectRunDetailForRenderer(runDetail({ traceEvents }), 'commentary');
+      expect(JSON.stringify(projected.traceEvents)).not.toContain('hidden memory body');
+      return commentaryMessagesForSession(
+        projected,
+        buildTraceDisplayEventsForAgentPath(projected, null)
+      ).find((message) => message.toolName === 'memory.save')?.contentMarkdown;
+    };
+
+    expect(label([requested])).toBe('Memorizing test strategy "Parser regression suite"');
+    expect(label([requested, observed])).toBe('Memorizing test strategy "Parser regression suite"');
   });
 
   it('retains runbook execution selection and title for commentary labels', () => {
