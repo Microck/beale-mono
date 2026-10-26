@@ -236,7 +236,7 @@ describe('renderer commentary projection', () => {
     expect(commentaryMessageLabel('tool')).toBeNull();
     expect(commentaryMessageLabel('task', 'spawn')).toBe('New subagent task');
     expect(commentaryMessageLabel('task', 'followup')).toBe('Follow-up task');
-    expect(commentaryMessageLabel('task', 'message')).toBe('Agent message');
+    expect(commentaryMessageLabel('task', 'message')).toBe('Message');
     expect(commentaryMessageLabel('task', 'room_message')).toBe('Room message');
     expect(commentaryMessageLabel('final_answer')).toBeNull();
     expect(commentaryMessageLabel('error')).toBeNull();
@@ -1613,8 +1613,8 @@ describe('renderer commentary projection', () => {
       message: messages[0]!, searchHighlightQuery: '', selected: false
     }));
     expect(html).toContain('agent-communication-inbound');
-    expect(html).toMatch(/main-commentary-agent-header[\s\S]*Reviewer[\s\S]*lucide-arrow-right[\s\S]*Builder[\s\S]*main-commentary-agent-type[\s\S]*Agent message/);
-    expect(html).toMatch(/main-commentary-agent-type[\s\S]*Agent message[\s\S]*main-commentary-message-content[\s\S]*Check the synthetic parser fixture/);
+    expect(html).toMatch(/main-commentary-agent-header[\s\S]*Reviewer[\s\S]*lucide-arrow-right[\s\S]*Builder[\s\S]*main-commentary-agent-type[\s\S]*Message/);
+    expect(html).toMatch(/main-commentary-agent-type[\s\S]*Message[\s\S]*main-commentary-message-content[\s\S]*Check the synthetic parser fixture/);
   });
 
   it('renders a follow-up task with its sender and recipient', () => {
@@ -1636,7 +1636,7 @@ describe('renderer commentary projection', () => {
     expect(html).toContain('Recheck the synthetic fixture.');
   });
 
-  it('uses a generic agent origin on older messages without sender metadata', () => {
+  it('uses Lead for older messages to a subagent without sender metadata', () => {
     const messages = commentaryMessagesForSession(runDetail('Coordinate the review.'), [
       displayEvent('message', {
         type: 'subagent.activity',
@@ -1649,7 +1649,7 @@ describe('renderer commentary projection', () => {
     const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
       message: messages[0]!, searchHighlightQuery: '', selected: false
     }));
-    expect(messages[0]?.taskOrigin).toBe('Agent');
+    expect(messages[0]?.taskOrigin).toBe('Lead');
     expect(html).toContain('Reviewer');
   });
 

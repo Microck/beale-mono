@@ -665,18 +665,18 @@ export const CommentaryView = memo(function CommentaryView({
   return (
     <section
       className={`main-trace-view main-commentary-view${newResearch ? ' new-research-session-view' : ''}${showBackToMain ? ' is-subagent-trace' : ''}${loading ? ' is-loading' : ''}`}
-      aria-label={newResearch ? 'New Research' : 'Agent commentary'}
+      aria-label={newResearch ? 'New Research' : showBackToMain ? 'Subagent commentary' : 'Lead commentary'}
       data-commentary-state={state}
     >
       {showBackButton ? (
         <button
           type="button"
           className="back-to-main-button trace-back-to-main-button"
-          title="Return to the main agent commentary"
+          title="Return to Lead commentary"
           onClick={onBackToMain}
         >
           <ArrowLeft size={14} />
-          <span>Back to Main</span>
+          <span>Back to Lead</span>
         </button>
       ) : null}
       {loading ? <SessionLoadingState label="Loading session" /> : null}
@@ -1012,7 +1012,7 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
         <div className="main-commentary-agent-card">
           <div className="main-commentary-agent-header">
             <div className="main-commentary-agent-route">
-              <span className="main-commentary-agent-name" title={message.taskOrigin}>{message.taskOrigin ?? 'Agent'}</span>
+              <span className="main-commentary-agent-name" title={message.taskOrigin}>{message.taskOrigin ?? 'Lead'}</span>
               <ArrowRight size={14} aria-hidden="true" />
               <span className="main-commentary-agent-name" title={message.taskDestination}>{message.taskDestination ?? 'Unknown recipient'}</span>
             </div>
@@ -1433,7 +1433,7 @@ export function commentaryMessageLabel(
     if (taskAction === 'spawn') return 'New subagent task';
     if (taskAction === 'followup') return 'Follow-up task';
     if (taskAction === 'room_message') return 'Room message';
-    return 'Agent message';
+    return 'Message';
   }
   return null;
 }

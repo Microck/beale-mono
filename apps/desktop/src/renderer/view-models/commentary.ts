@@ -361,7 +361,7 @@ function subagentActivityMessage(event: TraceDisplayEvent): CommentaryMessage | 
     ? null
     : taskAuthorAgentPath
       ? agentDisplayName(taskAuthorAgentPath)
-      : taskRecipientAgentPath === '/root' ? 'Subagent' : 'Agent';
+      : taskRecipientAgentPath === '/root' ? 'Subagent' : 'Lead';
   const taskDestination = action === 'spawned' ? null : recipientLabel ?? 'Unknown recipient';
   const taskRoute = taskAuthorAgentPath && recipientLabel
     ? `${agentDisplayName(taskAuthorAgentPath)} → ${recipientLabel}`

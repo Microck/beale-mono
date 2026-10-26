@@ -6,6 +6,7 @@
 
 #### Changed
 
+- Session transcripts consistently call the root agent Lead in message routes and navigation.
 - Inter-agent transcript messages now show a connected, muted header with sender, recipient, and message type above a rounded message body.
 - Session collaboration rows now distinguish agent messages, follow-up tasks, and room messages, and show readable sender and recipient names when recorded.
 - Session tool activity labels use action verbs and include available surface, feature, plugin, resource, and reference names.
