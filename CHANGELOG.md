@@ -43,6 +43,7 @@
 
 #### Fixed
 
+- Research tracks continue with another eligible surface when an agent retires the assigned surface. Automatic pause reasons remain visible after the worker exits.
 - Guardian-enabled tracks recover worker exits without terminal session records, close the interrupted attempt, and review durable progress in the next epoch instead of pausing. The selected Guardian setting persists across epochs; existing track rows gain a default-enabled column. Rebuild Beale and app-server together for the updated control contract.
 - Stopping an individual research epoch no longer pauses its track; an explicit track pause still does.
 - Sessions stopped after a track pause record the track-control cause even when the scheduler observes the pause first.

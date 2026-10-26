@@ -449,9 +449,11 @@ export class ResearchTrackStore {
           "Resume the assigned threat-model investigation and record a durable checkpoint.", now, this.#workspaceId, work.surfaceId);
     }
     const noProgressEpochs = work ? work.noProgressEpochs + (work.status === "active" ? noProgressIncrement : 0) : 0;
-    const repeatedNoProgress = noProgressEpochs >= 3;
+    const repeatedNoProgress = work?.status !== "excluded" && noProgressEpochs >= 3;
     this.#database.prepare(`UPDATE app_server_research_tracks SET active_session_id=NULL, active_surface_id=NULL,
-      status=CASE WHEN ? THEN 'paused' ELSE status END, last_error=?, updated_at=? WHERE workspace_id=?`)
+      status=CASE WHEN ? THEN 'paused' ELSE status END,
+      last_error=CASE WHEN status='paused' AND last_error IS NOT NULL THEN last_error ELSE ? END,
+      updated_at=? WHERE workspace_id=?`)
       .run(repeatedNoProgress ? 1 : 0,
         repeatedNoProgress ? "Three epochs on one surface produced no durable progress. Review its theory or scope before resuming."
           : succeeded ? null : bounded(diagnostic ?? "The research epoch ended before completion.", 1_000), now, this.#workspaceId);
