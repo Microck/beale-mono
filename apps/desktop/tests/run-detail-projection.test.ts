@@ -431,6 +431,50 @@ describe('run detail commentary projection', () => {
     });
   });
 
+  it('recovers a legacy message sender from an exact child tool request', () => {
+    const message = 'Synthetic review update.';
+    const request = childMessageRequest('send-request', '/root/reviewer', '/root', message, 1);
+    const activity = traceEvent('legacy-message', {
+      source: 'system', type: 'model_message', sequence: 2,
+      payload: { type: 'subagent.activity', action: 'message', agentPath: '/root', message }
+    });
+    const nestedActivity = traceEvent('nested-legacy-message', {
+      source: 'executor', type: 'research_event', sequence: 3,
+      payload: { agentPath: '/root', payload: {
+        type: 'subagent.activity', action: 'message', agentPath: '/root', message
+      } }
+    });
+    const projected = projectRunDetailForRenderer(
+      runDetail({ traceEvents: [request, activity, nestedActivity] }),
+      { mode: 'commentary', agentPath: null }
+    );
+
+    expect(projected.traceEvents.map((event) => event.id)).toEqual(['legacy-message', 'nested-legacy-message']);
+    expect(projected.traceEvents[0]?.payload.authorAgentPath).toBe('/root/reviewer');
+    expect((projected.traceEvents[1]?.payload.payload as Record<string, unknown>).authorAgentPath).toBe('/root/reviewer');
+    expect(activity.payload.authorAgentPath).toBeUndefined();
+    const messages = commentaryMessagesForSession(projected,
+      buildTraceDisplayEventsForAgentPath(projected, null), { includeInitialPrompt: false });
+    expect(messages.find((item) => item.taskAction === 'message')).toMatchObject({
+      taskOrigin: 'Reviewer', taskDestination: 'Lead', taskRoute: 'Reviewer → Lead'
+    });
+  });
+
+  it('leaves a legacy sender unattributed when matching requests disagree', () => {
+    const message = 'Synthetic shared update.';
+    const requests = ['/root/reviewer', '/root/analyst'].map((agentPath, index) =>
+      childMessageRequest(`send-request-${index}`, agentPath, 'root', message, index + 1));
+    const activity = traceEvent('ambiguous-message', {
+      source: 'system', type: 'model_message', sequence: 3,
+      payload: { type: 'subagent.activity', action: 'message', agentPath: '/root', message }
+    });
+    const projected = projectRunDetailForRenderer(
+      runDetail({ traceEvents: [...requests, activity] }),
+      { mode: 'commentary', agentPath: null }
+    );
+    expect(projected.traceEvents[0]?.payload.authorAgentPath).toBeUndefined();
+  });
+
   it('keeps bounded surface locations from child focus and spawn events in the root summary', () => {
     const surfaceTrail = [
       { id: 'asset-example', name: 'Example service' },
@@ -845,6 +889,19 @@ function toolEvent(id: string, kind: 'tool.requested' | 'tool.observed', payload
       payload
     }
   });
+}
+
+function childMessageRequest(
+  id: string,
+  agentPath: string,
+  target: string,
+  message: string,
+  sequence: number
+): TraceEventRecord {
+  const event = toolEvent(id, 'tool.requested', {
+    toolName: 'send_message', normalizedInputs: { target, message }
+  });
+  return { ...event, sequence, payload: { ...event.payload, agentPath } };
 }
 
 function traceEvent(
