@@ -354,7 +354,8 @@ function activityCountLabel(count: number, label: string, pluralLabel = `${label
 function memoryTypeCountLabel(type: string, count: number): string {
   const normalized = type.replace(/[_-]+/gu, ' ').trim();
   const label = `${normalized[0]?.toUpperCase() ?? ''}${normalized.slice(1)}`;
-  return `${count} ${count === 1 ? label : `${label}s`}`;
+  const pluralLabel = /[^aeiou]y$/iu.test(label) ? `${label.slice(0, -1)}ies` : `${label}s`;
+  return `${count} ${count === 1 ? label : pluralLabel}`;
 }
 
 function dynamicSessionMemoryTypeSummaries(

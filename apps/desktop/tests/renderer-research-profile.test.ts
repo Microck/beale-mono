@@ -213,13 +213,18 @@ describe('renderer research profile presentation', () => {
       node('note_one', 'research_note', 'confirmed'),
       node('note_two', 'research_note', 'suspected'),
       node('lead_one', 'lead', 'confirmed'),
+      node('trajectory_one', 'trajectory', 'confirmed'),
+      node('trajectory_two', 'trajectory', 'suspected'),
       node('stale_note', 'research_note', 'stale')
     ]);
 
     expect(summaries.map(({ type, countLabel, statusLabel }) => ({ type, countLabel, statusLabel }))).toEqual([
       { type: 'research_note', countLabel: '2 Research notes', statusLabel: '1 Confirmed, 1 Suspected' },
-      { type: 'lead', countLabel: '1 Lead', statusLabel: '1 Confirmed' }
+      { type: 'lead', countLabel: '1 Lead', statusLabel: '1 Confirmed' },
+      { type: 'trajectory', countLabel: '2 Trajectories', statusLabel: '1 Confirmed, 1 Suspected' }
     ]);
+    expect(sessionMemoryTypeSummaries([node('trajectory_one', 'trajectory', 'confirmed')])[0]?.countLabel)
+      .toBe('1 Trajectory');
   });
 
   it('includes profile workflow and vocabulary identity in suggestion cache keys', () => {
