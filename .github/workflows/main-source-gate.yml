@@ -1,0 +1,24 @@
+name: Main source gate
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: staging-to-main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the staging branch in this repository
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          if [[ "$HEAD_REF" != "staging" || "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]]; then
+            echo "Only this repository's staging branch may target main."
+            exit 1
+          fi
