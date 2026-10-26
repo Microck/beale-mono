@@ -15,6 +15,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   workspaceRegistry,
   workspaceRegistryLoading = false,
   selectedRunId,
+  runningTrackSessionId = null,
+  runningTrackWorkspaceId = null,
   workspaceCreationActive = false,
   newResearchActive = false,
   automationsActive = false,
@@ -39,6 +41,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
   workspaceRegistry: WorkspaceRegistryState | null;
   workspaceRegistryLoading?: boolean;
   selectedRunId: string | null;
+  runningTrackSessionId?: string | null;
+  runningTrackWorkspaceId?: string | null;
   workspaceCreationActive?: boolean;
   newResearchActive?: boolean;
   automationsActive?: boolean;
@@ -306,15 +310,18 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({
               const visibleSessions = filteringSessions ? sessions : sessions.slice(0, SIDEBAR_SESSION_LIMIT);
               const hiddenSessions = filteringSessions ? [] : sessions.slice(SIDEBAR_SESSION_LIMIT);
               const renderSession = (session: ResearchSessionSummary): JSX.Element => {
+                const active = session.status === 'active' || (
+                  session.runId === runningTrackSessionId && workspace.workspaceId === runningTrackWorkspaceId
+                );
                 return (
-                  <div className={`workspace-session-row${session.status === 'active' ? ' has-progress-spinner' : ''}`} key={session.id}>
+                  <div className={`workspace-session-row${active ? ' has-progress-spinner' : ''}`} key={session.id}>
                     <button
                       type="button"
                       className={`workspace-session-item ${!workspaceCreationActive && !newResearchActive && selectedRunId === session.runId ? 'active' : ''}`}
                       title={promptSessionTitle(session)}
                       onClick={() => onOpenResearchSession(workspace, session)}
                     >
-                      <SessionLeadingIndicator session={session} />
+                      <SessionLeadingIndicator session={session} active={active} />
                       <span className="workspace-session-title">{promptSessionTitle(session)}</span>
                     </button>
                     {!remote ? <button
@@ -425,8 +432,8 @@ export function sessionMatchesSidebarSearch(session: ResearchSessionSummary, que
   return terms.every((term) => searchableText.includes(term));
 }
 
-function SessionLeadingIndicator({ session }: { session: ResearchSessionSummary }): JSX.Element {
-  if (session.status === 'active') {
+function SessionLeadingIndicator({ session, active }: { session: ResearchSessionSummary; active: boolean }): JSX.Element {
+  if (active) {
     return (
       <span className="workspace-session-leading-status" title="Active" aria-label="Session status: Active">
         <RefreshCw size={10} aria-hidden="true" />

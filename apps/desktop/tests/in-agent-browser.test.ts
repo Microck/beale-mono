@@ -34,7 +34,20 @@ describe('in-agent browser', () => {
     }));
     expect(tabs).toContain('aria-selected="true"');
     expect(tabs).toContain('Close Browser Default');
-    expect(tabs).not.toContain('aria-haspopup="dialog"');
+    expect(tabs).toContain('aria-haspopup="dialog"');
+    const fleetTabs = renderToStaticMarkup(createElement(ResearchSideViewTabs, {
+      activeView: 'browser:default', openViews: ['browser:default'],
+      confirmDefaultBrowserContextClose: false,
+      browserContextLabels: { 'browser:default': 'Default' },
+      onActivate: () => undefined, onClose: () => undefined, onOpen: () => undefined
+    }));
+    expect(fleetTabs).not.toContain('aria-haspopup="dialog"');
+    const loadingTabs = renderToStaticMarkup(createElement(ResearchSideViewTabs, {
+      activeView: 'browser:default', openViews: ['browser:default'],
+      browserContextModeLoading: true,
+      onActivate: () => undefined, onClose: () => undefined, onOpen: () => undefined
+    }));
+    expect(loadingTabs).toMatch(/aria-label="Close Browser Default"[^>]*disabled=""/u);
     expect(tabs).toContain('class="research-browser-context-pill"');
     expect(tabs).toContain('aria-label="Rename Browser context Default"');
     const browser = renderToStaticMarkup(createElement(BrowserSideView, { visible: true, partition: DEFAULT_BROWSER_CONTEXT.partition, label: 'Default', lastUrl: DEFAULT_BROWSER_CONTEXT.lastUrl }));
@@ -83,11 +96,12 @@ describe('in-agent browser', () => {
     }
   });
 
-  it('asks how to close a named context tab and removes it only after Continue', async () => {
+  it('asks how to close every context tab and removes it only after Continue', async () => {
     const removed: string[] = [];
     const removeContext = async (id: string): Promise<void> => { removed.push(id); };
     expect(requiresBrowserContextCloseConfirmation('memory')).toBe(false);
-    expect(requiresBrowserContextCloseConfirmation('browser:default')).toBe(false);
+    expect(requiresBrowserContextCloseConfirmation('browser:default')).toBe(true);
+    expect(requiresBrowserContextCloseConfirmation('browser:default', false)).toBe(false);
     expect(requiresBrowserContextCloseConfirmation('browser:context-example')).toBe(true);
     const namedTabs = renderToStaticMarkup(createElement(ResearchSideViewTabs, {
       activeView: 'browser:context-example', openViews: ['browser:context-example'],
@@ -106,9 +120,9 @@ describe('in-agent browser', () => {
     await removeBrowserContextForClosedTab('memory', 'remove-context', removeContext);
     await removeBrowserContextForClosedTab('browser:default', 'remove-context', removeContext);
     await removeBrowserContextForClosedTab('browser:context-example', 'close-tab', removeContext);
-    expect(removed).toEqual([]);
+    expect(removed).toEqual(['default']);
     await removeBrowserContextForClosedTab('browser:context-example', 'remove-context', removeContext);
-    expect(removed).toEqual(['context-example']);
+    expect(removed).toEqual(['default', 'context-example']);
     await expect(removeBrowserContextForClosedTab('browser:context-example', 'remove-context', async () => {
       throw new Error('Storage could not be cleared.');
     })).rejects.toThrow('Storage could not be cleared.');
@@ -343,11 +357,12 @@ describe('in-agent browser', () => {
       expect(await browser.command(adminConnection, 'DOM.getDocument')).toMatchObject({ result: { guestId: 8 } });
       await expect(browser.createContext('two words')).rejects.toThrow('one word');
       await expect(browser.createContext('member')).rejects.toThrow('already exists');
-      await expect(browser.closeContext('default')).rejects.toThrow('cannot be removed');
       await browser.closeContext(created.id);
       expect(await browser.contexts()).toEqual([{ id: 'default', label: 'Primary' }]);
       expect(await browser.targets()).toHaveLength(1);
-      browser.disconnect(defaultConnection);
+      await browser.closeContext('default');
+      expect(await browser.contexts()).toEqual([]);
+      expect(await browser.targets()).toEqual([]);
     } finally {
       await browser.cleanup();
       await bridge.stop();
@@ -428,8 +443,9 @@ describe('in-agent browser', () => {
       guestEvents.emit('did-navigate');
       currentUrl = 'https://example.test/account?page=3';
       guestEvents.emit('did-navigate-in-page');
+      const clearedPartitions: string[] = [];
       const saved = new InAgentBrowserBridge(discoveryFile, () => undefined, async () => false, async (partition) => {
-        expect(partition).toBe(created.partition);
+        clearedPartitions.push(partition);
       });
       expect(saved.listContexts()).toMatchObject([
         { id: 'default', label: 'Primary', lastUrl: 'about:blank' },
@@ -442,6 +458,12 @@ describe('in-agent browser', () => {
       expect(restoredPage).toContain('value="https://example.test/account?page=3"');
       await saved.removeContext(created.id);
       expect(new InAgentBrowserBridge(discoveryFile).listContexts()).toHaveLength(1);
+      await saved.removeContext(DEFAULT_BROWSER_CONTEXT.id);
+      expect(saved.listContexts()).toEqual([]);
+      expect(new InAgentBrowserBridge(discoveryFile).listContexts()).toEqual([]);
+      expect(clearedPartitions).toEqual([created.partition, DEFAULT_BROWSER_CONTEXT.partition]);
+      expect(saved.createContext('Default').id).toBe(DEFAULT_BROWSER_CONTEXT.id);
+      expect(new InAgentBrowserBridge(discoveryFile).listContexts()).toMatchObject([{ id: 'default', label: 'Default' }]);
     } finally {
       first.stop();
       rmSync(directory, { recursive: true, force: true });

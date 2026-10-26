@@ -143,7 +143,6 @@ export interface SessionMemoryTypeSummary {
   count: number;
   confirmedCount: number;
   suspectedCount: number;
-  rejectedCount: number;
   countLabel: string;
   statusLabel: string;
 }
@@ -206,13 +205,12 @@ export function sessionMemoryTypeSummaries(
     const type = node.type.trim();
     if (!type) continue;
     const current = summaries.get(type) ?? {
-      type, count: 0, confirmedCount: 0, suspectedCount: 0, rejectedCount: 0, countLabel: '', statusLabel: ''
+      type, count: 0, confirmedCount: 0, suspectedCount: 0, countLabel: '', statusLabel: ''
     };
     current.count += 1;
     const status = node.status.trim().toLocaleLowerCase();
     if (status === 'confirmed') current.confirmedCount += 1;
     if (status === 'suspected') current.suspectedCount += 1;
-    if (status === 'rejected') current.rejectedCount += 1;
     summaries.set(type, current);
   }
 
@@ -340,7 +338,9 @@ function isActiveMemoryNode(
   node: AppServerMemoryNodeSummary,
   statuses?: readonly ResearchProfileMemoryStatus[]
 ): boolean {
-  if (!statuses) return node.status.trim().toLowerCase() !== 'stale';
+  const statusId = node.status.trim().toLowerCase();
+  if (statusId === 'rejected' || statusId === 'stale') return false;
+  if (!statuses) return true;
   const status = statuses.find((definition) => definition.id === node.status);
   if (!status || status.polarity === 'negative') return false;
   return status.terminal !== true || status.polarity === 'positive';
@@ -389,7 +389,6 @@ function dynamicSessionMemoryTypeSummaries(
     .map(([type, summary]) => {
       const confirmedCount = summary.statusCounts.get('confirmed') ?? 0;
       const suspectedCount = summary.statusCounts.get('suspected') ?? 0;
-      const rejectedCount = summary.statusCounts.get('rejected') ?? 0;
       const orderedStatusIds = [
         ...[...memory.statuses].sort(compareProfileOrder).map((status) => status.id),
         ...[...summary.statusCounts.keys()].filter((id) => !statusById.has(id)).sort()
@@ -410,7 +409,6 @@ function dynamicSessionMemoryTypeSummaries(
         count: summary.count,
         confirmedCount,
         suspectedCount,
-        rejectedCount,
         countLabel: `${summary.count} ${summary.count === 1 ? name : pluralName}`,
         statusLabel
       };
@@ -449,8 +447,7 @@ function unknownCatalogLabel(kind: 'type' | 'status', id: string): string {
 function memoryTypeStatusLabel(summary: SessionMemoryTypeSummary): string {
   return [
     summary.confirmedCount > 0 ? `${summary.confirmedCount} Confirmed` : null,
-    summary.suspectedCount > 0 ? `${summary.suspectedCount} Suspected` : null,
-    summary.rejectedCount > 0 ? `${summary.rejectedCount} Rejected` : null
+    summary.suspectedCount > 0 ? `${summary.suspectedCount} Suspected` : null
   ].filter((label): label is string => label !== null).join(', ');
 }
 

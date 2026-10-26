@@ -27,6 +27,7 @@ import {
 } from '../src/renderer/view-models/commentary';
 import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay';
 import { buildTraceDisplayEventsForAgentPath } from '../src/renderer/view-models/traceDisplay';
+import { deferredResearchTrackDetail, runningResearchTrackDetail } from '../src/renderer/view-models/researchTrackSession';
 
 describe('renderer commentary projection', () => {
   it('shows the stored failure reason when a session ends before producing transcript events', () => {
@@ -1163,6 +1164,35 @@ describe('renderer commentary projection', () => {
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('The parser boundary is safe.');
     expect(html).not.toContain('Checking parser entrypoints.');
+  });
+
+  it('keeps track commentary expanded while a completed epoch is deferred', () => {
+    const deferred = runDetail('Inspect the example parser.');
+    deferred.run.id = 'track_example';
+    deferred.run.status = 'completed';
+    deferred.run.budget = { modelProvider: 'openai-codex' };
+    deferred.run.model = 'gpt-5.6-sol';
+    deferred.run.reasoningEffort = 'medium';
+    deferred.run.startedAt = '2026-08-03T10:00:00.000Z';
+    deferred.run.endedAt = '2026-08-03T10:02:30.000Z';
+    const latest = runningResearchTrackDetail({ ...deferred, run: { ...deferred.run } }, true);
+    const detail = deferredResearchTrackDetail(latest, deferred);
+    const html = renderToStaticMarkup(createElement(CommentaryView, {
+      busy: false,
+      detail,
+      events: [],
+      providerModelCatalog: [],
+      selectedRunId: 'track_example',
+      showBackToMain: false,
+      searchHighlightQuery: '',
+      onBackToMain: () => undefined,
+      onSessionAction: () => undefined,
+      onSteerInstruction: () => undefined
+    }));
+
+    expect(html).toContain('Working for');
+    expect(html).not.toContain('Worked for');
+    expect(html).not.toContain('class="harness-feedback-footer"');
   });
 
   it('renders xAI reasoning summaries as ordinary commentary while retaining their trace source', () => {

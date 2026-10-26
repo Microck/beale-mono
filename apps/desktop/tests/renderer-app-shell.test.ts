@@ -123,7 +123,8 @@ describe('renderer app shell view model', () => {
     expect(topStyles).toContain('gap: 6px');
     expect(styles).toContain('.app-navigation-rail-top {\n  margin-top: 8px;');
     expect(styles).toContain('.app-navigation-rail-sections {\n  margin-top: 0;');
-    expect(styles).toMatch(/\.app-navigation-rail-button::after\s*\{[^}]*left: calc\(100% \+ 10px\);[^}]*content: attr\(data-tooltip\);/s);
+    expect(styles).toMatch(/\.app-navigation-rail-button::after,\s*\.header-icon-tooltip::after\s*\{[^}]*content: attr\(data-tooltip\);/s);
+    expect(styles).toMatch(/\.app-navigation-rail-button::after\s*\{[^}]*left: calc\(100% \+ 10px\);/s);
     expect(styles).toContain('.app-navigation-rail-button:focus-visible::after');
   });
 
@@ -395,6 +396,12 @@ describe('renderer app shell view model', () => {
 
     expect(header).toContain('editor-launch-available');
     expect(header).toContain('Open primary workspace directory in Cursor');
+    expect(header).toContain('data-tooltip="Open primary workspace directory in Cursor"');
+    expect(header).toContain('data-tooltip="Choose editor"');
+    expect(header).toContain('data-tooltip="Show detailed sidebar"');
+    expect(header).toContain('data-tooltip="Minimize"');
+    expect(header).toContain('data-tooltip="Maximize"');
+    expect(header).toContain('data-tooltip="Close"');
     expect(header).toContain('class="workspace-editor-icon"');
     expect(header).toContain('data:image/png;base64,Y3Vyc29y');
     expect(header.indexOf('workspace-editor-control')).toBeLessThan(header.indexOf('right-sidenav-toggle-button'));
@@ -429,8 +436,12 @@ describe('renderer app shell view model', () => {
     }));
 
     const collapsedHeader = renderHeader(true, true);
-    expect(collapsedHeader.indexOf('class="sidebar-toggle-button"')).toBeLessThan(collapsedHeader.indexOf('aria-label="New Research"'));
+    expect(collapsedHeader.indexOf('class="sidebar-toggle-button header-icon-tooltip"')).toBeLessThan(collapsedHeader.indexOf('aria-label="New Research"'));
     expect(collapsedHeader.indexOf('aria-label="New Research"')).toBeLessThan(collapsedHeader.indexOf('aria-label="Quick Chat"'));
+    for (const label of ['Show sidebar', 'New Research', 'Quick Chat']) {
+      expect(collapsedHeader).toContain(`data-tooltip="${label}"`);
+    }
+    expect(collapsedHeader).not.toContain('title="Quick Chat"');
     expect(collapsedHeader).toContain('lucide-square-pen');
     expect(collapsedHeader).toContain('lucide-zap');
     expect(renderHeader(true, true, true)).toMatch(/aria-label="New Research" disabled=""/u);
@@ -443,6 +454,9 @@ describe('renderer app shell view model', () => {
     const topBarSource = readFileSync(new URL('../src/renderer/app/TopBar.tsx', import.meta.url), 'utf8');
     expect(topBarSource).toContain('onStartNewResearchForWorkspace(workspace);');
     expect(topBarSource).toContain('newResearchPickerOpen && !workspaceOpen');
+    const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
+    expect(styles).toMatch(/\.app-navigation-rail-button::after,\s*\.header-icon-tooltip::after\s*\{[^}]*content: attr\(data-tooltip\);[^}]*color: var\(--muted\);/u);
+    expect(styles).toMatch(/\.header-icon-tooltip::after\s*\{[^}]*top: calc\(100% \+ 10px\);/u);
   });
 
   it('shows header research controls for New Research with an open workspace', () => {

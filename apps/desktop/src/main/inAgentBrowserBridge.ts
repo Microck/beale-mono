@@ -57,17 +57,18 @@ function browserAccessApproved(file: string): boolean {
 }
 
 function restoredContexts(file: string): Map<string, BrowserContextState> {
-  const contexts = new Map<string, BrowserContextState>([[DEFAULT_BROWSER_CONTEXT.id, {
+  const defaultContexts = (): Map<string, BrowserContextState> => new Map([[DEFAULT_BROWSER_CONTEXT.id, {
     summary: DEFAULT_BROWSER_CONTEXT, guest: null, clients: new Set()
   }]]);
+  const contexts = new Map<string, BrowserContextState>();
   let saved: unknown;
   try {
     saved = JSON.parse(readFileSync(file, 'utf8')) as unknown;
   } catch {
-    return contexts;
+    return defaultContexts();
   }
   if (!saved || typeof saved !== 'object' || !('version' in saved) || saved.version !== 1 || !('contexts' in saved) || !Array.isArray(saved.contexts)) {
-    return contexts;
+    return defaultContexts();
   }
   for (const value of saved.contexts.slice(0, MAX_BROWSER_CONTEXTS)) {
     if (!value || typeof value !== 'object') continue;
@@ -179,7 +180,10 @@ export class InAgentBrowserBridge {
     if (this.listContexts().some((context) => context.label.toLowerCase() === label.toLowerCase())) {
       throw new Error('A browser context with that label already exists.');
     }
-    const id = randomUUID();
+    const id = label.toLowerCase() === DEFAULT_BROWSER_CONTEXT.label.toLowerCase()
+      && !this.#contexts.has(DEFAULT_BROWSER_CONTEXT.id)
+      ? DEFAULT_BROWSER_CONTEXT.id
+      : randomUUID();
     const summary = { id, label, partition: browserContextPartition(id), lastUrl: 'about:blank' };
     this.#contexts.set(id, { summary, guest: null, clients: new Set() });
     try { this.#saveContexts(); } catch (error) { this.#contexts.delete(id); throw error; }
@@ -259,7 +263,6 @@ export class InAgentBrowserBridge {
   }
 
   async removeContext(id: string): Promise<void> {
-    if (id === DEFAULT_BROWSER_CONTEXT.id) throw new Error('The default browser context cannot be removed.');
     const context = this.#contexts.get(id);
     if (!context) throw new Error('Browser context was not found.');
     const guest = context.guest;

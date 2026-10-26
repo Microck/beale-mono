@@ -6,6 +6,9 @@
 
 #### Fixed
 
+- Running track sessions keep their active transcript, feedback state, and sidebar spinner across terminal epoch updates and deferred rendering.
+- Closing the Default browser context now offers the same confirmation as named contexts and can remove its saved context and site data. An empty context list survives restart; opening Browser recreates Default on demand.
+- Session and workspace memory summaries exclude Rejected records from totals and per-type counts, including when profile metadata is unavailable.
 - Stopping a running research track session now ends the current epoch while the track continues; Pause still pauses the track. The track controls show paused state explicitly.
 
 ### app-server

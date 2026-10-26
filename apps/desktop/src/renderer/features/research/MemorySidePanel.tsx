@@ -240,8 +240,11 @@ export function isLastOpenResearchSideView(
   return openViews.length === 1 && openViews[0] === view;
 }
 
-export function requiresBrowserContextCloseConfirmation(view: ResearchSideView): boolean {
-  return isBrowserSideView(view) && view !== browserSideViewId(DEFAULT_BROWSER_CONTEXT.id);
+export function requiresBrowserContextCloseConfirmation(
+  view: ResearchSideView,
+  includeDefault = true
+): boolean {
+  return isBrowserSideView(view) && (includeDefault || view !== browserSideViewId(DEFAULT_BROWSER_CONTEXT.id));
 }
 
 export async function removeBrowserContextForClosedTab(
@@ -372,6 +375,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const featureAvailability = researchProfileFeatureAvailability(researchProfile);
   const subagentsAvailable = featureAvailability.collaboration && viewSpace === 'session';
   const [browserContexts, setBrowserContexts] = useState<BrowserContextSummary[]>([DEFAULT_BROWSER_CONTEXT]);
+  const [browserOpenError, setBrowserOpenError] = useState('');
+  const creatingDefaultBrowserContextRef = useRef(false);
   const [fleetBrowserUrl, setFleetBrowserUrl] = useState('about:blank');
   const [mountedBrowserContextIds, setMountedBrowserContextIds] = useState<ReadonlySet<string>>(new Set());
   const [fleetBrowserMachine, setFleetBrowserMachine] = useState<string | null | undefined>(undefined);
@@ -414,6 +419,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
       }
       if (update.createdId || update.openedId) {
         const contextId = update.createdId ?? update.openedId!;
+        setBrowserOpenError('');
         setMountedBrowserContextIds((current) => current.has(contextId) ? current : new Set(current).add(contextId));
         dispatchNavigation({ type: 'open', view: browserSideViewId(contextId) });
         onExpandedChange?.(true);
@@ -736,6 +742,21 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
 
   const openDetails = (view: ResearchSideView, campaignEntryTarget: CampaignEntryTarget = 'top'): void => {
     if (!enabledViews.includes(view)) return;
+    if (isBrowserSideView(view) && fleetBrowserMachine === undefined) {
+      setBrowserOpenError('Browser is still loading.');
+      return;
+    }
+    if (view === browserSideViewId(DEFAULT_BROWSER_CONTEXT.id) && fleetBrowserMachine === null
+      && !browserContexts.some((context) => context.id === DEFAULT_BROWSER_CONTEXT.id)) {
+      if (creatingDefaultBrowserContextRef.current) return;
+      creatingDefaultBrowserContextRef.current = true;
+      setBrowserOpenError('');
+      void window.beale.createBrowserContext(DEFAULT_BROWSER_CONTEXT.label).catch((cause: unknown) => {
+        setBrowserOpenError(cause instanceof Error ? cause.message : String(cause));
+      }).finally(() => { creatingDefaultBrowserContextRef.current = false; });
+      return;
+    }
+    setBrowserOpenError('');
     if (isBrowserSideView(view) && !fleetBrowserMachine) {
       const contextId = view.slice('browser:'.length);
       setMountedBrowserContextIds((current) => current.has(contextId) ? current : new Set(current).add(contextId));
@@ -979,6 +1000,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     return (
       <aside className="main-session-side memory-catalog view-empty" aria-label={`${viewSpaceLabel} details`}>
         <ResearchSideViewChooser viewSpaceLabel={viewSpaceLabel} views={enabledViews} labels={{ memory: campaignLabel, reports: reportLabel }} browserContextLabels={browserContextLabels} onOpen={openDetails} />
+        {browserOpenError ? <p className="research-side-view-close-error" role="alert">{browserOpenError}</p> : null}
         {browserPages}
       </aside>
     );
@@ -1029,6 +1051,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             onActivate={activateDetails}
             onClose={closeDetails}
             onOpen={openDetails}
+            confirmDefaultBrowserContextClose={fleetBrowserMachine === null}
+            browserContextModeLoading={fleetBrowserMachine === undefined}
             onCreateBrowserContext={!browserContextsEnabled || fleetBrowserMachine ? undefined : (label) => window.beale.createBrowserContext(label).then(() => undefined)}
             onRenameBrowserContext={!browserContextsEnabled || fleetBrowserMachine ? undefined : (id, label) => window.beale.renameBrowserContext(id, label).then(() => undefined)}
             trailing={activeView === 'memory' ? (
@@ -1062,6 +1086,8 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
             ) : null}
           />
         )}
+
+        {browserOpenError ? <p className="research-side-view-close-error" role="alert">{browserOpenError}</p> : null}
 
         {visibleSelectedSubagentPath ? (
           <div className="research-side-nested-content subagent-chat-content">
@@ -1606,6 +1632,8 @@ export function ResearchSideViewTabs({
   onActivate,
   onClose,
   onOpen,
+  confirmDefaultBrowserContextClose = true,
+  browserContextModeLoading = false,
   onCreateBrowserContext,
   onRenameBrowserContext,
   labels,
@@ -1619,6 +1647,8 @@ export function ResearchSideViewTabs({
   onActivate: (view: ResearchSideView) => void;
   onClose: (view: ResearchSideView, action: 'close-tab' | 'remove-context') => Promise<void> | void;
   onOpen: (view: ResearchSideView) => void;
+  confirmDefaultBrowserContextClose?: boolean;
+  browserContextModeLoading?: boolean;
   onCreateBrowserContext?: (label: string) => Promise<void>;
   onRenameBrowserContext?: (id: string, label: string) => Promise<void>;
   labels?: Partial<Record<ResearchSideView, string>>;
@@ -1733,12 +1763,12 @@ export function ResearchSideViewTabs({
               type="button"
               className="research-side-view-tab-close"
               aria-label={`Close ${researchSideViewLabel(view, labels)}${isBrowserSideView(view) ? ` ${browserContextLabels?.[view] ?? 'Default'}` : ''}`}
-              aria-haspopup={requiresBrowserContextCloseConfirmation(view) ? 'dialog' : undefined}
+              aria-haspopup={requiresBrowserContextCloseConfirmation(view, confirmDefaultBrowserContextClose) ? 'dialog' : undefined}
               title={`Close ${researchSideViewLabel(view, labels)}${isBrowserSideView(view) ? ` ${browserContextLabels?.[view] ?? 'Default'}` : ''}`}
-              disabled={closingView !== null}
+              disabled={closingView !== null || (browserContextModeLoading && view === browserSideViewId(DEFAULT_BROWSER_CONTEXT.id))}
               onClick={() => {
                 setCloseError('');
-                if (requiresBrowserContextCloseConfirmation(view)) setPendingCloseView(view);
+                if (requiresBrowserContextCloseConfirmation(view, confirmDefaultBrowserContextClose)) setPendingCloseView(view);
                 else closeView(view, 'close-tab');
               }}
             >

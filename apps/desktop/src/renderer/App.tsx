@@ -115,7 +115,7 @@ import {
 } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, buildTraceDisplayEventsForAgentPath } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
-import { pausesResearchTrackFromSessionAction, runningResearchTrackDetail, waitForResearchTrackSession } from './view-models/researchTrackSession';
+import { deferredResearchTrackDetail, pausesResearchTrackFromSessionAction, runningResearchTrackDetail, waitForResearchTrackSession } from './view-models/researchTrackSession';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from './view-models/researchProfileFeatures';
 import { isReportResourceRun, reportSessionDefaultModelSelection, reportTitleFromMarkdown } from './view-models/reports';
 import {
@@ -1682,9 +1682,10 @@ export function App(): JSX.Element {
     [activeRunDetail, selectedResearchTrackRunning]
   );
   const deferredActiveRunDetail = useDeferredValue(presentedActiveRunDetail);
-  const renderedRunDetail = presentedActiveRunDetail?.run.id === deferredActiveRunDetail?.run.id
-    ? deferredActiveRunDetail
-    : presentedActiveRunDetail;
+  const renderedRunDetail = useMemo(
+    () => deferredResearchTrackDetail(presentedActiveRunDetail, deferredActiveRunDetail),
+    [presentedActiveRunDetail, deferredActiveRunDetail]
+  );
   const localSurfaceFocus = useMemo(() => (
     !newResearchOpen && !reportsOpen && !workspaceDraft && selectedRunId
       && presentedActiveRunDetail?.run.status === 'active' && renderedRunDetail?.run.id === selectedRunId
@@ -2382,6 +2383,8 @@ export function App(): JSX.Element {
           workspaceRegistry={workspaceRegistry}
           workspaceRegistryLoading={startupPhase === 'shell' || startupPhase === 'registry'}
           selectedRunId={reportsOpen || automationsOpen || pluginsOpen ? null : selectedRunId}
+          runningTrackSessionId={selectedResearchTrackRunning ? selectedRunId : null}
+          runningTrackWorkspaceId={selectedResearchTrackRunning ? snapshot?.workspace.workspaceId : null}
           workspaceCreationActive={workspaceDraft !== null}
           newResearchActive={newResearchOpen}
           automationsActive={automationsOpen}

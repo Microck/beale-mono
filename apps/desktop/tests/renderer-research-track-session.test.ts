@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BealeWorkspaceResearchTrack } from '@beale/app-server-runtime/protocol';
 import type { RunDetail } from '../src/shared/types';
-import { pausesResearchTrackFromSessionAction, runningResearchTrackDetail, waitForResearchTrackSession } from '../src/renderer/view-models/researchTrackSession';
+import { deferredResearchTrackDetail, pausesResearchTrackFromSessionAction, runningResearchTrackDetail, waitForResearchTrackSession } from '../src/renderer/view-models/researchTrackSession';
 
 function track(activeSessionId: string | null): BealeWorkspaceResearchTrack {
   return {
@@ -27,6 +27,19 @@ describe('research track session handoff', () => {
     expect(runningResearchTrackDetail(detail, false)).toBe(detail);
     expect(runningResearchTrackDetail({ ...detail, run: { ...detail.run, status: 'failed' } }, true)?.run.status)
       .toBe('failed');
+  });
+
+  it('keeps the latest epoch status while transcript updates are deferred', () => {
+    const deferred = { run: { id: 'track_example', status: 'completed', endedAt: '2026-08-20T12:00:00.000Z' },
+      transcriptMessages: [{ id: 'message_previous' }] } as RunDetail;
+    const latest = runningResearchTrackDetail({ ...deferred,
+      run: { ...deferred.run }, transcriptMessages: [{ id: 'message_current' }] } as RunDetail, true)!;
+    const presented = deferredResearchTrackDetail(latest, deferred);
+
+    expect(presented?.run.status).toBe('active');
+    expect(presented?.run.endedAt).toBeNull();
+    expect(presented?.transcriptMessages).toBe(deferred.transcriptMessages);
+    expect(deferredResearchTrackDetail(latest, { ...deferred, run: { ...deferred.run, id: 'other_run' } })).toBe(latest);
   });
 
   it('waits for a started track to create and expose its session', async () => {

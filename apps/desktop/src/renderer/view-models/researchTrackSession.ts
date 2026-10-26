@@ -10,6 +10,13 @@ export function runningResearchTrackDetail(detail: RunDetail | null, running: bo
   return { ...detail, run: { ...detail.run, status: 'active', endedAt: null } };
 }
 
+export function deferredResearchTrackDetail(latest: RunDetail | null, deferred: RunDetail | null): RunDetail | null {
+  if (!latest || deferred?.run.id !== latest.run.id) return latest;
+  // Epochs reuse a run ID. Keep the latest run state even when the larger
+  // transcript projection is deferred behind a stream of updates.
+  return deferred.run === latest.run ? deferred : { ...deferred, run: latest.run };
+}
+
 export async function waitForResearchTrackSession<T>(input: {
   trackId: string;
   initialSessionId: string | null;

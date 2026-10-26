@@ -223,8 +223,8 @@ export const TopBar = memo(function TopBar({
       <nav className="window-menu" aria-label={isMac ? 'Sidebar controls' : 'Application menu'} ref={menuRef}>
         <button
           type="button"
-          className="sidebar-toggle-button"
-          title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+          className="sidebar-toggle-button header-icon-tooltip"
+          data-tooltip={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
           aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
           aria-pressed={!sidebarCollapsed}
           onClick={onToggleSidebar}
@@ -236,8 +236,8 @@ export const TopBar = memo(function TopBar({
             <button
               ref={newResearchButtonRef}
               type="button"
-              className="header-sidebar-action-button"
-              title={`Start ${newResearchLabel.toLocaleLowerCase()}`}
+              className="header-sidebar-action-button header-icon-tooltip"
+              data-tooltip={newResearchLabel}
               aria-label={newResearchLabel}
               aria-haspopup={!workspaceOpen ? 'menu' : undefined}
               aria-expanded={!workspaceOpen ? newResearchPickerOpen : undefined}
@@ -285,8 +285,8 @@ export const TopBar = memo(function TopBar({
           </div>
           <button
             type="button"
-            className="header-sidebar-action-button"
-            title="Quick Chat"
+            className="header-sidebar-action-button header-icon-tooltip"
+            data-tooltip="Quick Chat"
             aria-label="Quick Chat"
             onClick={onOpenQuickChat}
           >
@@ -395,8 +395,8 @@ export const TopBar = memo(function TopBar({
             <div className="workspace-editor-control" ref={editorMenuRef}>
               <button
                 type="button"
-                className="workspace-editor-open-button"
-                title={`Open primary workspace directory in ${defaultEditor.name}`}
+                className="workspace-editor-open-button header-icon-tooltip"
+                data-tooltip={`Open primary workspace directory in ${defaultEditor.name}`}
                 aria-label={`Open primary workspace directory in ${defaultEditor.name}`}
                 onClick={() => openWorkspaceInEditor(defaultEditor.id)}
               >
@@ -404,8 +404,8 @@ export const TopBar = memo(function TopBar({
               </button>
               <button
                 type="button"
-                className="workspace-editor-menu-button"
-                title="Choose editor"
+                className="workspace-editor-menu-button header-icon-tooltip"
+                data-tooltip="Choose editor"
                 aria-label="Choose editor"
                 aria-haspopup="menu"
                 aria-expanded={editorMenuOpen}
@@ -438,8 +438,8 @@ export const TopBar = memo(function TopBar({
           {rightSidenavAvailable ? (
             <button
               type="button"
-              className="window-control-button right-sidenav-toggle-button"
-              title={rightSidenavExpanded ? 'Show summary sidebar' : 'Show detailed sidebar'}
+              className="window-control-button right-sidenav-toggle-button header-icon-tooltip"
+              data-tooltip={rightSidenavExpanded ? 'Show summary sidebar' : 'Show detailed sidebar'}
               aria-label={rightSidenavExpanded ? 'Show summary sidebar' : 'Show detailed sidebar'}
               aria-pressed={rightSidenavExpanded}
               onClick={onToggleRightSidenav}
@@ -449,19 +449,19 @@ export const TopBar = memo(function TopBar({
           ) : null}
           {!isMac ? (
             <>
-              <button type="button" className="window-control-button" title="Minimize" aria-label="Minimize" onClick={() => void window.beale.minimizeWindow()}>
+              <button type="button" className="window-control-button header-icon-tooltip" data-tooltip="Minimize" aria-label="Minimize" onClick={() => void window.beale.minimizeWindow()}>
                 <Minus size={15} />
               </button>
               <button
                 type="button"
-                className="window-control-button"
-                title="Maximize"
+                className="window-control-button header-icon-tooltip"
+                data-tooltip="Maximize"
                 aria-label="Maximize"
                 onClick={() => void window.beale.toggleMaximizeWindow()}
               >
                 <Square size={13} />
               </button>
-              <button type="button" className="window-control-button window-control-close" title="Close" aria-label="Close" onClick={() => void window.beale.closeWindow()}>
+              <button type="button" className="window-control-button window-control-close header-icon-tooltip" data-tooltip="Close" aria-label="Close" onClick={() => void window.beale.closeWindow()}>
                 <X size={15} />
               </button>
             </>

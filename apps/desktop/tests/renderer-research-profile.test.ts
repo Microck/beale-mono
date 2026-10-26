@@ -25,6 +25,7 @@ import {
 import { AppearanceSettingsView } from '../src/renderer/features/settings/SettingsModal';
 import { formatSessionDateTime } from '../src/renderer/lib/formatting';
 import {
+  activeMemoryCount,
   memoryCatalogStatusSections,
   sessionMemoryActivitySummary,
   sessionMemoryTypeSummaries
@@ -215,6 +216,8 @@ describe('renderer research profile presentation', () => {
       node('lead_one', 'lead', 'confirmed'),
       node('trajectory_one', 'trajectory', 'confirmed'),
       node('trajectory_two', 'trajectory', 'suspected'),
+      node('rejected_trajectory', 'trajectory', 'rejected'),
+      node('rejected_only', 'candidate', 'rejected'),
       node('stale_note', 'research_note', 'stale')
     ]);
 
@@ -225,6 +228,10 @@ describe('renderer research profile presentation', () => {
     ]);
     expect(sessionMemoryTypeSummaries([node('trajectory_one', 'trajectory', 'confirmed')])[0]?.countLabel)
       .toBe('1 Trajectory');
+    expect(activeMemoryCount([
+      node('trajectory_one', 'trajectory', 'confirmed'),
+      node('rejected_trajectory', 'trajectory', 'rejected')
+    ])).toBe(1);
   });
 
   it('includes profile workflow and vocabulary identity in suggestion cache keys', () => {
@@ -288,7 +295,11 @@ describe('renderer research profile presentation', () => {
       }
     };
     const memory = {
-      nodes: [node('memory-note', 'note', 'published'), node('memory-archive', 'retired_note', 'draft')],
+      nodes: [
+        node('memory-note', 'note', 'published'),
+        node('memory-archive', 'retired_note', 'draft'),
+        node('memory-rejected', 'note', 'rejected')
+      ],
       runbooks: [], edges: [], contextWorkspaceId: 'workspace_one', contextSubjectId: 'subject_one'
     } as never;
     const detail = {

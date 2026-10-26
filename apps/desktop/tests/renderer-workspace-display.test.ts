@@ -505,6 +505,37 @@ describe('renderer workspace display view models', () => {
     expect(styles).toMatch(/\.workspace-session-row:not\(\.workspace-new-research-session-row\):is\(:hover, :focus-within, \.has-progress-spinner\) \.workspace-session-item\s*\{[^}]*padding-right: 32px;/u);
   });
 
+  it('keeps the selected running track spinner when its registry epoch is terminal', () => {
+    const registeredWorkspace = workspace('workspace_test', '/workspace/test');
+    const trackSession = session({ status: 'completed', runId: 'track_example', registryWorkspaceId: registeredWorkspace.id });
+    const registry: WorkspaceRegistryState = {
+      registryPath: '/workspace/example/.beale/workspaces.json',
+      workspaces: [registeredWorkspace],
+      researchSessions: [trackSession]
+    };
+    const html = renderToStaticMarkup(createElement(WorkspaceSidebar, {
+      busy: false,
+      collapsed: false,
+      error: null,
+      workspaceRegistry: registry,
+      selectedRunId: trackSession.runId,
+      runningTrackSessionId: trackSession.runId,
+      runningTrackWorkspaceId: registeredWorkspace.workspaceId,
+      snapshot: null,
+      onAddWorkspace: () => undefined,
+      onImportWorkspace: () => undefined,
+      onOpenWorkspace: () => undefined,
+      onOpenResearchSession: () => undefined,
+      onResizePointerDown: () => undefined,
+      onStartNewResearch: () => undefined,
+      onStartNewResearchForWorkspace: () => undefined
+    }));
+
+    expect(html).toContain('class="workspace-session-row has-progress-spinner"');
+    expect(html).toContain('Session status: Active');
+    expect(html).not.toContain('Session result not viewed');
+  });
+
   it('uses the leading slot for an unviewed result dot and leaves viewed results blank', () => {
     const registeredWorkspace = workspace('workspace_test', '/workspace/test');
     const registry: WorkspaceRegistryState = {
