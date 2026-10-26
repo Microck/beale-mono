@@ -209,8 +209,10 @@ describe('renderer session composer', () => {
       }
     });
 
-    expect(html).toContain('class="main-steer-collaboration-label">1 Collabs</span>');
+    expect(html).toContain('class="main-steer-collaboration-label">1 Collab</span>');
     expect(html).toContain('class="main-steer-collaboration-mode">Simple</span>');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain('aria-haspopup="dialog"');
   });
 
   it('renders settings-form collaborator rows in Simple mode', () => {

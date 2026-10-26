@@ -1,5 +1,6 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowRight, ChevronDown, LockKeyhole, Plus, Square, Users, X } from 'lucide-react';
 import type {
   ApprovalRecord,
@@ -19,7 +20,6 @@ import type {
   SteeringAction
 } from '@shared/types';
 import { ModelSelectionPicker } from '../../app/ModelSelectionPicker';
-import { Modal } from '../../app/Modal';
 import { CenteredLoadingState } from '../../app/CenteredLoadingState';
 import { researchModelNameLabel } from '../../lib/formatting';
 import { normalizeShellSafetyMode } from '../../../shared/shellSafety';
@@ -36,6 +36,9 @@ export const STEER_TEXTAREA_MAX_LINES = 7;
 export const STEER_TEXTAREA_DEFAULT_EXTRA_LINES = 1;
 const STEER_ACTION_ROW_HEIGHT = 35;
 const STEER_COMPOSER_ROW_GAP = 0;
+const COLLABORATION_MENU_WIDTH = 720;
+const COLLABORATION_MENU_GAP = 8;
+const COLLABORATION_MENU_INSET = 12;
 
 export function SessionLoadingState({ label }: { label: string }): JSX.Element {
   return <CenteredLoadingState className="main-session-loading" label={label} />;
@@ -540,49 +543,97 @@ function CollaborationSelector({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(collaboration);
+  const [menuPosition, setMenuPosition] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
+  const menuId = useId();
+  const selectorRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const collaborators = collaboration.providers.filter((provider) => provider.enabled);
   const isSelfCollaboration = collaborators.length === 1
     && collaborators[0]?.provider === leadModelSelection.provider
     && collaborators[0]?.model === leadModelSelection.model;
   const collaboratorLabel = isSelfCollaboration
     ? null
-    : `${collaborators.length} Collabs`;
+    : `${collaborators.length} ${collaborators.length === 1 ? 'Collab' : 'Collabs'}`;
   const modeLabel = isSelfCollaboration
     ? 'Self-Collab'
     : collaboration.subagentMode === 'advanced' ? 'Advanced' : 'Simple';
-  const openDialog = (): void => {
-    setDraft(collaboration);
-    setOpen(true);
+  const positionMenu = (): void => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const bounds = trigger.getBoundingClientRect();
+    const width = Math.min(COLLABORATION_MENU_WIDTH, window.innerWidth - COLLABORATION_MENU_INSET * 2);
+    setMenuPosition({
+      left: Math.min(Math.max(COLLABORATION_MENU_INSET, bounds.left), window.innerWidth - width - COLLABORATION_MENU_INSET),
+      bottom: window.innerHeight - bounds.top + COLLABORATION_MENU_GAP,
+      maxHeight: Math.max(0, bounds.top - COLLABORATION_MENU_GAP - COLLABORATION_MENU_INSET)
+    });
   };
+  const openMenu = (): void => {
+    setDraft(collaboration);
+    positionMenu();
+    setOpen(true);
+    window.requestAnimationFrame(() => menuRef.current?.querySelector<HTMLSelectElement>('select')?.focus());
+  };
+  useEffect(() => {
+    if (!open) return undefined;
+    const isInsideMenu = (target: EventTarget | null): boolean => {
+      if (!(target instanceof Node)) return false;
+      if (selectorRef.current?.contains(target) || menuRef.current?.contains(target)) return true;
+      return Boolean(target instanceof Element
+        && target.closest('.model-selection-picker-menu, .model-selection-picker-submenu')
+        && menuRef.current?.querySelector('.collaboration-selector-model-picker.is-open'));
+    };
+    const dismissOnOutsidePointer = (event: PointerEvent): void => {
+      if (isInsideMenu(event.target)) return;
+      setOpen(false);
+    };
+    const dismissOnOutsideFocus = (event: FocusEvent): void => {
+      if (isInsideMenu(event.target)) return;
+      setOpen(false);
+    };
+    const dismissOnEscape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      if (menuRef.current?.querySelector('.collaboration-selector-model-picker.is-open')) return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    const repositionOnScroll = (event: Event): void => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      positionMenu();
+    };
+    document.addEventListener('pointerdown', dismissOnOutsidePointer);
+    document.addEventListener('focusin', dismissOnOutsideFocus);
+    document.addEventListener('keydown', dismissOnEscape);
+    window.addEventListener('resize', positionMenu);
+    window.addEventListener('scroll', repositionOnScroll, true);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOnOutsidePointer);
+      document.removeEventListener('focusin', dismissOnOutsideFocus);
+      document.removeEventListener('keydown', dismissOnEscape);
+      window.removeEventListener('resize', positionMenu);
+      window.removeEventListener('scroll', repositionOnScroll, true);
+    };
+  }, [open]);
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
   const changeDraft = (next: ResearchCollaborationPreferences): void => {
     setDraft(next);
     onChange?.(next);
   };
-  return (
-    <>
-      <div className={`main-steer-collaboration-selector${open ? ' is-open' : ''}`}>
-        <button
-          type="button"
-          className="main-steer-collaboration-trigger"
-          title="Collaboration settings"
+  const menu = open && menuPosition && typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          id={menuId}
+          className="collaboration-selector-menu"
+          role="group"
           aria-label="Collaboration settings"
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          disabled={disabled}
-          onClick={openDialog}
+          ref={menuRef}
+          style={menuPosition}
         >
-          <Users className="main-steer-collaboration-icon" size={13} aria-hidden="true" />
-          {collaboratorLabel ? <span className="main-steer-collaboration-label">{collaboratorLabel}</span> : null}
-          <span className="main-steer-collaboration-mode">{modeLabel}</span>
-          <ChevronDown className="main-steer-collaboration-chevron" size={13} aria-hidden="true" />
-        </button>
-      </div>
-      {open ? (
-        <Modal
-          className="collaboration-selector-dialog"
-          title="Collaboration"
-          onClose={() => setOpen(false)}
-        >
+          <div className="collaboration-selector-menu-title">Collaboration</div>
           <CollaborationSettingsForm
             collaboration={draft}
             disabled={!onChange}
@@ -591,8 +642,31 @@ function CollaborationSelector({
             providerModelCatalog={providerModelCatalog}
             onChange={changeDraft}
           />
-        </Modal>
-      ) : null}
+        </div>,
+        document.body
+      )
+    : null;
+  return (
+    <>
+      <div className={`main-steer-collaboration-selector${open ? ' is-open' : ''}`} ref={selectorRef}>
+        <button
+          ref={triggerRef}
+          type="button"
+          className="main-steer-collaboration-trigger"
+          title="Collaboration settings"
+          aria-label="Collaboration settings"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          disabled={disabled}
+          onClick={() => open ? setOpen(false) : openMenu()}
+        >
+          <Users className="main-steer-collaboration-icon" size={13} aria-hidden="true" />
+          {collaboratorLabel ? <span className="main-steer-collaboration-label">{collaboratorLabel}</span> : null}
+          <span className="main-steer-collaboration-mode">{modeLabel}</span>
+          <ChevronDown className="main-steer-collaboration-chevron" size={13} aria-hidden="true" />
+        </button>
+      </div>
+      {menu}
     </>
   );
 }

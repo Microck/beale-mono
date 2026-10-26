@@ -415,9 +415,10 @@ describe('renderer dialog surfaces', () => {
     expect(appSource).toContain('onCancel={cancelNewResearch}');
     expect(modalSource).not.toContain('StartRunForm');
     expect(settingsSource).toContain('collaboration={collaboration}');
-    expect(composerSource).toContain('onClick={openDialog}');
-    expect(composerSource).toContain('onClose={() => setOpen(false)}');
-    expect(composerSource).toContain('className="collaboration-selector-dialog"');
+    expect(composerSource).toContain('onClick={() => open ? setOpen(false) : openMenu()}');
+    expect(composerSource).toContain('className="collaboration-selector-menu"');
+    expect(composerSource).toContain('bottom: window.innerHeight - bounds.top + COLLABORATION_MENU_GAP');
+    expect(composerSource).not.toContain('<Modal');
     expect(settingsSource).not.toContain("label: 'Mode'");
     expect(settingsSource).not.toContain("label: 'Intensity'");
     expect(settingsSource).not.toContain("label: 'Challenge Rounds'");
@@ -630,7 +631,7 @@ describe('renderer dialog surfaces', () => {
     const collaborationLabelStyles = styles.match(/\.main-steer-collaboration-label\s*\{([^}]*)\}/)?.[1] ?? '';
     const composerModelLabelStyles = styles.match(/\.main-steer-model-selection-picker \.model-selection-picker-model\s*\{([^}]*)\}/)?.[1] ?? '';
     const collaborationModeStyles = styles.match(/\.main-steer-collaboration-mode,\s*\.main-steer-collaboration-chevron\s*\{([^}]*)\}/)?.[1] ?? '';
-    const collaborationDialogStyles = styles.match(/\.modal-panel\.collaboration-selector-dialog\s*\{([^}]*)\}/)?.[1] ?? '';
+    const collaborationMenuStyles = styles.match(/\.collaboration-selector-menu\s*\{([^}]*)\}/)?.[1] ?? '';
     const collaborationFormStyles = styles.match(/\.settings-form\.collaboration-selector-form\s*\{([^}]*)\}/)?.[1] ?? '';
     const collaborationFormSurfaceStyles = styles.match(/\.collaboration-selector-form \.settings-form-squircle\s*\{([^}]*)\}/)?.[1] ?? '';
     const collaborationModeTypographyStyles = styles.match(/\.settings-form\.collaboration-selector-form \.collaboration-selector-mode-row,[\s\S]*?\.settings-form\.collaboration-selector-form \.collaboration-selector-mode-row :is\(strong, small, select, option\)\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -715,8 +716,9 @@ describe('renderer dialog surfaces', () => {
     expect(collaborationLabelStyles).toContain('color: var(--muted-strong)');
     expect(composerModelLabelStyles).toContain('color: var(--muted-strong)');
     expect(collaborationModeStyles).toContain('color: var(--muted)');
-    expect(collaborationDialogStyles).toContain('border-radius: 34px');
-    expect(collaborationDialogStyles).toContain('corner-shape: squircle');
+    expect(collaborationMenuStyles).toContain('position: fixed');
+    expect(collaborationMenuStyles).toContain('overflow-y: auto');
+    expect(collaborationMenuStyles).toContain('border-radius: 18px');
     expect(collaborationFormStyles).toContain('--settings-view-font-size: 14px');
     expect(collaborationFormStyles).toContain('font-size: var(--settings-view-font-size)');
     expect(collaborationModeTypographyStyles).toContain('font-size: var(--settings-view-font-size)');
