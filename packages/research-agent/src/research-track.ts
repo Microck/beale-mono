@@ -72,6 +72,9 @@ export interface ResearchTrackSnapshot {
 
 export interface ResearchTrackSurfaceProjection {
   id: string;
+  resourceId?: string;
+  resourceKind?: string;
+  resourceSource?: string;
   parentId: string | null;
   name: string;
   coverageState: { covered: boolean; unmetRequirements: string[]; unblockedFindingIds?: string[] };
@@ -357,14 +360,61 @@ export class ResearchTrackStore {
       score(right) - score(left)
       || (left.lastWorkedAt ?? "").localeCompare(right.lastWorkedAt ?? "")
       || left.surfaceId.localeCompare(right.surfaceId);
-    const breadth = eligible.filter((work) => !byId.get(work.surfaceId)?.parentId && work.epochs === 0).sort(rank);
+    const resourceIdForSurface = (surfaceId: string): string => {
+      const surface = byId.get(surfaceId);
+      if (surface?.resourceId) return surface.resourceId;
+      let root = surface;
+      const seen = new Set<string>();
+      while (root?.parentId && !seen.has(root.id)) {
+        seen.add(root.id);
+        root = byId.get(root.parentId);
+      }
+      return root?.id ?? surfaceId;
+    };
+    const resourceId = (work: ResearchTrackSurfaceState): string => resourceIdForSurface(work.surfaceId);
+    const resourceKind = (work: ResearchTrackSurfaceState): string =>
+      byId.get(work.surfaceId)?.resourceKind ?? byId.get(resourceId(work))?.resourceKind ?? "unknown";
+    const resourceSource = (work: ResearchTrackSurfaceState): string | undefined =>
+      byId.get(work.surfaceId)?.resourceSource ?? byId.get(resourceId(work))?.resourceSource;
+    const kindEpochs = new Map<string, number>();
+    const resourceEpochs = new Map<string, number>();
+    for (const work of track.surfaces) {
+      if (work.epochs === 0 || !byId.has(work.surfaceId)) continue;
+      const kind = resourceKind(work);
+      kindEpochs.set(kind, (kindEpochs.get(kind) ?? 0) + work.epochs);
+      const id = resourceId(work);
+      resourceEpochs.set(id, (resourceEpochs.get(id) ?? 0) + work.epochs);
+    }
+    const breadthScore = (work: ResearchTrackSurfaceState): number => {
+      const kind = resourceKind(work);
+      const kindBonus = kind === "unknown" ? 0 : Math.max(0, 30 - (kindEpochs.get(kind) ?? 0) * 6);
+      const alternateKindBonus = kind !== "repository" && kind !== "unknown" ? 8 : 0;
+      const executionBonus = kind === "binary" || kind === "service" ? 8 : 0;
+      return score(work) + kindBonus + alternateKindBonus + executionBonus
+        + (resourceSource(work) === "explicit_scope" ? 12 : 0);
+    };
+    const breadthRank = (left: ResearchTrackSurfaceState, right: ResearchTrackSurfaceState): number =>
+      breadthScore(right) - breadthScore(left) || rank(left, right);
+    const breadth = eligible.filter((work) => !byId.get(work.surfaceId)?.parentId && work.epochs === 0).sort(breadthRank);
     const depth = eligible.filter((work) => byId.get(work.surfaceId)?.parentId || work.epochs > 0).sort(rank);
     const strongestDepth = depth[0];
-    const exploreBreadth = breadth.length > 0 && (!strongestDepth || score(strongestDepth) < 45
-      || track.epochCount > 0 && track.epochCount % 4 === 0 && score(strongestDepth) < 80);
-    const candidates = exploreBreadth ? breadth : depth.length > 0 ? depth : breadth;
+    const unexploredKind = breadth.some((work) => resourceKind(work) !== "unknown"
+      && !kindEpochs.has(resourceKind(work)));
+    const kindStarvation = track.epochCount >= 3 && kindEpochs.size === 1 && unexploredKind;
+    // Keep three epochs available for depth, then give another resource a turn.
+    // Escape a one-kind streak immediately when a reviewed new kind appears.
+    const explorationDue = track.epochCount >= 3 && (track.epochCount % 4 === 3 || kindStarvation);
+    const exploreBreadth = breadth.length > 0 && (!strongestDepth || score(strongestDepth) < 45 || explorationDue);
     const history = this.#database.prepare("SELECT last_surface_id, consecutive_surface_epochs FROM app_server_research_tracks WHERE workspace_id=?")
       .get(this.#workspaceId) as { last_surface_id: string | null; consecutive_surface_epochs: number };
+    const lastResourceId = history.last_surface_id ? resourceIdForSurface(history.last_surface_id) : null;
+    const alternateResources = eligible.filter((work) => resourceId(work) !== lastResourceId).sort((left, right) =>
+      (resourceEpochs.get(resourceId(left)) ?? 0) - (resourceEpochs.get(resourceId(right)) ?? 0)
+      || (kindEpochs.get(resourceKind(left)) ?? 0) - (kindEpochs.get(resourceKind(right)) ?? 0)
+      || breadthRank(left, right));
+    const candidates = exploreBreadth ? breadth
+      : explorationDue && breadth.length === 0 && alternateResources.length > 0 ? alternateResources
+        : depth.length > 0 ? depth : breadth;
     const selected = history.consecutive_surface_epochs >= 2 && candidates.length > 1 && score(candidates[0]!) < 80
       ? candidates.find((candidate) => candidate.surfaceId !== history.last_surface_id) ?? candidates[0]
       : candidates[0];

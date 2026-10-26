@@ -40,6 +40,8 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     const map = readWorkspaceSurfaceMap(databasePath, workspaceId);
     assert.equal(map.surfaces.length, 2);
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).parentId, root.id);
+    assert.equal(map.surfaces.find((surface) => surface.id === child.id).resourceKind, 'service');
+    assert.equal(map.surfaces.find((surface) => surface.id === child.id).resourceSource, 'explicit_scope');
     assert.ok(map.surfaces.every((surface) => surface.firstTouchedAt));
     assert.equal(map.surfaces.every((surface) => surface.coverageState.covered), true);
     assert.equal(map.surfaces.every((surface) => surface.progressBlocker === null), true);
@@ -53,6 +55,15 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     assert.deepEqual(blocked.surfaces.find((surface) => surface.id === root.id).coverageState.unmetRequirements, ['child_surfaces']);
     assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
       surface.id === child.id ? { ...surface, progressBlocker: { reason } } : surface) }), /invalid workspace surface map/);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, resourceKind: 7 } : surface) }), /invalid workspace surface map/);
+    const discovered = resources.discover({ kind: 'binary', name: 'Example daemon',
+      locator: 'binary.example.test/daemon', rationale: 'Example authorized service executable.' });
+    assert.equal(readWorkspaceSurfaceMap(databasePath, workspaceId).surfaces.some((surface) => surface.id === discovered.id), false);
+    resources.recordReview(discovered.id, { decision: 'relevant', reason: 'Covered by the synthetic workspace scope.', source: 'auto_review' });
+    const approved = readWorkspaceSurfaceMap(databasePath, workspaceId).surfaces.find((surface) => surface.id === discovered.id);
+    assert.equal(approved.resourceKind, 'binary');
+    assert.equal(approved.resourceSource, 'runtime_discovery');
     assert.deepEqual(new Set(map.agents.map((agent) => agent.agentId)), new Set(['root', '/root/scout']));
     assert.equal(map.agents[0].sessionTitle, 'Map service');
     const database = new DatabaseSync(databasePath, { readOnly: true });

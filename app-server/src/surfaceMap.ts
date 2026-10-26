@@ -46,12 +46,14 @@ export function readWorkspaceSurfaceMap(databasePath: string, workspaceId: strin
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
     if (!tableExists(database, 'app_server_research_resources')) return empty();
-    const roots = (database.prepare(`SELECT id, name, rationale, direction, review_status, source
+    const roots = (database.prepare(`SELECT id, name, rationale, kind, direction, review_status, source
       FROM app_server_research_resources WHERE workspace_id=? ORDER BY discovered_at, id`).all(workspaceId) as Row[])
       .filter((row) => row.direction !== 'out_of_scope' && row.review_status !== 'not_relevant'
         && row.review_status !== 'explicit_out_of_scope'
         && (row.source !== 'runtime_discovery' || row.review_status === 'relevant'));
     const eligibleRootIds = new Set(roots.map((row) => string(row.id)));
+    const resourceKinds = new Map(roots.map((row) => [string(row.id), string(row.kind)]));
+    const resourceSources = new Map(roots.map((row) => [string(row.id), string(row.source)]));
     const children = tableExists(database, 'app_server_surfaces')
       ? (database.prepare(`SELECT id, resource_id, parent_id, name, description, foundation_json
           FROM app_server_surfaces WHERE workspace_id=? ORDER BY created_at, id`).all(workspaceId) as Row[])
@@ -63,10 +65,13 @@ export function readWorkspaceSurfaceMap(databasePath: string, workspaceId: strin
       ? database.prepare('SELECT surface_id, first_touched_at FROM app_server_surface_touches WHERE workspace_id=?').all(workspaceId) as Row[] : [])
       .map((row) => [string(row.surface_id), string(row.first_touched_at)]));
     const raw = [
-      ...roots.map((row) => ({ id: string(row.id), resourceId: string(row.id), parentId: null, name: string(row.name),
+      ...roots.map((row) => ({ id: string(row.id), resourceId: string(row.id),
+        resourceKind: string(row.kind), resourceSource: string(row.source), parentId: null, name: string(row.name),
         description: string(row.rationale), firstTouchedAt: firstTouches.get(string(row.id)) ?? null,
         foundation: rootFoundations.get(string(row.id)) ?? null })),
-      ...children.map((row) => ({ id: string(row.id), resourceId: string(row.resource_id), parentId: string(row.parent_id),
+      ...children.map((row) => ({ id: string(row.id), resourceId: string(row.resource_id),
+        resourceKind: resourceKinds.get(string(row.resource_id)) ?? '',
+        resourceSource: resourceSources.get(string(row.resource_id)) ?? '', parentId: string(row.parent_id),
         name: string(row.name), description: string(row.description), firstTouchedAt: firstTouches.get(string(row.id)) ?? null,
         foundation: foundation(row.foundation_json) }))
     ];

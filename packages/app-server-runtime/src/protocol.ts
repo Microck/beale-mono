@@ -56,7 +56,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-26T19:30:55.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-26T20:35:24.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -414,7 +414,8 @@ export interface BealeWorkspaceSurfaceMap {
   schemaVersion: 1;
   workspaceId: string;
   surfaces: Array<{
-    id: string; resourceId: string; parentId: string | null; name: string; description: string;
+    id: string; resourceId: string; resourceKind?: string; resourceSource?: string;
+    parentId: string | null; name: string; description: string;
     firstTouchedAt: string | null; foundation: {
       coverage: { mappingComplete: boolean; sinksInvestigated: boolean; openQuestions: string[]; unexploredConnections: string[] };
     } | null;
@@ -585,6 +586,8 @@ export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSu
   if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.workspaceId !== 'string'
     || !Array.isArray(value.surfaces) || !value.surfaces.every((surface) => isRecord(surface)
       && typeof surface.id === 'string' && typeof surface.resourceId === 'string'
+      && (surface.resourceKind === undefined || typeof surface.resourceKind === 'string')
+      && (surface.resourceSource === undefined || typeof surface.resourceSource === 'string')
       && (surface.parentId === null || typeof surface.parentId === 'string')
       && typeof surface.name === 'string' && typeof surface.description === 'string'
       && (surface.firstTouchedAt === null || typeof surface.firstTouchedAt === 'string')
