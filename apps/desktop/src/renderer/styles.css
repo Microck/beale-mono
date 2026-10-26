@@ -1136,7 +1136,8 @@ code {
 .app-shell {
   --session-heat-edge: var(--panel-border);
   --session-heat-window-surface: var(--chrome-soft);
-  --session-heat-aurora-color: color-mix(in srgb, var(--session-heat-window-surface) 72%, var(--text) 28%);
+  --session-heat-aurora-color: color-mix(in srgb, var(--session-heat-window-surface) 40%, var(--panel) 60%);
+  --session-heat-aurora-blend: multiply;
   --main-content-inline-start: calc(var(--navigation-rail-width) + var(--sidebar-width));
   height: 100%;
   position: relative;
@@ -1177,6 +1178,10 @@ code {
   );
 }
 
+.app-shell:is([data-theme='light'], [data-theme='cream']) {
+  --session-heat-aurora-blend: screen;
+}
+
 .app-shell::before,
 .app-shell::after {
   content: "";
@@ -1185,6 +1190,7 @@ code {
   inset: -24%;
   pointer-events: none;
   opacity: 0;
+  mix-blend-mode: var(--session-heat-aurora-blend);
   transform-origin: center;
   filter: blur(8px);
   transition: opacity 900ms ease;
