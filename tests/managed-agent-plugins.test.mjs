@@ -1219,7 +1219,12 @@ process.exit(99);
     writeFileSync(fakeSsh, `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process');
 const command = process.argv.at(-1);
-const result = spawnSync('/bin/sh', ['-c', command], { stdio: 'inherit' });
+// The fake macOS guest runs on the test host. Translate only Darwin stat metadata reads on Linux.
+const hostCommand = process.platform === 'linux'
+  ? command.replace("'/usr/bin/stat' '-f' '%z' ", "'/usr/bin/stat' '-c' '%s' ")
+    .replace("'/usr/bin/stat' '-f' '%Lp' ", "'/usr/bin/stat' '-c' '%a' ")
+  : command;
+const result = spawnSync('/bin/sh', ['-c', hostCommand], { stdio: 'inherit' });
 process.exit(result.status ?? 98);
 `);
     writeFileSync(fakeScp, `#!/usr/bin/env node
