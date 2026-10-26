@@ -1356,9 +1356,12 @@ export class AppServerHostService {
         const context = await this.workspaceResearchTrackContext(workspace);
         const current = store.syncSurfaces(context.surfaceMap.surfaces)!;
         if (current.status === 'running' && (!context.scope || context.scope.id !== current.scopeId
-          || context.scope.expiresAt && Date.parse(context.scope.expiresAt) <= Date.now()
-          || current.activeSurfaceId && !context.surfaceMap.surfaces.some((surface) => surface.id === current.activeSurfaceId))) {
-          return store.pauseWithError('The authorized scope or assigned surface changed. Review the workspace before resuming.');
+          || context.scope.expiresAt && Date.parse(context.scope.expiresAt) <= Date.now())) {
+          return store.pauseWithError('The authorized scope changed. Review the workspace before resuming.');
+        }
+        if (current.status === 'running' && current.activeSessionId && current.activeSurfaceId
+          && !context.surfaceMap.surfaces.some((surface) => surface.id === current.activeSurfaceId)) {
+          return store.finishEpoch(current.activeSessionId, true, undefined, { countNoProgress: false });
         }
         return current;
       }
@@ -1434,9 +1437,14 @@ export class AppServerHostService {
         const details = await this.workspaceResearchTrackContext(workspace);
         const activeSurfaceId = track.activeSurfaceId;
         if (!details.scope || details.scope.id !== track.scopeId
-          || details.scope.expiresAt && Date.parse(details.scope.expiresAt) <= at.getTime()
-          || activeSurfaceId && !details.surfaceMap.surfaces.some((surface) => surface.id === activeSurfaceId)) {
-          store.pauseWithError('The recorded authorization or assigned surface changed. Review the workspace before resuming.');
+          || details.scope.expiresAt && Date.parse(details.scope.expiresAt) <= at.getTime()) {
+          store.pauseWithError('The recorded authorization changed. Review the workspace before resuming.');
+          continue;
+        }
+        if (track.activeSessionId && activeSurfaceId
+          && !details.surfaceMap.surfaces.some((surface) => surface.id === activeSurfaceId)) {
+          store.syncSurfaces(details.surfaceMap.surfaces);
+          store.finishEpoch(track.activeSessionId, true, undefined, { countNoProgress: false });
           continue;
         }
         const ready = new Set(details.targets.filter((target) => target.ready).map((target) => target.id));

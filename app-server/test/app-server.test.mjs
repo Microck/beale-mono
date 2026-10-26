@@ -210,6 +210,71 @@ test('the app-server reserves a safe research-track epoch and retains its pause 
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).status, 'paused');
 });
 
+test('retiring the assigned surface ends its epoch and schedules remaining track work', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-retired-example-'));
+  temporaryDirectories.push(directory);
+  const registry = hostRegistryFixture(directory);
+  registry.listWorkspaces = () => [{ workspaceId: 'workspace-test' }];
+  const hostService = new AppServerHostService({ registry });
+  const available = [
+    { id: 'surface-example-a', parentId: null, name: 'Example service A',
+      coverageState: { covered: false, unmetRequirements: ['surface_map'], unblockedFindingIds: [] }, progressBlocker: null },
+    { id: 'surface-example-b', parentId: null, name: 'Example service B',
+      coverageState: { covered: false, unmetRequirements: ['surface_map'], unblockedFindingIds: [] }, progressBlocker: null }
+  ];
+  let surfaces = available;
+  hostService.workspaceResearchTrackContext = async () => ({
+    scope: { id: 'scope-example', expiresAt: null }, targets: [{ id: 'local', ready: true }],
+    surfaceMap: { surfaces }
+  });
+  const track = await hostService.workspaceResearchTrack('workspace-test', 'start');
+  const [first] = await hostService.dueResearchTracks();
+  assert.equal(first.request.sessionId, track.id);
+  const assigned = (await hostService.workspaceResearchTrack('workspace-test', 'status')).activeSurfaceId;
+  surfaces = available.filter((surface) => surface.id !== assigned);
+
+  const retired = await hostService.workspaceResearchTrack('workspace-test', 'status');
+  assert.equal(retired.status, 'running');
+  assert.equal(retired.activeSessionId, null);
+  assert.equal(retired.lastError, null);
+  assert.equal(retired.surfaces.find((surface) => surface.surfaceId === assigned).status, 'excluded');
+  const [next] = await hostService.dueResearchTracks();
+  assert.equal(next.request.sessionId, track.id);
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).activeSurfaceId, surfaces[0].id);
+});
+
+test('the scheduler retires a missing assigned surface without pausing the track', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-track-scheduler-example-'));
+  temporaryDirectories.push(directory);
+  const registry = hostRegistryFixture(directory);
+  registry.listWorkspaces = () => [{ workspaceId: 'workspace-test' }];
+  const hostService = new AppServerHostService({ registry });
+  const available = [
+    { id: 'surface-example-a', parentId: null, name: 'Example service A',
+      coverageState: { covered: false, unmetRequirements: ['surface_map'], unblockedFindingIds: [] }, progressBlocker: null },
+    { id: 'surface-example-b', parentId: null, name: 'Example service B',
+      coverageState: { covered: false, unmetRequirements: ['surface_map'], unblockedFindingIds: [] }, progressBlocker: null }
+  ];
+  let surfaces = available;
+  hostService.workspaceResearchTrackContext = async () => ({
+    scope: { id: 'scope-example', expiresAt: null }, targets: [{ id: 'local', ready: true }],
+    surfaceMap: { surfaces }
+  });
+  const track = await hostService.workspaceResearchTrack('workspace-test', 'start');
+  await hostService.dueResearchTracks();
+  const assigned = (await hostService.workspaceResearchTrack('workspace-test', 'status')).activeSurfaceId;
+  surfaces = available.filter((surface) => surface.id !== assigned);
+
+  assert.deepEqual(await hostService.dueResearchTracks(), []);
+  const retired = await hostService.workspaceResearchTrack('workspace-test', 'status');
+  assert.equal(retired.status, 'running');
+  assert.equal(retired.activeSessionId, null);
+  assert.equal(retired.lastError, null);
+  assert.equal(retired.surfaces.find((surface) => surface.surfaceId === assigned).status, 'excluded');
+  assert.equal((await hostService.dueResearchTracks()).length, 1);
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).activeSurfaceId, surfaces[0].id);
+});
+
 test('research-track scheduler context reads authorization and surfaces without loading workspace memory', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-track-context-example-'));
   temporaryDirectories.push(directory);

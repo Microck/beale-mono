@@ -125,6 +125,20 @@ test('track reserves bounded surface epochs and requires canonical evidence for 
   } finally { state.close(); }
 });
 
+test('terminal persistence keeps an automatic pause reason visible', () => {
+  const state = fixture();
+  try {
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces });
+    state.store.reserveNext('session-example-paused', surfaces);
+    state.store.pauseWithError('Example authorization changed.');
+    const finished = state.store.finishEpoch('session-example-paused', true);
+    assert.equal(finished.status, 'paused');
+    assert.equal(finished.lastError, 'Example authorization changed.');
+    assert.equal(finished.activeSessionId, null);
+  } finally { state.close(); }
+});
+
 test('actionability promotes child proof work, decays without evidence, and returns to breadth', () => {
   const state = fixture();
   try {
