@@ -33,6 +33,7 @@ import { scrollFadeClasses } from '../../lib/scrollFade';
 import { INSET_SCROLLBAR_ACTIVE_MS } from '../../hooks/useInsetScrollbarActivation';
 import {
   advanceCommentaryStreaming,
+  commentaryStreamingModeForUserAgent,
   initialCommentaryStreamingState,
   reconcileCommentaryStreaming,
   visibleCommentaryMessages
@@ -157,6 +158,7 @@ export const CommentaryView = memo(function CommentaryView({
     displayEvents: events.length
   }), [detail, events, repositoryMetadata, sessionSetupPending, showBackToMain]);
   const streamingScopeKey = detail ? `${selectedRunId ?? detail.run.id}:${detail.run.id}:${showBackToMain}` : null;
+  const streamingMode = commentaryStreamingModeForUserAgent(typeof navigator === 'undefined' ? '' : navigator.userAgent);
   const [reducedMotion, setReducedMotion] = useState(() => typeof window !== 'undefined'
     && typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -173,9 +175,9 @@ export const CommentaryView = memo(function CommentaryView({
   }, []);
   useLayoutEffect(() => {
     setStreamingState((current) => reconcileCommentaryStreaming(
-      current, streamingScopeKey, messages, streamEnabled, Boolean(detail && !isRunWorkingStatus(detail.run.status))
+      current, streamingScopeKey, messages, streamEnabled, Boolean(detail && !isRunWorkingStatus(detail.run.status)), streamingMode
     ));
-  }, [detail?.run.status, messages, streamEnabled, streamingScopeKey]);
+  }, [detail?.run.status, messages, streamEnabled, streamingMode, streamingScopeKey]);
   useEffect(() => {
     if (!streamingState.pending.length) return undefined;
     const timer = window.setTimeout(() => setStreamingState(advanceCommentaryStreaming), 12);
