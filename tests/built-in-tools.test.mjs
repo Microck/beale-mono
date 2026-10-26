@@ -1342,6 +1342,14 @@ test("repository search scopes configured roots and preserves bounded partial re
       scoped.result.output.availableRoots.map((entry) => entry.label),
       ["first-repository", "second-repository"],
     );
+    const unmaterialized = await createResearchToolRegistry([scopedTool]).execute({
+      id: "search_unmaterialized_root",
+      actionClass: "search",
+      toolName: "repository.search",
+      input: { query: "scoped needle", root: "example-source" },
+    });
+    assert.equal(unmaterialized.result.status, "error");
+    assert.match(unmaterialized.result.summary, /repository\.materialize/);
 
     const nestedFile = await createResearchToolRegistry([
       createRepositorySearchTool({ roots: [workspace] }),

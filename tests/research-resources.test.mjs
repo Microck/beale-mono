@@ -9,6 +9,7 @@ import {
   APPLE_SECURITY_BOUNTY_RESEARCH_KIT_ID,
   createResearchResourceScopeAuthorizer,
   createResearchResourceTool,
+  createRepositoryMaterializeTool,
   createResearchToolRegistry,
   researchHistoryReminder,
   ResearchResourceCatalog,
@@ -22,6 +23,71 @@ test("Apple first-touch guidance is scoped to the Apple Security Bounty Research
   assert.doesNotMatch(generic, /Apple Open Source/);
   assert.match(apple, /Apple Open Source releases/);
   assert.match(apple, /upstream project history/);
+});
+
+test("repository materialization uses recorded scope and Auto-Review before source access", async () => {
+  const root = await mkdtemp(join(tmpdir(), "app-server-repository-materialize-example-"));
+  const explicitResources = [{ id: "asset-example-source", direction: "in_scope", kind: "repository",
+    locator: "https://github.com/example-org/example-source", source: "explicit_scope" },
+  { id: "asset-example-custom-git", direction: "in_scope", kind: "repository",
+    locator: "https://git.example.test/team/example-source.git", source: "explicit_scope" },
+  { id: "asset-example-ssh-git", direction: "in_scope", kind: "repository",
+    locator: "git@git.example.test:team/private-source.git", source: "explicit_scope" },
+  { id: "asset-excluded-source", direction: "out_of_scope", kind: "repository",
+    locator: "https://github.com/example-org/excluded-source", source: "explicit_scope" }];
+  const catalog = new ResearchResourceCatalog({ databasePath: join(root, "memory.sqlite"),
+    workspaceId: "workspace_materialize_example", explicitResources,
+    authorization: { recorded: true, source: "beale", rules: "Example organization sources are in scope except exclusions." } });
+  const materialized = [];
+  const reviews = [];
+  try {
+    const tool = createRepositoryMaterializeTool({
+      resourceTool: { catalog, authorizationRecorded: true,
+        authorization: { recorded: true, source: "beale", rules: "Example organization sources are in scope except exclusions." },
+        scopeResources: explicitResources,
+        authorizeScopeRelevance: async (request) => {
+          reviews.push(request.resource.id);
+          return { decision: "relevant", source: "auto_review", reason: "Covered by the synthetic scope." };
+        } },
+      materialize: async (candidate, ref, options) => {
+        materialized.push({ candidate, ref, options });
+        return { localPath: "/managed/example-source", head: "example-head", cloneMode: options.cloneMode };
+      },
+    });
+    const registry = createResearchToolRegistry([tool]);
+    const source = catalog.list().find((resource) => resource.locator.includes("github.com/example-org/example-source"));
+    const custom = catalog.list().find((resource) => resource.locator.startsWith("https://git.example.test"));
+    const ssh = catalog.list().find((resource) => resource.locator.startsWith("git@"));
+    const excluded = catalog.list().find((resource) => resource.direction === "out_of_scope");
+    const run = (resourceId) => registry.execute({ id: `materialize-${resourceId}`, actionClass: "inspect",
+      toolName: "repository.materialize", input: { resourceId } },
+    { governance: { allowedSideEffects: ["network"] } });
+    const approved = await run(source.id);
+    assert.equal(approved.result.status, "complete", approved.result.summary);
+    assert.equal(approved.result.output.localPath, "/managed/example-source");
+    assert.equal(materialized.length, 1);
+    assert.equal(materialized[0].candidate.url, "https://github.com/example-org/example-source");
+    assert.equal(materialized[0].options.cloneMode, "shallow");
+    assert.deepEqual(reviews, [source.id]);
+    const customHost = await run(custom.id);
+    assert.equal(customHost.result.status, "complete", customHost.result.summary);
+    assert.equal(materialized[1].candidate.url, "https://git.example.test/team/example-source");
+    const sshHost = await run(ssh.id);
+    assert.equal(sshHost.result.status, "complete", sshHost.result.summary);
+    assert.equal(materialized[2].candidate.url, "ssh://git@git.example.test/team/private-source");
+    const discovered = catalog.discover({ kind: "repository", name: "Example component",
+      locator: "https://github.com/example-org/example-component",
+      rationale: "A covered source component under the recorded inclusion." });
+    const newlyCovered = await run(discovered.id);
+    assert.equal(newlyCovered.result.status, "complete", newlyCovered.result.summary);
+    assert.equal(materialized[3].candidate.url, "https://github.com/example-org/example-component");
+    assert.deepEqual(reviews, [source.id, custom.id, ssh.id, discovered.id]);
+    const denied = await run(excluded.id);
+    assert.equal(denied.result.status, "error");
+    assert.match(denied.result.summary, /explicitly out of scope/);
+    assert.equal(materialized.length, 4);
+    assert.deepEqual(reviews, [source.id, custom.id, ssh.id, discovered.id]);
+  } finally { catalog.close(); await rm(root, { recursive: true, force: true }); }
 });
 
 test("resource discovery is non-authoring and first touch requires relevance Auto-Review", async () => {

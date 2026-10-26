@@ -79,6 +79,11 @@ test('research-track control decodes a bounded workspace progress snapshot', () 
     surfaces: [{ surfaceId: 'surface-example', name: 'Example service', status: 'active', impact: 'high',
       theory: 'A privileged trust boundary may be crossed.', nextAction: 'Test the boundary.',
       evidenceRefs: ['memory:memory-example'], actionabilityScore: 70,
+      angles: [{ name: 'Example authority path', status: 'open',
+        vector: { attackerControl: 'Control an example input', trustBoundary: 'Example authority boundary',
+          failureMode: 'Possible policy mismatch', unauthorizedEffect: 'Access an example protected asset' },
+        proofQuestion: 'Can the input cross the example authority boundary?',
+        evidenceRefs: [], nextAction: 'Test a distinct input.' }],
       validation: { targetDependent: true, environment: 'device', reason: 'Observed on a synthetic test device.' },
       epochs: 1, noProgressEpochs: 0, revisits: 0,
       revisitAfter: null, lastWorkedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }],
@@ -93,6 +98,19 @@ test('research-track control decodes a bounded workspace progress snapshot', () 
     surfaces: [{ ...snapshot.surfaces[0], evidenceRefs: [12] }] }), /invalid workspace research track/);
   assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot,
     surfaces: [{ ...snapshot.surfaces[0], actionabilityScore: 101 }] }), /invalid workspace research track/);
+  assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot,
+    surfaces: [{ ...snapshot.surfaces[0], angles: [{ ...snapshot.surfaces[0].angles[0], status: 'unverified' }] }] }),
+  /invalid workspace research track/);
+  assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot,
+    surfaces: [{ ...snapshot.surfaces[0], angles: [{ ...snapshot.surfaces[0].angles[0], status: 'supported' }] }] }),
+  /invalid workspace research track/);
+  assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot,
+    surfaces: [{ ...snapshot.surfaces[0], angles: [{ ...snapshot.surfaces[0].angles[0],
+      vector: { ...snapshot.surfaces[0].angles[0].vector, trustBoundary: '' } }] }] }),
+  /invalid workspace research track/);
+  assert.equal(decodeBealeWorkspaceResearchTrack({ ...snapshot,
+    surfaces: [{ ...snapshot.surfaces[0], angles: [{ ...snapshot.surfaces[0].angles[0], vector: undefined }] }] })
+    .surfaces[0].angles[0].name, 'Example authority path');
   assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot,
     surfaces: [{ ...snapshot.surfaces[0], validation: { targetDependent: true, environment: 'unknown', reason: '' } }] }), /invalid workspace research track/);
 });

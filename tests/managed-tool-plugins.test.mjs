@@ -32,6 +32,10 @@ test("runtime assembly honors managed plugin selection while retaining core tool
     assert.equal(names(disabled).includes("session.disposition"), false);
     assert.equal(names(disabled).includes("track.checkpoint"), false);
     assert.ok(names(enabled).includes("repository.search"));
+    assert.ok(names(enabled).includes("repository.materialize"));
+    const materialize = enabled.tools.find((tool) => tool.name === "repository.materialize");
+    assert.equal(materialize.sideEffects, "network");
+    assert.ok(materialize.requiredPermissions.includes("network:repository:read"));
     assert.ok(names(enabled).includes("prior_art.fetch"));
     assert.ok(names(enabled).includes("repository.fetch_history"));
     assert.ok(names(enabled).includes("memory.get"));
@@ -42,6 +46,7 @@ test("runtime assembly honors managed plugin selection while retaining core tool
     assert.ok(names(knowledge).includes("memory.get"));
     assert.equal(names(knowledge).includes("claim.get"), false);
     assert.equal(names(knowledge).includes("repository.search"), false);
+    assert.equal(names(knowledge).includes("repository.materialize"), false);
     assert.equal(names(knowledge).includes("prior_art.fetch"), false);
     assert.equal(names(knowledge).includes("repository.fetch_history"), false);
     assert.ok(names(disabled).every((name) => CORE_TOOL_NAMES.includes(name)));

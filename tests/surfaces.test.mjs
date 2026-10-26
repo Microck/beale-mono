@@ -12,6 +12,7 @@ import {
   rebuildWorkspaceResearchIndex,
   releaseWorkspaceResearchIndex,
   ResearchResourceCatalog,
+  ResearchToolRegistry,
   SubagentManager,
   SurfaceStore,
 } from "../packages/research-agent/dist/index.js";
@@ -110,7 +111,9 @@ test("surface tools expose simple query and track focus without duplicate touch"
       /do not count general code browsing as security coverage/);
     assert.match(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.plausibleImpacts.description,
       /ordinary malfunction alone is not security impact/);
-    assert.match(tools["surface.update"].parameters.properties.progressBlocker.properties.reason.description, /pre-auth testing/);
+    assert.match(tools["surface.update"].parameters.properties.progressBlocker.anyOf[0].properties.reason.description, /pre-auth testing/);
+    assert.deepEqual(tools["surface.update"].parameters.required, ["surfaceId", "expectedRevision"]);
+    assert.equal(tools["surface.update"].parameters.properties.progressBlocker.anyOf[1].type, "null");
     const action = (name, input) => ({ id: `action-${name}`, toolName: name, actionClass: "recall", input });
     const entered = await tools["surface.focus"].execute(action("surface.focus", { surfaceId: state.rootId }), { agentId: "agent-example" });
     assert.equal(entered.output.firstTouch, true);
@@ -150,8 +153,18 @@ test("a surface blocker records a concrete dependency after first touch and rema
     assert.throws(() => state.surface.update(child.id, set.output.revision, completeFoundation), /coverage.gaps/);
     const updated = state.surface.update(child.id, set.output.revision, foundation);
     assert.equal(updated.progressBlocker.reason, reason);
-    const cleared = state.surface.update(child.id, updated.revision, completeFoundation, undefined, undefined, null);
-    assert.equal(cleared.progressBlocker, null);
+    const registry = new ResearchToolRegistry([tools["surface.update"]]);
+    const cleared = (await registry.execute({ ...action({ surfaceId: child.id, expectedRevision: updated.revision,
+      progressBlocker: null }), actionClass: "synthesize" }, { agentId: "agent-example" })).result;
+    assert.equal(cleared.status, "complete");
+    assert.deepEqual(cleared.output.foundation, updated.foundation);
+    assert.equal(cleared.output.progressBlocker, null);
+    const stale = await tools["surface.update"].execute(action({ surfaceId: child.id, expectedRevision: updated.revision,
+      progressBlocker: null }), { agentId: "agent-example" });
+    assert.equal(stale.status, "error");
+    assert.match(stale.error.message, /revision changed/i);
+    const completed = state.surface.update(child.id, cleared.output.revision, completeFoundation);
+    assert.equal(completed.progressBlocker, null);
     assert.equal(state.surface.coverageState(child.id).covered, true);
   } finally { state.close(); }
 });

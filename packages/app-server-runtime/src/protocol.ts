@@ -48,7 +48,7 @@ export interface ResourcePriorArtGetInput extends Omit<ResourcePriorArtListInput
 
 export const APP_SERVER_PROTOCOL_NAME = "app-server" as const;
 export const APP_SERVER_PROTOCOL_VERSION = 1 as const;
-export const APP_SERVER_CONTRACT_VERSION = 61 as const;
+export const APP_SERVER_CONTRACT_VERSION = 64 as const;
 export const APP_SERVER_RUNTIME_VERSION = "0.9.0" as const;
 export const APP_SERVER_PROTOCOL_WEBSOCKET_PATH = "/v1/session" as const;
 export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as const;
@@ -56,7 +56,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-26T00:00:00.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-26T19:30:55.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -449,6 +449,19 @@ export interface BealeWorkspaceResearchTrack {
     theory: string;
     nextAction: string;
     evidenceRefs: string[];
+    angles: Array<{
+      name: string;
+      status: "open" | "supported" | "ruled_out" | "blocked";
+      vector?: {
+        attackerControl: string;
+        trustBoundary: string;
+        failureMode: string;
+        unauthorizedEffect: string;
+      };
+      proofQuestion: string;
+      evidenceRefs: string[];
+      nextAction: string;
+    }>;
     actionabilityScore: number;
     validation: { targetDependent: boolean; environment: "device" | "vm" | "web" | "localhost" | "none"; reason: string } | null;
     epochs: number;
@@ -532,6 +545,20 @@ export function decodeBealeWorkspaceResearchTrack(value: unknown): BealeWorkspac
       && impacts.includes(String(work.impact)) && typeof work.theory === "string"
       && typeof work.nextAction === "string" && Array.isArray(work.evidenceRefs)
       && work.evidenceRefs.every((ref: unknown) => typeof ref === "string")
+      && Array.isArray(work.angles) && work.angles.length <= 24
+      && work.angles.every((angle: unknown) => isRecord(angle)
+        && typeof angle.name === "string" && angle.name.trim().length > 0 && angle.name.length <= 160
+        && ["open", "supported", "ruled_out", "blocked"].includes(String(angle.status))
+        && (angle.vector === undefined || (isRecord(angle.vector)
+          && typeof angle.vector.attackerControl === "string" && angle.vector.attackerControl.trim().length > 0 && angle.vector.attackerControl.length <= 500
+          && typeof angle.vector.trustBoundary === "string" && angle.vector.trustBoundary.trim().length > 0 && angle.vector.trustBoundary.length <= 500
+          && typeof angle.vector.failureMode === "string" && angle.vector.failureMode.trim().length > 0 && angle.vector.failureMode.length <= 500
+          && typeof angle.vector.unauthorizedEffect === "string" && angle.vector.unauthorizedEffect.trim().length > 0 && angle.vector.unauthorizedEffect.length <= 500))
+        && typeof angle.proofQuestion === "string" && angle.proofQuestion.trim().length > 0 && angle.proofQuestion.length <= 500
+        && Array.isArray(angle.evidenceRefs) && angle.evidenceRefs.length <= 8
+        && angle.evidenceRefs.every((ref: unknown) => typeof ref === "string" && ref.length <= 168)
+        && (!["supported", "ruled_out"].includes(String(angle.status)) || angle.evidenceRefs.length > 0)
+        && typeof angle.nextAction === "string" && angle.nextAction.trim().length > 0 && angle.nextAction.length <= 500)
       && Number.isSafeInteger(work.actionabilityScore) && Number(work.actionabilityScore) >= 0
       && Number(work.actionabilityScore) <= 100
       && (work.validation === null || isRecord(work.validation)

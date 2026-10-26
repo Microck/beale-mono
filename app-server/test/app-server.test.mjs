@@ -202,6 +202,10 @@ test('the app-server reserves a safe research-track epoch and retains its pause 
   assert.deepEqual(due[0].request.launch.targetIds, ['local']);
   assert.deepEqual(due[0].request.launch.collaboration, collaboration);
   assert.match(due[0].request.launch.promptMarkdown, /Assigned surface: Example service/u);
+  assert.match(due[0].request.launch.promptMarkdown, /three credible, materially different causal attacker paths/u);
+  assert.match(due[0].request.launch.promptMarkdown, /1 to 4 attacker-path updates/u);
+  assert.match(due[0].request.launch.promptMarkdown, /security invariant/u);
+  assert.match(due[0].request.launch.promptMarkdown, /possible failure mode/u);
   assert.match(due[0].request.launch.promptMarkdown, /use available browser tools/u);
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).activeSessionId,
     due[0].request.sessionId);
