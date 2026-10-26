@@ -73,6 +73,36 @@ describe('commentary character streaming', () => {
     expect(visibleCommentaryMessages(state, [older, message('current', 'Hi 👋')]).at(-1)?.contentMarkdown).toBe('Hi 👋');
   });
 
+  it('keeps opening reasoning emphasis out of every streamed frame', () => {
+    const history = message('history', 'Earlier.');
+    const lines = ['**Inspecting the parser**', '**Checking bounds**'];
+    const progress = {
+      ...message('progress', lines.join('\n'), 'progress'),
+      reasoningTraceLines: lines
+    };
+    let state = reconcileCommentaryStreaming(
+      initialCommentaryStreamingState('run-example', [history]),
+      'run-example',
+      [history, progress],
+      true
+    );
+    let sawFirstEmphasis = false;
+    let sawSecondEmphasis = false;
+    while (state.pending.length > 0) {
+      const visible = visibleCommentaryMessages(state, [history, progress]).at(-1);
+      expect(visible?.kind).toBe('progress');
+      const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
+        message: visible!, searchHighlightQuery: '', selected: false
+      }));
+      expect(html).not.toContain('**');
+      sawFirstEmphasis ||= html.includes('<strong>Inspect');
+      sawSecondEmphasis ||= html.includes('<strong>Check');
+      state = advanceCommentaryStreaming(state);
+    }
+    expect(sawFirstEmphasis).toBe(true);
+    expect(sawSecondEmphasis).toBe(true);
+  });
+
   it('flushes the queue for reduced motion or search and resets when the session changes', () => {
     const first = message('first', 'First');
     const next = message('next', 'Second');
