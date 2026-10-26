@@ -52,6 +52,7 @@ import {
   extractCompatibleClaudeAgentResumableState,
   extractCompatibleZCodeAgentResumableState,
   createRepositorySearchTool,
+  createRepositoryMaterializeTool,
   createWorkspaceSearchTool,
   createRepositoryHistoryTool,
   createRepositoryFetchHistoryTool,
@@ -4269,6 +4270,9 @@ async function createRuntimeConfig(args: {
     });
     executableTools.push(tool);
     toolDescriptors.push(tool.descriptor);
+    const materializeTool = createRepositoryMaterializeTool({ resourceTool: resourceToolOptions });
+    executableTools.push(materializeTool);
+    toolDescriptors.push(materializeTool.descriptor);
     const historyTool = createRepositoryHistoryTool({
       roots: repositorySearchRootsFromWorkspaceContext(workspaceContext),
       researchSession: repositoryResearchSession,

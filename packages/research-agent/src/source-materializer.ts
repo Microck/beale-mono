@@ -281,7 +281,7 @@ function sameRepositoryUrl(left: string, right: string): boolean {
 
 function repositorySlug(url: string): string {
   const parsed = new URL(url);
-  return [parsed.hostname, ...parsed.pathname.split('/').filter(Boolean)]
+  return [parsed.host.replace(':', '_'), ...parsed.pathname.split('/').filter(Boolean)]
     .join('_')
     .replace(/\.git$/i, '')
     .replace(/[^A-Za-z0-9_.-]+/g, '_')

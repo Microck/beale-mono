@@ -14,13 +14,23 @@ export interface ResearchTrackValidation {
   reason: string;
 }
 
+export interface ResearchTrackVector {
+  attackerControl: string;
+  trustBoundary: string;
+  failureMode: string;
+  unauthorizedEffect: string;
+}
+
 export interface ResearchTrackAngle {
   name: string;
   status: "open" | "supported" | "ruled_out" | "blocked";
+  vector: ResearchTrackVector;
   proofQuestion: string;
   evidenceRefs: string[];
   nextAction: string;
 }
+
+type StoredResearchTrackAngle = Omit<ResearchTrackAngle, "vector"> & { vector?: ResearchTrackVector };
 
 export interface ResearchTrackSurfaceState {
   surfaceId: string;
@@ -30,7 +40,7 @@ export interface ResearchTrackSurfaceState {
   theory: string;
   nextAction: string;
   evidenceRefs: string[];
-  angles: ResearchTrackAngle[];
+  angles: StoredResearchTrackAngle[];
   actionabilityScore: number;
   validation: ResearchTrackValidation | null;
   epochs: number;
@@ -188,7 +198,7 @@ export class ResearchTrackStore {
         surfaceId: String(surface.surface_id), name: String(surface.name), status: surface.status as ResearchTrackWorkStatus,
         impact: surface.impact as ResearchTrackImpact, theory: String(surface.theory),
         nextAction: String(surface.next_action), evidenceRefs: JSON.parse(String(surface.evidence_refs_json)) as string[],
-        angles: JSON.parse(String(surface.angles_json)) as ResearchTrackAngle[],
+        angles: JSON.parse(String(surface.angles_json)) as StoredResearchTrackAngle[],
         epochs: Number(surface.epochs), noProgressEpochs: Number(surface.no_progress_epochs),
         actionabilityScore: decayedActionability(Number(surface.actionability_score),
           nullable(surface.score_updated_at) ?? String(surface.updated_at), Date.now()),
@@ -459,8 +469,8 @@ export class ResearchTrackStore {
     return this.get()!.surfaces.find((work) => work.surfaceId === input.surfaceId)!;
   }
 
-  #mergeAngles(previous: readonly ResearchTrackAngle[], updates: readonly ResearchTrackAngle[] | undefined,
-    checkpointEvidence: readonly string[]): ResearchTrackAngle[] {
+  #mergeAngles(previous: readonly StoredResearchTrackAngle[], updates: readonly ResearchTrackAngle[] | undefined,
+    checkpointEvidence: readonly string[]): StoredResearchTrackAngle[] {
     if (updates === undefined) return [...previous];
     if (!Array.isArray(updates) || updates.length < 1 || updates.length > 4) {
       throw new Error("Record 1 to 4 distinct attacker paths at each track checkpoint.");
@@ -470,9 +480,18 @@ export class ResearchTrackStore {
     for (const angle of updates) {
       if (!angle || typeof angle !== "object") throw new Error("A track attacker path is malformed.");
       const name = required(angle.name, "angle name");
+      const vector = angle.vector;
+      if (!vector || typeof vector !== "object" || Array.isArray(vector)) {
+        throw new Error("A track attacker path needs an attacker-control-to-impact vector.");
+      }
+      const attackerControl = required(vector.attackerControl, "angle vector.attackerControl");
+      const trustBoundary = required(vector.trustBoundary, "angle vector.trustBoundary");
+      const failureMode = required(vector.failureMode, "angle vector.failureMode");
+      const unauthorizedEffect = required(vector.unauthorizedEffect, "angle vector.unauthorizedEffect");
       const proofQuestion = required(angle.proofQuestion, "angle proofQuestion");
       const nextAction = required(angle.nextAction, "angle nextAction");
-      if (name.length > 160 || proofQuestion.length > 500 || nextAction.length > 500
+      if (name.length > 160 || [attackerControl, trustBoundary, failureMode, unauthorizedEffect].some((part) => part.length > 500)
+        || proofQuestion.length > 500 || nextAction.length > 500
         || !["open", "supported", "ruled_out", "blocked"].includes(angle.status)
         || !Array.isArray(angle.evidenceRefs) || angle.evidenceRefs.length > 8
         || !angle.evidenceRefs.every((ref: unknown) => typeof ref === "string" && ref.length <= 168)) {
@@ -488,9 +507,20 @@ export class ResearchTrackStore {
       if ((angle.status === "supported" || angle.status === "ruled_out") && refs.length === 0) {
         throw new Error("A tested attacker path needs canonical evidence; record negative evidence in memory.");
       }
-      merged.set(key, { name, status: angle.status, proofQuestion, evidenceRefs: refs, nextAction });
+      merged.set(key, { name, status: angle.status,
+        vector: { attackerControl, trustBoundary, failureMode, unauthorizedEffect },
+        proofQuestion, evidenceRefs: refs, nextAction });
     }
     if (merged.size > 24) throw new Error("A track surface can retain at most 24 attacker paths.");
+    const vectorKeys = new Set<string>();
+    for (const angle of merged.values()) {
+      if (!angle.vector) continue;
+      const signature = [angle.vector.attackerControl, angle.vector.trustBoundary,
+        angle.vector.failureMode, angle.vector.unauthorizedEffect]
+        .map((part) => part.trim().toLowerCase().replace(/\s+/gu, " ")).join("|");
+      if (vectorKeys.has(signature)) throw new Error("Track attacker paths must have distinct causal vectors, not renamed variants.");
+      vectorKeys.add(signature);
+    }
     return [...merged.values()];
   }
 
@@ -583,11 +613,18 @@ export function createResearchTrackTool(store: ResearchTrackStore, surface: (id:
       nextAction: { type: "string", description: "The next positive proof step, revisit trigger, or unblock condition." },
       evidenceRefs: { type: "array", items: { type: "string" }, description: "Existing canonical IDs as finding:id, memory:id, runbook:id, or report:id. A negative result should be recorded in a memory first." },
       angles: { type: "array", minItems: 1, maxItems: 4,
-        description: "Update 1 to 4 distinct attacker paths. Preserve earlier paths by name; tested outcomes need canonical evidence cited in evidenceRefs.",
-        items: { type: "object", required: ["name", "status", "proofQuestion", "evidenceRefs", "nextAction"],
+        description: "Update 1 to 4 distinct causal attacker paths. Preserve earlier paths by name; tested outcomes need canonical evidence cited in evidenceRefs.",
+        items: { type: "object", required: ["name", "status", "vector", "proofQuestion", "evidenceRefs", "nextAction"],
           additionalProperties: false, properties: {
             name: { type: "string", description: "Distinct attacker-controlled route or trust boundary, not a file or test name." },
             status: { type: "string", enum: ["open", "supported", "ruled_out", "blocked"] },
+            vector: { type: "object", required: ["attackerControl", "trustBoundary", "failureMode", "unauthorizedEffect"],
+              additionalProperties: false, properties: {
+                attackerControl: { type: "string", description: "Concrete control and prerequisite available to the attacker." },
+                trustBoundary: { type: "string", description: "The identity, authority, data, or execution boundary that would be crossed." },
+                failureMode: { type: "string", description: "Hypothesized causal failure; do not state it as observed before proof." },
+                unauthorizedEffect: { type: "string", description: "Protected asset and unauthorized effect if the path succeeds." },
+              } },
             proofQuestion: { type: "string", description: "The observation that would distinguish this path from a harmless behavior." },
             evidenceRefs: { type: "array", items: { type: "string" } },
             nextAction: { type: "string", description: "Specific next proof step, or why this path was ruled out or blocked." }

@@ -242,12 +242,13 @@ export class SurfaceStore {
     return this.require(id);
   }
 
-  public update(id: string, expectedRevision: number, foundation: SurfaceFoundation, name?: string, description?: string,
+  public update(id: string, expectedRevision: number, foundation?: SurfaceFoundation, name?: string, description?: string,
     progressBlocker?: { reason: string } | null, actorId?: string): ResearchSurface {
     const surface = this.require(id, true);
     if (surface.root && (name !== undefined || description !== undefined)) throw new Error("Root surface name and description belong to the resource catalog.");
     if (surface.revision !== expectedRevision) throw new Error("Surface revision changed; read it again before updating.");
-    const normalized = parseFoundation(foundation);
+    const normalized = foundation === undefined ? surface.foundation : parseFoundation(foundation);
+    if (!normalized) throw new Error("foundation is required before updating a surface without a foundation.");
     const at = nowIso();
     if (progressBlocker && !surface.firstTouchedAt) {
       throw new Error("Focus and investigate the surface before recording a progress blocker.");
@@ -443,9 +444,9 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
     { name: "surface.get", transportName: "surface_get", effect: "read", properties: { surfaceId: { type: "string" } }, required: ["surfaceId"] },
     { name: "surface.query", transportName: "surface_query", effect: "read", properties: { query: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: ["query"] },
     { name: "surface.create", transportName: "surface_create", effect: "write", properties: { parentId: { type: "string" }, name: { type: "string" }, description: { type: "string", description: "Security-relevant attacker path, trust boundary, privilege context, sink, or effect that distinguishes this child surface." } }, required: ["parentId", "name", "description"] },
-    { name: "surface.update", transportName: "surface_update", effect: "write", properties: { surfaceId: { type: "string" }, expectedRevision: { type: "integer", minimum: 1 }, name: { type: "string" }, description: { type: "string" }, foundation: foundationSchema,
-      progressBlocker: { type: ["object", "null"], required: ["reason"], additionalProperties: false,
-        properties: { reason: { type: "string", description: "Name the blocked action, concrete external dependency, the authorized work already completed without it (such as pre-auth testing), and what would unblock the rest. Set only after reachable work is exhausted; use null to clear." } } } }, required: ["surfaceId", "expectedRevision", "foundation"] },
+    { name: "surface.update", transportName: "surface_update", effect: "write", properties: { surfaceId: { type: "string" }, expectedRevision: { type: "integer", minimum: 1 }, name: { type: "string" }, description: { type: "string" }, foundation: { ...foundationSchema, description: "Required for a surface without a foundation; omit to preserve an existing foundation when only changing other fields." },
+      progressBlocker: { anyOf: [{ type: "object", required: ["reason"], additionalProperties: false,
+        properties: { reason: { type: "string", description: "Name the blocked action, concrete external dependency, the authorized work already completed without it (such as pre-auth testing), and what would unblock the rest. Set only after reachable work is exhausted." } } }, { type: "null" }], description: "Set a concrete external blocker, or pass null to clear it. The existing foundation may be omitted." } }, required: ["surfaceId", "expectedRevision"] },
     { name: "surface.focus", transportName: "surface_focus", effect: "write", properties: { surfaceId: { type: "string" }, reason: { type: "string" } }, required: ["surfaceId"] },
   ] as const;
   return specs.map((spec): ResearchExecutableTool => ({
@@ -475,7 +476,7 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
           }
           case "surface.query": output = store.query(nonempty(input.query, "query"), typeof input.limit === "number" ? input.limit : 20, typeof input.offset === "number" ? input.offset : 0); break;
           case "surface.create": output = store.create(nonempty(input.parentId, "parentId"), nonempty(input.name, "name"), nonempty(input.description, "description")); break;
-          case "surface.update": output = store.update(nonempty(input.surfaceId, "surfaceId"), positive(input.expectedRevision, "expectedRevision"), parseFoundation(input.foundation), typeof input.name === "string" ? input.name : undefined, typeof input.description === "string" ? input.description : undefined,
+          case "surface.update": output = store.update(nonempty(input.surfaceId, "surfaceId"), positive(input.expectedRevision, "expectedRevision"), input.foundation === undefined ? undefined : parseFoundation(input.foundation), typeof input.name === "string" ? input.name : undefined, typeof input.description === "string" ? input.description : undefined,
             parseBlockerUpdate(input.progressBlocker),
             context?.agentId ?? "root"); break;
           case "surface.focus": output = store.focus(context?.agentId ?? "root", nonempty(input.surfaceId, "surfaceId"), typeof input.reason === "string" ? input.reason : "research"); break;

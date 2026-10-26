@@ -45,6 +45,9 @@ import type {
 } from "./types.js";
 import { PRE_BEALE_DATA_DIRECTORY_NAME } from "./legacy-compatibility.js";
 import { readWorkspaceProject, workspaceResearchAuthority } from "./workspace-project.js";
+import { materializeGitRepositoryAsync, normalizeSourceRepositoryUrl,
+  type MaterializedSourceRepository, type SourceRepositoryCandidate } from "./source-materializer.js";
+import { reviewResearchResourceFirstTouch, type ResearchResourceToolOptions } from "./research-resources.js";
 
 const DEFAULT_MAX_RESULTS = 20;
 const DEFAULT_MAX_BYTES = 16_384;
@@ -71,9 +74,26 @@ const REPOSITORY_SEARCH_PARAMETERS = {
     root: {
       type: "string",
       description:
-        "Optional configured root path or unique root label. Use this to scope searches in multi-repository workspaces.",
+        "Optional configured root label or readable absolute checkout path. The configured source list is not the authorized scope; materialize an in-scope repository first when no checkout exists.",
     },
     maxResults: { type: "number" },
+  },
+};
+const REPOSITORY_MATERIALIZE_PARAMETERS = {
+  type: "object",
+  required: ["resourceId"],
+  additionalProperties: false,
+  properties: {
+    resourceId: { type: "string", description: "Tracked in-scope repository resource ID from resource.catalog. Discover an unlisted repository under recorded scope before use." },
+    ref: { type: "string", description: "Optional branch, tag, or commit to check out. Defaults to the repository default branch." },
+    cloneMode: { type: "string", enum: ["shallow", "deep"], description: "Shallow is sufficient for source search; use deep when history is required." },
+  },
+};
+const REPOSITORY_MATERIALIZE_OUTPUT_SCHEMA = {
+  type: "object", required: ["repositoryUrl", "localPath", "head", "cloneMode", "scopeReview"], additionalProperties: false,
+  properties: {
+    repositoryUrl: { type: "string" }, localPath: { type: "string" }, head: { type: ["string", "null"] },
+    cloneMode: { type: "string", enum: ["shallow", "deep"] }, scopeReview: { type: "string" },
   },
 };
 const WORKSPACE_SEARCH_PARAMETERS = {
@@ -183,6 +203,20 @@ export interface BuiltInRepositorySearchToolOptions {
   researchSession?: RepositoryResearchSession;
 }
 
+export interface BuiltInRepositoryMaterializeToolOptions {
+  resourceTool: ResearchResourceToolOptions;
+  materialize?: (candidate: SourceRepositoryCandidate, ref: string,
+    options: { cloneMode: "shallow" | "deep"; signal?: AbortSignal }) => Promise<MaterializedSourceRepository>;
+}
+
+export interface RepositoryMaterializeOutput {
+  repositoryUrl: string;
+  localPath: string;
+  head: string | null;
+  cloneMode: "shallow" | "deep";
+  scopeReview: string;
+}
+
 export interface BuiltInStructuredFileReadToolOptions {
   workspaceRoot?: string;
   allowedRoots?: readonly string[];
@@ -275,7 +309,7 @@ export function createRepositorySearchTool(
         const availableRoots = await resolveExistingRoots(rootHints);
         if (availableRoots.length === 0 && !requestedRoot) {
           throw new Error(
-            "repository.search has no readable repository or source context paths.",
+            "repository.search has no readable local source paths. For a repository covered by recorded scope, use resource.catalog and repository.materialize first, then search the returned localPath.",
           );
         }
         const roots = requestedRoot
@@ -361,6 +395,81 @@ export function createRepositorySearchTool(
       });
     },
   };
+}
+
+/** Materialize only an Auto-Reviewed repository covered by the recorded workspace scope. */
+export function createRepositoryMaterializeTool(
+  options: BuiltInRepositoryMaterializeToolOptions,
+): ResearchExecutableTool {
+  const descriptor = createDescriptor({
+    name: "repository.materialize",
+    transportName: "repository_materialize",
+    description: "Prepare a managed local checkout of a tracked in-scope repository after scope-relevance Auto-Review. Use its returned localPath as the root for repository.search. This does not expand authorization.",
+    actionClasses: ["inspect"],
+    sideEffects: "network",
+    requiredPermissions: ["filesystem:write", "network:repository:read", "research-resource:inventory"],
+    inputSchema: REPOSITORY_MATERIALIZE_PARAMETERS,
+    outputSchema: REPOSITORY_MATERIALIZE_OUTPUT_SCHEMA,
+    metadata: { provider: "appServer.built_in", safetyProfile: "scope-reviewed-repository-materialization" },
+  });
+  return {
+    descriptor,
+    parameters: REPOSITORY_MATERIALIZE_PARAMETERS as NonNullable<ResearchExecutableTool["parameters"]>,
+    async execute(action, context) {
+      const startedAt = nowIso();
+      return completeOrError(action, startedAt, async () => {
+        const resourceId = readRequiredString(action.input, "resourceId");
+        const resource = options.resourceTool.catalog.get(resourceId);
+        if (!resource) throw new Error("Repository resource was not found in this workspace.");
+        const repositoryUrl = normalizeScopedRepositoryUrl(resource.locator);
+        if (!repositoryUrl) throw new Error("Repository resource has no HTTPS or Git SSH source URL; use repository.search on a readable local checkout.");
+        const ref = typeof action.input.ref === "string" ? action.input.ref.trim() : "";
+        if (ref.length > 200) throw new Error("Repository ref is too long.");
+        const cloneMode = action.input.cloneMode === undefined || action.input.cloneMode === "shallow"
+          ? "shallow" : action.input.cloneMode === "deep" ? "deep" : null;
+        if (!cloneMode) throw new Error("Invalid repository clone mode.");
+        const review = await reviewResearchResourceFirstTouch(options.resourceTool, {
+          resourceId, purpose: "Materialize source for the active authorized research campaign.",
+          ...(context?.signal ? { signal: context.signal } : {}),
+        });
+        if (review.status !== "complete") throw new Error(review.summary);
+        const candidate: SourceRepositoryCandidate = {
+          url: repositoryUrl, label: resource.name, sourceAssetId: resource.scopeAssetId ?? resource.id,
+          sourceAssetKind: resource.kind, sensitivity: "unknown", clonedDirectory: null,
+        };
+        const materialized = await (options.materialize ?? materializeGitRepositoryAsync)(candidate, ref, {
+          cloneMode, ...(context?.signal ? { signal: context.signal } : {}),
+        });
+        const output = { repositoryUrl, localPath: materialized.localPath, head: materialized.head,
+          cloneMode: materialized.cloneMode, scopeReview: review.summary } satisfies RepositoryMaterializeOutput;
+        return completeResult(action, startedAt, {
+          summary: `Prepared an authorized local repository checkout for ${resource.name}.`,
+          output,
+          followUpActions: ["Use repository.search with localPath as root, then complete the repository first-touch source-history baseline."],
+        });
+      });
+    },
+  };
+}
+
+function normalizeScopedRepositoryUrl(locator: string): string | null {
+  const scpStyle = /^git@([A-Za-z0-9.-]+):([A-Za-z0-9_.+/-]+)$/u.exec(locator.trim());
+  const candidate = scpStyle ? `ssh://git@${scpStyle[1]}/${scpStyle[2]}` : locator;
+  const known = scpStyle ? null : normalizeSourceRepositoryUrl(locator);
+  if (known) return known;
+  let parsed: URL;
+  try { parsed = new URL(candidate); }
+  catch { return null; }
+  if (!parsed.hostname || parsed.password
+    || (parsed.protocol === "https:" && parsed.username)
+    || (parsed.protocol === "ssh:" && parsed.username !== "git")
+    || (parsed.protocol !== "https:" && parsed.protocol !== "ssh:")) return null;
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  if (segments.length === 0 || segments.some((segment) => !/^[A-Za-z0-9_.+-]+$/u.test(segment)
+    || segment === "." || segment === "..")) return null;
+  segments[segments.length - 1] = segments[segments.length - 1]!.replace(/\.git$/iu, "");
+  if (!segments[segments.length - 1]) return null;
+  return `${parsed.protocol}//${parsed.protocol === "ssh:" ? "git@" : ""}${parsed.host}/${segments.join("/")}`;
 }
 
 export function createStructuredFileReadTool(
@@ -1141,7 +1250,7 @@ function selectRepositorySearchRoots(
     );
   }
   throw new Error(
-    `repository.search root "${requestedRoot}" is not configured. Available root labels: ${labels}`,
+    `repository.search root "${requestedRoot}" is not a configured local checkout. Available root labels: ${labels}. For an in-scope repository without a checkout, use resource.catalog and repository.materialize; an existing readable absolute checkout path also works.`,
   );
 }
 

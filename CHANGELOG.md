@@ -42,9 +42,14 @@
 
 ### app-server
 
+#### Changed
+
+- Source research can materialize any repository verified under the recorded workspace scope and search its managed checkout; the configured source list is no longer treated as the scope boundary. Materialization performs Auto-Review before cloning.
+- Track checkpoints now map attacker control, trust boundary, possible failure mode, and unauthorized effect for each new path, and reject renamed copies of the same vector. Older paths remain readable and can be updated in place.
+
 #### Fixed
 
-- Research track scheduling retains testable high-impact paths for deeper work and moves to another available surface after three unproductive epochs on one surface. Checkpoints preserve distinct attacker paths with evidence-backed outcomes across epochs. Existing track surfaces gain an empty attacker-path ledger; control contract v62 requires rebuilt Beale and app-server clients.
+- Research track scheduling retains testable high-impact paths for deeper work and moves to another available surface after three unproductive epochs on one surface. Checkpoints preserve distinct attacker paths with evidence-backed outcomes across epochs. Existing track surfaces gain an empty attacker-path ledger; control contract v64 requires rebuilt Beale and app-server clients.
 - Research tracks continue with another eligible surface when an agent retires the assigned surface. Automatic pause reasons remain visible after the worker exits.
 - Guardian-enabled tracks recover worker exits without terminal session records, close the interrupted attempt, and review durable progress in the next epoch instead of pausing. The selected Guardian setting persists across epochs; existing track rows gain a default-enabled column. Rebuild Beale and app-server together for the updated control contract.
 - Stopping an individual research epoch no longer pauses its track; an explicit track pause still does.
@@ -61,6 +66,7 @@
 
 #### Fixed
 
+- Surface blockers can be cleared with `progressBlocker: null` without resubmitting the surface foundation; partial updates retain the existing foundation and revision checks.
 - Long app-server errors now retain their terminal diagnostic in Desktop after crossing the HTTP boundary.
 - Plain Node clients on macOS and Windows now keep a healthy headless app-server instead of repeatedly trying to replace it with an unavailable Electron tray host.
 

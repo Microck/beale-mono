@@ -682,7 +682,8 @@ test("direct Pi Agent and executor use the shared research system prompt", async
   assert.match(contexts[0].systemPrompt, /sharp, curious research collaborator/);
   assert.match(contexts[0].systemPrompt, /Do not narrate routine memory updates unless they materially affect the conclusion/);
   assert.match(contexts[0].systemPrompt, /use the commentary channel for short, concrete, user-visible progress updates/);
-  assert.match(contexts[0].systemPrompt, /Checkouts live at host-supplied repository or materialized-source paths outside workspaceRoot/);
+  assert.match(contexts[0].systemPrompt, /configured roots are available local checkouts, not the authorization boundary/);
+  assert.match(contexts[0].systemPrompt, /use repository\.materialize after scope-relevance Auto-Review/);
   assert.match(contexts[0].systemPrompt, /send a final response only when the current task is complete/);
   assert.match(contexts[0].systemPrompt, /Attribute only work completed in this session to this session/i);
   assert.match(contexts[0].systemPrompt, /an unchanged artifact cannot satisfy a request for new work/i);

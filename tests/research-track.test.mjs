@@ -16,7 +16,10 @@ const surfaces = [
 ];
 
 function angle(name, status = 'open', evidenceRefs = []) {
-  return { name, status, proofQuestion: `Can ${name} cross the example trust boundary?`,
+  return { name, status, vector: {
+    attackerControl: `Control the ${name} input`, trustBoundary: `Example ${name} authority boundary`,
+    failureMode: `Example ${name} policy mismatch`, unauthorizedEffect: `Access the ${name} protected asset`
+  }, proofQuestion: `Can ${name} cross the example trust boundary?`,
     evidenceRefs, nextAction: `Test ${name} with a discriminating input.` };
 }
 
@@ -235,6 +238,10 @@ test('a testable high-impact path keeps depth priority and retains distinct atte
         validation: { targetDependent: false, environment: 'none', reason: 'Source-level proof is available.' } }, first.surface);
     } finally { firstWorker.close(); }
     state.store.finishEpoch('session-example-first-angle', true);
+    const legacyAngles = state.store.get().surfaces.find((work) => work.surfaceId === first.surface.id)
+      .angles.map(({ vector: _vector, ...entry }) => entry);
+    state.database.prepare(`UPDATE app_server_research_track_surfaces SET angles_json=?
+      WHERE workspace_id=? AND surface_id=?`).run(JSON.stringify(legacyAngles), workspaceId, first.surface.id);
     assert.equal(state.store.reserveNext('session-example-second-angle', surfaces).surface.id, first.surface.id);
     state.database.prepare('UPDATE memory_nodes SET updated_at=? WHERE id=?')
       .run(new Date(Date.now() + 1_000).toISOString(), 'memory-example-a');
@@ -249,6 +256,8 @@ test('a testable high-impact path keeps depth priority and retains distinct atte
     const recorded = state.store.get().surfaces.find((work) => work.surfaceId === first.surface.id);
     assert.deepEqual(recorded.angles.map(({ name, status }) => [name, status]),
       [['authority path', 'ruled_out'], ['lifecycle path', 'open']]);
+    assert.equal(recorded.angles[0].vector.failureMode, 'Example authority path policy mismatch');
+    assert.equal(recorded.angles[1].vector, undefined);
   } finally { state.close(); }
 });
 
@@ -272,6 +281,14 @@ test('high-impact completion needs two evidence-backed attacker paths when there
       /two distinct attacker paths/);
       assert.throws(() => worker.checkpoint({ ...base,
         angles: [angle('authority path', 'ruled_out')] }, map[0]), /needs canonical evidence/);
+      assert.throws(() => worker.checkpoint({ ...base, angles: [
+        angle('authority path', 'ruled_out', ['memory:memory-example-a']),
+        { ...angle('renamed authority path', 'ruled_out', ['memory:memory-example-a']),
+          vector: angle('authority path').vector }
+      ] }, map[0]), /distinct causal vectors/);
+      assert.throws(() => worker.checkpoint({ ...base, angles: [
+        { ...angle('authority path', 'ruled_out', ['memory:memory-example-a']), vector: undefined }
+      ] }, map[0]), /needs an attacker-control-to-impact vector/);
       const completed = worker.checkpoint({ ...base, angles: [
         angle('authority path', 'ruled_out', ['memory:memory-example-a']),
         angle('lifecycle path', 'ruled_out', ['memory:memory-example-a'])
@@ -343,12 +360,16 @@ test('target-dependent localhost evidence records a gap and raises actionability
       sessionId: 'session-example-host-proof' });
     try {
       const tool = createResearchTrackTool(hostWorker, () => surfaces[0]);
+      assert.ok(tool.parameters.properties.angles.items.required.includes('vector'));
       const base = { surfaceId: surfaces[0].id, outcome: 'defer', impact: 'medium',
         theory: 'Synthetic input may cross the example trust boundary.', nextAction: 'Test on an example device.',
         evidenceRefs: ['memory:memory-example-a'] };
       assert.equal((await tool.execute({ input: base })).status, 'error');
       assert.equal((await tool.execute({ input: { ...base,
         validation: { targetDependent: true, environment: 'localhost', reason: 'Unavailable.' } } })).status, 'error');
+      assert.equal((await tool.execute({ input: { ...base, angles: [
+        { ...angle('example target path'), vector: undefined }
+      ], validation: { targetDependent: true, environment: 'localhost', reason: 'Unavailable.' } } })).status, 'error');
       assert.throws(() => hostWorker.checkpoint({ ...base, outcome: 'complete',
         validation: { targetDependent: true, environment: 'localhost',
           reason: 'The synthetic device was not connected during this epoch.' } },
@@ -535,7 +556,7 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     assert.match(first.request.launch.promptMarkdown, /localhost run alone does not validate target behavior/);
     assert.match(first.request.launch.promptMarkdown, /Official vendor APIs and SDKs may be covered/);
     assert.match(first.request.launch.promptMarkdown, /Third-party applications, customers, and accounts are not authorized/);
-    assert.match(first.request.launch.promptMarkdown, /Form at least three materially different attacker paths/);
+    assert.match(first.request.launch.promptMarkdown, /Seek at least three credible, materially different causal attacker paths/);
     assert.match(first.request.launch.promptMarkdown, /Checkpoint earlier when all plausible high-impact paths lack an accessible proof step/);
     assert.equal(first.request.launch.generateTitle, true);
     assert.equal(first.request.launch.continuation, undefined);
