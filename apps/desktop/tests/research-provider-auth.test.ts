@@ -78,7 +78,7 @@ describe('research provider auth parsing', () => {
       .toBe('/Users/researcher/.local/bin/claude');
   });
 
-  it('resolves the Claude CLI bundled with the current macOS Agent SDK dependency', () => {
+  it.skipIf(process.platform !== 'darwin')('resolves the Claude CLI bundled with the current macOS Agent SDK dependency', () => {
     const executable = resolveBundledClaudeCliExecutable('darwin', process.arch);
 
     expect(executable).toMatch(/claude-agent-sdk-darwin-(?:x64|arm64).*[\\/]claude$/u);
