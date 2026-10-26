@@ -422,6 +422,7 @@ export const MainSteerArea = memo(function MainSteerArea({
         />
         <ModelSelectionPicker
           className="main-steer-model-selection-picker"
+          composerMenu
           providerValue={selectedProviderId}
           modelValue={selectedModel?.id ?? ''}
           effortValue={selectedEffort}

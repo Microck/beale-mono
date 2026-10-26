@@ -6,6 +6,7 @@
 
 #### Changed
 
+- The session model selector uses a roomier raised menu styled alongside the Collaboration menu.
 - The session Collaboration control opens an anchored menu above the composer and uses singular wording for one collaborator.
 - Session transcripts consistently call the root agent Lead in message routes and navigation.
 - Inter-agent transcript messages now show a connected, muted header with sender, recipient, and message type above a rounded message body.

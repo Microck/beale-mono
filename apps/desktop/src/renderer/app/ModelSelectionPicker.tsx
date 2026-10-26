@@ -35,11 +35,14 @@ export interface ModelSelectionPickerMenuAction {
 
 const MENU_WIDTH = 232;
 const SUBMENU_WIDTH = 220;
+const COMPOSER_MENU_WIDTH = 320;
+const COMPOSER_SUBMENU_WIDTH = 240;
 const MENU_GAP = 6;
 const VIEWPORT_INSET = 8;
 
 export function ModelSelectionPicker({
   className = '',
+  composerMenu = false,
   providerValue,
   modelValue,
   effortValue,
@@ -57,6 +60,7 @@ export function ModelSelectionPicker({
   onSelectFastMode
 }: {
   className?: string;
+  composerMenu?: boolean;
   providerValue: string;
   modelValue: string;
   effortValue: string;
@@ -128,10 +132,12 @@ export function ModelSelectionPicker({
     const trigger = triggerRef.current;
     if (!trigger) return;
     const triggerBounds = trigger.getBoundingClientRect();
-    const combinedWidth = MENU_WIDTH + MENU_GAP + SUBMENU_WIDTH;
+    const menuWidth = composerMenu ? COMPOSER_MENU_WIDTH : MENU_WIDTH;
+    const submenuWidth = composerMenu ? COMPOSER_SUBMENU_WIDTH : SUBMENU_WIDTH;
+    const combinedWidth = menuWidth + MENU_GAP + submenuWidth;
     const maximumLeft = Math.max(VIEWPORT_INSET, window.innerWidth - combinedWidth - VIEWPORT_INSET);
     setMenuPosition({
-      left: Math.min(Math.max(VIEWPORT_INSET, triggerBounds.right - MENU_WIDTH), maximumLeft),
+      left: Math.min(Math.max(VIEWPORT_INSET, triggerBounds.right - menuWidth), maximumLeft),
       bottom: Math.max(VIEWPORT_INSET, window.innerHeight - triggerBounds.top + MENU_GAP)
     });
   };
@@ -201,12 +207,13 @@ export function ModelSelectionPicker({
   const menu = open && menuPosition && typeof document !== 'undefined'
     ? createPortal(
         <div
-          className="model-selection-picker-menu"
+          className={`model-selection-picker-menu${composerMenu ? ' is-composer-menu' : ''}`}
           ref={menuRef}
           role="menu"
           aria-label={ariaLabel}
           style={{ left: menuPosition.left, bottom: menuPosition.bottom }}
         >
+          {composerMenu ? <div className="model-selection-picker-menu-title" role="presentation">Model</div> : null}
           {sections.map((section, sectionIndex) => {
             const active = section.id === activeSection;
             return (
