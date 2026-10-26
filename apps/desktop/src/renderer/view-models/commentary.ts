@@ -515,6 +515,7 @@ const TOOL_USAGE_COPY: Readonly<Record<string, ToolUsageCopy>> = {
   'code.query': { singular: 'Querying Code', plural: (count) => `Running ${count} Code Queries` },
   'code.references': { singular: 'Finding References', plural: (count) => `Running ${count} Reference Searches` },
   'experiment.run': { singular: 'Running an Experiment', plural: (count) => `Running ${count} Experiments` },
+  'file.edit': { singular: 'Editing a File', plural: (count) => `Editing ${count} Files` },
   'file.read': { singular: 'Reading a File', plural: (count) => `Reading ${count} Files` },
   'features.load': { singular: 'Loading Features', plural: (count) => `Loading Features ${count} Times` },
   'features.preview': { singular: 'Previewing a Feature', plural: (count) => `Previewing ${count} Features` },
@@ -568,6 +569,8 @@ export function commentaryToolUsageText(
     ? completed ? 'Ran' : 'Running'
     : toolName === 'file.read'
       ? 'Reading'
+      : toolName === 'file.edit'
+        ? 'Editing'
       : null;
   if (
     singularDetailVerb
@@ -575,7 +578,7 @@ export function commentaryToolUsageText(
     && detail
     && detail.toLowerCase() !== humanizeToolName(toolName).toLowerCase()
   ) {
-    return `${singularDetailVerb} ${toolName === 'file.read' ? compactUserPath(detail) : detail}`;
+    return `${singularDetailVerb} ${toolName === 'file.read' || toolName === 'file.edit' ? compactUserPath(detail) : detail}`;
   }
   const copy = TOOL_USAGE_COPY[toolName]
     ?? (toolName.startsWith('mcp.') ? TOOL_USAGE_COPY[toolName.split('.').at(-1) ?? ''] : undefined);

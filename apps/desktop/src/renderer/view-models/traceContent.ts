@@ -197,6 +197,7 @@ export function appServerToolTraceSubtext(event: TraceEventRecord, detail: RunDe
     const revision = result ? numberRecordValue(result, 'revision') : numberRecordValue(inputs, 'expectedRevision');
     return [title ?? id, revision ? `Update ${revision}` : null].filter((value): value is string => Boolean(value)).join(' · ');
   }
+  if (toolName === 'file.edit') return stringRecordValue(inputs, 'path') ?? '';
   if (toolName === 'file.read') return appServerToolEventKind(event) === 'tool.requested' ? stringRecordValue(inputs, 'path') ?? '' : '';
   if (toolName === 'workspace.search') return appServerToolEventKind(event) === 'tool.requested'
     ? [stringRecordValue(inputs, 'query'), stringRecordValue(inputs, 'path')].filter(Boolean).join(' · ')
