@@ -1,10 +1,6 @@
 import type { RunDetail, TraceEventRecord, WorkspaceScopeVersion } from '@shared/types';
 import { repositoryClonedDirectory, scopeAssetLegacyKind } from '../../shared/types';
 import {
-  commentaryMessageCorrelationKey,
-  nativeCommentaryCorrelationKeys
-} from './commentaryCorrelation';
-import {
   appServerToolEventKind,
   appServerToolName,
   appServerToolPayload,
@@ -65,7 +61,6 @@ export function commentaryMessagesForSession(
 ): CommentaryMessage[] {
   if (!detail) return [];
   const includeInitialPrompt = options.includeInitialPrompt ?? true;
-  const nativeCommentaryKeys = nativeCommentaryCorrelationKeys(events);
   const projectedEvents = coalesceLegacyReasoningSnapshots(events);
   const toolCallsByPrimaryEventId = projectedAppServerToolCalls(
     projectedEvents,
@@ -83,7 +78,7 @@ export function commentaryMessagesForSession(
     if (activity) return [activity];
     const toolUsage = toolUsageMessage(event, toolCallsByPrimaryEventId, useActiveToolTense);
     if (toolUsage) return [toolUsage];
-    const kind = commentaryMessageKind(event, nativeCommentaryKeys);
+    const kind = commentaryMessageKind(event);
     const contentMarkdown = commentaryMessageContentMarkdown(event, kind);
     if (!kind || !contentMarkdown) return [];
     return [{
@@ -311,10 +306,7 @@ function coalesceConsecutiveToolMessages(
   return coalesced;
 }
 
-function commentaryMessageKind(
-  event: TraceDisplayEvent,
-  nativeCommentaryKeys: ReadonlySet<string>
-): CommentaryMessageKind | null {
+function commentaryMessageKind(event: TraceDisplayEvent): CommentaryMessageKind | null {
   const role = payloadString(event, 'transcriptRole');
   const source = payloadString(event, 'transcriptSource');
   const phase = payloadString(event, 'messagePhase');
@@ -324,8 +316,6 @@ function commentaryMessageKind(
   if (payloadString(event, 'finalResultKind') === 'error' || legacyAppServerFinalErrorText(event)) return 'error';
   if (source === 'app_server_commentary') return 'commentary';
   if (source === 'openai_reasoning_summary') {
-    const key = commentaryMessageCorrelationKey(event);
-    if (key && nativeCommentaryKeys.has(key)) return null;
     return payloadString(event, 'provider') === 'xai' ? 'commentary' : 'progress';
   }
   if (phase === 'commentary') return 'commentary';

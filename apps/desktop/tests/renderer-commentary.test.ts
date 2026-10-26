@@ -884,7 +884,7 @@ describe('renderer commentary projection', () => {
       .not.toContain('data-commentary-window-item');
   });
 
-  it('shows user, native commentary, and final messages while suppressing paired reasoning fallback', () => {
+  it('keeps reasoning alongside native commentary and final messages', () => {
     const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
       displayEvent('prompt', {
         transcriptRole: 'user',
@@ -919,9 +919,34 @@ describe('renderer commentary projection', () => {
 
     expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
       ['user', 'Inspect the parser.'],
+      ['progress', 'Checking parser entrypoints.'],
       ['commentary', 'I found two parser entrypoints and am checking their shared guard.'],
       ['final_answer', 'The shared guard rejects the boundary safely.']
     ]);
+  });
+
+  it('does not remove a displayed reasoning summary when commentary arrives for its response', () => {
+    const detail = runDetail('Review the example parser.');
+    const reasoning = displayEvent('reasoning', {
+      agentPath: '/root',
+      transcriptRole: 'assistant',
+      transcriptSource: 'openai_reasoning_summary',
+      metadata: { responseId: 'response_example', itemId: 'thinking:0' },
+      text: '**Checking parser bounds**'
+    });
+    const commentary = displayEvent('commentary', {
+      agentPath: '/root',
+      transcriptRole: 'assistant',
+      transcriptSource: 'app_server_commentary',
+      metadata: { responseId: 'response_example' },
+      text: 'The input reaches the parser guard.'
+    });
+    const before = commentaryMessagesForSession(detail, [reasoning]);
+    const after = commentaryMessagesForSession(detail, [reasoning, commentary]);
+
+    expect(before.map((message) => message.id)).toEqual(['run-prompt:run_commentary', 'reasoning']);
+    expect(after.map((message) => message.id)).toEqual(['run-prompt:run_commentary', 'reasoning', 'commentary']);
+    expect(after[1]?.reasoningTraceLines).toEqual(['**Checking parser bounds**']);
   });
 
   it('projects failed final app-server results as error messages', () => {
@@ -1087,7 +1112,7 @@ describe('renderer commentary projection', () => {
     ]);
   });
 
-  it('retains newer fallback progress after native commentary and coalesces its snapshots', () => {
+  it('retains both paired reasoning and newer fallback progress while coalescing snapshots', () => {
     const messages = commentaryMessagesForSession(runDetail('Continue the review.'), [
       displayEvent('paired-reasoning', {
         agentPath: '/root',
@@ -1125,6 +1150,7 @@ describe('renderer commentary projection', () => {
 
     expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
       ['user', 'Continue the review.'],
+      ['progress', 'Paired provider reasoning.'],
       ['commentary', 'Native commentary for the first response.'],
       ['progress', 'Completed fallback snapshot.']
     ]);
@@ -1415,7 +1441,7 @@ describe('renderer commentary projection', () => {
     expect(html.match(/lucide-brain/g)).toHaveLength(2);
   });
 
-  it('pairs native commentary with reasoning by turn when a provider omits the response ID', () => {
+  it('keeps reasoning and native commentary in the same turn without a response ID', () => {
     const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
       displayEvent('reasoning', {
         agentPath: '/root',
@@ -1440,6 +1466,7 @@ describe('renderer commentary projection', () => {
 
     expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
       ['user', 'Inspect the parser.'],
+      ['progress', 'Private provider summary.'],
       ['commentary', 'I found the parser boundary and am testing its guard.']
     ]);
   });

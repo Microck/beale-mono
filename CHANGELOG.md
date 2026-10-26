@@ -11,6 +11,7 @@
 
 #### Fixed
 
+- Reasoning summaries remain visible in session transcripts when commentary from the same response arrives.
 - The live session scrollbar appears for user scrolling without flashing during automatic transcript following.
 - Completed reasoning summaries remain visible when later summaries reuse the same response item identifier.
 - Streamed reasoning summaries render opening bold emphasis without briefly showing raw Markdown asterisks.
