@@ -378,8 +378,20 @@ describe('run detail commentary projection', () => {
         message: 'Synthetic room packet.'
       }
     });
+    const followup = traceEvent('followup-task', {
+      source: 'system',
+      type: 'model_message',
+      payload: {
+        type: 'subagent.activity',
+        action: 'followup',
+        agentPath: '/root/reviewer',
+        authorAgentPath: '/root',
+        recipientAgentPath: '/root/reviewer',
+        message: 'Recheck the synthetic boundary.'
+      }
+    });
     const projected = projectRunDetailForRenderer(
-      runDetail({ traceEvents: [activity, packet] }),
+      runDetail({ traceEvents: [activity, packet, followup] }),
       { mode: 'commentary', agentPath: null }
     );
 
@@ -402,15 +414,20 @@ describe('run detail commentary projection', () => {
       buildTraceDisplayEventsForAgentPath(projected, null),
       { includeInitialPrompt: false }
     );
-    expect(messages[0]).toMatchObject({
+    expect(messages.find((item) => item.taskAction === 'message')).toMatchObject({
       taskAction: 'message',
-      taskRoute: '/root → /root/reviewer',
+      taskRoute: 'Lead → Reviewer',
       contentMarkdown: message.trim()
     });
-    expect(messages[1]).toMatchObject({
-      taskAction: 'message',
-      taskRoute: '/root/reviewer → room "Example review room"',
+    expect(messages.find((item) => item.taskAction === 'room_message')).toMatchObject({
+      taskAction: 'room_message',
+      taskRoute: 'Reviewer → room "Example review room"',
       contentMarkdown: 'Synthetic room packet.'
+    });
+    expect(messages.find((item) => item.taskAction === 'followup')).toMatchObject({
+      taskAction: 'followup',
+      taskRoute: 'Lead → Reviewer',
+      contentMarkdown: 'Recheck the synthetic boundary.'
     });
   });
 

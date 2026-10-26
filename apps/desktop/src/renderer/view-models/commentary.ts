@@ -18,7 +18,7 @@ export interface CommentaryMessage {
   traceEventId: string | null;
   kind: CommentaryMessageKind;
   markerType?: 'compaction' | 'safeguard_recovery';
-  taskAction?: 'spawn' | 'followup' | 'message';
+  taskAction?: 'spawn' | 'followup' | 'message' | 'room_message';
   taskAuthorAgentPath?: string;
   taskRoute?: string;
   toolName?: string;
@@ -336,16 +336,28 @@ function subagentActivityMessage(event: TraceDisplayEvent): CommentaryMessage | 
   if (!task && !error) return null;
   const contentMarkdown = stringValue(activity.message) ?? (error ? event.summary.trim() : null);
   if (!contentMarkdown) return null;
-  const taskAction = action === 'spawned' ? 'spawn' : action === 'followup' ? 'followup' : 'message';
+  const taskAction = action === 'spawned'
+    ? 'spawn'
+    : action === 'followup'
+      ? 'followup'
+      : action === 'room_packet'
+        ? 'room_message'
+        : 'message';
   const taskAuthorAgentPath = stringValue(activity.authorAgentPath)
     ?? (action === 'room_packet' ? stringValue(activity.agentPath) : null);
-  const recipient = stringValue(activity.recipientAgentPath)
+  const recipientAgentPath = stringValue(activity.recipientAgentPath);
+  const recipient = recipientAgentPath
     ?? (action === 'room_packet'
       ? stringValue(activity.roomTitle) ?? stringValue(activity.roomName)
       : stringValue(activity.agentPath));
-  const taskRoute = taskAuthorAgentPath && recipient
-    ? `${taskAuthorAgentPath} → ${action === 'room_packet' && !stringValue(activity.recipientAgentPath) ? `room "${recipient}"` : recipient}`
+  const recipientLabel = recipient
+    ? action === 'room_packet' && !recipientAgentPath ? `room "${recipient}"` : agentDisplayName(recipient)
     : null;
+  const taskRoute = taskAuthorAgentPath && recipientLabel
+    ? `${agentDisplayName(taskAuthorAgentPath)} → ${recipientLabel}`
+    : recipientLabel
+      ? action === 'spawned' ? recipientLabel : `To ${recipientLabel}`
+      : taskAuthorAgentPath ? `From ${agentDisplayName(taskAuthorAgentPath)}` : null;
   return {
     id: `${task ? 'task' : 'error'}:${event.id}`,
     traceEventId: event.id,
@@ -354,6 +366,13 @@ function subagentActivityMessage(event: TraceDisplayEvent): CommentaryMessage | 
     contentMarkdown,
     createdAt: event.createdAt
   };
+}
+
+function agentDisplayName(path: string): string {
+  if (path === '/root') return 'Lead';
+  const parts = path.split('/').filter(Boolean);
+  const names = parts[0] === 'root' ? parts.slice(1) : parts;
+  return names.map((name) => name.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())).join(' / ') || path;
 }
 
 const LIFECYCLE_TOOL_NAMES = new Set(['spawn_agent', 'send_message', 'followup_task', 'interrupt_agent']);

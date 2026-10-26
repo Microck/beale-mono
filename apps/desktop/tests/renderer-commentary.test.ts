@@ -234,9 +234,10 @@ describe('renderer commentary projection', () => {
     expect(commentaryMessageLabel('commentary')).toBeNull();
     expect(commentaryMessageLabel('progress')).toBeNull();
     expect(commentaryMessageLabel('tool')).toBeNull();
-    expect(commentaryMessageLabel('task', 'spawn')).toBe('Subagent Spawn');
-    expect(commentaryMessageLabel('task', 'followup')).toBe('Subagent Follow-up');
-    expect(commentaryMessageLabel('task', 'message')).toBe('Agent Message');
+    expect(commentaryMessageLabel('task', 'spawn')).toBe('New subagent task');
+    expect(commentaryMessageLabel('task', 'followup')).toBe('Follow-up task');
+    expect(commentaryMessageLabel('task', 'message')).toBe('Agent message');
+    expect(commentaryMessageLabel('task', 'room_message')).toBe('Room message');
     expect(commentaryMessageLabel('final_answer')).toBeNull();
     expect(commentaryMessageLabel('error')).toBeNull();
   });
@@ -1578,10 +1579,10 @@ describe('renderer commentary projection', () => {
       }, { source: 'system' })
     ], { includeInitialPrompt: false });
 
-    expect(messages.map(({ kind, taskAction, contentMarkdown }) => [kind, taskAction, contentMarkdown])).toEqual([
-      ['task', 'spawn', 'Inspect the parser boundary.'],
-      ['task', 'followup', 'Also check the length conversion.'],
-      ['task', 'message', 'Compare the result with the caller contract.']
+    expect(messages.map(({ kind, taskAction, taskRoute, contentMarkdown }) => [kind, taskAction, taskRoute, contentMarkdown])).toEqual([
+      ['task', 'spawn', 'Parser Review', 'Inspect the parser boundary.'],
+      ['task', 'followup', 'To Parser Review', 'Also check the length conversion.'],
+      ['task', 'message', 'To Parser Review', 'Compare the result with the caller contract.']
     ]);
   });
 
@@ -1605,14 +1606,33 @@ describe('renderer commentary projection', () => {
     ], { includeInitialPrompt: false });
 
     expect(messages.map((message) => [message.taskAction, message.taskRoute, message.contentMarkdown])).toEqual([
-      ['message', '/root/reviewer → /root/builder', 'Check the synthetic parser fixture.'],
-      ['message', '/root/reviewer → room "Example review room"', 'The synthetic boundary is covered.']
+      ['message', 'Reviewer → Builder', 'Check the synthetic parser fixture.'],
+      ['room_message', 'Reviewer → room "Example review room"', 'The synthetic boundary is covered.']
     ]);
     const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
       message: messages[0]!, searchHighlightQuery: '', selected: false
     }));
     expect(html).toContain('agent-communication-inbound');
-    expect(html).toContain('Agent Message · /root/reviewer → /root/builder');
+    expect(html).toContain('Agent message · Reviewer → Builder');
+  });
+
+  it('renders a follow-up task with its sender and recipient', () => {
+    const messages = commentaryMessagesForSession(runDetail('Coordinate the review.'), [
+      displayEvent('followup', {
+        type: 'subagent.activity',
+        action: 'followup',
+        agentPath: '/root/reviewer',
+        authorAgentPath: '/root',
+        recipientAgentPath: '/root/reviewer',
+        message: 'Recheck the synthetic fixture.'
+      }, { source: 'system' })
+    ], { includeInitialPrompt: false });
+
+    const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
+      message: messages[0]!, searchHighlightQuery: '', selected: false
+    }));
+    expect(html).toContain('Follow-up task · Lead → Reviewer');
+    expect(html).toContain('Recheck the synthetic fixture.');
   });
 
   it('shows subagent failures as terminal Commentary messages', () => {

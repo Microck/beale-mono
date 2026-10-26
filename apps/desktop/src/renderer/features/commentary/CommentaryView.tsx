@@ -1410,6 +1410,11 @@ export function commentaryMessageLabel(
   kind: CommentaryMessage['kind'],
   taskAction?: CommentaryMessage['taskAction']
 ): string | null {
-  if (kind === 'task') return taskAction === 'spawn' ? 'Subagent Spawn' : taskAction === 'message' ? 'Agent Message' : 'Subagent Follow-up';
+  if (kind === 'task') {
+    if (taskAction === 'spawn') return 'New subagent task';
+    if (taskAction === 'followup') return 'Follow-up task';
+    if (taskAction === 'room_message') return 'Room message';
+    return 'Agent message';
+  }
   return null;
 }

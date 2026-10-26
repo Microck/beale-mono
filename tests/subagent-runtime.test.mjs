@@ -541,8 +541,12 @@ test("collaboration config decoder allows distinct models per provider and rejec
 test("subagent runtime supports mailboxes, idle follow-ups, waiting, listing, and interruption", async () => {
   const requests = [];
   const toolEvents = [];
+  const activities = [];
   const manager = new SubagentManager({
     rootModel: "parent-model",
+    onActivity(activity) {
+      activities.push(activity);
+    },
     onToolEvent(event) {
       toolEvents.push(event);
     },
@@ -591,6 +595,14 @@ test("subagent runtime supports mailboxes, idle follow-ups, waiting, listing, an
   assert.equal(requests.length, 2);
   assert.equal(requests[1].prompt, "Perform the follow-up.");
   assert.deepEqual(manager.takeMailbox(childId), []);
+  assert.deepEqual(
+    activities.filter((activity) => activity.type === "message" || activity.type === "followup")
+      .map(({ type, authorAgentPath, recipientAgentPath, message }) => ({ type, authorAgentPath, recipientAgentPath, message })),
+    [
+      { type: "message", authorAgentPath: "/root", recipientAgentPath: "/root/worker", message: "Context for the next turn." },
+      { type: "followup", authorAgentPath: "/root", recipientAgentPath: "/root/worker", message: "Perform the follow-up." },
+    ],
+  );
 
   let started;
   const activeToolEvents = [];
