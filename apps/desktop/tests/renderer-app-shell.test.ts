@@ -150,7 +150,7 @@ describe('renderer app shell view model', () => {
     expect(html).toContain('75% left |');
     expect(html).toContain('30% left |');
     expect(html).toContain('Last Update');
-    expect(html.match(/role="progressbar"/gu)).toHaveLength(2);
+    expect(html).not.toContain('role="progressbar"');
 
     const single = renderToStaticMarkup(createElement(ProviderLimitIndicator, {
       limit: {

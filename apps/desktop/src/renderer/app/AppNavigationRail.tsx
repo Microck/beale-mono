@@ -45,9 +45,6 @@ export function ProviderLimitTooltip({ limit }: { limit: BealeProviderUsageLimit
         return (
           <div className="app-navigation-limits-row" key={window.id}>
             <span className="app-navigation-limits-label">{shortLimitLabel(window.label)}</span>
-            <div className="app-navigation-limits-track" role="progressbar" aria-label={`${providerName} ${window.label} remaining`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={remainingPercent}>
-              <span style={{ width: `${remainingPercent}%` }} />
-            </div>
             <span className="app-navigation-limits-reset">{resetLabel(window.resetsAt, remainingPercent)}</span>
           </div>
         );

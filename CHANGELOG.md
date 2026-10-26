@@ -6,6 +6,7 @@
 
 #### Fixed
 
+- Provider usage icons now use a circular hover background, and their hover details show remaining limits without duplicate progress bars.
 - The session summary sidebar grows within the available window width to keep its left labels readable as counts and usage change.
 - Restored Leads in the session and workspace summary sidebars and in the detailed Campaign list, filters, and claim navigation.
 - Running track sessions keep their active transcript, feedback state, and sidebar spinner across terminal epoch updates and deferred rendering.
