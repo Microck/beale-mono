@@ -16,6 +16,7 @@ import {
   MIN_RESEARCH_SIDE_PANEL_WIDTH,
   useResizableResearchSidePanel
 } from '../../hooks/useResizableResearchSidePanel';
+import { useAutoExpandResearchSummary } from '../../hooks/useAutoExpandResearchSummary';
 
 const WORKSPACE_DETAIL_TRANSITION_MS = 220;
 const CONNECTED_DEVICE_DEFAULT_ASPECT_RATIO = 1290 / 2796;
@@ -199,9 +200,16 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
     containerRef,
     panelWidth,
     maximumPanelWidth,
+    ensurePanelWidth,
     beginResize,
     handleResizeKeyDown
   } = useResizableResearchSidePanel(showResearchSidePanel);
+  const researchSideColumnRef = useRef<HTMLDivElement | null>(null);
+  useAutoExpandResearchSummary(
+    researchSideColumnRef,
+    sessionHasContent && !expandedResearchSidePanel && !connectedDeviceCaptureExpanded,
+    ensurePanelWidth
+  );
   useEffect(() => {
     const container = containerRef.current;
     if (!container || typeof ResizeObserver === 'undefined') return undefined;
@@ -423,7 +431,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           onPointerDown={researchSideResizeEnabled ? beginResize : undefined}
         />
       ) : null}
-      {showResearchSidePanel ? <div className={`research-side-column${connectedDeviceCaptureVisible ? ' has-connected-device-capture' : ''}${connectedDeviceCaptureExpanded ? ' device-capture-expanded' : ''}`}>
+      {showResearchSidePanel ? <div ref={researchSideColumnRef} className={`research-side-column${connectedDeviceCaptureVisible ? ' has-connected-device-capture' : ''}${connectedDeviceCaptureExpanded ? ' device-capture-expanded' : ''}`}>
         <ResearchSidePanel
           detail={researchSideData.detail}
           events={researchSideData.events}

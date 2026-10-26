@@ -133,7 +133,7 @@ export function getAppServerMemorySummary(options: AppServerMemorySummaryOptions
     return {
       ...base,
       source: 'app_server_sqlite',
-      status: nodes.length > 0 || findings.length > 0 ? 'ready' : 'empty',
+      status: nodes.length > 0 || leads.length > 0 || findings.length > 0 ? 'ready' : 'empty',
       databaseSizeBytes: fileSize(databasePath),
       nodeCount: nodes.length,
       edgeCount: edges.length,

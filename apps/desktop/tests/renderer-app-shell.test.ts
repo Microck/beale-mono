@@ -94,7 +94,7 @@ describe('renderer app shell view model', () => {
     }
   });
 
-  it('renders Settings after Fleet in the top group and reserves the bottom for limits', () => {
+  it('renders Fleet before Plugins and reserves the bottom for limits', () => {
     const onNavigate = () => undefined;
     const html = renderToStaticMarkup(createElement(AppNavigationRail, {
       active: 'settings', onOpenHome: onNavigate, onOpenAutomations: onNavigate,
@@ -107,8 +107,8 @@ describe('renderer app shell view model', () => {
       expect(html).toContain(`data-tooltip="${label}"`);
     }
     expect(html.indexOf('aria-label="Home"')).toBeLessThan(html.indexOf('aria-label="Automations"'));
-    expect(html.indexOf('aria-label="Plugins"')).toBeLessThan(html.indexOf('aria-label="Fleet"'));
-    expect(html.indexOf('aria-label="Fleet"')).toBeLessThan(html.indexOf('aria-label="Agent Settings"'));
+    expect(html.indexOf('aria-label="Fleet"')).toBeLessThan(html.indexOf('aria-label="Plugins"'));
+    expect(html.indexOf('aria-label="Plugins"')).toBeLessThan(html.indexOf('aria-label="Agent Settings"'));
     expect(html.indexOf('aria-label="Agent Settings"')).toBeLessThan(html.indexOf('class="app-navigation-rail-bottom"'));
     expect(html).toContain('class="app-navigation-rail-filled-icon"');
     expect(html).toContain('aria-current="page"');

@@ -12,7 +12,12 @@ import type {
 import { MemoryTypeLabel } from '../src/renderer/features/research/MemoryTypeLabel';
 import {
   browserBaseUrl,
+  campaignCatalogSectionVisibility,
+  campaignEntryFilterSelection,
+  campaignEntryScrollTargetSelector,
   CampaignClaimDetailView,
+  CampaignClaimCatalogLists,
+  NO_CAMPAIGN_MEMORIES_FILTER,
   orderedCatalogMemoryTypes,
   ResearchSideNestedHeader,
   ResearchSidePanel
@@ -336,8 +341,50 @@ describe('renderer research profile presentation', () => {
     }
   });
 
+  it('shows Leads in both summaries and restores the Campaign Leads section', () => {
+    const lead = claim('lead_example', 'Example parser lead');
+    lead.originSessionId = 'run_one';
+    const rejectedLead = { ...claim('lead_rejected', 'Rejected example lead'), status: 'rejected' };
+    const memory = { nodes: [], edges: [], runbooks: [], leads: [lead, rejectedLead], findings: [],
+      contextWorkspaceId: lead.workspaceId, contextSubjectId: lead.subjectId } as never;
+    const detail = { run: { id: 'run_one', status: 'completed', createdAt: '2026-08-10T00:00:00.000Z' },
+      attempts: [], traceEvents: [], transcriptMessages: [], artifacts: [], verifierContracts: [], verifierRuns: [],
+      modelSessions: [], policyEvents: [], exports: [] } as unknown as RunDetail;
+    const sidePanelProps = {
+      detail, events: [], memory, researchProfile: customProfile(), providerModelCatalog: [],
+      runId: 'run_one', runStatus: null, selectedRunbook: null,
+      selectedRunbookDocument: null, runbookLoading: false, runbookError: null,
+      selectedSubagentPath: null, selectedRunbookId: null, searchHighlightQuery: '',
+      onOpenRunbook: () => undefined, onSelectSubagent: () => undefined,
+      onBackToRunbooks: () => undefined, onBackToSubagents: () => undefined,
+      browserContextsEnabled: false
+    };
+
+    for (const viewSpace of ['session', 'workspace'] as const) {
+      const html = renderToStaticMarkup(createElement(ResearchSidePanel, { ...sidePanelProps, viewSpace }));
+      expect(html).toContain(viewSpace === 'session' ? '<span>1 Lead</span>' : '<span>2 Leads</span>');
+      expect(html).toContain('lucide-lightbulb');
+    }
+
+    expect(campaignCatalogSectionVisibility('leads', 'all')).toEqual({ memories: true, leads: true, findings: false });
+    expect(campaignEntryFilterSelection('leads')).toEqual({ claimFilter: 'leads', memoryType: NO_CAMPAIGN_MEMORIES_FILTER, runbookFilter: 'none' });
+    expect(campaignEntryScrollTargetSelector('leads')).toBe('[data-campaign-projection="leads"]');
+    const catalog = renderToStaticMarkup(createElement(CampaignClaimCatalogLists, {
+      leads: [lead], findings: [], selectedClaimId: null, onOpen: () => undefined
+    }));
+    expect(catalog).toContain('data-campaign-projection="leads"');
+    expect(catalog).toContain('Example parser lead');
+    expect(catalog).not.toContain('data-campaign-projection="findings"');
+    const leadDetail = renderToStaticMarkup(createElement(ResearchSidePanel, {
+      ...sidePanelProps, expanded: true, selectedClaimId: lead.id
+    }));
+    expect(leadDetail).toContain('aria-label="Lead detail views"');
+    expect(leadDetail).toContain('Example parser lead');
+  });
+
   it('starts finding details on Breakdown with tabs below the status and timestamp', () => {
     const parent = claim('claim_parent', 'Canonical parser boundary');
+    parent.projection = 'finding';
     parent.originSessionId = 'session_example';
     parent.stepsToReproduce = '1. Run the example parser.\n2. Observe the retained state.';
     parent.duplicateClaims = [{

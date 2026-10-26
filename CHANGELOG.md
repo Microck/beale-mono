@@ -6,6 +6,8 @@
 
 #### Fixed
 
+- The session summary sidebar grows within the available window width to keep its left labels readable as counts and usage change.
+- Restored Leads in the session and workspace summary sidebars and in the detailed Campaign list, filters, and claim navigation.
 - Running track sessions keep their active transcript, feedback state, and sidebar spinner across terminal epoch updates and deferred rendering.
 - Closing the Default browser context now offers the same confirmation as named contexts and can remove its saved context and site data. An empty context list survives restart; opening Browser recreates Default on demand.
 - Session and workspace memory summaries exclude Rejected records from totals and per-type counts, including when profile metadata is unavailable.

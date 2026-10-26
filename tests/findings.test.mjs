@@ -28,6 +28,7 @@ const workspace = { workspaceId: "workspace_findings", workspaceName: "Findings"
 
 test("model tools create, list, and promote Leads in the canonical claim lifecycle", async () => {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "beale-lead-lifecycle-example-"));
+  const layout = ensureResearchStorageLayout(createResearchStorageLayout({ workspaceRoot }));
   const graph = new MemoryGraphStore({ workspaceRoot, context: { ...workspace, sessionId: "session_lead_example" } });
   const claims = new FindingStore(graph);
   try {
@@ -45,6 +46,15 @@ test("model tools create, list, and promote Leads in the canonical claim lifecyc
     assert.match(duplicate.result.error.message, /Potential existing claims/);
     const listed = await registry.execute({ id: "lead_list_example", toolName: "lead.list", actionClass: "recall", input: {} });
     assert.equal(listed.result.output.leads.some((claim) => claim.id === lead.id), true);
+    const leadOnlySummary = getAppServerMemorySummary({
+      databasePath: graph.databasePath,
+      artifactDirectoryPath: layout.artifactDirectoryPath,
+      workspaceId: workspace.workspaceId,
+      subjectId: workspace.subjectId,
+    });
+    assert.equal(leadOnlySummary.status, "ready");
+    assert.deepEqual(leadOnlySummary.leads.map((claim) => claim.id), [lead.id]);
+    assert.deepEqual(leadOnlySummary.findings, []);
     const promoted = await registry.execute({ id: "lead_promote_example", toolName: "finding.transition", actionClass: "synthesize",
       input: { id: lead.id, expectedRevision: lead.revision, toStatus: "observed",
         reason: "The example parser branch is reachable.",

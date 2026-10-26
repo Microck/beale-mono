@@ -54,6 +54,7 @@ export function useResizableResearchSidePanel(active: boolean): {
   containerRef: RefObject<HTMLDivElement | null>;
   panelWidth: number;
   maximumPanelWidth: number;
+  ensurePanelWidth: (width: number) => void;
   beginResize: (event: ReactPointerEvent<HTMLDivElement>) => void;
   handleResizeKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
 } {
@@ -68,6 +69,13 @@ export function useResizableResearchSidePanel(active: boolean): {
       ? maxResearchSidePanelWidth(containerWidth)
       : MAX_RESEARCH_SIDE_PANEL_WIDTH;
   }, []);
+
+  const ensurePanelWidth = useCallback((width: number): void => {
+    const maximum = maximumForContainer();
+    setPanelWidth((currentWidth) => clampResearchSidePanelWidth(
+      Math.max(currentWidth, Math.ceil(width)), maximum
+    ));
+  }, [maximumForContainer]);
 
   useEffect(() => {
     try {
@@ -157,6 +165,7 @@ export function useResizableResearchSidePanel(active: boolean): {
     containerRef,
     panelWidth,
     maximumPanelWidth,
+    ensurePanelWidth,
     beginResize,
     handleResizeKeyDown
   };

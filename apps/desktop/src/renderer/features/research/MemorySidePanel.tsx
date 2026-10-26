@@ -121,7 +121,7 @@ export function campaignCatalogSectionVisibility(
 ): { memories: boolean; leads: boolean; findings: boolean } {
   return {
     memories: memoryType !== NO_CAMPAIGN_MEMORIES_FILTER,
-    leads: false,
+    leads: claimFilter === 'all' || claimFilter === 'leads',
     findings: claimFilter === 'all' || claimFilter === 'findings'
   };
 }
@@ -130,7 +130,7 @@ export function campaignEntryFilterSelection(
   target: CampaignEntryTarget
 ): { claimFilter: CampaignClaimFilter; memoryType: string; runbookFilter: CampaignRunbookFilter } | null {
   if (target === 'leads') {
-    return { claimFilter: 'findings', memoryType: NO_CAMPAIGN_MEMORIES_FILTER, runbookFilter: 'none' };
+    return { claimFilter: 'leads', memoryType: NO_CAMPAIGN_MEMORIES_FILTER, runbookFilter: 'none' };
   }
   if (target === 'findings') {
     return { claimFilter: 'findings', memoryType: NO_CAMPAIGN_MEMORIES_FILTER, runbookFilter: 'none' };
@@ -146,7 +146,7 @@ export function campaignEntryFilterSelection(
 
 export function campaignEntryScrollTargetSelector(target: CampaignEntryTarget): string | undefined {
   if (target === 'memories') return '[data-memory-type]';
-  if (target === 'leads') return '[data-campaign-projection="findings"]';
+  if (target === 'leads') return '[data-campaign-projection="leads"]';
   if (target === 'findings') return '[data-campaign-projection="findings"]';
   if (target === 'runbooks') return '[data-campaign-runbooks]';
   return undefined;
@@ -470,6 +470,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const nodes = memory?.nodes ?? [];
   const runbooks = memory?.runbooks ?? [];
   const reports = memory?.reports ?? [];
+  const leads = memory?.leads ?? [];
   const findings = memory?.findings ?? [];
   const memoryProfile = researchProfile?.memory;
   const memoryTypes = memoryProfile?.types ?? [];
@@ -524,9 +525,17 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => filterCampaignClaims(findings, { query: '', scope: 'session', sessionId: runId, workspaceId, subjectId }),
     [findings, runId, subjectId, workspaceId]
   );
+  const sessionLeads = useMemo(
+    () => filterCampaignClaims(leads, { query: '', scope: 'session', sessionId: runId, workspaceId, subjectId }),
+    [leads, runId, subjectId, workspaceId]
+  );
   const activeSessionFindings = useMemo(
     () => sessionFindings.filter(campaignClaimIsActive),
     [sessionFindings]
+  );
+  const activeSessionLeads = useMemo(
+    () => sessionLeads.filter(campaignClaimIsActive),
+    [sessionLeads]
   );
   const workspaceMemoryNodes = useMemo(
     () => filterMemoryCatalogNodes(nodes, {
@@ -565,12 +574,18 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => filterCampaignClaims(findings, { query: '', scope: 'workspace', sessionId: runId, workspaceId, subjectId }),
     [findings, runId, subjectId, workspaceId]
   );
+  const workspaceLeads = useMemo(
+    () => filterCampaignClaims(leads, { query: '', scope: 'workspace', sessionId: runId, workspaceId, subjectId }),
+    [leads, runId, subjectId, workspaceId]
+  );
   const workspaceReportRevisions = useMemo(
     () => workspaceReports.reduce((count, report) => count + report.revision, 0),
     [workspaceReports]
   );
-  const workspaceClaimCount = workspaceFindings.length;
+  const sessionLeadRatingSummary = claimRatingSummaryText(activeSessionLeads);
+  const workspaceLeadRatingSummary = claimRatingSummaryText(workspaceLeads);
   const sessionFindingRatingSummary = claimRatingSummaryText(activeSessionFindings);
+  const workspaceFindingRatingSummary = claimRatingSummaryText(workspaceFindings);
   const workspaceRunbookSummaryMetrics = runbookSummaryMetricsText(workspaceRunbookMetrics);
   const sessionRunbookSummaryMetrics = runbookSummaryMetricsText(sessionRunbookMetrics);
   const needsFullSubagents = subagentsAvailable && (detailsOpen || selectedSubagentPath !== null);
@@ -625,8 +640,13 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
     () => filterCampaignClaims(findings, { query, scope, sessionId: runId, workspaceId, subjectId }),
     [findings, query, runId, scope, subjectId, workspaceId]
   );
+  const filteredLeads = useMemo(
+    () => filterCampaignClaims(leads, { query, scope, sessionId: runId, workspaceId, subjectId }),
+    [leads, query, runId, scope, subjectId, workspaceId]
+  );
   const campaignSectionVisibility = campaignCatalogSectionVisibility(claimFilter, type);
   const visibleFilteredNodes = featureAvailability.memory && campaignSectionVisibility.memories ? filteredNodes : EMPTY_MEMORY_NODES;
+  const visibleFilteredLeads = featureAvailability.memory && campaignSectionVisibility.leads ? filteredLeads : EMPTY_CAMPAIGN_CLAIMS;
   const visibleFilteredFindings = featureAvailability.memory && campaignSectionVisibility.findings ? filteredFindings : EMPTY_CAMPAIGN_CLAIMS;
   const memoryTypeGroups = useMemo(
     () => memoryTypeGroupsByHeat(
@@ -649,18 +669,20 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
   const groupedReports = useMemo(() => reportCatalogGroups(filteredReports), [filteredReports]);
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const selectedNode = featureAvailability.memory && visibleSelectedNodeId ? nodeById.get(visibleSelectedNodeId) ?? null : null;
-  const claimById = useMemo(() => new Map(findings.map((claim) => [claim.id, claim])), [findings]);
+  const claimById = useMemo(() => new Map([...leads, ...findings].map((claim) => [claim.id, claim])), [findings, leads]);
   const selectedClaim = featureAvailability.memory && visibleSelectedClaimId ? claimById.get(visibleSelectedClaimId) ?? null : null;
   const relationshipsByNodeId = useMemo(() => groupMemoryRelationships(memory?.edges ?? []), [memory?.edges]);
   const updateKey = [
+    ...visibleFilteredLeads.map((claim) => `${claim.id}:${claim.updatedAt}:${claim.revision}`),
     ...visibleFilteredFindings.map((claim) => `${claim.id}:${claim.updatedAt}:${claim.revision}`),
     memoryCatalogUpdateKey(visibleFilteredNodes),
     ...visibleFilteredRunbooks.map((runbook) => `${runbook.id}:${runbook.updatedAt}:${runbook.revision}`)
   ].join('|');
   const reportUpdateKey = filteredReports.map((report) => `${report.id}:${report.updatedAt}`).join('|');
-  const campaignRecordCount = (featureAvailability.memory ? nodes.length + findings.length : 0)
+  const campaignRecordCount = (featureAvailability.memory ? nodes.length + leads.length + findings.length : 0)
     + (featureAvailability.runbooks ? runbooks.length : 0);
-  const visibleCampaignRecordCount = visibleFilteredNodes.length + visibleFilteredFindings.length + visibleFilteredRunbooks.length;
+  const visibleCampaignRecordCount = visibleFilteredNodes.length + visibleFilteredLeads.length
+    + visibleFilteredFindings.length + visibleFilteredRunbooks.length;
   const hasSessionMetadata = Boolean(detail);
   const hasSessionResources = (featureAvailability.runbooks && sessionRunbooks > 0)
     || (featureAvailability.reports && sessionReports.length > 0)
@@ -878,10 +900,19 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                   <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
                 </button>
               ) : null}
-              {featureAvailability.memory && workspaceClaimCount > 0 ? (
-                <button type="button" className="session-summary-item" onClick={() => openDetails('memory')}>
-                  <FileText size={15} aria-hidden="true" />
-                  <span>{workspaceClaimCount} {workspaceClaimCount === 1 ? 'Finding' : 'Findings'}</span>
+              {featureAvailability.memory && workspaceLeads.length > 0 ? (
+                <button type="button" className="session-summary-item" onClick={() => openDetails('memory', 'leads')}>
+                  <CampaignClaimProjectionIcon projection="lead" />
+                  <span>{workspaceLeads.length} {workspaceLeads.length === 1 ? 'Lead' : 'Leads'}</span>
+                  {workspaceLeadRatingSummary ? <span className="session-summary-meta">{workspaceLeadRatingSummary}</span> : null}
+                  <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+                </button>
+              ) : null}
+              {featureAvailability.memory && workspaceFindings.length > 0 ? (
+                <button type="button" className="session-summary-item" onClick={() => openDetails('memory', 'findings')}>
+                  <CampaignClaimProjectionIcon projection="finding" />
+                  <span>{workspaceFindings.length} {workspaceFindings.length === 1 ? 'Finding' : 'Findings'}</span>
+                  {workspaceFindingRatingSummary ? <span className="session-summary-meta">{workspaceFindingRatingSummary}</span> : null}
                   <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
                 </button>
               ) : null}
@@ -965,6 +996,14 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 <FileText size={15} aria-hidden="true" />
                 <span>{sessionReports.length} {sessionReports.length === 1 ? 'Report' : 'Reports'}</span>
                 <span className="session-summary-meta">{sessionReportRevisions} Updates</span>
+                <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
+              </button>
+            ) : null}
+            {featureAvailability.memory && activeSessionLeads.length > 0 ? (
+              <button type="button" className="session-summary-item" onClick={() => openDetails('memory', 'leads')}>
+                <CampaignClaimProjectionIcon projection="lead" />
+                <span>{activeSessionLeads.length} {activeSessionLeads.length === 1 ? 'Lead' : 'Leads'}</span>
+                {sessionLeadRatingSummary ? <span className="session-summary-meta">{sessionLeadRatingSummary}</span> : null}
                 <ChevronRight className="session-summary-chevron" size={15} aria-hidden="true" />
               </button>
             ) : null}
@@ -1165,7 +1204,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
           >
             <CampaignClaimDetailView
               claim={selectedClaim}
-              claimCandidates={findings}
+              claimCandidates={[...leads, ...findings]}
               mutationBusy={historyMutationBusy}
               providerModelCatalog={providerModelCatalog}
               onMarkDuplicate={onMarkHistoryDuplicate ? (id, parentId, revision) => onMarkHistoryDuplicate('claim', id, parentId, revision) : undefined}
@@ -1190,17 +1229,18 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                       <FloatingTextPicker
                         className="memory-catalog-filter memory-catalog-claim-filter"
                         value={claimFilter}
-                        title="Finding filter"
-                        ariaLabel="Finding filter"
+                        title="Claim filter"
+                        ariaLabel="Claim filter"
                         options={[
-                          { value: 'all', label: 'All Findings' },
-                          { value: 'none', label: 'No Findings' },
+                          { value: 'all', label: 'All Claims' },
+                          { value: 'none', label: 'No Claims' },
+                          { value: 'leads', label: 'Leads' },
                           { value: 'findings', label: 'Findings' }
                         ]}
                         onChange={(value) => {
                           const nextClaimFilter = value as CampaignClaimFilter;
                           setClaimFilter(nextClaimFilter);
-                          if (nextClaimFilter === 'findings') {
+                          if (nextClaimFilter === 'leads' || nextClaimFilter === 'findings') {
                             setType(NO_CAMPAIGN_MEMORIES_FILTER);
                             setRunbookFilter('none');
                           }
@@ -1267,6 +1307,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
                 updateKey={updateKey}
               >
                 <CampaignClaimCatalogLists
+                  leads={visibleFilteredLeads}
                   findings={visibleFilteredFindings}
                   nowMs={catalogNowMs}
                   providerModelCatalog={providerModelCatalog}
@@ -2465,6 +2506,7 @@ function MemoryCatalogAuthors({
 }
 
 export function CampaignClaimCatalogLists({
+  leads,
   findings,
   nowMs = Date.now(),
   previewLimit,
@@ -2473,6 +2515,7 @@ export function CampaignClaimCatalogLists({
   selectedClaimId,
   onOpen
 }: {
+  leads: readonly AppServerFindingSummary[];
   findings: readonly AppServerFindingSummary[];
   nowMs?: number;
   previewLimit?: number;
@@ -2483,6 +2526,18 @@ export function CampaignClaimCatalogLists({
 }): JSX.Element {
   return (
     <>
+      {showEmptySections || leads.length > 0 ? (
+        <CampaignClaimCatalogSection
+          claims={leads}
+          emptyLabel={showEmptySections ? 'No workspace leads yet.' : undefined}
+          label="Leads"
+          nowMs={nowMs}
+          previewLimit={previewLimit}
+          providerModelCatalog={providerModelCatalog}
+          selectedClaimId={selectedClaimId}
+          onOpen={onOpen}
+        />
+      ) : null}
       {showEmptySections || findings.length > 0 ? (
         <CampaignClaimCatalogSection
           claims={findings}
@@ -2511,7 +2566,7 @@ export function CampaignClaimCatalogSection({
 }: {
   claims: readonly AppServerFindingSummary[];
   emptyLabel?: string;
-  label: 'Findings';
+  label: 'Leads' | 'Findings';
   nowMs?: number;
   previewLimit?: number;
   providerModelCatalog?: readonly ResearchProviderModelCatalog[];
@@ -2520,11 +2575,12 @@ export function CampaignClaimCatalogSection({
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const [refutedOpen, setRefutedOpen] = useState(false);
-  const unrefutedClaims = claims.filter((claim) => claim.maturity !== 'refuted');
-  const refutedClaims = claims.filter((claim) => claim.maturity === 'refuted');
-  const boundedPreviewLimit = previewLimit === undefined ? unrefutedClaims.length : Math.max(0, previewLimit);
-  const visibleClaims = unrefutedClaims.slice(0, boundedPreviewLimit);
-  const overflowClaims = unrefutedClaims.slice(boundedPreviewLimit);
+  const findingsSection = label === 'Findings';
+  const refutedClaims = findingsSection ? claims.filter((claim) => claim.maturity === 'refuted') : [];
+  const catalogClaims = findingsSection ? claims.filter((claim) => claim.maturity !== 'refuted') : claims;
+  const boundedPreviewLimit = previewLimit === undefined ? catalogClaims.length : Math.max(0, previewLimit);
+  const visibleClaims = catalogClaims.slice(0, boundedPreviewLimit);
+  const overflowClaims = catalogClaims.slice(boundedPreviewLimit);
   const sectionLabel = claims.length === 1 ? singularizePresentationLabel(label) : label;
   const renderClaim = (claim: AppServerFindingSummary, inRefutedDialog = false): JSX.Element => {
     const rating = campaignClaimRatingPresentation(claim);
@@ -2566,14 +2622,14 @@ export function CampaignClaimCatalogSection({
   return (
     <section
       className="memory-type-section campaign-claim-section"
-      aria-label={`${claims.length} ${sectionLabel}, ${refutedClaims.length} refuted hidden`}
+      aria-label={`${claims.length} ${sectionLabel}${findingsSection ? `, ${refutedClaims.length} refuted hidden` : ''}`}
       data-campaign-projection={label.toLocaleLowerCase()}
     >
       <div className="campaign-claim-section-heading">
         <h3>{claims.length.toLocaleString()} {sectionLabel}</h3>
-        <button className="campaign-board-refuted-toggle" onClick={() => setRefutedOpen(true)} type="button">
+        {findingsSection ? <button className="campaign-board-refuted-toggle" onClick={() => setRefutedOpen(true)} type="button">
           {refutedClaims.length.toLocaleString()} refuted hidden
-        </button>
+        </button> : null}
       </div>
       <div className="memory-type-items">
         <div className="workspace-claim-primary-items">{visibleClaims.map((claim) => renderClaim(claim))}</div>
@@ -2586,7 +2642,7 @@ export function CampaignClaimCatalogSection({
             <div>{overflowClaims.map((claim) => renderClaim(claim))}</div>
           </div>
         ) : null}
-        {unrefutedClaims.length === 0 && (claims.length > 0 || emptyLabel)
+        {catalogClaims.length === 0 && (claims.length > 0 || emptyLabel)
           ? <p className="workspace-catalog-empty">{claims.length > 0 ? 'No unrefuted findings.' : emptyLabel}</p> : null}
       </div>
       {overflowClaims.length > 0 ? (
@@ -2599,7 +2655,7 @@ export function CampaignClaimCatalogSection({
           {expanded ? 'Show less' : `Show ${overflowClaims.length.toLocaleString()} more`}
         </button>
       ) : null}
-      {refutedOpen ? <Modal onClose={() => setRefutedOpen(false)} title="Refuted findings">
+      {findingsSection && refutedOpen ? <Modal onClose={() => setRefutedOpen(false)} title="Refuted findings">
         <div className="campaign-board-refuted-list">
           {refutedClaims.length > 0
             ? refutedClaims.map((claim) => renderClaim(claim, true))
@@ -2913,7 +2969,7 @@ export function CampaignClaimDetailView({
         </span>
         <time dateTime={claim.updatedAt} title={formatSessionDateTime(claim.updatedAt)}>{formatSessionDateTime(claim.updatedAt)}</time>
       </header>
-      <div className="campaign-claim-detail-tabs" role="tablist" aria-label="Finding detail views">
+      <div className="campaign-claim-detail-tabs" role="tablist" aria-label={`${claim.projection === 'lead' ? 'Lead' : 'Finding'} detail views`}>
         {FINDING_DETAIL_VIEWS.map((view, index) => {
           const ViewIcon = FINDING_DETAIL_VIEW_ICONS[view];
           return (

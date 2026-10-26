@@ -207,11 +207,11 @@ export const AppNavigationRail = memo(function AppNavigationRail({
           <button type="button" className={`app-navigation-rail-button${active === 'automations' ? ' active' : ''}`} data-tooltip="Automations" aria-label="Automations" aria-current={active === 'automations' ? 'page' : undefined} onClick={onOpenAutomations}>
             <NavigationIcon destination="automations" active={active === 'automations'} />
           </button>
-          <button type="button" className={`app-navigation-rail-button${active === 'plugins' ? ' active' : ''}`} data-tooltip="Plugins" aria-label="Plugins" aria-current={active === 'plugins' ? 'page' : undefined} onClick={onOpenPlugins}>
-            <NavigationIcon destination="plugins" active={active === 'plugins'} />
-          </button>
           <button type="button" className={`app-navigation-rail-button${active === 'fleet' ? ' active' : ''}`} data-tooltip="Fleet" aria-label="Fleet" aria-current={active === 'fleet' ? 'page' : undefined} onClick={onOpenFleet}>
             <NavigationIcon destination="fleet" active={active === 'fleet'} />
+          </button>
+          <button type="button" className={`app-navigation-rail-button${active === 'plugins' ? ' active' : ''}`} data-tooltip="Plugins" aria-label="Plugins" aria-current={active === 'plugins' ? 'page' : undefined} onClick={onOpenPlugins}>
+            <NavigationIcon destination="plugins" active={active === 'plugins'} />
           </button>
           <button type="button" className={`app-navigation-rail-button${active === 'settings' ? ' active' : ''}`} data-tooltip="Agent Settings" aria-label="Agent Settings" aria-current={active === 'settings' ? 'page' : undefined} onClick={onOpenSettings}>
             <NavigationIcon destination="settings" active={active === 'settings'} />
