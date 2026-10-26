@@ -1130,6 +1130,38 @@ describe('renderer commentary projection', () => {
     ]);
   });
 
+  it('keeps completed reasoning summaries when a response reuses an item ID', () => {
+    const reasoning = (id: string, phase: string, text: string): TraceDisplayEvent => displayEvent(id, {
+      agentPath: '/root',
+      transcriptRole: 'assistant',
+      transcriptSource: 'openai_reasoning_summary',
+      metadata: { responseId: 'response_example', itemId: 'thinking:0', phase },
+      text
+    });
+    const firstSnapshot = reasoning('first-snapshot', 'delta', '**Inspecting');
+    const firstCompleted = reasoning('first-completed', 'completed', '**Inspecting the parser**');
+    const secondSnapshot = reasoning('second-snapshot', 'delta', '**Checking');
+    const secondCompleted = reasoning('second-completed', 'completed', '**Checking bounds**');
+    const nextItem = displayEvent('next-item', {
+      agentPath: '/root',
+      transcriptRole: 'assistant',
+      transcriptSource: 'app_server_commentary',
+      text: 'Continuing with the example.'
+    });
+    const detail = runDetail('Review the parser.');
+    const summaries = (events: TraceDisplayEvent[]): string[] => commentaryMessagesForSession(detail, events)
+      .filter((message) => message.kind === 'progress')
+      .map((message) => message.contentMarkdown);
+
+    expect(summaries([firstSnapshot, firstCompleted])).toEqual(['**Inspecting the parser**']);
+    expect(summaries([firstSnapshot, firstCompleted, secondSnapshot])).toEqual([
+      '**Inspecting the parser**', '**Checking'
+    ]);
+    expect(summaries([firstSnapshot, firstCompleted, secondSnapshot, secondCompleted, nextItem])).toEqual([
+      '**Inspecting the parser**', '**Checking bounds**'
+    ]);
+  });
+
   it('keeps the prompt and terminal result outside the collapsible work history', () => {
     const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
       displayEvent('commentary', {

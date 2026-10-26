@@ -1030,13 +1030,20 @@ function humanizeToolName(toolName: string): string {
 
 function coalesceLegacyReasoningSnapshots(events: readonly TraceDisplayEvent[]): readonly TraceDisplayEvent[] {
   const lastIndexByKey = new Map<string, number>();
+  const completedIndices = new Set<number>();
   events.forEach((event, index) => {
     const key = legacyReasoningSnapshotKey(event);
-    if (key) lastIndexByKey.set(key, index);
+    if (!key) return;
+    const previousIndex = lastIndexByKey.get(key);
+    // A later summary may reuse the item ID after the previous one completed.
+    if (previousIndex !== undefined && payloadString(events[previousIndex]!, 'phase') === 'completed') {
+      completedIndices.add(previousIndex);
+    }
+    lastIndexByKey.set(key, index);
   });
   return events.filter((event, index) => {
     const key = legacyReasoningSnapshotKey(event);
-    return !key || lastIndexByKey.get(key) === index;
+    return !key || completedIndices.has(index) || lastIndexByKey.get(key) === index;
   });
 }
 
