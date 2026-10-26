@@ -154,8 +154,8 @@ describe('RunbookView', () => {
     expect(html).not.toContain('runbook-view-eyebrow');
     expect(html).not.toContain('<h2>Validate parser boundary</h2>');
     expect(html).toContain('Authored by');
-    expect(html).toContain('>5.6 Sol</span>');
-    expect(html).toContain('>Opus 4.6</span>');
+    expect(html).toContain('>GPT-5.6 Sol</span>');
+    expect(html).toContain('>Claude Opus 4.6</span>');
     expect(html).not.toContain('>gpt-5.6</span>');
     expect(html).not.toContain('>claude-opus-4-6</span>');
     expect(html).toContain('dateTime="2026-07-23T11:00:00.000Z"');

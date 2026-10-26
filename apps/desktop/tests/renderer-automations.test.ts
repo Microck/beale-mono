@@ -410,7 +410,7 @@ describe('automation workspace', () => {
     expect(html).not.toContain('aria-label="Shell safety mode"');
     expect(html).toContain('aria-label="Collaboration settings"');
     expect(html).toContain('aria-label="Model settings for the next agent turn"');
-    expect(html).toContain('<span class="model-selection-picker-model">5.6 Sol</span>');
+    expect(html).toContain('<span class="model-selection-picker-model">GPT-5.6 Sol</span>');
   });
 
   it('orders automation attempts newest first and isolates commentary to the selected attempt', () => {
