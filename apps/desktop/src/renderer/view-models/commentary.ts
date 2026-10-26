@@ -20,6 +20,9 @@ export interface CommentaryMessage {
   markerType?: 'compaction' | 'safeguard_recovery';
   taskAction?: 'spawn' | 'followup' | 'message' | 'room_message';
   taskAuthorAgentPath?: string;
+  taskRecipientAgentPath?: string;
+  taskOrigin?: string;
+  taskDestination?: string;
   taskRoute?: string;
   toolName?: string;
   toolCount?: number;
@@ -350,9 +353,12 @@ function subagentActivityMessage(event: TraceDisplayEvent): CommentaryMessage | 
     ?? (action === 'room_packet'
       ? stringValue(activity.roomTitle) ?? stringValue(activity.roomName)
       : stringValue(activity.agentPath));
+  const taskRecipientAgentPath = recipientAgentPath ?? (action === 'room_packet' ? null : recipient);
   const recipientLabel = recipient
     ? action === 'room_packet' && !recipientAgentPath ? `room "${recipient}"` : agentDisplayName(recipient)
     : null;
+  const taskOrigin = action === 'spawned' ? null : taskAuthorAgentPath ? agentDisplayName(taskAuthorAgentPath) : 'Unknown sender';
+  const taskDestination = action === 'spawned' ? null : recipientLabel ?? 'Unknown recipient';
   const taskRoute = taskAuthorAgentPath && recipientLabel
     ? `${agentDisplayName(taskAuthorAgentPath)} → ${recipientLabel}`
     : recipientLabel
@@ -362,7 +368,14 @@ function subagentActivityMessage(event: TraceDisplayEvent): CommentaryMessage | 
     id: `${task ? 'task' : 'error'}:${event.id}`,
     traceEventId: event.id,
     kind: task ? 'task' : 'error',
-    ...(task ? { taskAction, ...(taskAuthorAgentPath ? { taskAuthorAgentPath } : {}), ...(taskRoute ? { taskRoute } : {}) } : {}),
+    ...(task ? {
+      taskAction,
+      ...(taskAuthorAgentPath ? { taskAuthorAgentPath } : {}),
+      ...(taskRecipientAgentPath ? { taskRecipientAgentPath } : {}),
+      ...(taskOrigin ? { taskOrigin } : {}),
+      ...(taskDestination ? { taskDestination } : {}),
+      ...(taskRoute ? { taskRoute } : {})
+    } : {}),
     contentMarkdown,
     createdAt: event.createdAt
   };

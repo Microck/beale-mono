@@ -1605,15 +1605,16 @@ describe('renderer commentary projection', () => {
       }, { source: 'system' })
     ], { includeInitialPrompt: false });
 
-    expect(messages.map((message) => [message.taskAction, message.taskRoute, message.contentMarkdown])).toEqual([
-      ['message', 'Reviewer → Builder', 'Check the synthetic parser fixture.'],
-      ['room_message', 'Reviewer → room "Example review room"', 'The synthetic boundary is covered.']
+    expect(messages.map((message) => [message.taskAction, message.taskOrigin, message.taskDestination, message.contentMarkdown])).toEqual([
+      ['message', 'Reviewer', 'Builder', 'Check the synthetic parser fixture.'],
+      ['room_message', 'Reviewer', 'room "Example review room"', 'The synthetic boundary is covered.']
     ]);
     const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
       message: messages[0]!, searchHighlightQuery: '', selected: false
     }));
     expect(html).toContain('agent-communication-inbound');
-    expect(html).toContain('Agent message · Reviewer → Builder');
+    expect(html).toMatch(/main-commentary-agent-header[\s\S]*Reviewer[\s\S]*lucide-arrow-right[\s\S]*Builder[\s\S]*main-commentary-agent-type[\s\S]*Agent message/);
+    expect(html).toMatch(/main-commentary-agent-type[\s\S]*Agent message[\s\S]*main-commentary-message-content[\s\S]*Check the synthetic parser fixture/);
   });
 
   it('renders a follow-up task with its sender and recipient', () => {
@@ -1631,8 +1632,43 @@ describe('renderer commentary projection', () => {
     const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
       message: messages[0]!, searchHighlightQuery: '', selected: false
     }));
-    expect(html).toContain('Follow-up task · Lead → Reviewer');
+    expect(html).toMatch(/main-commentary-agent-header[\s\S]*Lead[\s\S]*lucide-arrow-right[\s\S]*Reviewer[\s\S]*Follow-up task/);
     expect(html).toContain('Recheck the synthetic fixture.');
+  });
+
+  it('labels the unknown origin on older messages without sender metadata', () => {
+    const messages = commentaryMessagesForSession(runDetail('Coordinate the review.'), [
+      displayEvent('message', {
+        type: 'subagent.activity',
+        action: 'message',
+        agentPath: '/root/reviewer',
+        message: 'Check the synthetic fixture.'
+      }, { source: 'system' })
+    ], { includeInitialPrompt: false });
+
+    const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
+      message: messages[0]!, searchHighlightQuery: '', selected: false
+    }));
+    expect(html).toContain('Unknown sender');
+    expect(html).toContain('Reviewer');
+  });
+
+  it('keeps older replies to the lead on the incoming side', () => {
+    const messages = commentaryMessagesForSession(runDetail('Coordinate the review.'), [
+      displayEvent('reply', {
+        type: 'subagent.activity',
+        action: 'message',
+        agentPath: '/root',
+        message: 'The synthetic fixture is ready.'
+      }, { source: 'system' })
+    ], { includeInitialPrompt: false });
+
+    const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
+      message: messages[0]!, searchHighlightQuery: '', selected: false
+    }));
+    expect(html).toContain('agent-communication-inbound');
+    expect(html).toContain('Unknown sender');
+    expect(html).toContain('Lead');
   });
 
   it('shows subagent failures as terminal Commentary messages', () => {

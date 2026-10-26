@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { ArrowLeft, BookOpen, Bot, Brain, ChevronRight, CircleAlert, Database, FileText, Terminal, Wrench } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Bot, Brain, ChevronRight, CircleAlert, Database, FileText, Terminal, Wrench } from 'lucide-react';
 import type {
   ApprovalRecord,
   PolicyReviewDecision,
@@ -956,17 +956,35 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   const hasSearchHighlight = searchHighlightTerms(searchHighlightQuery).length > 0;
   const label = commentaryMessageLabel(message.kind, message.taskAction);
   const icon = commentaryMessageIcon(message.kind, message.toolName);
+  const hasAgentHeader = message.kind === 'task' && message.taskAction !== 'spawn';
   const communicationClass = message.kind === 'task'
-    ? message.taskAuthorAgentPath && message.taskAuthorAgentPath !== '/root'
+    ? (message.taskAuthorAgentPath && message.taskAuthorAgentPath !== '/root') || message.taskRecipientAgentPath === '/root'
       ? 'agent-communication-inbound'
       : 'agent-communication-outbound'
     : '';
   const reasoningTraceLines = message.kind === 'progress'
     ? message.reasoningTraceLines?.length ? message.reasoningTraceLines : [message.contentMarkdown]
     : [];
+  const messageContent = message.kind === 'marker' || message.kind === 'progress' ? null : (
+    <div className="main-commentary-message-content">
+      {message.kind === 'tool' ? (
+        <CommentaryToolMessageContent
+          message={message}
+          hasSearchHighlight={hasSearchHighlight}
+          searchHighlightQuery={searchHighlightQuery}
+          onRequestToolCallDetail={onRequestToolCallDetail}
+        />
+      ) : hasSearchHighlight ? (
+        renderSearchHighlightedText(message.contentMarkdown, searchHighlightQuery)
+      ) : (
+        renderTraceProseText(message.contentMarkdown, message.kind === 'commentary' ? 'reasoning' : 'agent_output')
+      )}
+      {message.abortNotice ? <p className="main-commentary-abort-notice">{message.abortNotice}</p> : null}
+    </div>
+  );
   return (
     <article
-      className={`main-commentary-message kind-${message.kind} ${communicationClass} ${selected ? 'selected' : ''}${animateIcon ? ' is-streamed' : ''}`}
+      className={`main-commentary-message kind-${message.kind} ${communicationClass} ${hasAgentHeader ? 'has-agent-header' : ''} ${selected ? 'selected' : ''}${animateIcon ? ' is-streamed' : ''}`}
       data-commentary-event-id={message.id}
       data-commentary-window-item={windowed ? '' : undefined}
       data-commentary-trace-id={message.traceEventId ?? undefined}
@@ -990,25 +1008,23 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
             </div>
           ))}
         </div>
+      ) : hasAgentHeader ? (
+        <div className="main-commentary-agent-card">
+          <div className="main-commentary-agent-header">
+            <div className="main-commentary-agent-route">
+              <span className="main-commentary-agent-name" title={message.taskOrigin}>{message.taskOrigin ?? 'Unknown sender'}</span>
+              <ArrowRight size={14} aria-hidden="true" />
+              <span className="main-commentary-agent-name" title={message.taskDestination}>{message.taskDestination ?? 'Unknown recipient'}</span>
+            </div>
+            <span className="main-commentary-agent-type">{label}</span>
+          </div>
+          {messageContent}
+        </div>
       ) : (
         <>
           {icon ? <span className="main-commentary-message-icon" aria-hidden="true">{icon}</span> : null}
           {label ? <span className="main-commentary-message-label">{label}{message.taskRoute ? ` · ${message.taskRoute}` : ''}</span> : null}
-          <div className="main-commentary-message-content">
-            {message.kind === 'tool' ? (
-              <CommentaryToolMessageContent
-                message={message}
-                hasSearchHighlight={hasSearchHighlight}
-                searchHighlightQuery={searchHighlightQuery}
-                onRequestToolCallDetail={onRequestToolCallDetail}
-              />
-            ) : hasSearchHighlight ? (
-              renderSearchHighlightedText(message.contentMarkdown, searchHighlightQuery)
-            ) : (
-              renderTraceProseText(message.contentMarkdown, message.kind === 'commentary' ? 'reasoning' : 'agent_output')
-            )}
-            {message.abortNotice ? <p className="main-commentary-abort-notice">{message.abortNotice}</p> : null}
-          </div>
+          {messageContent}
         </>
       )}
     </article>
@@ -1261,6 +1277,9 @@ function commentaryMessagesRenderEqual(left: CommentaryMessage, right: Commentar
     left.markerType !== right.markerType ||
     left.taskAction !== right.taskAction ||
     left.taskAuthorAgentPath !== right.taskAuthorAgentPath ||
+    left.taskRecipientAgentPath !== right.taskRecipientAgentPath ||
+    left.taskOrigin !== right.taskOrigin ||
+    left.taskDestination !== right.taskDestination ||
     left.taskRoute !== right.taskRoute ||
     left.toolName !== right.toolName ||
     left.toolCount !== right.toolCount ||

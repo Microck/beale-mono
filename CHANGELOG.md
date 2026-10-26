@@ -6,6 +6,7 @@
 
 #### Changed
 
+- Inter-agent transcript messages now show a connected, muted header with sender, recipient, and message type.
 - Session collaboration rows now distinguish agent messages, follow-up tasks, and room messages, and show readable sender and recipient names when recorded.
 - Session tool activity labels use action verbs and include available surface, feature, plugin, resource, and reference names.
 - Following a live session transcript now slides existing content upward as new items and lines arrive.
