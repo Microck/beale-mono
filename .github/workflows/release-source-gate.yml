@@ -1,3 +1,4 @@
+# The default branch runs this metadata-only gate without checking out PR code.
 name: Release source gate
 
 on:
