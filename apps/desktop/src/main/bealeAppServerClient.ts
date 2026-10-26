@@ -715,9 +715,11 @@ export function requireBuiltAppServerTrayEntry(
 export function shouldReplaceAppServerWithTray(
   record: BealeAppServerDiscovery,
   platform: NodeJS.Platform = process.platform,
-  configuredCommand: string | undefined = process.env.BEALE_APP_SERVER_COMMAND
+  configuredCommand: string | undefined = process.env.BEALE_APP_SERVER_COMMAND,
+  electronVersion: string | undefined = process.versions.electron
 ): boolean {
   return isAppServerTrayPlatform(platform)
+    && typeof electronVersion === 'string' && electronVersion.length > 0
     && !configuredCommand?.trim()
     && record.hostMode !== 'tray';
 }
@@ -726,10 +728,11 @@ export function shouldLaunchAppServerTrayController(
   record: BealeAppServerDiscovery,
   activeSessionCount: number,
   platform: NodeJS.Platform = process.platform,
-  configuredCommand: string | undefined = process.env.BEALE_APP_SERVER_COMMAND
+  configuredCommand: string | undefined = process.env.BEALE_APP_SERVER_COMMAND,
+  electronVersion: string | undefined = process.versions.electron
 ): boolean {
   return activeSessionCount > 0
-    && shouldReplaceAppServerWithTray(record, platform, configuredCommand);
+    && shouldReplaceAppServerWithTray(record, platform, configuredCommand, electronVersion);
 }
 
 function parseEnvironmentArgs(name: string): string[] {
@@ -752,14 +755,18 @@ async function describeResponse(response: Response): Promise<string> {
   if (!text.trim()) return response.statusText || 'no detail';
   try {
     const parsed = JSON.parse(text) as { error?: unknown };
-    if (typeof parsed.error === 'string') return parsed.error.slice(0, 500);
+    if (typeof parsed.error === 'string') return boundedErrorDetail(parsed.error);
     if (isRecord(parsed.error) && typeof parsed.error.message === 'string') {
-      return parsed.error.message.slice(0, 500);
+      return boundedErrorDetail(parsed.error.message);
     }
   } catch {
     // Fall through to the raw text.
   }
-  return text.slice(0, 500);
+  return boundedErrorDetail(text);
+}
+
+function boundedErrorDetail(value: string): string {
+  return value.length <= 500 ? value : `${value.slice(0, 100)}\n...\n${value.slice(-395)}`;
 }
 
 function appServerWebSocketUrl(baseUrl: string, path: string): string {

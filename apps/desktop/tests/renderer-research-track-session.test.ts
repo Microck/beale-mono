@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BealeWorkspaceResearchTrack } from '@beale/app-server-runtime/protocol';
 import type { RunDetail } from '../src/shared/types';
-import { runningResearchTrackDetail, waitForResearchTrackSession } from '../src/renderer/view-models/researchTrackSession';
+import { pausesResearchTrackFromSessionAction, runningResearchTrackDetail, waitForResearchTrackSession } from '../src/renderer/view-models/researchTrackSession';
 
 function track(activeSessionId: string | null): BealeWorkspaceResearchTrack {
   return {
@@ -11,6 +11,12 @@ function track(activeSessionId: string | null): BealeWorkspaceResearchTrack {
 }
 
 describe('research track session handoff', () => {
+  it('pauses the track only for a session Pause action', () => {
+    expect(pausesResearchTrackFromSessionAction('pause', true)).toBe(true);
+    expect(pausesResearchTrackFromSessionAction('stop', true)).toBe(false);
+    expect(pausesResearchTrackFromSessionAction('pause', false)).toBe(false);
+  });
+
   it('presents a terminal epoch as ongoing while the track is running', () => {
     const detail = { run: { id: 'track_example', status: 'blocked', endedAt: '2026-08-20T12:00:00.000Z' } } as RunDetail;
     const presented = runningResearchTrackDetail(detail, true);

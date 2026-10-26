@@ -49,7 +49,7 @@ export interface ResourcePriorArtGetInput extends Omit<ResourcePriorArtListInput
 export const APP_SERVER_PROTOCOL_NAME = "app-server" as const;
 export const APP_SERVER_PROTOCOL_VERSION = 1 as const;
 export const APP_SERVER_CONTRACT_VERSION = 61 as const;
-export const APP_SERVER_RUNTIME_VERSION = "0.1.0" as const;
+export const APP_SERVER_RUNTIME_VERSION = "0.9.0" as const;
 export const APP_SERVER_PROTOCOL_WEBSOCKET_PATH = "/v1/session" as const;
 export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as const;
 /**

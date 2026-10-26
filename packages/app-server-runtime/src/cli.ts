@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 import { usage } from "./cli-usage.js";
-import { parseAppServerProtocolArguments } from "./protocol.js";
+import { APP_SERVER_RUNTIME_VERSION, parseAppServerProtocolArguments } from "./protocol.js";
 import { installPreBealeEnvironmentAliases } from "@beale/research-agent/legacy-compatibility";
-
-const VERSION = "0.1.0";
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   installPreBealeEnvironmentAliases();
@@ -21,7 +19,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       console.log(usage());
       return;
     }    if (argv[0] === "-v" || argv[0] === "--version") {
-      console.log(VERSION);
+      console.log(APP_SERVER_RUNTIME_VERSION);
       return;
     }
     if (isUtilityCommand(argv)) {

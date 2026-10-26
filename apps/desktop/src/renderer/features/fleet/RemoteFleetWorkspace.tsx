@@ -9,7 +9,7 @@ import { FleetBrowserSideView } from '../research/FleetBrowserSideView';
 import { SubagentDetailPanel } from '../research/MemorySidePanel';
 import { useResearchTrackSessionRunning } from '../../hooks/useResearchTrackSessionRunning';
 import { buildTraceDisplayEventsForAgentPath } from '../../view-models/traceDisplay';
-import { runningResearchTrackDetail } from '../../view-models/researchTrackSession';
+import { pausesResearchTrackFromSessionAction, runningResearchTrackDetail } from '../../view-models/researchTrackSession';
 import { subagentSummaries } from '../../view-models/subagents';
 import { surfaceFocusSummary, type SurfaceFocusSummary } from '../../view-models/surfaceFocus';
 import { mergeRemoteSessionHistory, remoteRunDetail, remoteRunStatus, remoteSessionHistoryPage, remoteWorkspaceRegistry } from './remoteFleetProjection';
@@ -272,7 +272,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
     setControlBusy(true);
     setControlError(null);
     try {
-      if (researchTrackRunning && workspaceId && (type === 'pause' || type === 'stop')) {
+      if (workspaceId && pausesResearchTrackFromSessionAction(type, researchTrackRunning)) {
         await window.beale.controlResearchTrack(workspaceId, 'pause', serverId);
         return;
       }

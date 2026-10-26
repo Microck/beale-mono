@@ -105,7 +105,7 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenS
   const progressLabel = loading ? 'Loading track progress' : statusTitle ?? 'Track not started';
   return <div className="workspace-research-track" role="group" aria-label="Research track controls">
     <span className="workspace-research-track-label">
-      <Route size={14} aria-hidden="true" /><span>Track</span>
+      <Route size={14} aria-hidden="true" /><span>Track{status === 'paused' ? ' · Paused' : status === 'waiting' ? ' · Waiting' : ''}</span>
       {visibleError ? <span className="workspace-research-track-warning" role="alert" aria-label={`Track error: ${visibleError}`} tabIndex={0}>
         <TriangleAlert size={11} aria-hidden="true" />
         <span className="workspace-research-track-error" role="tooltip">{visibleError}</span>
@@ -124,6 +124,7 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenS
       {progressOpen ? <div className="workspace-research-track-surface-list" id="workspace-research-track-progress" role="region" aria-label="Track progress" tabIndex={0}>
         <strong>Progress</strong>
         <span>{progressLabel}</span>
+        {status === 'paused' && !track?.lastError ? <span>Paused with track controls. Resume Track to continue research.</span> : null}
         {track ? <>
           <span>Pass {track.pass} · {investigated} of {total} investigated · {complete} complete</span>
           {track.surfaces.filter((surface) => surface.status !== 'excluded').map((surface) => <div key={surface.surfaceId} className="workspace-research-track-surface">

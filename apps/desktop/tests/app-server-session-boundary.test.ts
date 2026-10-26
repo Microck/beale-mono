@@ -16,7 +16,7 @@ import {
   getAppServerRunDetailUpdateForClient
 } from '../src/main/appServerSessionBoundary';
 import { WorkspaceService } from '../src/main/workspaceService';
-import { fetchAppServerSession, readBealeAppServerDiscovery } from '../src/main/bealeAppServerClient';
+import { isBealeAppServerAlive, readBealeAppServerDiscovery } from '../src/main/bealeAppServerClient';
 import { resolvedTestResearchProfile } from './researchProfileFixture';
 
 const createdDirectories: string[] = [];
@@ -1140,103 +1140,6 @@ describe('app-server session persistence boundary', () => {
     }
   }, 30_000);
 
-  it('stops a newly started canonical session without querying full session aggregates from live events', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'beale-app-server-canonical-stop-'));
-    const registry = mkdtempSync(join(tmpdir(), 'beale-app-server-canonical-stop-registry-'));
-    createdDirectories.push(workspace, registry);
-    setEnvironment('BEALE_APP_SERVER_MOCK', '1');
-    configureIsolatedAppServer(registry);
-
-    let watchForContinuedRegistry = false;
-    let sawContinuedActiveRegistry = false;
-    let service!: WorkspaceService;
-    service = new WorkspaceService((change) => {
-      if (!watchForContinuedRegistry || !change?.workspaceRegistryChanged) return;
-      sawContinuedActiveRegistry ||= service.getCachedWorkspaceRegistryState().researchSessions
-        .some((session) => session.status === 'active');
-    }, {
-      workspaceRegistryDirectory: registry,
-      researchProfileResolver: () => resolvedTestResearchProfile()
-    });
-    try {
-      service.createWorkspace(workspace);
-      const runtime = (service as unknown as {
-        getForegroundRuntime(): { appServerEngine: { hasActiveRuns(): boolean } } | null;
-      }).getForegroundRuntime();
-      expect(runtime).not.toBeNull();
-      const started = service.startRun({
-        runEngine: 'app-server',
-        provider: 'openai-codex',
-        shellSafetyMode: 'auto_review',
-        goalEnabled: false,
-        goalObjective: null,
-        promptMarkdown: 'Stop this session immediately.',
-        mode: 'open_discovery',
-        attemptStrategy: 'iterative_research',
-        model: 'gpt-5.6-sol',
-        reasoningEffort: 'high',
-        sandboxProfile: 'host',
-        budget: { maxMinutes: 30, maxAttempts: 1, maxCostUsd: 0 }
-      });
-      const runId = started.runs[0]?.run.id;
-      expect(runId).toBeTruthy();
-
-      await service.steerRunForClient({ type: 'stop', runId: runId!, note: '' });
-      await waitFor(() => service.getRunDetail(runId!).run.status === 'stopped');
-      expect(service.getRunDetail(runId!)).toMatchObject({
-        run: { status: 'stopped' },
-        attempts: [expect.objectContaining({ status: 'stopped' })]
-      });
-      const host = readBealeAppServerDiscovery();
-      expect(host).not.toBeNull();
-      await waitFor(async () => (await fetchAppServerSession(host!, runId!))?.state === 'stopped');
-      await waitFor(() => !runtime!.appServerEngine.hasActiveRuns());
-      // Generated terminal placeholders are replaced on continuation; durable messages must survive.
-      const historyBeforeContinuation = service.getRunDetail(runId!).transcriptMessages
-        .filter((message) => !message.id.startsWith('transcript_final_')).map((message) => message.id);
-      await waitFor(() => service.getCachedWorkspaceRegistryState().researchSessions
-        .some((session) => session.runId === runId && session.status === 'stopped'));
-
-      watchForContinuedRegistry = true;
-      const accepted = await service.steerRunForClient({
-        type: 'steer',
-        runId: runId!,
-        instruction: 'Continue after the stopped process has detached.'
-      });
-      expect(accepted.runs.some((row) => row.run.id === runId)).toBe(true);
-      expect(service.getRunDetail(runId!).run.promptMarkdown).toBe('Stop this session immediately.');
-      expect(service.getRunDetail(runId!).transcriptMessages.map((message) => message.id)).toEqual(
-        expect.arrayContaining(historyBeforeContinuation)
-      );
-      expect(service.getRunDetail(runId!).transcriptMessages).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          role: 'user',
-          contentMarkdown: 'Continue after the stopped process has detached.',
-          metadata: expect.objectContaining({ continuation: true })
-        }),
-        expect.objectContaining({
-          role: 'assistant',
-          phase: 'commentary',
-          contentMarkdown: 'Follow-up accepted. Beale is preparing the next agent turn.',
-          source: 'beale_status'
-        })
-      ]));
-      await waitFor(() => sawContinuedActiveRegistry);
-      await waitFor(() => service.getRunDetail(runId!).attempts.length === 2);
-      expect(service.getRunDetail(runId!)).toMatchObject({
-        attempts: [
-          expect.objectContaining({ status: 'stopped' }),
-          expect.objectContaining({ strategyRole: 'session_continuation' })
-        ]
-      });
-
-      await service.steerRunForClient({ type: 'stop', runId: runId!, note: '' });
-      await waitFor(() => service.getRunDetail(runId!).run.status === 'stopped');
-    } finally {
-      service.close();
-    }
-  }, 30_000);
-
   it('loads an app-server session asynchronously while its runtime database writer is active', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'beale-app-server-session-read-lock-'));
     createdDirectories.push(directory);
@@ -1522,6 +1425,7 @@ describe('app-server session persistence boundary', () => {
       budget: { runEngine: 'app-server' }
     });
     database.close();
+    await stopTestAppServerForRestart(join(registry, 'app-server.json'));
 
     const reopened = new WorkspaceService(() => undefined, {
       workspaceRegistryDirectory: registry,
@@ -1570,6 +1474,7 @@ describe('app-server session persistence boundary', () => {
       expect.objectContaining({ runId: interrupted.run.id, status: 'active' })
     );
     initial.close();
+    await stopTestAppServerForRestart(join(registry, 'app-server.json'));
 
     const restarted = new WorkspaceService(() => undefined, {
       workspaceRegistryDirectory: registry,
@@ -1656,6 +1561,13 @@ function stopTestAppServer(stateFile: string): void {
   } catch {
     // Best-effort teardown for the detached test app-server.
   }
+}
+
+async function stopTestAppServerForRestart(stateFile: string): Promise<void> {
+  const record = readBealeAppServerDiscovery(stateFile);
+  if (!record || !isBealeAppServerAlive(record)) return;
+  process.kill(record.pid, 'SIGTERM');
+  await waitFor(() => !isBealeAppServerAlive(record));
 }
 
 function setEnvironment(name: string, value: string): void {

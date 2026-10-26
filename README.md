@@ -112,6 +112,8 @@ The app-server is the research runtime's execution host. Any retained command-li
 pnpm test                         # default fast monorepo gate
 pnpm test:integration             # hosted-worker and real-session Desktop coverage
 pnpm test:all                     # both tiers
+pnpm release:check                # check coordinated release versions
+pnpm release:verify               # full local release candidate gate
 pnpm test:runtime:fast            # isolated research-runtime tests
 pnpm test:runtime:integration     # hosted-runtime integration cases
 ```
@@ -151,11 +153,13 @@ The desktop integration tests (`pnpm --filter @beale/desktop test:integration`) 
 
 Live provider tests remain opt-in because they require local credentials.
 
+Version 0.9.0 is the current release candidate baseline. The release procedure, CI gates, data backup, and tag rules are in [`RELEASING.md`](RELEASING.md). Desktop currently produces a production bundle, not a signed installer.
+
 ---
 
 ## Safety
 
-This tool is intended **only** for authorized vulnerability research and testing. Always respect scope, legal boundaries, and responsible disclosure practices. Because the project is pre-alpha, policy and isolation safeguards are incomplete; operator-managed VMs, containers, firewalls, and proxies are the isolation boundary.
+This tool is intended **only** for authorized vulnerability research and testing. Always respect scope, legal boundaries, and responsible disclosure practices. Beale runs with the current user's host privileges; operator-managed VMs, containers, firewalls, and proxies are the isolation boundary.
 
 Development rules, terminology, and security-model invariants live in [`AGENTS.md`](AGENTS.md). Product changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
 

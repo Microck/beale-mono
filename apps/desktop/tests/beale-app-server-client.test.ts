@@ -104,23 +104,27 @@ describe('beale app-server client', () => {
 
   it('upgrades every implicit non-tray host to a tray process on desktop platforms', () => {
     const legacy = discoveryRecord({ hostMode: undefined });
-    expect(shouldReplaceAppServerWithTray(legacy, 'darwin', undefined)).toBe(true);
-    expect(shouldReplaceAppServerWithTray(legacy, 'win32', undefined)).toBe(true);
-    expect(shouldReplaceAppServerWithTray(legacy, 'linux', undefined)).toBe(false);
-    expect(shouldReplaceAppServerWithTray(legacy, 'darwin', '/custom/server')).toBe(false);
-    expect(shouldReplaceAppServerWithTray(discoveryRecord({ hostMode: 'tray' }), 'darwin', undefined)).toBe(false);
-    expect(shouldReplaceAppServerWithTray(discoveryRecord({ hostMode: 'headless' }), 'darwin', undefined)).toBe(true);
-    expect(shouldReplaceAppServerWithTray(discoveryRecord({ hostMode: 'headless' }), 'win32', undefined)).toBe(true);
-    expect(shouldReplaceAppServerWithTray(discoveryRecord({ hostMode: 'headless' }), 'darwin', '/custom/server')).toBe(false);
+    const electronVersion = '41.0.0';
+    expect(shouldReplaceAppServerWithTray(legacy, 'darwin', undefined, electronVersion)).toBe(true);
+    expect(shouldReplaceAppServerWithTray(legacy, 'win32', undefined, electronVersion)).toBe(true);
+    expect(shouldReplaceAppServerWithTray(legacy, 'linux', undefined, electronVersion)).toBe(false);
+    expect(shouldReplaceAppServerWithTray(legacy, 'darwin', '/custom/server', electronVersion)).toBe(false);
+    expect(shouldReplaceAppServerWithTray(discoveryRecord({ hostMode: 'tray' }), 'darwin', undefined, electronVersion)).toBe(false);
+    expect(shouldReplaceAppServerWithTray(discoveryRecord({ hostMode: 'headless' }), 'darwin', undefined, electronVersion)).toBe(true);
+    expect(shouldReplaceAppServerWithTray(discoveryRecord({ hostMode: 'headless' }), 'win32', undefined, electronVersion)).toBe(true);
+    expect(shouldReplaceAppServerWithTray(discoveryRecord({ hostMode: 'headless' }), 'darwin', '/custom/server', electronVersion)).toBe(false);
+    expect(shouldReplaceAppServerWithTray(legacy, 'darwin', undefined, '')).toBe(false);
   });
 
   it('launches a tray controller when an active session prevents replacing a headless macOS host', () => {
     const headless = discoveryRecord({ hostMode: 'headless' });
-    expect(shouldLaunchAppServerTrayController(headless, 1, 'darwin', undefined)).toBe(true);
-    expect(shouldLaunchAppServerTrayController(headless, 0, 'darwin', undefined)).toBe(false);
-    expect(shouldLaunchAppServerTrayController(headless, 1, 'linux', undefined)).toBe(false);
-    expect(shouldLaunchAppServerTrayController(headless, 1, 'darwin', '/custom/server')).toBe(false);
-    expect(shouldLaunchAppServerTrayController(discoveryRecord({ hostMode: 'tray' }), 1, 'darwin', undefined)).toBe(false);
+    const electronVersion = '41.0.0';
+    expect(shouldLaunchAppServerTrayController(headless, 1, 'darwin', undefined, electronVersion)).toBe(true);
+    expect(shouldLaunchAppServerTrayController(headless, 0, 'darwin', undefined, electronVersion)).toBe(false);
+    expect(shouldLaunchAppServerTrayController(headless, 1, 'linux', undefined, electronVersion)).toBe(false);
+    expect(shouldLaunchAppServerTrayController(headless, 1, 'darwin', '/custom/server', electronVersion)).toBe(false);
+    expect(shouldLaunchAppServerTrayController(discoveryRecord({ hostMode: 'tray' }), 1, 'darwin', undefined, electronVersion)).toBe(false);
+    expect(shouldLaunchAppServerTrayController(headless, 1, 'darwin', undefined, '')).toBe(false);
   });
 
   it('rejects a missing built tray entry before Electron is launched', () => {

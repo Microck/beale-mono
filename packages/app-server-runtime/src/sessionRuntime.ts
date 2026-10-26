@@ -127,7 +127,7 @@ import {
   installPreBealeEnvironmentAliases,
   type ResearchGoalFindingProgress,
 } from "@beale/research-agent";
-import { BEALE_APP_SERVER_CONTROL_VERSION, BEALE_APP_SERVER_OPERATIONS_PATH, type FleetState } from './protocol.js';
+import { APP_SERVER_RUNTIME_VERSION, BEALE_APP_SERVER_CONTROL_VERSION, BEALE_APP_SERVER_OPERATIONS_PATH, type FleetState } from './protocol.js';
 
 async function invokeResidentFleetOperation(
   operation: 'fleet.state' | 'fleet.clone' | 'fleet.start' | 'fleet.stop',
@@ -204,7 +204,6 @@ import type {
   BundledResearchProfileId,
 } from "@beale/research-agent";
 
-const VERSION = "0.1.0";
 const PROFILE_CATALOG_PROTOCOL_VERSION = 1 as const;
 const MAX_MEMORY_ATTRIBUTES_JSON_CHARACTERS = 64_000;
 const MAX_MEMORY_EVIDENCE_JSON_CHARACTERS = 64_000;
@@ -2025,7 +2024,7 @@ export async function main(
     }
 
     if (args.version) {
-      console.log(VERSION);
+      console.log(APP_SERVER_RUNTIME_VERSION);
       return;
     }
 

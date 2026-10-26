@@ -1,6 +1,10 @@
 import type { BealeWorkspaceResearchTrack } from '@beale/app-server-runtime/protocol';
 import type { RunDetail } from '@shared/types';
 
+export function pausesResearchTrackFromSessionAction(action: string, trackRunning: boolean): boolean {
+  return trackRunning && action === 'pause';
+}
+
 export function runningResearchTrackDetail(detail: RunDetail | null, running: boolean): RunDetail | null {
   if (!detail || !running || detail.run.status === 'active' || detail.run.status === 'failed') return detail;
   return { ...detail, run: { ...detail.run, status: 'active', endedAt: null } };

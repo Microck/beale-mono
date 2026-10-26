@@ -89,12 +89,14 @@ describe('AgentPluginRegistry', () => {
     });
 
     registry.setEnabled(installed.plugins[0].id, false);
-    expect(registry.getAppServerRuntime()).toMatchObject({
+    const disabledRuntime = registry.getAppServerRuntime();
+    expect(disabledRuntime).toMatchObject({
       skillDirs: [],
       selectedSkillIds: [],
       mcpConfigPath: null,
       allowedMcpServers: [],
-      args: []
+      pluginCatalog: [],
+      args: ['--plugin-catalog', disabledRuntime.pluginCatalogPath]
     });
   });
 

@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   APP_SERVER_SESSION_LAUNCH_VERSION,
+  APP_SERVER_RUNTIME_VERSION,
   type AppServerProviderRiskAcknowledgement,
   type AppServerSessionLaunchRequest
 } from '@beale/app-server-runtime/protocol';
@@ -1590,7 +1591,7 @@ export class AppServerRunEngine {
     const client = new AppServerWebSocketClient({
       bootstrap,
       token: active.appServerClientToken ?? '',
-      clientVersion: '0.1.0',
+      clientVersion: APP_SERVER_RUNTIME_VERSION,
       onEvent: (rawEvent) => {
         if (this.activeRuns.get(active.context.run.id) !== active) return;
         const event = decodeAppServerLiveEvent(rawEvent);

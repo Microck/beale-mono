@@ -115,7 +115,7 @@ import {
 } from './view-models/sessionHeat';
 import { buildTraceDisplayEvents, buildTraceDisplayEventsForAgentPath } from './view-models/traceDisplay';
 import { runDetailMetricDetail, shortMetricId } from './view-models/runDetailUpdates';
-import { runningResearchTrackDetail, waitForResearchTrackSession } from './view-models/researchTrackSession';
+import { pausesResearchTrackFromSessionAction, runningResearchTrackDetail, waitForResearchTrackSession } from './view-models/researchTrackSession';
 import { hasResearchProfileDetailFeatures, researchProfileFeatureAvailability } from './view-models/researchProfileFeatures';
 import { isReportResourceRun, reportSessionDefaultModelSelection, reportTitleFromMarkdown } from './view-models/reports';
 import {
@@ -1615,7 +1615,7 @@ export function App(): JSX.Element {
         setError('Enable Danger Mode in Agent Settings before selecting it for a research session.');
         return;
       }
-      if ((action.type === 'pause' || action.type === 'stop') && selectedResearchTrackRunning
+      if (pausesResearchTrackFromSessionAction(action.type, selectedResearchTrackRunning)
         && action.runId === selectedRunId && snapshot) {
         setBusy(true);
         setError(null);

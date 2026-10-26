@@ -448,6 +448,33 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
   } finally { state.close(); }
 });
 
+test('stopping one track session epoch leaves the track running', async () => {
+  const state = fixture();
+  const service = new AppServerHostService({ registry: {
+    registryDirectory: join(dirname(state.databasePath), 'registry'),
+    listWorkspaces: () => [{ workspaceId }],
+    resolveWorkspace: (id) => id === workspaceId ? {
+      workspaceId, researchProfileId: 'security-research', memoryBackend: 'app-server'
+    } : null,
+    storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
+  }, invokeProtocol: async (operation) => operation === 'session.get' ? { status: 'stopped' } : {} });
+  service.workspaceResearchTrackContext = async () => ({ scope: { id: 'scope-example' },
+    targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
+  try {
+    const track = state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces });
+    const [first] = await service.dueResearchTracks();
+    assert.equal(first.request.sessionId, track.id);
+    await service.recordSessionTerminalState({ request: first.request, sessionId: track.id,
+      attemptId: 'attempt-example-stopped', state: 'stopped' });
+    assert.equal(state.store.get().status, 'running');
+    assert.equal(state.store.get().activeSessionId, null);
+    const [next] = await service.dueResearchTracks();
+    assert.equal(next.request.sessionId, track.id);
+    assert.equal(state.store.get().status, 'running');
+  } finally { state.close(); }
+});
+
 test('an orphaned track epoch pauses instead of showing indefinite research progress', async () => {
   const state = fixture();
   const service = new AppServerHostService({ registry: {

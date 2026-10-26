@@ -84,13 +84,13 @@ describe('renderer provider settings', () => {
     expect(html).toContain('<option value="large" selected="">');
   });
 
-  it('uses the shared white theme accent for all checkbox and radio controls', () => {
+  it('uses the theme accent for general controls and the surface map accent for its filter', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
     const checkboxStyles = styles.match(/input\[type='checkbox'\],\s*input\[type='radio'\]\s*\{([^}]*)\}/)?.[1] ?? '';
     const accentValues = [...styles.matchAll(/accent-color:\s*([^;]+);/gu)].map((match) => match[1]?.trim());
 
     expect(checkboxStyles).toContain('accent-color: var(--text)');
-    expect(new Set(accentValues)).toEqual(new Set(['var(--text)']));
+    expect(new Set(accentValues)).toEqual(new Set(['var(--text)', '#32a887']));
   });
 
   it('opens the provider picker toward the right of its trigger', () => {
@@ -103,13 +103,15 @@ describe('renderer provider settings', () => {
 
   it('uses the shared pill styling for provider view tabs', () => {
     const styles = readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
-    const inactiveTabStyles = styles.match(/\.pill-view-tabs \.research-side-view-tab\.provider-settings-tab:not\(\.active\)\s*\{([^}]*)\}/)?.[1] ?? '';
+    const inactiveTabStyles = styles.match(/\.pill-view-tabs \.research-side-view-tab:not\(\.active\)\s*\{([^}]*)\}/)?.[1] ?? '';
+    const providerTabStyles = styles.match(/\.provider-settings-tab:not\(\.active\)\s*\{([^}]*)\}/)?.[1] ?? '';
     const tabActivateStyles =
       styles.match(/\.pill-view-tabs \.research-side-view-tab \.research-side-view-tab-activate\s*\{([^}]*)\}/)?.[1] ?? '';
     const tabHeaderStyles = styles.match(/\.provider-settings-tab-header\s*\{([^}]*)\}/)?.[1] ?? '';
     const providerContentStyles = styles.match(/\.provider-settings-page > \.provider-card\s*\{([^}]*)\}/)?.[1] ?? '';
 
     expect(inactiveTabStyles).toContain('background: transparent');
+    expect(providerTabStyles).toContain('background: var(--panel-strong)');
     expect(tabActivateStyles).toContain('height: 40px');
     expect(tabActivateStyles).toContain('padding: 0 16px');
     expect(tabHeaderStyles).toContain('min-height: 40px');

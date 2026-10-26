@@ -4,6 +4,31 @@
 
 ### Beale
 
+#### Fixed
+
+- Stopping a running research track session now ends the current epoch while the track continues; Pause still pauses the track. The track controls show paused state explicitly.
+
+### app-server
+
+#### Fixed
+
+- Stopping an individual research epoch no longer pauses its track; an explicit track pause still does.
+- Sessions stopped after a track pause record the track-control cause even when the scheduler observes the pause first.
+
+## 0.9.0
+
+### Beale
+
+#### Changed
+
+- Set the coordinated Beale, app-server, and research-runtime release candidate version to 0.9.0. Shared runtime and Desktop handshakes report the same version.
+- Added a fast pull-request gate and a manual and tag-triggered macOS/Windows release gate, with version and annotated-tag checks. No installer or public release is produced by these gates.
+
+#### Fixed
+
+- Long app-server errors now retain their terminal diagnostic in Desktop after crossing the HTTP boundary.
+- Plain Node clients on macOS and Windows now keep a healthy headless app-server instead of repeatedly trying to replace it with an unavailable Electron tray host.
+
 #### Added
 
 - Workspace Continuous research tracks now run bounded, reasoning-based security epochs across authorized surfaces with impact-aware rotation, durable per-surface checkpoints, blocker handling, a later second look at high-impact surfaces, and Start/Resume/Pause/Stop controls for local and connected app servers. The app-server owns scheduling and persistence; control contract v60 requires rebuilt Beale and app-server clients.
@@ -1427,6 +1452,10 @@
 - Added MIT licensing metadata and a root `LICENSE`.
 
 ### app-server
+
+#### Changed
+
+- App-server handshakes report the coordinated 0.9.0 runtime version.
 
 #### Added
 

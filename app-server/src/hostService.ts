@@ -1598,8 +1598,6 @@ export class AppServerHostService {
       const track = trackStore.get();
       const assigned = input.request.launch.mode === 'research-track'
         && track?.activeSessionId === input.sessionId;
-      if (assigned && input.state === 'stopped' && !input.trackRotation
-        && track.status === 'running') trackStore.control('pause');
       if (assigned) {
         const checkpointed = track.surfaces.some((work) => work.surfaceId === track.activeSurfaceId
           && work.status !== 'active');

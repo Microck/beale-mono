@@ -22,6 +22,7 @@ import {
   BEALE_APP_SERVER_SHUTDOWN_PATH,
   BEALE_APP_SERVER_WORKSPACES_PATH,
   APP_SERVER_PROTOCOL_VERSION,
+  APP_SERVER_RUNTIME_VERSION,
   APP_SERVER_PROTOCOL_OPERATIONS,
   APP_SERVER_SESSION_LAUNCH_VERSION,
   decodeAppServerClientMessage,
@@ -193,6 +194,14 @@ interface ResidentIntrospectionBinding {
 
 function isTerminal(state: SessionState): boolean {
   return state === 'completed' || state === 'failed' || state === 'stopped';
+}
+
+export function researchTrackStopCause(
+  track: Pick<BealeWorkspaceResearchTrack, 'status' | 'activeSessionId' | 'lastError'> | null,
+  sessionId: string
+): AppServerSessionStopCause | null {
+  if (track?.status === 'running' && track.activeSessionId === sessionId) return null;
+  return track?.status === 'paused' && !track.lastError ? 'track_control' : 'track_state';
 }
 
 export async function startAppServer(options: AppServerOptions = {}): Promise<AppServerHandle> {
@@ -1155,9 +1164,8 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
         }
         try {
           const track = await hostCall(() => hostService.workspaceResearchTrack(runtime.request.launch.workspaceId, 'status'));
-          if (!track || track.status !== 'running' || track.activeSessionId !== runtime.sessionId) {
-            stopSession(runtime.sessionId, 'track_state');
-          }
+          const stopCause = researchTrackStopCause(track, runtime.sessionId);
+          if (stopCause) stopSession(runtime.sessionId, stopCause);
         } catch { /* A transient status read must not interrupt active research. */ }
       }
       const service = hostService as AppServerHostService & {
@@ -1359,7 +1367,7 @@ export async function startAppServer(options: AppServerOptions = {}): Promise<Ap
     runtime.session = session;
     runtime.currentAttemptId = prepared.attemptId;
     runtime.currentAttemptWasInitial = attemptWasInitial;
-    runtime.handshakeFrame ??= Buffer.from(JSON.stringify(appServerServerHello(runtime.sessionId, '0.1.0')));
+    runtime.handshakeFrame ??= Buffer.from(JSON.stringify(appServerServerHello(runtime.sessionId, APP_SERVER_RUNTIME_VERSION)));
     runtime.unsubscribeSessionEvents = session.onEvent((event) => {
       observeSessionControlState(runtime, event);
       const recoveryActivity = recoveryActivityFromEvent(event);

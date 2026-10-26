@@ -37,6 +37,7 @@ import {
 } from "../dist/workerDatabaseBroker.js";
 import { createWorkerResearchDatabaseFactory } from "../dist/workerDatabaseClient.js";
 import { scheduleCompletedWorkerExit } from "../dist/appServerSession.js";
+import { researchTrackStopCause } from "../dist/appServer.js";
 import {
   callAppServerResearchTool,
   listAppServerResearchTools,
@@ -255,7 +256,7 @@ test('research-track target readiness accepts an allowed VM recovery base', asyn
   assert.equal(unavailable.targets.find((target) => target.id === 'vm:run:tart:example-vm')?.ready, false);
 });
 
-test('stopping a track session pauses research while a watchdog rotation continues it', async () => {
+test('stopping a track session continues research while explicit pause still pauses it', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-track-stop-example-'));
   temporaryDirectories.push(directory);
   const registry = hostRegistryFixture(directory);
@@ -276,12 +277,13 @@ test('stopping a track session pauses research while a watchdog rotation continu
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).activeSessionId, first.sessionId);
   await hostService.recordSessionTerminalState({ request: first, sessionId: first.sessionId,
     attemptId: 'attempt-example-one', state: 'stopped' });
-  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).status, 'paused');
-  await hostService.workspaceResearchTrack('workspace-test', 'resume');
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).status, 'running');
   const second = (await hostService.dueResearchTracks())[0].request;
   await hostService.recordSessionTerminalState({ request: second, sessionId: second.sessionId,
     attemptId: 'attempt-example-two', state: 'stopped', trackRotation: true });
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).status, 'running');
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'pause')).status, 'paused');
+  assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'resume')).status, 'running');
   registry.resolveWorkspace('workspace-test').memoryBackend = 'disabled';
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).status, 'paused');
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'stop')).status, 'stopped');
@@ -3017,6 +3019,15 @@ test("discovers overdue automations from canonical session metadata and rebuilds
     nextAutomationRunAt({ type: "monthly", interval: 1 }, "2026-08-15T12:00:00.000Z")?.toISOString(),
     "2026-09-15T12:00:00.000Z",
   );
+});
+
+test('classifies an explicit track pause before stopping its active session', () => {
+  const sessionId = 'session-example-track';
+  assert.equal(researchTrackStopCause({ status: 'running', activeSessionId: sessionId, lastError: null }, sessionId), null);
+  assert.equal(researchTrackStopCause({ status: 'paused', activeSessionId: sessionId, lastError: null }, sessionId), 'track_control');
+  assert.equal(researchTrackStopCause({ status: 'paused', activeSessionId: sessionId,
+    lastError: 'Synthetic scope change.' }, sessionId), 'track_state');
+  assert.equal(researchTrackStopCause(null, sessionId), 'track_state');
 });
 
 test('automatically launches a reserved research-track epoch while the app-server is resident', async () => {
