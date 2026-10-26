@@ -28,6 +28,7 @@ import {
 } from '../src/renderer/view-models/commentary';
 import {
   advanceCommentaryStreaming,
+  commentaryStreamingModeForUserAgent,
   initialCommentaryStreamingState,
   reconcileCommentaryStreaming,
   visibleCommentaryMessages
@@ -36,7 +37,7 @@ import type { TraceDisplayEvent } from '../src/renderer/view-models/traceDisplay
 import { buildTraceDisplayEventsForAgentPath } from '../src/renderer/view-models/traceDisplay';
 import { deferredResearchTrackDetail, runningResearchTrackDetail } from '../src/renderer/view-models/researchTrackSession';
 
-describe('commentary character streaming', () => {
+describe('commentary streaming', () => {
   const message = (id: string, contentMarkdown: string, kind: CommentaryMessage['kind'] = 'commentary'): CommentaryMessage => ({
     id, traceEventId: id, kind, contentMarkdown, createdAt: '2026-01-01T00:00:00.000Z'
   });
@@ -58,6 +59,41 @@ describe('commentary character streaming', () => {
       .toEqual(['Already recorded.', 'Read file', '']);
     state = advanceCommentaryStreaming(state);
     expect(visibleCommentaryMessages(state, [history, tool, commentary]).at(-1)?.contentMarkdown).toBe('D');
+  });
+
+  it('reveals whole words on Windows and keeps character streaming on macOS', () => {
+    expect(commentaryStreamingModeForUserAgent('Electron (Windows NT 10.0; Win64; x64)')).toBe('word');
+    expect(commentaryStreamingModeForUserAgent('Electron (Macintosh; Intel Mac OS X)')).toBe('character');
+    const history = message('history', 'Earlier.');
+    const next = message('next', 'Read file, then\ncheck 🔒 state.');
+    let state = reconcileCommentaryStreaming(
+      initialCommentaryStreamingState('run-example', [history]), 'run-example', [history, next], true, false, 'word'
+    );
+    const frames: string[] = [];
+    while (state.pending.length > 0) {
+      state = advanceCommentaryStreaming(state);
+      frames.push(visibleCommentaryMessages(state, [history, next]).at(-1)?.contentMarkdown ?? '');
+    }
+    expect(frames).toEqual([
+      'Read ', 'Read file, ', 'Read file, then\n',
+      'Read file, then\ncheck ', 'Read file, then\ncheck 🔒 ',
+      'Read file, then\ncheck 🔒 state.', 'Read file, then\ncheck 🔒 state.'
+    ]);
+  });
+
+  it('keeps an already shown partial word visible when more text arrives', () => {
+    const history = message('history', 'Earlier.');
+    let current = message('current', 'Inspect par');
+    let state = reconcileCommentaryStreaming(
+      initialCommentaryStreamingState('run-example', [history]), 'run-example', [history, current], true, false, 'word'
+    );
+    state = advanceCommentaryStreaming(advanceCommentaryStreaming(state));
+    expect(visibleCommentaryMessages(state, [history, current]).at(-1)?.contentMarkdown).toBe('Inspect par');
+    current = message('current', 'Inspect parser now');
+    state = reconcileCommentaryStreaming(state, 'run-example', [history, current], true, false, 'word');
+    expect(visibleCommentaryMessages(state, [history, current]).at(-1)?.contentMarkdown).toBe('Inspect parser ');
+    state = advanceCommentaryStreaming(state);
+    expect(visibleCommentaryMessages(state, [history, current]).at(-1)?.contentMarkdown).toBe('Inspect parser now');
   });
 
   it('extends a streamed message and keeps earlier paginated history visible', () => {
