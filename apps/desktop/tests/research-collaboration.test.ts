@@ -134,6 +134,14 @@ describe('research collaboration normalization', () => {
     ]);
   });
 
+  it('retains custom providers with no reasoning effort in collaboration', () => {
+    expect(normalizeResearchCollaboration({ providers: [
+      { provider: 'custom-example', model: 'model-example', reasoningEffort: 'off', enabled: true }
+    ] }).providers).toMatchObject([
+      { provider: 'custom-example', model: 'model-example', reasoningEffort: 'off', enabled: true }
+    ]);
+  });
+
   it('normalizes Advanced compatible roles, including legacy single-role preferences', () => {
     const collaboration = normalizeResearchCollaboration({
       subagentMode: 'advanced',

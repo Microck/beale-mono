@@ -192,6 +192,8 @@ Each research session has a shell safety mode in the steering composer. Auto-Rev
 
 Codex remains the default. app-server's Pi runtime also supports Anthropic and xAI through subscription OAuth in Settings > Providers or through `ANTHROPIC_API_KEY` and `XAI_API_KEY` in Beale's host environment. With the bundled security profile, New Research offers Discovery, Chaining, Reporting, and Longshot categories for model-generated ideas grounded in bounded prior workspace research. A selected or custom goal can be expanded into a full editable prompt; the category does not assign a workflow to the running agent. The sheet reads the installed Pi catalog and presents provider-specific model and reasoning-effort dropdowns, so run availability stays aligned with the app-server runtime rather than a duplicated Beale list.
 
+Settings > Providers also accepts custom OpenAI Chat Completions compatible providers. Enter a name, the API base URL (including a version path such as `/v1` if required), optional API key, and model token limits. Beale calls the endpoint's `/models` route before saving it, then lets you select Lead and small models from the returned list. Custom provider keys use Beale Safe Storage and are supplied to the app-server as host-only credentials. Custom models currently use text input and no reasoning-effort levels; the default context and output limits are 128,000 and 16,000 tokens.
+
 Provider credentials stay in the trusted host runtime and are not copied into model-visible context, traces, or the global database.
 
 ---

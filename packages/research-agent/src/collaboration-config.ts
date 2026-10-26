@@ -2,7 +2,7 @@ import type { ResearchCollaborationConfig } from "./types.js";
 
 const SUBAGENT_MODES = new Set(["simple", "advanced"]);
 const SUBAGENT_ROLES = new Set(["discoverer", "prover", "reviewer", "reporter"]);
-const EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh", "max"]);
+const EFFORTS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 export function decodeResearchCollaborationConfig(value: unknown): ResearchCollaborationConfig {
   if (!isRecord(value)) throw new Error("Collaboration config must be a JSON object.");

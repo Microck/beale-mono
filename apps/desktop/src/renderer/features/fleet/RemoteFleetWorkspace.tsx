@@ -161,7 +161,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   const providerIds = useMemo(() => providerEntries.filter((provider) => isResearchProviderId(provider.providerId))
     .map((provider) => provider.providerId as ResearchModelProviderId), [providerEntries]);
   const providerDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> = useMemo(() => Object.fromEntries(providerEntries.filter((provider) => isResearchProviderId(provider.providerId) && provider.defaultLeadModel).map((provider) => [provider.providerId, {
-    largeModel: provider.defaultLeadModel, smallModel: provider.defaultSubagentModel ?? provider.defaultLeadModel,
+    largeModel: provider.defaultLeadModel!, smallModel: provider.defaultSubagentModel ?? provider.defaultLeadModel!,
     reasoningEffort: isResearchEffort(provider.defaultReasoningEffort) ? provider.defaultReasoningEffort : 'high'
   }])), [providerEntries]);
   const defaultProviderId = isResearchProviderId(catalog?.providerCatalog.defaultProviderId)
@@ -388,7 +388,8 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function isResearchProviderId(value: unknown): value is ResearchModelProviderId {
-  return value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai' || value === 'openrouter';
+  return value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai' || value === 'openrouter'
+    || (typeof value === 'string' && /^custom-[a-z0-9][a-z0-9-]{0,63}$/u.test(value));
 }
 function isResearchEffort(value: unknown): value is ResearchModelEffortLevel {
   return value === 'off' || value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max';

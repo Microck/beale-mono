@@ -22,7 +22,7 @@ const SUBAGENT_MODES = new Set<ResearchSubagentMode>(['simple', 'advanced']);
 export const RESEARCH_SUBAGENT_ROLES = ['discoverer', 'prover', 'reviewer', 'reporter'] as const satisfies readonly ResearchSubagentRole[];
 const SUBAGENT_ROLES = new Set<ResearchSubagentRole>(RESEARCH_SUBAGENT_ROLES);
 const PROVIDERS = new Set<ResearchModelProviderId>(['openai-codex', 'anthropic', 'xai', 'zai', 'openrouter']);
-const EFFORTS = new Set<ResearchModelEffortLevel>(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+const EFFORTS = new Set<ResearchModelEffortLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 export function normalizeResearchCollaboration(
   value: unknown,
@@ -78,7 +78,8 @@ function normalizeProviders(
     const model = typeof candidate.model === 'string' ? candidate.model.trim() : '';
     const reasoningEffort = candidate.reasoningEffort as ResearchModelEffortLevel;
     const key = collaborationProviderModelKey(provider, model);
-    if (!PROVIDERS.has(provider) || !model || !EFFORTS.has(reasoningEffort) || seen.has(key)) return [];
+    if (!(PROVIDERS.has(provider) || /^custom-[a-z0-9][a-z0-9-]{0,63}$/u.test(provider))
+      || !model || !EFFORTS.has(reasoningEffort) || seen.has(key)) return [];
     seen.add(key);
     return [{
       provider,

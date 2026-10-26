@@ -26,6 +26,8 @@ export const IPC_CHANNELS = {
   setAppServerRemoteAccessSettings: 'beale:set-app-server-remote-access-settings',
   getProviderSettings: 'beale:get-provider-settings',
   setDefaultProviderId: 'beale:set-default-provider-id',
+  saveCustomProvider: 'beale:save-custom-provider',
+  removeCustomProvider: 'beale:remove-custom-provider',
   setProviderModelDefaults: 'beale:set-provider-model-defaults',
   setProviderContextSize: 'beale:set-provider-context-size',
   setProviderOptionalModelEnabled: 'beale:set-provider-optional-model-enabled',

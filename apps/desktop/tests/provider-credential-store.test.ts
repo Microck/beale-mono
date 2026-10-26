@@ -26,6 +26,33 @@ afterEach(() => {
 });
 
 describe('provider credential store', () => {
+  it('persists custom provider keys encrypted and unlocks them by selected ID', () => {
+    const id = 'custom-example';
+    const variable = 'BEALE_CUSTOM_PROVIDER_KEY_EXAMPLE';
+    const prior = process.env[variable];
+    const directory = mkdtempSync(join(tmpdir(), 'beale-custom-credentials-'));
+    directories.push(directory);
+    const path = join(directory, 'credentials.json');
+    const encryption = {
+      available: () => true,
+      encrypt: (value: string) => Buffer.from(`encrypted:${value}`, 'utf8'),
+      decrypt: (value: Buffer) => value.toString('utf8').replace(/^encrypted:/u, '')
+    };
+    try {
+      new ProviderCredentialStore(path, encryption).setApiKey(id, 'example-secret');
+      expect(readFileSync(path, 'utf8')).not.toContain('example-secret');
+      delete process.env[variable];
+      const restored = new ProviderCredentialStore(path, encryption);
+      expect(restored.providersRequiringUnlock([id])).toEqual([id]);
+      restored.unlockApiKeys([id]);
+      expect(process.env[variable]).toBe('example-secret');
+      restored.removeApiKey(id);
+      expect(process.env[variable]).toBeUndefined();
+    } finally {
+      if (prior === undefined) delete process.env[variable];
+      else process.env[variable] = prior;
+    }
+  });
   it('persists encrypted API keys and restores them without writing plaintext', () => {
     delete process.env.XAI_API_KEY;
     const directory = mkdtempSync(join(tmpdir(), 'beale-provider-credentials-'));

@@ -24,7 +24,7 @@ export interface GenerateResearchSessionTitleOptions {
   model: string;
   prompt: string;
   style?: 'research-track';
-  effort?: ThinkingLevel;
+  effort?: ThinkingLevel | "off";
   timeoutMs?: number;
   signal?: AbortSignal;
   models?: Pick<Models, "getModel" | "completeSimple">;
@@ -94,7 +94,7 @@ export async function generateResearchSessionTitle(
             model: options.model,
             systemPrompt,
             prompt: boundedPrompt(options.prompt),
-            reasoning: options.effort ?? "medium",
+            ...(options.effort !== "off" ? { reasoning: options.effort ?? "medium" } : {}),
             signal,
             ...(options.authenticationPreferences ? { authenticationPreferences: options.authenticationPreferences } : {}),
           });
@@ -116,7 +116,7 @@ export async function generateResearchSessionTitle(
             ],
           },
           {
-            reasoning: options.effort ?? "medium",
+            ...(options.effort !== "off" ? { reasoning: options.effort ?? "medium" } : {}),
             maxTokens: 128,
             signal,
             ...(apiKey ? { apiKey } : {}),

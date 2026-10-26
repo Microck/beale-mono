@@ -708,6 +708,10 @@ function registerIpc(): void {
   });
   ipcMain.handle(IPC_CHANNELS.getProviderSettings, () => workspaceService.getProviderSettings());
   ipcMain.handle(IPC_CHANNELS.setDefaultProviderId, (_event, providerId: ResearchModelProviderId | null) => workspaceService.setDefaultProviderId(providerId));
+  ipcMain.handle(IPC_CHANNELS.saveCustomProvider, (_event, input: { id?: `custom-${string}`; name: string; baseUrl: string; contextWindow?: number; maxTokens?: number; apiKey?: string }) =>
+    workspaceService.saveCustomProvider(input));
+  ipcMain.handle(IPC_CHANNELS.removeCustomProvider, (_event, providerId: `custom-${string}`) =>
+    workspaceService.removeCustomProvider(providerId));
   ipcMain.handle(IPC_CHANNELS.setProviderModelDefaults, (_event, providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) =>
     workspaceService.setProviderModelDefaults(providerId, defaults)
   );
@@ -880,8 +884,10 @@ function registerIpc(): void {
     workspaceService.unlockProviderApiKeys(providerIds));
   ipcMain.handle(IPC_CHANNELS.refreshOpenAiStatus, () => workspaceService.refreshOpenAiStatus());
   ipcMain.handle(IPC_CHANNELS.getResearchProviderStatuses, () => workspaceService.getResearchProviderStatuses());
-  ipcMain.handle(IPC_CHANNELS.getProviderUsageLimits, (_event, providerId: ResearchModelProviderId, refresh?: boolean, serverId?: string) =>
-    workspaceService.getProviderUsageLimits(providerId, refresh, serverId));
+  ipcMain.handle(IPC_CHANNELS.getProviderUsageLimits, (_event, providerId: ResearchModelProviderId, refresh?: boolean, serverId?: string) => {
+    if (providerId.startsWith('custom-')) throw new Error('Subscription usage limits are unavailable for custom providers.');
+    return workspaceService.getProviderUsageLimits(providerId as Parameters<typeof workspaceService.getProviderUsageLimits>[0], refresh, serverId);
+  });
   ipcMain.handle(IPC_CHANNELS.getResearchProviderModelCatalog, () => workspaceService.getResearchProviderModelCatalog());
   ipcMain.handle(IPC_CHANNELS.startResearchProviderOAuth, async (_event, providerId: ResearchProviderId) => {
     const result = await workspaceService.startResearchProviderOAuth(providerId);

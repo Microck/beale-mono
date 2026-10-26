@@ -1,4 +1,4 @@
-import type { SimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import {
   SubagentManager,
   SUBAGENT_COLLABORATION_TOOLS,
@@ -59,7 +59,7 @@ export const advancedSubagentRuntimeFactory: SubagentRuntimeFactory = {
           model: preference.model,
           roles: preference.roles,
           ...(preference.reasoningEffort
-            ? { reasoning: preference.reasoningEffort as SimpleStreamOptions["reasoning"] }
+            ? { reasoning: preference.reasoningEffort as ModelThinkingLevel }
             : {}),
           enabled: preference.enabled,
         })),

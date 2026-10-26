@@ -215,6 +215,7 @@ export function appServerSessionEnvironment(
     }),
     APP_SERVER_OPENAI_CONTEXT_SIZE: launch.provider.contextSize ?? 'default'
   };
+  if (environment.APP_SERVER_CUSTOM_PROVIDERS) env.APP_SERVER_CUSTOM_PROVIDERS = environment.APP_SERVER_CUSTOM_PROVIDERS;
   if (launch.introspection) {
     env.BEALE_INTROSPECTION_URL = launch.introspection.url;
     env.BEALE_INTROSPECTION_TOKEN = launch.introspection.token;

@@ -687,12 +687,13 @@ export function createPiAgentExecutor(
           }
           const apiKey = authenticationRouter.requestApiKey(active.model.provider);
           if (!options.getModelSelection || !request.root) {
+            const { reasoning: _unusedReasoning, ...nonReasoningOptions } = streamOptions ?? {};
             return models.streamSimple(
               routedModel,
               context,
               withProviderSession(
                 routedModel,
-                { ...streamOptions, ...(apiKey ? { apiKey } : {}) },
+                { ...(routedModel.provider.startsWith("custom-") ? nonReasoningOptions : streamOptions), ...(apiKey ? { apiKey } : {}) },
                 providerSessionId,
                 options.fastMode === true,
                 options.daybreakMode ?? 'blue',
@@ -925,7 +926,9 @@ export function createPiAgentExecutor(
             model: sessionModel,
             convertToLlm: convertAgentMessagesToLlm,
             ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
-            ...(request.reasoning ? { reasoning: request.reasoning } : options.reasoning ? { reasoning: options.reasoning } : {}),
+            ...(request.reasoning !== undefined
+              ? request.reasoning === "off" ? {} : { reasoning: request.reasoning }
+              : options.reasoning ? { reasoning: options.reasoning } : {}),
             toolExecution,
             beforeToolCall: async (hookContext, signal) => {
               const toolCall = createToolCallFromHook(hookContext);

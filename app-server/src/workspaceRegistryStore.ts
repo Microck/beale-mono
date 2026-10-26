@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { applyDatabaseMigrations, applyFeaturePromptOverrides, bundledResearchProfile, createResearchSystemPrompt, decodeFeaturePromptOverrides, defaultFeaturePromptSettings, defaultResearchSystemPromptTemplate, validateResearchSystemPromptTemplate, type ResearchPluginCatalogEntry } from '@beale/research-agent';
+import { applyDatabaseMigrations, applyFeaturePromptOverrides, bundledResearchProfile, createResearchSystemPrompt, decodeFeaturePromptOverrides, defaultFeaturePromptSettings, defaultResearchSystemPromptTemplate, normalizeCustomProviderDefinition, validateResearchSystemPromptTemplate, type CustomProviderDefinition, type ResearchPluginCatalogEntry } from '@beale/research-agent';
 import {
   DEFAULT_MEMORY_TYPE_DESCRIPTIONS,
   MEMORY_NODE_TYPES,
@@ -207,6 +207,7 @@ export class WorkspaceRegistry {
     return {
       defaultProviderId: normalizeDefaultProviderId(this.getMeta('default_provider_id')),
       modelDefaults: normalizeProviderModelDefaultsRecord(this.getMeta('provider_model_defaults_json')),
+      customProviders: readCustomProviders(this.getMeta('custom_providers_json')),
       ...(Object.keys(contextSizes).length > 0 ? { contextSizes } : {}),
       ...(Object.keys(enabledOptionalModels).length > 0 ? { enabledOptionalModels } : {}),
       ...(Object.keys(disabledOptionalModels).length > 0 ? { disabledOptionalModels } : {}),
@@ -215,11 +216,40 @@ export class WorkspaceRegistry {
     };
   }
 
+  public saveCustomProvider(definition: CustomProviderDefinition): ProviderSettings {
+    const normalized = normalizeCustomProviderDefinition(definition);
+    const providers = this.getProviderSettings().customProviders ?? [];
+    if (providers.length >= 32 && !providers.some((provider) => provider.id === normalized.id)) {
+      throw new Error('Too many custom providers.');
+    }
+    this.setMeta('custom_providers_json', JSON.stringify([
+      ...providers.filter((provider) => provider.id !== normalized.id), normalized
+    ]));
+    return this.getProviderSettings();
+  }
+
+  public removeCustomProvider(providerId: string): ProviderSettings {
+    const providers = this.getProviderSettings().customProviders ?? [];
+    if (!providers.some((provider) => provider.id === providerId)) throw new Error('Unknown custom provider.');
+    const remaining = providers.filter((provider) => provider.id !== providerId);
+    if (remaining.length) this.setMeta('custom_providers_json', JSON.stringify(remaining));
+    else this.deleteMeta('custom_providers_json');
+    const settings = this.getProviderSettings();
+    delete settings.modelDefaults[providerId];
+    this.setMeta('provider_model_defaults_json', JSON.stringify(settings.modelDefaults));
+    if (settings.defaultProviderId === providerId) this.deleteMeta('default_provider_id');
+    return this.getProviderSettings();
+  }
+
   public setDefaultProviderId(providerId: ResearchModelProviderId | null): ProviderSettings {
     if (providerId === null) {
       this.deleteMeta('default_provider_id');
     } else {
       if (!isResearchModelProviderId(providerId)) throw new Error('Invalid default provider.');
+      if (providerId.startsWith('custom-')
+        && !this.getProviderSettings().customProviders?.some((provider) => provider.id === providerId)) {
+        throw new Error('Unknown custom provider.');
+      }
       this.setMeta('default_provider_id', providerId);
     }
     return this.getProviderSettings();
@@ -228,7 +258,16 @@ export class WorkspaceRegistry {
   public setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): ProviderSettings {
     if (!isResearchModelProviderId(providerId)) throw new Error('Invalid provider model defaults provider.');
     const settings = this.getProviderSettings();
-    settings.modelDefaults[providerId] = normalizeProviderModelDefaults(defaults);
+    const normalized = normalizeProviderModelDefaults(defaults);
+    if (providerId.startsWith('custom-')) {
+      const provider = settings.customProviders?.find((candidate) => candidate.id === providerId);
+      if (!provider || normalized.reasoningEffort !== 'off'
+        || !provider.models.some((model) => model.id === normalized.largeModel)
+        || !provider.models.some((model) => model.id === normalized.smallModel)) {
+        throw new Error('Custom provider defaults must select available models without reasoning effort.');
+      }
+    }
+    settings.modelDefaults[providerId] = normalized;
     this.setMeta('provider_model_defaults_json', JSON.stringify(settings.modelDefaults));
     return settings;
   }
@@ -1300,7 +1339,17 @@ function normalizeDefaultProviderId(value: unknown): ResearchModelProviderId | n
 }
 
 function isResearchModelProviderId(value: unknown): value is ResearchModelProviderId {
-  return value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai' || value === 'openrouter';
+  return value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai' || value === 'openrouter'
+    || (typeof value === 'string' && /^custom-[a-z0-9][a-z0-9-]{0,63}$/u.test(value));
+}
+
+function readCustomProviders(value: string | null): CustomProviderDefinition[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed) || parsed.length > 32) return [];
+    return parsed.map(normalizeCustomProviderDefinition);
+  } catch { return []; }
 }
 
 function providerCyberPolicyAcknowledgementMetaKey(providerId: ResearchModelProviderId): string {
@@ -1317,7 +1366,7 @@ function normalizeProviderModelDefaultsRecord(value: unknown): Partial<Record<Re
     const parsed = JSON.parse(value) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     const normalized: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>> = {};
-    for (const providerId of ['openai-codex', 'anthropic', 'xai', 'zai', 'openrouter'] as const) {
+    for (const providerId of Object.keys(parsed as Record<string, unknown>).filter(isResearchModelProviderId)) {
       const defaults = (parsed as Record<string, unknown>)[providerId];
       if (defaults === undefined) continue;
       try {

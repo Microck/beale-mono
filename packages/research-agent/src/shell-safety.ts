@@ -945,7 +945,9 @@ async function completePiShellReview(input: {
             }],
           },
           {
-            reasoning: input.input.reviewer.reasoningEffort,
+            ...(input.input.reviewer.reasoningEffort !== "off"
+              ? { reasoning: input.input.reviewer.reasoningEffort }
+              : {}),
             maxTokens: MAX_REVIEW_OUTPUT_TOKENS,
             signal: input.reviewSignal,
             ...(apiKey ? { apiKey } : {}),
