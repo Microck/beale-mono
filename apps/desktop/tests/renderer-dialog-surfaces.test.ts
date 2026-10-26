@@ -704,8 +704,10 @@ describe('renderer dialog surfaces', () => {
     expect(withoutCollaborationContextStyles).toContain('grid-column: 3');
     expect(withoutCollaborationSendStyles).toContain('grid-column: 4');
     expect(contextUsageStyles).toContain('grid-column: 4');
-    expect(contextUsageStyles).toContain('width: 31px');
-    expect(contextUsageStyles).toContain('height: 31px');
+    expect(contextUsageStyles).toContain('width: 44px');
+    expect(contextUsageStyles).toContain('height: 35px');
+    expect(contextUsageStyles).toContain('margin-left: -13px');
+    expect(contextUsageStyles).toContain('padding: 0 0 4px 13px');
     expect(contextUsageStyles).toContain('place-items: center');
     expect(composerModelTriggerStyles).toContain('border: 0');
     expect(composerModelTriggerStyles).toContain('border-radius: 0');

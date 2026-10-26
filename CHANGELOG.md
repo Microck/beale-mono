@@ -19,6 +19,7 @@
 
 #### Fixed
 
+- The session context usage tooltip has a larger hover target while the circle stays in place.
 - Legacy messages to Lead recover the subagent sender name when a matching message tool request is available.
 - Inter-agent messages and collaboration packets remain visible in root and participant session transcripts, with sender and recipient labels.
 - Memory save activity in session transcripts includes the memory title when available.

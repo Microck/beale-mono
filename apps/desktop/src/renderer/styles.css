@@ -10401,10 +10401,12 @@ button.runbook-catalog-item:not(.breakout-room-catalog-item):hover:not(:disabled
   grid-column: 4;
   grid-row: 2;
   align-self: start;
-  width: 31px;
-  height: 31px;
+  width: 44px;
+  height: 35px;
   display: grid;
   place-items: center;
+  margin-left: -13px;
+  padding: 0 0 4px 13px;
   color: var(--muted-strong);
 }
 
