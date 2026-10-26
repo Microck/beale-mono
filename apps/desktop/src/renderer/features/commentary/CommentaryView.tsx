@@ -30,6 +30,7 @@ import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { formatDurationHms } from '../../lib/formatting';
 import { errorMessage } from '../../lib/errors';
 import { scrollFadeClasses } from '../../lib/scrollFade';
+import { INSET_SCROLLBAR_ACTIVE_MS } from '../../hooks/useInsetScrollbarActivation';
 import {
   advanceCommentaryStreaming,
   initialCommentaryStreamingState,
@@ -266,6 +267,7 @@ export const CommentaryView = memo(function CommentaryView({
   const requestedHistoryCursorRef = useRef<string | null>(null);
   const userScrollIntentRef = useRef(false);
   const userScrollIntentTimerRef = useRef<number | null>(null);
+  const scrollbarHideTimerRef = useRef<number | null>(null);
   const scrollbarDragRef = useRef(false);
   const scrollScopeKeyRef = useRef(scrollScopeKey);
   const detailRef = useRef(detail);
@@ -312,6 +314,23 @@ export const CommentaryView = memo(function CommentaryView({
     if (followScrollFrameRef.current !== null) window.cancelAnimationFrame(followScrollFrameRef.current);
     followScrollFrameRef.current = null;
     followScrollTimeRef.current = null;
+  }, []);
+
+  const clearUserScrollbar = useCallback((): void => {
+    if (scrollbarHideTimerRef.current !== null) window.clearTimeout(scrollbarHideTimerRef.current);
+    scrollbarHideTimerRef.current = null;
+    listRef.current?.classList.remove('scrollbar-active');
+  }, []);
+
+  const activateUserScrollbar = useCallback((): void => {
+    const list = listRef.current;
+    if (!list || list.scrollHeight <= list.clientHeight) return;
+    list.classList.add('scrollbar-active');
+    if (scrollbarHideTimerRef.current !== null) window.clearTimeout(scrollbarHideTimerRef.current);
+    scrollbarHideTimerRef.current = window.setTimeout(() => {
+      list.classList.remove('scrollbar-active');
+      scrollbarHideTimerRef.current = null;
+    }, INSET_SCROLLBAR_ACTIVE_MS);
   }, []);
 
   const scrollToLatest = useCallback((): void => {
@@ -487,6 +506,7 @@ export const CommentaryView = memo(function CommentaryView({
   useLayoutEffect(() => {
     if (scrollScopeKeyRef.current !== scrollScopeKey) {
       cancelFollowScroll();
+      clearUserScrollbar();
       followScrollReadyRef.current = false;
       scrollScopeKeyRef.current = scrollScopeKey;
       followLatestRef.current = true;
@@ -516,7 +536,7 @@ export const CommentaryView = memo(function CommentaryView({
     }
     scrollToLatest();
     return undefined;
-  }, [cancelFollowScroll, heightRevision, itemGap, maxWindowStart, messageUpdateKey, normalizedWindowStart, scrollScopeKey, scrollToLatest, updateScrollEdges]);
+  }, [cancelFollowScroll, clearUserScrollbar, heightRevision, itemGap, maxWindowStart, messageUpdateKey, normalizedWindowStart, scrollScopeKey, scrollToLatest, updateScrollEdges]);
 
   useEffect(() => {
     setWindowStart((current) => Math.min(current, maxWindowStart));
@@ -536,13 +556,14 @@ export const CommentaryView = memo(function CommentaryView({
     window.addEventListener('pointercancel', endScrollbarDrag);
     return () => {
       cancelFollowScroll();
+      clearUserScrollbar();
       window.removeEventListener('pointerup', endScrollbarDrag);
       window.removeEventListener('pointercancel', endScrollbarDrag);
       if (userScrollIntentTimerRef.current !== null) {
         window.clearTimeout(userScrollIntentTimerRef.current);
       }
     };
-  }, [cancelFollowScroll]);
+  }, [cancelFollowScroll, clearUserScrollbar]);
 
   const handleScroll = useCallback((): void => {
     const list = listRef.current;
@@ -550,6 +571,7 @@ export const CommentaryView = memo(function CommentaryView({
     updateScrollEdges();
     if (restoringAnchorRef.current && !userScrollIntentRef.current && !scrollbarDragRef.current) return;
     const distanceFromBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
+    if (scrollbarDragRef.current) activateUserScrollbar();
     followLatestRef.current = commentaryFollowLatestAfterScroll({
       wasFollowingLatest: followLatestRef.current,
       distanceFromBottom,
@@ -636,7 +658,7 @@ export const CommentaryView = memo(function CommentaryView({
       pendingScrollWindowStartRef.current = nextStart;
       setWindowStart(nextStart);
     }
-  }, [activityMessages.length, cancelFollowScroll, loadOlderHistory, maxWindowStart, messageIndexById, messageOffsets, messages, normalizedWindowStart, renderedMessages.length, streamingScopeKey, updateScrollEdges]);
+  }, [activateUserScrollbar, activityMessages.length, cancelFollowScroll, loadOlderHistory, maxWindowStart, messageIndexById, messageOffsets, messages, normalizedWindowStart, renderedMessages.length, streamingScopeKey, updateScrollEdges]);
 
   if (!selectedRunId && !onInitialInstruction) return null;
 
@@ -671,9 +693,22 @@ export const CommentaryView = memo(function CommentaryView({
             ref={listRef}
             onScroll={handleScroll}
             onWheel={(event) => {
+              if (event.deltaX !== 0 || event.deltaY !== 0) activateUserScrollbar();
               if (event.deltaY < 0) markUserScrollIntent();
             }}
-            onTouchMove={markUserScrollIntent}
+            onTouchMove={() => {
+              activateUserScrollbar();
+              markUserScrollIntent();
+            }}
+            onKeyDown={(event) => {
+              if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return;
+              if (event.target instanceof HTMLElement
+                && event.target.closest('button, input, textarea, select, [contenteditable="true"]')) return;
+              activateUserScrollbar();
+              if (['ArrowUp', 'PageUp', 'Home'].includes(event.key) || (event.key === ' ' && event.shiftKey)) {
+                markUserScrollIntent();
+              }
+            }}
             onPointerDown={(event) => {
               const list = listRef.current;
               if (!list || event.pointerType === 'touch') return;
@@ -681,6 +716,7 @@ export const CommentaryView = memo(function CommentaryView({
               const scrollbarWidth = Math.max(12, list.offsetWidth - list.clientWidth + 4);
               if (event.clientX < bounds.right - scrollbarWidth) return;
               scrollbarDragRef.current = true;
+              activateUserScrollbar();
               markUserScrollIntent();
             }}
           >

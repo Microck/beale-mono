@@ -5,7 +5,6 @@ export const INSET_SCROLLBAR_ACTIVE_MS = 900;
 export const INSET_SCROLLBAR_SELECTOR = [
   '.sidebar-list-scroll',
   '.main-trace-list',
-  '.main-commentary-list',
   '.report-session-document-scroll',
   '.campaign-board-lane-list',
   '.memory-catalog-list',

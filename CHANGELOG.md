@@ -11,6 +11,7 @@
 
 #### Fixed
 
+- The live session scrollbar appears for user scrolling without flashing during automatic transcript following.
 - Completed reasoning summaries remain visible when later summaries reuse the same response item identifier.
 - Streamed reasoning summaries render opening bold emphasis without briefly showing raw Markdown asterisks.
 - Finding details opened from the workspace keep the Campaign view tab visible and return to its list when leaving the finding.
