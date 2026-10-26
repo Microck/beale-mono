@@ -82,12 +82,14 @@ export function newResearchPromptPlaceholder(addContext: boolean): string {
   return addContext ? 'Write a sentence or two' : 'Write a full research prompt';
 }
 
-export function researchTrackConfiguration(input: StartRunInput): NonNullable<BealeWorkspaceResearchTrackRequest['configuration']> {
+export function researchTrackConfiguration(input: StartRunInput,
+  guardianEnabled = true): NonNullable<BealeWorkspaceResearchTrackRequest['configuration']> {
   if (!input.provider || !input.model || !input.targetIds?.length) {
     throw new Error('Choose a lead model and at least one target before starting the track.');
   }
   const collaboration = input.collaboration ? normalizeResearchCollaboration(input.collaboration) : null;
   return { provider: { id: input.provider, model: input.model, reasoningEffort: input.reasoningEffort || 'off' },
+    guardianEnabled,
     targetIds: input.targetIds,
     ...(collaboration ? { collaboration: {
       ...collaboration,
@@ -258,7 +260,8 @@ export function StartRunForm(props: StartRunFormProps): JSX.Element {
     if (props.trackMode) {
       let startedTrack: BealeWorkspaceResearchTrack | null = null;
       await runAction(async () => {
-        startedTrack = await window.beale.controlResearchTrack(snapshot.workspace.workspaceId, 'start', undefined, researchTrackConfiguration(input));
+        startedTrack = await window.beale.controlResearchTrack(snapshot.workspace.workspaceId, 'start', undefined,
+          researchTrackConfiguration(input, props.guardianEnabled !== false));
       });
       if (startedTrack) props.onTrackStarted?.(startedTrack);
       return;

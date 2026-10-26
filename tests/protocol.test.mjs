@@ -50,6 +50,10 @@ test('research-track control decodes a bounded workspace progress snapshot', () 
     targetIds: ['local', 'browser:example'], collaboration: { subagentMode: 'advanced' } };
   assert.deepEqual(decodeBealeWorkspaceResearchTrackRequest({ workspaceId: 'workspace-example', action: 'start', configuration }),
     { workspaceId: 'workspace-example', action: 'start', configuration });
+  assert.equal(decodeBealeWorkspaceResearchTrackRequest({ workspaceId: 'workspace-example', action: 'start',
+    configuration: { ...configuration, guardianEnabled: false } }).configuration.guardianEnabled, false);
+  assert.throws(() => decodeBealeWorkspaceResearchTrackRequest({ workspaceId: 'workspace-example', action: 'start',
+    configuration: { ...configuration, guardianEnabled: 'disabled' } }), /Guardian must be enabled or disabled/);
   const offConfiguration = { ...configuration, provider: { ...configuration.provider, reasoningEffort: 'off' } };
   assert.deepEqual(decodeBealeWorkspaceResearchTrackRequest({ workspaceId: 'workspace-example', action: 'start',
     configuration: offConfiguration }).configuration, offConfiguration);
@@ -68,7 +72,7 @@ test('research-track control decodes a bounded workspace progress snapshot', () 
     /Invalid workspace research track request/);
   const snapshot = {
     id: 'track-example', workspaceId: 'workspace-example', status: 'running', pass: 1,
-    scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'],
+    scopeId: 'scope-example', provider: { id: 'openai-codex' }, guardianEnabled: true, targetIds: ['local'],
     activeSessionId: 'session-example', activeSessionPhase: 'preparing',
     activeSurfaceId: 'surface-example', epochCount: 1,
     lastError: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
@@ -81,6 +85,8 @@ test('research-track control decodes a bounded workspace progress snapshot', () 
   };
   assert.deepEqual(decodeBealeWorkspaceResearchTrack(snapshot), snapshot);
   assert.equal(decodeBealeWorkspaceResearchTrack(null), null);
+  assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot, guardianEnabled: 'enabled' }),
+    /invalid workspace research track/);
   assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot, activeSessionPhase: 'unknown' }),
     /invalid workspace research track/);
   assert.throws(() => decodeBealeWorkspaceResearchTrack({ ...snapshot,

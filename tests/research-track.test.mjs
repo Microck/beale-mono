@@ -32,6 +32,13 @@ function fixture() {
   return { store, database, databasePath, close() { database.close(); store.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
 
+function interruptedTrackSession(guardianEnabled) {
+  return { status: 'active', attempts: [{ id: 'attempt-example-interrupted', parentAttemptId: null }],
+    metadata: { appServerRestartLaunch: { schemaVersion: 1, eligible: true,
+      launch: { workspaceId, mode: 'research-track', machineId: 'local', targetIds: ['local'],
+        promptMarkdown: 'Continue synthetic surface research.', provider: { id: 'openai-codex' }, guardianEnabled } } } };
+}
+
 test('existing track tables gain optional launch configuration columns', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-track-migration-example-'));
   const databasePath = join(directory, 'memory.sqlite');
@@ -64,6 +71,7 @@ test('existing track tables gain optional launch configuration columns', () => {
     try {
       const columns = database.prepare('PRAGMA table_info(app_server_research_tracks)').all().map((row) => row.name);
       assert.ok(columns.includes('collaboration_json'));
+      assert.ok(columns.includes('guardian_enabled'));
       const surfaceColumns = database.prepare('PRAGMA table_info(app_server_research_track_surfaces)').all().map((row) => row.name);
       assert.ok(surfaceColumns.includes('actionability_score'));
       assert.ok(surfaceColumns.includes('score_updated_at'));
@@ -391,6 +399,7 @@ test('track start stores the selected model, targets, and collaboration on the o
     assert.deepEqual(track.provider, { id: 'openai-codex', model: 'example-model', reasoningEffort: 'high' });
     assert.deepEqual(track.targetIds, ['local', 'browser:example']);
     assert.deepEqual(track.collaboration, collaboration);
+    assert.equal(track.guardianEnabled, true);
   } finally { state.close(); }
 });
 
@@ -475,7 +484,7 @@ test('stopping one track session epoch leaves the track running', async () => {
   } finally { state.close(); }
 });
 
-test('an orphaned track epoch pauses instead of showing indefinite research progress', async () => {
+test('an orphaned track epoch pauses when Guardian is disabled', async () => {
   const state = fixture();
   const service = new AppServerHostService({ registry: {
     registryDirectory: join(dirname(state.databasePath), 'registry'),
@@ -484,11 +493,12 @@ test('an orphaned track epoch pauses instead of showing indefinite research prog
       workspaceId, researchProfileId: 'security-research', memoryBackend: 'app-server'
     } : null,
     storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
-  }, invokeProtocol: async (operation) => operation === 'session.get' ? { status: 'active' } : {} });
+  }, invokeProtocol: async (operation) => operation === 'session.get' ? interruptedTrackSession(false) : {} });
   service.workspaceResearchTrackContext = async () => ({ scope: { id: 'scope-example' },
     targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
   try {
-    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'], surfaces });
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' }, guardianEnabled: false,
+      targetIds: ['local'], surfaces });
     state.store.reserveNext('session-example-orphaned', surfaces);
     state.database.prepare('UPDATE app_server_research_tracks SET updated_at=? WHERE workspace_id=?')
       .run('2000-01-01T00:00:00.000Z', workspaceId);
@@ -496,6 +506,103 @@ test('an orphaned track epoch pauses instead of showing indefinite research prog
     assert.equal(state.store.get().status, 'paused');
     assert.equal(state.store.get().activeSessionId, null);
     assert.match(state.store.get().lastError, /without a terminal session record/);
+  } finally { state.close(); }
+});
+
+test('track epochs retain a disabled Guardian setting across scheduling', async () => {
+  const state = fixture();
+  const service = new AppServerHostService({ registry: {
+    registryDirectory: join(dirname(state.databasePath), 'registry'),
+    listWorkspaces: () => [{ workspaceId }],
+    resolveWorkspace: (id) => id === workspaceId ? {
+      workspaceId, researchProfileId: 'security-research', memoryBackend: 'app-server'
+    } : null,
+    storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
+  }, invokeProtocol: async () => ({}) });
+  service.workspaceResearchTrackContext = async () => ({ scope: { id: 'scope-example' },
+    targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
+  try {
+    const track = state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      guardianEnabled: false, targetIds: ['local'], surfaces });
+    assert.equal(track.guardianEnabled, false);
+    const [due] = await service.dueResearchTracks();
+    assert.equal(due.request.launch.guardianEnabled, false);
+  } finally { state.close(); }
+});
+
+test('Guardian recovers an orphaned track epoch and reviews the interrupted work in the next epoch', async () => {
+  const state = fixture();
+  const transitions = [];
+  let transitionAttempts = 0;
+  const service = new AppServerHostService({ registry: {
+    registryDirectory: join(dirname(state.databasePath), 'registry'),
+    listWorkspaces: () => [{ workspaceId }],
+    resolveWorkspace: (id) => id === workspaceId ? {
+      workspaceId, researchProfileId: 'security-research', memoryBackend: 'app-server'
+    } : null,
+    storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
+  }, invokeProtocol: async (operation, options) => {
+    if (operation === 'session.get') return interruptedTrackSession(true);
+    if (operation === 'session.transition') {
+      transitionAttempts += 1;
+      if (transitionAttempts === 1) throw new Error('Synthetic persistence interruption.');
+      transitions.push(options.input);
+      return {};
+    }
+    return {};
+  } });
+  service.workspaceResearchTrackContext = async () => ({ scope: { id: 'scope-example' },
+    targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
+  try {
+    const track = state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces });
+    const first = state.store.reserveNext(track.id, surfaces);
+    state.database.prepare('UPDATE app_server_research_track_surfaces SET no_progress_epochs=2 WHERE workspace_id=? AND surface_id=?')
+      .run(workspaceId, first.surface.id);
+    state.database.prepare('UPDATE app_server_research_tracks SET updated_at=? WHERE workspace_id=?')
+      .run('2000-01-01T00:00:00.000Z', workspaceId);
+    assert.deepEqual(await service.dueResearchTracks(new Date(), new Set()), []);
+    assert.equal(state.store.get().status, 'running');
+    assert.equal(state.store.get().activeSessionId, track.id);
+    const [next] = await service.dueResearchTracks(new Date(), new Set());
+    assert.equal(state.store.get().status, 'running');
+    assert.equal(state.store.get().activeSessionId, track.id);
+    assert.equal(state.store.get().surfaces.find((work) => work.surfaceId === first.surface.id).noProgressEpochs, 2);
+    assert.equal(transitions.length, 1);
+    assert.equal(transitions[0].status, 'failed');
+    assert.equal(transitions[0].attemptId, 'attempt-example-interrupted');
+    assert.match(next.request.launch.promptMarkdown, /Guardian recovery review: The prior worker ended/u);
+  } finally { state.close(); }
+});
+
+test('Guardian resumes a track paused by the earlier orphan policy after reviewing its session', async () => {
+  const state = fixture();
+  const transitions = [];
+  const service = new AppServerHostService({ registry: {
+    registryDirectory: join(dirname(state.databasePath), 'registry'),
+    listWorkspaces: () => [{ workspaceId }],
+    resolveWorkspace: (id) => id === workspaceId ? {
+      workspaceId, researchProfileId: 'security-research', memoryBackend: 'app-server'
+    } : null,
+    storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
+  }, invokeProtocol: async (operation, options) => {
+    if (operation === 'session.get') return interruptedTrackSession(true);
+    if (operation === 'session.transition') { transitions.push(options.input); return {}; }
+    return {};
+  } });
+  service.workspaceResearchTrackContext = async () => ({ scope: { id: 'scope-example' },
+    targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
+  try {
+    const track = state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces });
+    state.store.reserveNext(track.id, surfaces);
+    state.store.finishEpoch(track.id, false, 'The research worker ended without a terminal session record.');
+    state.store.pauseWithError('The research worker ended without a terminal session record. Review the session before resuming.');
+    const [next] = await service.dueResearchTracks(new Date(), new Set());
+    assert.equal(state.store.get().status, 'running');
+    assert.equal(state.store.get().activeSessionId, track.id);
+    assert.equal(transitions.length, 1);
+    assert.match(next.request.launch.promptMarkdown, /Guardian recovery review: The prior worker ended/u);
   } finally { state.close(); }
 });
 

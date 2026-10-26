@@ -500,8 +500,10 @@ describe('renderer dialog surfaces', () => {
     expect(researchTrackConfiguration({ ...defaultRunInput, provider: 'openai-codex', model: 'example-model',
       reasoningEffort: 'high', targetIds: ['local'], promptMarkdown: 'Ignored example instruction.' })).toEqual({
       provider: { id: 'openai-codex', model: 'example-model', reasoningEffort: 'high' },
-      targetIds: ['local'], collaboration: { ...defaultRunInput.collaboration }
+      guardianEnabled: true, targetIds: ['local'], collaboration: { ...defaultRunInput.collaboration }
     });
+    expect(researchTrackConfiguration({ ...defaultRunInput, provider: 'openai-codex', model: 'example-model',
+      targetIds: ['local'] }, false).guardianEnabled).toBe(false);
     expect(researchTrackConfiguration({ ...defaultRunInput, provider: 'openai-codex', model: 'example-model',
       reasoningEffort: '', targetIds: ['local'] }).provider.reasoningEffort).toBe('off');
   });

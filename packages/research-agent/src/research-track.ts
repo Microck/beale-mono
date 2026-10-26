@@ -39,6 +39,7 @@ export interface ResearchTrackSnapshot {
   pass: number;
   scopeId: string;
   provider: { id: string; model?: string; reasoningEffort?: string };
+  guardianEnabled: boolean;
   targetIds: string[];
   collaboration?: Record<string, unknown>;
   activeSessionId: string | null;
@@ -103,7 +104,7 @@ export class ResearchTrackStore {
       CREATE TABLE IF NOT EXISTS app_server_research_tracks (
         workspace_id TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, status TEXT NOT NULL,
         pass INTEGER NOT NULL, scope_id TEXT NOT NULL, provider_json TEXT NOT NULL,
-        target_ids_json TEXT NOT NULL, collaboration_json TEXT,
+        target_ids_json TEXT NOT NULL, collaboration_json TEXT, guardian_enabled INTEGER NOT NULL DEFAULT 1,
         active_session_id TEXT, active_surface_id TEXT,
         epoch_count INTEGER NOT NULL, last_surface_id TEXT, consecutive_surface_epochs INTEGER NOT NULL,
         last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -124,6 +125,9 @@ export class ResearchTrackStore {
     const columns = this.#database.prepare("PRAGMA table_info(app_server_research_tracks)").all() as Array<{ name: string }>;
     if (!columns.some((column) => column.name === "collaboration_json")) {
       this.#database.exec("ALTER TABLE app_server_research_tracks ADD COLUMN collaboration_json TEXT");
+    }
+    if (!columns.some((column) => column.name === "guardian_enabled")) {
+      this.#database.exec("ALTER TABLE app_server_research_tracks ADD COLUMN guardian_enabled INTEGER NOT NULL DEFAULT 1");
     }
     const surfaceColumns = this.#database.prepare("PRAGMA table_info(app_server_research_track_surfaces)").all() as Array<{ name: string }>;
     if (!surfaceColumns.some((column) => column.name === "actionability_score")) {
@@ -158,6 +162,7 @@ export class ResearchTrackStore {
       id: String(row.id), workspaceId: this.#workspaceId, status: row.status as ResearchTrackStatus,
       pass: Number(row.pass), scopeId: String(row.scope_id),
       provider: JSON.parse(String(row.provider_json)) as ResearchTrackSnapshot["provider"],
+      guardianEnabled: Number(row.guardian_enabled) !== 0,
       targetIds: JSON.parse(String(row.target_ids_json)) as string[],
       ...(row.collaboration_json ? { collaboration: JSON.parse(String(row.collaboration_json)) as Record<string, unknown> } : {}),
       activeSessionId: nullable(row.active_session_id), activeSurfaceId: nullable(row.active_surface_id),
@@ -180,6 +185,7 @@ export class ResearchTrackStore {
   public start(input: {
     scopeId: string;
     provider: ResearchTrackSnapshot["provider"];
+    guardianEnabled?: boolean;
     targetIds: string[];
     collaboration?: Record<string, unknown>;
     surfaces: readonly ResearchTrackSurfaceProjection[];
@@ -204,18 +210,19 @@ export class ResearchTrackStore {
         .run(`track_history_${randomUUID().replaceAll("-", "")}`, this.#workspaceId,
           existing.pass, JSON.stringify(existing), now);
       this.#database.prepare(`INSERT INTO app_server_research_tracks
-        (workspace_id, id, status, pass, scope_id, provider_json, target_ids_json, collaboration_json, active_session_id,
+        (workspace_id, id, status, pass, scope_id, provider_json, target_ids_json, collaboration_json, guardian_enabled, active_session_id,
          active_surface_id, epoch_count, last_surface_id, consecutive_surface_epochs, last_error, created_at, updated_at)
-        VALUES (?, ?, 'running', ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, 0, NULL, ?, ?)
+        VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, NULL, NULL, 0, NULL, 0, NULL, ?, ?)
         ON CONFLICT(workspace_id) DO UPDATE SET id=excluded.id, status='running', pass=excluded.pass,
           scope_id=excluded.scope_id, provider_json=excluded.provider_json,
           target_ids_json=excluded.target_ids_json, collaboration_json=excluded.collaboration_json,
+          guardian_enabled=excluded.guardian_enabled,
           active_session_id=NULL, active_surface_id=NULL,
           epoch_count=0, last_surface_id=NULL, consecutive_surface_epochs=0,
           last_error=NULL, created_at=excluded.created_at, updated_at=excluded.updated_at`)
         .run(this.#workspaceId, id, (existing?.pass ?? 0) + 1, required(input.scopeId, "scopeId"),
           JSON.stringify(input.provider), JSON.stringify(input.targetIds),
-          input.collaboration ? JSON.stringify(input.collaboration) : null, now, now);
+          input.collaboration ? JSON.stringify(input.collaboration) : null, input.guardianEnabled === false ? 0 : 1, now, now);
       if (existing) this.#database.prepare("DELETE FROM app_server_research_track_surfaces WHERE workspace_id = ?").run(this.#workspaceId);
       this.#insertSurfaces(input.surfaces, now);
       this.#database.exec("COMMIT");
@@ -428,18 +435,20 @@ export class ResearchTrackStore {
     return this.get()!.surfaces.find((work) => work.surfaceId === input.surfaceId)!;
   }
 
-  public finishEpoch(sessionId: string, succeeded: boolean, diagnostic?: string): ResearchTrackSnapshot | null {
+  public finishEpoch(sessionId: string, succeeded: boolean, diagnostic?: string,
+    options: { countNoProgress?: boolean } = {}): ResearchTrackSnapshot | null {
     const track = this.get();
     if (!track || track.activeSessionId !== sessionId) return track;
     const work = track.surfaces.find((item) => item.surfaceId === track.activeSurfaceId);
     const now = new Date().toISOString();
+    const noProgressIncrement = options.countNoProgress === false ? 0 : 1;
     if (work?.status === "active") {
-      this.#database.prepare(`UPDATE app_server_research_track_surfaces SET status='deferred', no_progress_epochs=no_progress_epochs+1,
+      this.#database.prepare(`UPDATE app_server_research_track_surfaces SET status='deferred', no_progress_epochs=no_progress_epochs+?,
         actionability_score=?, score_updated_at=?, next_action=?, updated_at=? WHERE workspace_id=? AND surface_id=?`)
-        .run(Math.max(0, work.actionabilityScore - 20), now,
+        .run(noProgressIncrement, Math.max(0, work.actionabilityScore - 20), now,
           "Resume the assigned threat-model investigation and record a durable checkpoint.", now, this.#workspaceId, work.surfaceId);
     }
-    const noProgressEpochs = work ? work.noProgressEpochs + (work.status === "active" ? 1 : 0) : 0;
+    const noProgressEpochs = work ? work.noProgressEpochs + (work.status === "active" ? noProgressIncrement : 0) : 0;
     const repeatedNoProgress = noProgressEpochs >= 3;
     this.#database.prepare(`UPDATE app_server_research_tracks SET active_session_id=NULL, active_surface_id=NULL,
       status=CASE WHEN ? THEN 'paused' ELSE status END, last_error=?, updated_at=? WHERE workspace_id=?`)

@@ -87,6 +87,9 @@ interface StoredRestartLaunchDescriptor {
   launch: AppServerSessionLaunchRequest['launch'];
 }
 
+const ORPHANED_TRACK_EPOCH_DIAGNOSTIC = 'The research worker ended without a terminal session record.';
+const ORPHANED_TRACK_PAUSE_MESSAGE = `${ORPHANED_TRACK_EPOCH_DIAGNOSTIC} Review the session before resuming.`;
+
 export type AppServerSessionStopCause = 'user' | 'track_control' | 'track_rotation' | 'track_state';
 
 interface AppServerSessionSummaryProjection {
@@ -1377,6 +1380,7 @@ export class AppServerHostService {
           }
           if (!targetIds.includes('local')) throw new Error('Enable Local as a workspace target to run the research track on its owning app-server.');
           return store.start({ scopeId: details.scope.id, provider: track.provider,
+            guardianEnabled: track.guardianEnabled,
             ...(track.collaboration ? { collaboration: track.collaboration } : {}),
             targetIds, surfaces: details.surfaceMap.surfaces, replaceUnfinished: true });
         }
@@ -1403,6 +1407,7 @@ export class AppServerHostService {
           ? { model: configuration?.provider.model ?? defaults.leadModel } : {}),
           ...(configuration?.provider.reasoningEffort || defaults.reasoningEffort
             ? { reasoningEffort: configuration?.provider.reasoningEffort ?? defaults.reasoningEffort } : {}) },
+        guardianEnabled: configuration?.guardianEnabled !== false,
         ...(configuration?.collaboration ? { collaboration: configuration.collaboration } : {}),
         targetIds, surfaces: details.surfaceMap.surfaces });
     } finally { store.close(); }
@@ -1418,7 +1423,10 @@ export class AppServerHostService {
       const store = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId: workspace.workspaceId });
       try {
         let track = store.get();
-        if (!track || track.status !== 'running' || busyWorkspaceIds.has(workspace.workspaceId)) continue;
+        const recoveringPriorOrphan = track?.status === 'paused' && track.lastError === ORPHANED_TRACK_PAUSE_MESSAGE
+          && track.activeSessionId === null;
+        if (!track || (track.status !== 'running' && !recoveringPriorOrphan)
+          || busyWorkspaceIds.has(workspace.workspaceId)) continue;
         if (workspace.memoryBackend === 'disabled') {
           store.pauseWithError('Workspace memory was disabled. Re-enable memory before resuming the research track.');
           continue;
@@ -1436,10 +1444,20 @@ export class AppServerHostService {
           store.pauseWithError('A selected workspace target is unavailable. Restore it or start a new pass with updated targets.');
           continue;
         }
+        if (recoveringPriorOrphan) {
+          try {
+            const session = await this.invokeProtocol<AppServerSessionSummaryProjection>('session.get', {
+              args: ['session', 'get', '--session-id', track.id], storage });
+            if (!track.guardianEnabled || !guardianEnabledForTrackSession(session)) continue;
+            await this.markOrphanedTrackSessionForReview(track.id, session, storage);
+            track = store.control('resume');
+          } catch { continue; }
+        }
         // The canonical session can finish before its worker exits. Keep the assignment
         // until that worker and its terminal persistence have both settled.
         if (track.activeSessionId && activeSessionIds.has(track.activeSessionId)) continue;
         if (track.activeSessionId) {
+          let guardianRecoveryPending = false;
           try {
             const session = await this.invokeProtocol<AppServerSessionSummaryProjection>('session.get', {
               args: ['session', 'get', '--session-id', track.activeSessionId], storage });
@@ -1449,11 +1467,18 @@ export class AppServerHostService {
                 failed ? 'The research worker failed. Open the failed session for details.' : undefined);
               if (failed) store.pauseWithError('The research worker failed. Open the failed session for details.');
             } else if (at.getTime() - Date.parse(track.updatedAt) > 120_000) {
-              store.finishEpoch(track.activeSessionId, false,
-                'The research worker ended without a terminal session record.');
-              store.pauseWithError('The research worker ended without a terminal session record. Review the session before resuming.');
+              if (track.guardianEnabled && guardianEnabledForTrackSession(session)) {
+                guardianRecoveryPending = true;
+                await this.markOrphanedTrackSessionForReview(track.activeSessionId, session, storage);
+                store.finishEpoch(track.activeSessionId, false, ORPHANED_TRACK_EPOCH_DIAGNOSTIC,
+                  { countNoProgress: false });
+              } else {
+                store.finishEpoch(track.activeSessionId, false, ORPHANED_TRACK_EPOCH_DIAGNOSTIC);
+                store.pauseWithError(ORPHANED_TRACK_PAUSE_MESSAGE);
+              }
             }
           } catch {
+            if (guardianRecoveryPending) continue;
             if (at.getTime() - Date.parse(track.updatedAt) > 120_000) {
               store.finishEpoch(track.activeSessionId, false, 'The reserved research session was not found after recovery.');
               store.pauseWithError('The reserved research session was not found after recovery. Review the workspace before resuming.');
@@ -1468,7 +1493,7 @@ export class AppServerHostService {
         const work = assignment.track.surfaces.find((item) => item.surfaceId === assignment.surface.id)!;
         const promptMarkdown = researchTrackEpochPrompt(assignment.track.id, assignment.track.pass,
           assignment.surface, work, details.surfaceMap.surfaces.length, assignment.track.targetIds,
-          workspace.researchKitId);
+          workspace.researchKitId, recoveringPriorOrphan || assignment.track.lastError === ORPHANED_TRACK_EPOCH_DIAGNOSTIC);
         const continuing = assignment.track.epochCount > 1;
         due.push({ dueAt: at.toISOString(), request: { launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
           sessionId, launch: { workspaceId: workspace.workspaceId,
@@ -1476,7 +1501,7 @@ export class AppServerHostService {
             machineId: 'local',
             targetIds: track.targetIds, promptMarkdown,
             provider: track.provider, ...(track.collaboration ? { collaboration: track.collaboration } : {}),
-            shellSafetyMode: 'auto_review', guardianEnabled: true,
+            shellSafetyMode: 'auto_review', guardianEnabled: track.guardianEnabled,
             ...(continuing ? { continuation: { fallbackPrompt: promptMarkdown } } : {}),
             generateTitle: true } } });
       } catch (error) {
@@ -1486,6 +1511,19 @@ export class AppServerHostService {
       } finally { store.close(); }
     }
     return due;
+  }
+
+  private async markOrphanedTrackSessionForReview(
+    sessionId: string, session: AppServerSessionSummaryProjection, storage: AppServerHostStorage
+  ): Promise<void> {
+    if (session.status === 'blocked' || session.status === 'completed'
+      || session.status === 'failed' || session.status === 'stopped') return;
+    const attempt = latestAttempt(session.attempts);
+    await this.invokeProtocol('session.transition', {
+      args: ['session', 'transition', '--session-id', sessionId], storage,
+      input: { status: 'failed', ...(attempt ? { attemptId: attempt.id } : {}),
+        summary: 'The research worker ended without a terminal record; the next track epoch will review the interruption.' }
+    });
   }
 
   private researchTrackSessionAssignment(databasePath: string, workspaceId: string, sessionId: string):
@@ -2620,6 +2658,11 @@ function decodeRestartLaunchDescriptor(value: unknown): StoredRestartLaunchDescr
   }
 }
 
+function guardianEnabledForTrackSession(session: AppServerSessionSummaryProjection): boolean {
+  const restart = decodeRestartLaunchDescriptor(session.metadata);
+  return restart?.launch.mode === 'research-track' && restart.launch.guardianEnabled === true;
+}
+
 function latestAttempt(value: unknown): { id: string; parentAttemptId: string | null } | null {
   if (!Array.isArray(value)) return null;
   for (let index = value.length - 1; index >= 0; index -= 1) {
@@ -2712,7 +2755,8 @@ function researchTrackEpochPrompt(
   work: ResearchTrackSurfaceState,
   surfaceCount: number,
   targetIds: readonly string[],
-  researchKitId?: string
+  researchKitId?: string,
+  reviewInterruptedEpoch = false
 ): string {
   return [
     '# Continuous research track',
@@ -2724,6 +2768,9 @@ function researchTrackEpochPrompt(
     `Prior validation: ${work.validation ? `${work.validation.environment}; target-dependent=${work.validation.targetDependent}; ${work.validation.reason}` : 'No target-validation result recorded.'}`,
     `Next action: ${work.nextAction}`,
     `Selected execution targets: ${targetIds.join(', ')}.`,
+    ...(reviewInterruptedEpoch ? [
+      'Guardian recovery review: The prior worker ended without a terminal session record. Inspect the available prior attempt and durable workspace state before continuing. Identify work that was recorded, work that remains unverified, and the next safe proof step. Do not infer progress from the missing terminal record or repeat completed work merely to reconstruct context. Record the recovery assessment in the next durable checkpoint.'
+    ] : []),
     '',
     'Conduct one bounded, reasoning-based security research epoch on this assigned surface. For a previously unexamined resource root, briefly compare the eligible roots in surface.list before deep work so an easy but low-value root does not consume the epoch. Start with attacker control, trust boundaries, assets, plausible unauthorized effects, and the strongest high-impact theory. State the next discriminating proof question and whether the available environment can answer it before lengthy tool work. Use surface.focus. Coordinate with its first-touch foundation scout when one starts. Investigate reachable security-relevant sinks and possible cross-surface chains. Do not treat files, routes, or unit tests as surfaces merely because they exist; use tests only when they provide security evidence or a focused proof harness.',
     'The listed resources are an inventory, not the whole authorization boundary. If this attacker path reveals an unlisted resource covered by a recorded inclusion or rule, add it with resource.catalog discover and request Auto-Reviewed touch before substantive research. Record the scope link; explicit exclusions still control. An approved discovered resource becomes eligible for a later track epoch. Official vendor APIs and SDKs may be covered even when their source was not attached. Third-party applications, customers, and accounts are not authorized just because they integrate with an in-scope vendor. Treat sample implementations as context unless independently included; prioritize the vendor-owned API or SDK behavior and impacts.',

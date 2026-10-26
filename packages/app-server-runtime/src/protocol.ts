@@ -56,7 +56,7 @@ export const APP_SERVER_PROTOCOL_BOOTSTRAP_PREFIX = "APP_SERVER_TRANSPORT " as c
  * Bump this UTC timestamp whenever the Desktop/app-server control contract
  * changes. Both binaries compile the same value and compare it directionally.
  */
-export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-25T00:00:00.000Z" as const;
+export const BEALE_APP_SERVER_CONTRACT_TIMESTAMP = "2026-10-26T00:00:00.000Z" as const;
 export const BEALE_APP_SERVER_CONTROL_VERSION = 1 as const;
 export const BEALE_APP_SERVER_CAPABILITIES = [
   "fleet.inventory.v1",
@@ -431,6 +431,7 @@ export interface BealeWorkspaceResearchTrack {
   pass: number;
   scopeId: string;
   provider: { id: string; model?: string; reasoningEffort?: string };
+  guardianEnabled?: boolean;
   targetIds: string[];
   collaboration?: Record<string, unknown>;
   activeSessionId: string | null;
@@ -464,6 +465,7 @@ export interface BealeWorkspaceResearchTrackRequest {
   action: "status" | "start" | "pause" | "resume" | "stop";
   configuration?: {
     provider: { id: string; model: string; reasoningEffort: string };
+    guardianEnabled?: boolean;
     targetIds: string[];
     collaboration?: Record<string, unknown>;
   };
@@ -498,6 +500,9 @@ export function decodeBealeWorkspaceResearchTrackRequest(value: unknown): BealeW
       || JSON.stringify(configuration.collaboration).length > 32_000)) {
       throw new Error("Invalid workspace research track configuration: collaborator settings are malformed or too large.");
     }
+    if (configuration.guardianEnabled !== undefined && typeof configuration.guardianEnabled !== "boolean") {
+      throw new Error("Invalid workspace research track configuration: Guardian must be enabled or disabled.");
+    }
   }
   return { workspaceId: value.workspaceId.trim(), action: value.action,
     ...(configuration === undefined ? {} : { configuration: configuration as NonNullable<BealeWorkspaceResearchTrackRequest["configuration"]> }) };
@@ -512,6 +517,7 @@ export function decodeBealeWorkspaceResearchTrack(value: unknown): BealeWorkspac
     || !statuses.includes(String(value.status)) || !Number.isSafeInteger(value.pass)
     || typeof value.scopeId !== "string" || !isRecord(value.provider)
     || typeof value.provider.id !== "string" || !Array.isArray(value.targetIds)
+    || (value.guardianEnabled !== undefined && typeof value.guardianEnabled !== "boolean")
     || (value.collaboration !== undefined && !isRecord(value.collaboration))
     || !value.targetIds.every((id: unknown) => typeof id === "string")
     || (value.activeSessionId !== null && typeof value.activeSessionId !== "string")
