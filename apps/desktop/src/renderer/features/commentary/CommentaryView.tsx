@@ -30,6 +30,12 @@ import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { formatDurationHms } from '../../lib/formatting';
 import { errorMessage } from '../../lib/errors';
 import { scrollFadeClasses } from '../../lib/scrollFade';
+import {
+  advanceCommentaryStreaming,
+  initialCommentaryStreamingState,
+  reconcileCommentaryStreaming,
+  visibleCommentaryMessages
+} from './commentaryStreaming';
 
 interface CommentaryScrollAnchor {
   messageId: string;
@@ -148,19 +154,73 @@ export const CommentaryView = memo(function CommentaryView({
     traceEvents: detail?.traceEvents.length ?? 0,
     displayEvents: events.length
   }), [detail, events, repositoryMetadata, sessionSetupPending, showBackToMain]);
+  const streamingScopeKey = detail ? `${selectedRunId ?? detail.run.id}:${detail.run.id}:${showBackToMain}` : null;
+  const [reducedMotion, setReducedMotion] = useState(() => typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const [streamingState, setStreamingState] = useState(() => initialCommentaryStreamingState(streamingScopeKey, messages));
+  const iconAnimationTimersRef = useRef<Map<string, number>>(new Map());
+  const streamEnabled = Boolean(detail && !reducedMotion && !searchHighlightQuery
+    && typeof document !== 'undefined' && !document.hidden);
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined;
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = (): void => setReducedMotion(preference.matches);
+    preference.addEventListener('change', onChange);
+    return () => preference.removeEventListener('change', onChange);
+  }, []);
+  useLayoutEffect(() => {
+    setStreamingState((current) => reconcileCommentaryStreaming(
+      current, streamingScopeKey, messages, streamEnabled, Boolean(detail && !isRunWorkingStatus(detail.run.status))
+    ));
+  }, [detail?.run.status, messages, streamEnabled, streamingScopeKey]);
+  useEffect(() => {
+    if (!streamingState.pending.length) return undefined;
+    const timer = window.setTimeout(() => setStreamingState(advanceCommentaryStreaming), 12);
+    return () => window.clearTimeout(timer);
+  }, [streamingState]);
+  useEffect(() => {
+    const activeId = streamingState.pending[0]?.id;
+    if (!activeId || !streamingState.animatedIds.has(activeId) || iconAnimationTimersRef.current.has(activeId)) return;
+    const timer = window.setTimeout(() => {
+      iconAnimationTimersRef.current.delete(activeId);
+      setStreamingState((current) => {
+        if (!current.animatedIds.has(activeId)) return current;
+        const animatedIds = new Set(current.animatedIds);
+        animatedIds.delete(activeId);
+        return { ...current, animatedIds };
+      });
+    }, 400);
+    iconAnimationTimersRef.current.set(activeId, timer);
+  }, [streamingState.pending, streamingState.animatedIds]);
+  useEffect(() => () => {
+    for (const timer of iconAnimationTimersRef.current.values()) window.clearTimeout(timer);
+    iconAnimationTimersRef.current.clear();
+  }, []);
+  useEffect(() => {
+    const onVisibilityChange = (): void => {
+      if (document.hidden) setStreamingState((current) => current.pending.length
+        ? initialCommentaryStreamingState(streamingScopeKey, messages) : current);
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [messages, streamingScopeKey]);
+  const visibleMessages = streamingState.scopeKey === streamingScopeKey
+    ? visibleCommentaryMessages(streamingState, messages)
+    : messages;
   const messageSections = useMemo(
     () => devInstrumentation.time(
       'commentary.buildSections',
-      () => commentaryMessageSections(messages, Boolean(detail && !isRunWorkingStatus(detail.run.status)), !showBackToMain),
-      { messages: messages.length }
+      () => commentaryMessageSections(visibleMessages, Boolean(detail && !isRunWorkingStatus(detail.run.status)), !showBackToMain),
+      { messages: visibleMessages.length }
     ),
-    [detail, messages, showBackToMain]
+    [detail, visibleMessages, showBackToMain]
   );
   const activityMessages = messageSections.activity;
   const messageUpdateKey = devInstrumentation.time(
     'commentary.buildUpdateKey',
-    () => commentaryMessageUpdateKey(messages, events),
-    { messages: messages.length, displayEvents: events.length }
+    () => commentaryMessageUpdateKey(visibleMessages, events),
+    { messages: visibleMessages.length, displayEvents: events.length }
   );
   const messageIndexById = useMemo(
     () => devInstrumentation.time('commentary.buildMessageIndex', () => commentaryMessageIndex(activityMessages), { messages: activityMessages.length }),
@@ -449,6 +509,10 @@ export const CommentaryView = memo(function CommentaryView({
       distanceFromBottom,
       userInitiated: userScrollIntentRef.current || scrollbarDragRef.current
     });
+    if (!followLatestRef.current) {
+      setStreamingState((current) => current.pending.length
+        ? initialCommentaryStreamingState(streamingScopeKey, messages) : current);
+    }
     userScrollIntentRef.current = false;
     if (userScrollIntentTimerRef.current !== null) {
       window.clearTimeout(userScrollIntentTimerRef.current);
@@ -525,7 +589,7 @@ export const CommentaryView = memo(function CommentaryView({
       pendingScrollWindowStartRef.current = nextStart;
       setWindowStart(nextStart);
     }
-  }, [activityMessages.length, loadOlderHistory, maxWindowStart, messageIndexById, messageOffsets, normalizedWindowStart, renderedMessages.length, updateScrollEdges]);
+  }, [activityMessages.length, loadOlderHistory, maxWindowStart, messageIndexById, messageOffsets, messages, normalizedWindowStart, renderedMessages.length, streamingScopeKey, updateScrollEdges]);
 
   if (!selectedRunId && !onInitialInstruction) return null;
 
@@ -577,6 +641,7 @@ export const CommentaryView = memo(function CommentaryView({
               <CommentaryMessageRow
                 key={message.id}
                 message={message}
+                animateIcon={streamingState.animatedIds.has(message.id)}
                 searchHighlightQuery={searchHighlightQuery}
                 selected={false}
                 onRequestToolCallDetail={requestToolCallDetail}
@@ -603,6 +668,7 @@ export const CommentaryView = memo(function CommentaryView({
                       <CommentaryMessageRow
                         key={message.id}
                         message={message}
+                        animateIcon={streamingState.animatedIds.has(message.id)}
                         windowed
                         searchHighlightQuery={searchHighlightQuery}
                         selected={false}
@@ -620,6 +686,7 @@ export const CommentaryView = memo(function CommentaryView({
                   <CommentaryMessageRow
                     key={message.id}
                     message={message}
+                    animateIcon={streamingState.animatedIds.has(message.id)}
                     windowed
                     searchHighlightQuery={searchHighlightQuery}
                     selected={false}
@@ -633,6 +700,7 @@ export const CommentaryView = memo(function CommentaryView({
               <CommentaryMessageRow
                 key={message.id}
                 message={message}
+                animateIcon={streamingState.animatedIds.has(message.id)}
                 searchHighlightQuery={searchHighlightQuery}
                 selected={false}
                 onRequestToolCallDetail={requestToolCallDetail}
@@ -789,12 +857,14 @@ export function isRunWorkingStatus(status: RunDetail['run']['status']): boolean 
 
 export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   message,
+  animateIcon = false,
   windowed = false,
   searchHighlightQuery,
   selected,
   onRequestToolCallDetail = returnToolCallWithoutLoading
 }: {
   message: CommentaryMessage;
+  animateIcon?: boolean;
   windowed?: boolean;
   searchHighlightQuery: string;
   selected: boolean;
@@ -809,7 +879,7 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
     : [];
   return (
     <article
-      className={`main-commentary-message kind-${message.kind} ${communicationClass} ${selected ? 'selected' : ''}`}
+      className={`main-commentary-message kind-${message.kind} ${communicationClass} ${selected ? 'selected' : ''}${animateIcon ? ' is-streamed' : ''}`}
       data-commentary-event-id={message.id}
       data-commentary-window-item={windowed ? '' : undefined}
       data-commentary-trace-id={message.traceEventId ?? undefined}
@@ -821,7 +891,7 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
       ) : message.kind === 'progress' ? (
         <div className="main-commentary-reasoning-lines">
           {reasoningTraceLines.map((line, index) => (
-            <div className="main-commentary-reasoning-line" key={`${index}:${line}`}>
+            <div className="main-commentary-reasoning-line" key={index}>
               <span className="main-commentary-message-icon" aria-hidden="true">
                 <Brain size={16} />
               </span>
@@ -1083,10 +1153,11 @@ function captureCommentaryScrollAnchor(
 }
 
 function commentaryMessageRowPropsEqual(
-  left: { message: CommentaryMessage; windowed?: boolean; searchHighlightQuery: string; selected: boolean; onRequestToolCallDetail?: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall> },
-  right: { message: CommentaryMessage; windowed?: boolean; searchHighlightQuery: string; selected: boolean; onRequestToolCallDetail?: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall> }
+  left: { message: CommentaryMessage; animateIcon?: boolean; windowed?: boolean; searchHighlightQuery: string; selected: boolean; onRequestToolCallDetail?: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall> },
+  right: { message: CommentaryMessage; animateIcon?: boolean; windowed?: boolean; searchHighlightQuery: string; selected: boolean; onRequestToolCallDetail?: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall> }
 ): boolean {
   if (
+    left.animateIcon !== right.animateIcon ||
     left.windowed !== right.windowed ||
     left.searchHighlightQuery !== right.searchHighlightQuery ||
     left.selected !== right.selected ||
