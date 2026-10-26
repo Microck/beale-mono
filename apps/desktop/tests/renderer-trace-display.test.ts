@@ -208,7 +208,7 @@ describe('renderer trace display view models', () => {
       sequence: 20,
       source: 'model',
       type: 'model_message',
-      payload: { turn: 3 },
+      payload: { turn: 3, phase: 'completed' },
       createdAt: '2026-04-30T10:02:00.000Z'
     });
     const detail = runDetail({
@@ -241,6 +241,7 @@ describe('renderer trace display view models', () => {
         text: '**Focus** inspect auth',
         transcriptRole: 'assistant',
         transcriptSource: 'openai_reasoning_summary',
+        phase: 'completed',
         turn: 3
       }
     });

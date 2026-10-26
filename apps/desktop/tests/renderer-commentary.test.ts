@@ -73,6 +73,36 @@ describe('commentary character streaming', () => {
     expect(visibleCommentaryMessages(state, [older, message('current', 'Hi 👋')]).at(-1)?.contentMarkdown).toBe('Hi 👋');
   });
 
+  it('keeps opening reasoning emphasis out of every streamed frame', () => {
+    const history = message('history', 'Earlier.');
+    const lines = ['**Inspecting the parser**', '**Checking bounds**'];
+    const progress = {
+      ...message('progress', lines.join('\n'), 'progress'),
+      reasoningTraceLines: lines
+    };
+    let state = reconcileCommentaryStreaming(
+      initialCommentaryStreamingState('run-example', [history]),
+      'run-example',
+      [history, progress],
+      true
+    );
+    let sawFirstEmphasis = false;
+    let sawSecondEmphasis = false;
+    while (state.pending.length > 0) {
+      const visible = visibleCommentaryMessages(state, [history, progress]).at(-1);
+      expect(visible?.kind).toBe('progress');
+      const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
+        message: visible!, searchHighlightQuery: '', selected: false
+      }));
+      expect(html).not.toContain('**');
+      sawFirstEmphasis ||= html.includes('<strong>Inspect');
+      sawSecondEmphasis ||= html.includes('<strong>Check');
+      state = advanceCommentaryStreaming(state);
+    }
+    expect(sawFirstEmphasis).toBe(true);
+    expect(sawSecondEmphasis).toBe(true);
+  });
+
   it('flushes the queue for reduced motion or search and resets when the session changes', () => {
     const first = message('first', 'First');
     const next = message('next', 'Second');
@@ -251,8 +281,19 @@ describe('renderer commentary projection', () => {
     expect(commentaryToolUsageText('shell.run', 1, 'npm run Check')).toBe('Running npm run Check');
     expect(commentaryToolUsageText('shell.run', 4)).toBe('Running 4 commands');
     expect(commentaryToolUsageText('shell.run', 1, 'npm test', true)).toBe('Ran npm test');
-    expect(commentaryToolUsageText('mcp.browser.snapshot', 1)).toBe('Using snapshot');
-    expect(commentaryToolUsageText('custom.scan', 2)).toBe('Using custom scan 2 times');
+    expect(commentaryToolUsageText('surface.get', 1)).toBe('Inspecting a surface');
+    expect(commentaryToolUsageText('surface.list', 1)).toBe('Listing surfaces');
+    expect(commentaryToolUsageText('surface.focus', 1)).toBe('Focusing on a surface');
+    expect(commentaryToolUsageText('features.load', 1)).toBe('Loading features');
+    expect(commentaryToolUsageText('plugins.load', 1)).toBe('Loading plugins');
+    expect(commentaryToolUsageText('status', 1)).toBe('Checking status');
+    expect(commentaryToolUsageText('iphones', 1)).toBe('Listing iPhones');
+    expect(commentaryToolUsageText('mcp.browser.snapshot', 1)).toBe('Capturing a browser snapshot');
+    expect(commentaryToolUsageText('mcp.example.status', 1)).toBe('Checking status');
+    expect(commentaryToolUsageText('mcp.example.iphones', 1)).toBe('Listing iPhones');
+    expect(commentaryToolUsageText('custom.scan', 2)).toBe('Scanning with custom scan 2 times');
+    expect(commentaryToolUsageText('custom.search', 1)).toBe('Searching with custom search');
+    expect(commentaryToolUsageText('custom.unknown', 1)).toBe('Calling custom unknown');
   });
 
   it('shows one activity row per tool call, coalesces repeats, and suppresses paired results', () => {
@@ -693,12 +734,36 @@ describe('renderer commentary projection', () => {
     }))).toBe('Memorizing test strategy "Parser regression suite"');
     expect(toolMessage(pairedEvents('file.read', 'file-read', { path: 'src/parser.ts' }, { text: 'source' })))
       .toBe('Reading src/parser.ts');
+    expect(toolMessage(pairedEvents('surface.get', 'surface-get', { surfaceId: 'surface_example' }, {
+      id: 'surface_example', name: 'Parser entry boundary'
+    }))).toBe('Inspecting surface "Parser entry boundary"');
+    expect(toolMessage(pairedEvents('surface.list', 'surface-list', { parentId: 'surface_example' }, {
+      surfaces: []
+    }))).toBe('Listing surfaces under "surface_example"');
+    expect(toolMessage(pairedEvents('surface.list', 'resource-surfaces', { resourceId: 'resource_example' }, {
+      surfaces: []
+    }))).toBe('Listing surfaces for resource "resource_example"');
+    expect(toolMessage(pairedEvents('surface.focus', 'surface-focus', { surfaceId: 'surface_example' }, {
+      surfaceTrail: [{ id: 'surface_example', name: 'Parser entry boundary' }]
+    }))).toBe('Focusing on surface "Parser entry boundary"');
+    expect(toolMessage(pairedEvents('features.load', 'features-load', { features: ['code-navigation'] }, {
+      loadedFeatureIds: ['code-navigation']
+    }))).toBe('Loading feature "code-navigation"');
+    expect(toolMessage(pairedEvents('plugins.load', 'plugins-load', { plugins: ['example-plugin', 'example-reference'] }, {
+      loadedPluginIds: ['example-plugin', 'example-reference']
+    }))).toBe('Loading plugins "example-plugin", "example-reference"');
     expect(toolMessage(pairedEvents('finding.list', 'finding-list', {
       query: 'memory safety'
     }, { findings: [] }))).toBe('Querying findings for "memory safety"');
     expect(toolMessage(pairedEvents('resource.catalog', 'resource-catalog', {
-      operation: 'discover'
-    }, { resource: {} }))).toBe('Cataloging resource with discover operation');
+      operation: 'discover', name: 'Example parser'
+    }, { resource: {} }))).toBe('Discovering resource "Example parser"');
+    expect(toolMessage(pairedEvents('resource.catalog', 'resource-list', {
+      operation: 'list'
+    }, { resources: [] }))).toBe('Listing research resources');
+    expect(toolMessage(pairedEvents('resource.catalog', 'resource-history', {
+      operation: 'history', resourceId: 'resource_example', historyId: 'reference_example'
+    }, { records: [] }))).toBe('Reading saved resource reference "reference_example"');
     expect(toolMessage(pairedEvents('finding.transition', 'finding-transition', {
       id: 'finding_parser', toStatus: 'report_ready'
     }, { status: 'report_ready' }))).toBe('Transitioning finding to report ready');
@@ -854,7 +919,7 @@ describe('renderer commentary projection', () => {
       .not.toContain('data-commentary-window-item');
   });
 
-  it('shows user, native commentary, and final messages while suppressing paired reasoning fallback', () => {
+  it('keeps reasoning alongside native commentary and final messages', () => {
     const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
       displayEvent('prompt', {
         transcriptRole: 'user',
@@ -889,9 +954,34 @@ describe('renderer commentary projection', () => {
 
     expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
       ['user', 'Inspect the parser.'],
+      ['progress', 'Checking parser entrypoints.'],
       ['commentary', 'I found two parser entrypoints and am checking their shared guard.'],
       ['final_answer', 'The shared guard rejects the boundary safely.']
     ]);
+  });
+
+  it('does not remove a displayed reasoning summary when commentary arrives for its response', () => {
+    const detail = runDetail('Review the example parser.');
+    const reasoning = displayEvent('reasoning', {
+      agentPath: '/root',
+      transcriptRole: 'assistant',
+      transcriptSource: 'openai_reasoning_summary',
+      metadata: { responseId: 'response_example', itemId: 'thinking:0' },
+      text: '**Checking parser bounds**'
+    });
+    const commentary = displayEvent('commentary', {
+      agentPath: '/root',
+      transcriptRole: 'assistant',
+      transcriptSource: 'app_server_commentary',
+      metadata: { responseId: 'response_example' },
+      text: 'The input reaches the parser guard.'
+    });
+    const before = commentaryMessagesForSession(detail, [reasoning]);
+    const after = commentaryMessagesForSession(detail, [reasoning, commentary]);
+
+    expect(before.map((message) => message.id)).toEqual(['run-prompt:run_commentary', 'reasoning']);
+    expect(after.map((message) => message.id)).toEqual(['run-prompt:run_commentary', 'reasoning', 'commentary']);
+    expect(after[1]?.reasoningTraceLines).toEqual(['**Checking parser bounds**']);
   });
 
   it('projects failed final app-server results as error messages', () => {
@@ -1057,7 +1147,7 @@ describe('renderer commentary projection', () => {
     ]);
   });
 
-  it('retains newer fallback progress after native commentary and coalesces its snapshots', () => {
+  it('retains both paired reasoning and newer fallback progress while coalescing snapshots', () => {
     const messages = commentaryMessagesForSession(runDetail('Continue the review.'), [
       displayEvent('paired-reasoning', {
         agentPath: '/root',
@@ -1095,8 +1185,41 @@ describe('renderer commentary projection', () => {
 
     expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
       ['user', 'Continue the review.'],
+      ['progress', 'Paired provider reasoning.'],
       ['commentary', 'Native commentary for the first response.'],
       ['progress', 'Completed fallback snapshot.']
+    ]);
+  });
+
+  it('keeps completed reasoning summaries when a response reuses an item ID', () => {
+    const reasoning = (id: string, phase: string, text: string): TraceDisplayEvent => displayEvent(id, {
+      agentPath: '/root',
+      transcriptRole: 'assistant',
+      transcriptSource: 'openai_reasoning_summary',
+      metadata: { responseId: 'response_example', itemId: 'thinking:0', phase },
+      text
+    });
+    const firstSnapshot = reasoning('first-snapshot', 'delta', '**Inspecting');
+    const firstCompleted = reasoning('first-completed', 'completed', '**Inspecting the parser**');
+    const secondSnapshot = reasoning('second-snapshot', 'delta', '**Checking');
+    const secondCompleted = reasoning('second-completed', 'completed', '**Checking bounds**');
+    const nextItem = displayEvent('next-item', {
+      agentPath: '/root',
+      transcriptRole: 'assistant',
+      transcriptSource: 'app_server_commentary',
+      text: 'Continuing with the example.'
+    });
+    const detail = runDetail('Review the parser.');
+    const summaries = (events: TraceDisplayEvent[]): string[] => commentaryMessagesForSession(detail, events)
+      .filter((message) => message.kind === 'progress')
+      .map((message) => message.contentMarkdown);
+
+    expect(summaries([firstSnapshot, firstCompleted])).toEqual(['**Inspecting the parser**']);
+    expect(summaries([firstSnapshot, firstCompleted, secondSnapshot])).toEqual([
+      '**Inspecting the parser**', '**Checking'
+    ]);
+    expect(summaries([firstSnapshot, firstCompleted, secondSnapshot, secondCompleted, nextItem])).toEqual([
+      '**Inspecting the parser**', '**Checking bounds**'
     ]);
   });
 
@@ -1353,7 +1476,7 @@ describe('renderer commentary projection', () => {
     expect(html.match(/lucide-brain/g)).toHaveLength(2);
   });
 
-  it('pairs native commentary with reasoning by turn when a provider omits the response ID', () => {
+  it('keeps reasoning and native commentary in the same turn without a response ID', () => {
     const messages = commentaryMessagesForSession(runDetail('Inspect the parser.'), [
       displayEvent('reasoning', {
         agentPath: '/root',
@@ -1378,6 +1501,7 @@ describe('renderer commentary projection', () => {
 
     expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
       ['user', 'Inspect the parser.'],
+      ['progress', 'Private provider summary.'],
       ['commentary', 'I found the parser boundary and am testing its guard.']
     ]);
   });

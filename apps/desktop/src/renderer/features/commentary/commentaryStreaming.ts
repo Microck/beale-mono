@@ -24,6 +24,15 @@ const messageText = (message: CommentaryMessage): string => message.kind === 'pr
   ? (message.reasoningTraceLines ?? [message.contentMarkdown]).join('\n')
   : message.contentMarkdown;
 
+function visiblePartialReasoningLine(line: string): string {
+  if (line === '*') return '';
+  if (!line.startsWith('**') || line.indexOf('**', 2) !== -1) return line;
+  const content = line.slice(2, line.endsWith('*') ? -1 : undefined);
+  const trailingWhitespace = content.match(/\s*$/)?.[0] ?? '';
+  const emphasized = content.slice(0, content.length - trailingWhitespace.length);
+  return emphasized ? `**${emphasized}**${trailingWhitespace}` : trailingWhitespace;
+}
+
 export function initialCommentaryStreamingState(
   scopeKey: string | null,
   messages: readonly CommentaryMessage[]
@@ -118,8 +127,15 @@ export function visibleCommentaryMessages(
   const visible = messages.slice(0, activeIndex + 1);
   const message = visible[activeIndex];
   const text = first.characters.slice(0, first.shown).join('');
+  const reasoningTraceLines = text ? text.split('\n') : [];
+  if (reasoningTraceLines.length > 0) {
+    const lastIndex = reasoningTraceLines.length - 1;
+    reasoningTraceLines[lastIndex] = visiblePartialReasoningLine(reasoningTraceLines[lastIndex] ?? '');
+  }
+  const visibleReasoningTraceLines = reasoningTraceLines.filter((line, index, lines) => line || index < lines.length - 1);
+  if (visibleReasoningTraceLines.length === 0) visibleReasoningTraceLines.push('');
   visible[activeIndex] = message.kind === 'progress'
-    ? { ...message, contentMarkdown: text, reasoningTraceLines: text ? text.split('\n').filter((line, index, lines) => line || index < lines.length - 1) : [] }
+    ? { ...message, contentMarkdown: text, reasoningTraceLines: visibleReasoningTraceLines }
     : { ...message, contentMarkdown: text };
   return visible;
 }

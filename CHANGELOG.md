@@ -6,10 +6,16 @@
 
 #### Changed
 
+- Session tool activity labels use action verbs and include available surface, feature, plugin, resource, and reference names.
+- Following a live session transcript now slides existing content upward as new items and lines arrive.
 - New session transcript messages reveal character by character in order, with their icons growing into place. Existing history and reduced-motion views render immediately.
 
 #### Fixed
 
+- Reasoning summaries remain visible in session transcripts when commentary from the same response arrives.
+- The live session scrollbar appears for user scrolling without flashing during automatic transcript following.
+- Completed reasoning summaries remain visible when later summaries reuse the same response item identifier.
+- Streamed reasoning summaries render opening bold emphasis without briefly showing raw Markdown asterisks.
 - Finding details opened from the workspace keep the Campaign view tab visible and return to its list when leaving the finding.
 - Provider usage icons now use a circular hover background, and their hover details show remaining limits without duplicate progress bars.
 - The session summary sidebar grows within the available window width to keep its left labels readable as counts and usage change.

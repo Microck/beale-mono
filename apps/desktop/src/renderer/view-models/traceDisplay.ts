@@ -389,12 +389,16 @@ function transcriptMessageToTraceEvent(message: TranscriptMessageRecord, index: 
   const linkedAgentPath = linkedTraceEvent ? traceAgentPath(linkedTraceEvent) : null;
   const metadataAgentPath = stringRecordValue(message.metadata, 'agentPath');
   const messagePhase = message.phase ?? stringRecordValue(message.metadata, 'messagePhase');
+  const reasoningPhase = message.source === 'openai_reasoning_summary'
+    ? stringRecordValue(linkedTraceEvent?.payload ?? {}, 'phase')
+    : null;
   const payload: Record<string, unknown> = {
     text: message.contentMarkdown,
     transcriptMessageId: message.id,
     transcriptRole: message.role,
     transcriptSource: message.source,
     ...(messagePhase ? { messagePhase } : {}),
+    ...(reasoningPhase ? { phase: reasoningPhase } : {}),
     ...(message.traceEventId ? { linkedTraceEventId: message.traceEventId } : {}),
     ...(linkedTurn === undefined ? {} : { turn: linkedTurn }),
     ...(linkedAgentPath || metadataAgentPath ? { agentPath: linkedAgentPath ?? metadataAgentPath } : {}),

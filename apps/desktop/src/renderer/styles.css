@@ -908,7 +908,6 @@ body.is-resizing-research-side {
 
 :where(
   .main-trace-list,
-  .main-commentary-list,
   .report-session-document-scroll,
   .campaign-board-lane-list,
   .workspace-surface-list,
@@ -929,7 +928,6 @@ body.is-resizing-research-side {
 
 :where(
   .main-trace-list,
-  .main-commentary-list,
   .report-session-document-scroll,
   .campaign-board-lane-list,
   .workspace-surface-list,
@@ -949,7 +947,6 @@ body.is-resizing-research-side {
 
 :where(
   .main-trace-list,
-  .main-commentary-list,
   .report-session-document-scroll,
   .campaign-board-lane-list,
   .workspace-surface-list,
@@ -963,6 +960,18 @@ body.is-resizing-research-side {
   .timeline,
   .notification-detail pre
 )::-webkit-scrollbar-thumb:hover {
+  background-color: var(--inset-scrollbar-thumb-strong);
+}
+
+.main-commentary-list.scrollbar-active {
+  scrollbar-color: var(--inset-scrollbar-thumb) transparent;
+}
+
+.main-commentary-list.scrollbar-active::-webkit-scrollbar-thumb {
+  background-color: var(--inset-scrollbar-thumb);
+}
+
+.main-commentary-list.scrollbar-active::-webkit-scrollbar-thumb:hover {
   background-color: var(--inset-scrollbar-thumb-strong);
 }
 

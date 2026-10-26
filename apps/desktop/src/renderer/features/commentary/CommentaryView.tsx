@@ -30,6 +30,7 @@ import type { TraceDisplayEvent } from '../../view-models/traceDisplay';
 import { formatDurationHms } from '../../lib/formatting';
 import { errorMessage } from '../../lib/errors';
 import { scrollFadeClasses } from '../../lib/scrollFade';
+import { INSET_SCROLLBAR_ACTIVE_MS } from '../../hooks/useInsetScrollbarActivation';
 import {
   advanceCommentaryStreaming,
   initialCommentaryStreamingState,
@@ -49,6 +50,7 @@ interface CommentaryScrollAnchorOptions {
 export const COMMENTARY_RENDER_WINDOW_SIZE = 120;
 const COMMENTARY_ESTIMATED_MESSAGE_HEIGHT = 56;
 const COMMENTARY_AUTO_FOLLOW_THRESHOLD = 112;
+const COMMENTARY_FOLLOW_SCROLL_EASE_MS = 70;
 const COMMENTARY_WINDOW_SLIDE_STEP = 30;
 const COMMENTARY_WINDOW_EDGE_BUFFER = 280;
 const returnToolCallWithoutLoading = async (toolCall: CommentaryToolCall): Promise<CommentaryToolCall> => toolCall;
@@ -251,6 +253,9 @@ export const CommentaryView = memo(function CommentaryView({
   const topSpacerRef = useRef<HTMLDivElement | null>(null);
   const bottomSpacerRef = useRef<HTMLDivElement | null>(null);
   const followLatestRef = useRef(true);
+  const followScrollFrameRef = useRef<number | null>(null);
+  const followScrollTimeRef = useRef<number | null>(null);
+  const followScrollReadyRef = useRef(false);
   const restoringAnchorRef = useRef(false);
   const pendingScrollAnchorRef = useRef<CommentaryScrollAnchor | null>(null);
   const pendingScrollTopRef = useRef<number | null>(null);
@@ -262,6 +267,7 @@ export const CommentaryView = memo(function CommentaryView({
   const requestedHistoryCursorRef = useRef<string | null>(null);
   const userScrollIntentRef = useRef(false);
   const userScrollIntentTimerRef = useRef<number | null>(null);
+  const scrollbarHideTimerRef = useRef<number | null>(null);
   const scrollbarDragRef = useRef(false);
   const scrollScopeKeyRef = useRef(scrollScopeKey);
   const detailRef = useRef(detail);
@@ -304,12 +310,66 @@ export const CommentaryView = memo(function CommentaryView({
     scroll.classList.toggle('has-bottom-fade', fadeClasses['has-bottom-fade']);
   }, []);
 
+  const cancelFollowScroll = useCallback((): void => {
+    if (followScrollFrameRef.current !== null) window.cancelAnimationFrame(followScrollFrameRef.current);
+    followScrollFrameRef.current = null;
+    followScrollTimeRef.current = null;
+  }, []);
+
+  const clearUserScrollbar = useCallback((): void => {
+    if (scrollbarHideTimerRef.current !== null) window.clearTimeout(scrollbarHideTimerRef.current);
+    scrollbarHideTimerRef.current = null;
+    listRef.current?.classList.remove('scrollbar-active');
+  }, []);
+
+  const activateUserScrollbar = useCallback((): void => {
+    const list = listRef.current;
+    if (!list || list.scrollHeight <= list.clientHeight) return;
+    list.classList.add('scrollbar-active');
+    if (scrollbarHideTimerRef.current !== null) window.clearTimeout(scrollbarHideTimerRef.current);
+    scrollbarHideTimerRef.current = window.setTimeout(() => {
+      list.classList.remove('scrollbar-active');
+      scrollbarHideTimerRef.current = null;
+    }, INSET_SCROLLBAR_ACTIVE_MS);
+  }, []);
+
   const scrollToLatest = useCallback((): void => {
     const list = listRef.current;
     if (!list) return;
-    list.scrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
-    updateScrollEdges();
-  }, [updateScrollEdges]);
+    if (userScrollIntentRef.current || scrollbarDragRef.current) return;
+    if (!streamEnabled || !followScrollReadyRef.current) {
+      cancelFollowScroll();
+      list.scrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+      followScrollReadyRef.current = true;
+      updateScrollEdges();
+      return;
+    }
+    if (Math.abs(Math.max(0, list.scrollHeight - list.clientHeight) - list.scrollTop) <= 0.75) return;
+    if (followScrollFrameRef.current !== null) return;
+    const animate = (timestamp: number): void => {
+      followScrollFrameRef.current = null;
+      const currentList = listRef.current;
+      if (!currentList || !followLatestRef.current || userScrollIntentRef.current || scrollbarDragRef.current) {
+        followScrollTimeRef.current = null;
+        return;
+      }
+      const target = Math.max(0, currentList.scrollHeight - currentList.clientHeight);
+      const remaining = target - currentList.scrollTop;
+      if (Math.abs(remaining) <= 0.75) {
+        currentList.scrollTop = target;
+        followScrollTimeRef.current = null;
+        updateScrollEdges();
+        return;
+      }
+      const elapsed = Math.min(64, Math.max(0, timestamp - (followScrollTimeRef.current ?? timestamp - 16)));
+      followScrollTimeRef.current = timestamp;
+      const offset = remaining * (1 - Math.exp(-elapsed / COMMENTARY_FOLLOW_SCROLL_EASE_MS));
+      currentList.scrollTop += Math.sign(remaining) * Math.min(Math.abs(remaining), Math.max(1, Math.abs(offset)));
+      updateScrollEdges();
+      followScrollFrameRef.current = window.requestAnimationFrame(animate);
+    };
+    followScrollFrameRef.current = window.requestAnimationFrame(animate);
+  }, [cancelFollowScroll, streamEnabled, updateScrollEdges]);
 
   const syncScrollState = useCallback((): void => {
     if (followLatestRef.current) {
@@ -320,6 +380,7 @@ export const CommentaryView = memo(function CommentaryView({
   }, [scrollToLatest, updateScrollEdges]);
 
   const markUserScrollIntent = useCallback((): void => {
+    cancelFollowScroll();
     userScrollIntentRef.current = true;
     if (userScrollIntentTimerRef.current !== null) {
       window.clearTimeout(userScrollIntentTimerRef.current);
@@ -328,7 +389,7 @@ export const CommentaryView = memo(function CommentaryView({
       userScrollIntentRef.current = false;
       userScrollIntentTimerRef.current = null;
     }, 200);
-  }, []);
+  }, [cancelFollowScroll]);
 
   const loadOlderHistory = useCallback((): void => {
     const cursor = detail?.historyCursor;
@@ -444,6 +505,9 @@ export const CommentaryView = memo(function CommentaryView({
 
   useLayoutEffect(() => {
     if (scrollScopeKeyRef.current !== scrollScopeKey) {
+      cancelFollowScroll();
+      clearUserScrollbar();
+      followScrollReadyRef.current = false;
       scrollScopeKeyRef.current = scrollScopeKey;
       followLatestRef.current = true;
       userScrollIntentRef.current = false;
@@ -466,12 +530,13 @@ export const CommentaryView = memo(function CommentaryView({
       return () => window.cancelAnimationFrame(frame);
     }
     if (normalizedWindowStart !== maxWindowStart) {
+      cancelFollowScroll();
       setWindowStart(maxWindowStart);
       return undefined;
     }
-    const frame = window.requestAnimationFrame(scrollToLatest);
-    return () => window.cancelAnimationFrame(frame);
-  }, [heightRevision, itemGap, maxWindowStart, messageUpdateKey, normalizedWindowStart, scrollScopeKey, scrollToLatest, updateScrollEdges]);
+    scrollToLatest();
+    return undefined;
+  }, [cancelFollowScroll, clearUserScrollbar, heightRevision, itemGap, maxWindowStart, messageUpdateKey, normalizedWindowStart, scrollScopeKey, scrollToLatest, updateScrollEdges]);
 
   useEffect(() => {
     setWindowStart((current) => Math.min(current, maxWindowStart));
@@ -490,13 +555,15 @@ export const CommentaryView = memo(function CommentaryView({
     window.addEventListener('pointerup', endScrollbarDrag);
     window.addEventListener('pointercancel', endScrollbarDrag);
     return () => {
+      cancelFollowScroll();
+      clearUserScrollbar();
       window.removeEventListener('pointerup', endScrollbarDrag);
       window.removeEventListener('pointercancel', endScrollbarDrag);
       if (userScrollIntentTimerRef.current !== null) {
         window.clearTimeout(userScrollIntentTimerRef.current);
       }
     };
-  }, []);
+  }, [cancelFollowScroll, clearUserScrollbar]);
 
   const handleScroll = useCallback((): void => {
     const list = listRef.current;
@@ -504,12 +571,14 @@ export const CommentaryView = memo(function CommentaryView({
     updateScrollEdges();
     if (restoringAnchorRef.current && !userScrollIntentRef.current && !scrollbarDragRef.current) return;
     const distanceFromBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
+    if (scrollbarDragRef.current) activateUserScrollbar();
     followLatestRef.current = commentaryFollowLatestAfterScroll({
       wasFollowingLatest: followLatestRef.current,
       distanceFromBottom,
       userInitiated: userScrollIntentRef.current || scrollbarDragRef.current
     });
     if (!followLatestRef.current) {
+      cancelFollowScroll();
       setStreamingState((current) => current.pending.length
         ? initialCommentaryStreamingState(streamingScopeKey, messages) : current);
     }
@@ -589,7 +658,7 @@ export const CommentaryView = memo(function CommentaryView({
       pendingScrollWindowStartRef.current = nextStart;
       setWindowStart(nextStart);
     }
-  }, [activityMessages.length, loadOlderHistory, maxWindowStart, messageIndexById, messageOffsets, messages, normalizedWindowStart, renderedMessages.length, streamingScopeKey, updateScrollEdges]);
+  }, [activateUserScrollbar, activityMessages.length, cancelFollowScroll, loadOlderHistory, maxWindowStart, messageIndexById, messageOffsets, messages, normalizedWindowStart, renderedMessages.length, streamingScopeKey, updateScrollEdges]);
 
   if (!selectedRunId && !onInitialInstruction) return null;
 
@@ -624,9 +693,22 @@ export const CommentaryView = memo(function CommentaryView({
             ref={listRef}
             onScroll={handleScroll}
             onWheel={(event) => {
+              if (event.deltaX !== 0 || event.deltaY !== 0) activateUserScrollbar();
               if (event.deltaY < 0) markUserScrollIntent();
             }}
-            onTouchMove={markUserScrollIntent}
+            onTouchMove={() => {
+              activateUserScrollbar();
+              markUserScrollIntent();
+            }}
+            onKeyDown={(event) => {
+              if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return;
+              if (event.target instanceof HTMLElement
+                && event.target.closest('button, input, textarea, select, [contenteditable="true"]')) return;
+              activateUserScrollbar();
+              if (['ArrowUp', 'PageUp', 'Home'].includes(event.key) || (event.key === ' ' && event.shiftKey)) {
+                markUserScrollIntent();
+              }
+            }}
             onPointerDown={(event) => {
               const list = listRef.current;
               if (!list || event.pointerType === 'touch') return;
@@ -634,6 +716,7 @@ export const CommentaryView = memo(function CommentaryView({
               const scrollbarWidth = Math.max(12, list.offsetWidth - list.clientWidth + 4);
               if (event.clientX < bounds.right - scrollbarWidth) return;
               scrollbarDragRef.current = true;
+              activateUserScrollbar();
               markUserScrollIntent();
             }}
           >

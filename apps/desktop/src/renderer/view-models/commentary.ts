@@ -1,10 +1,6 @@
 import type { RunDetail, TraceEventRecord, WorkspaceScopeVersion } from '@shared/types';
 import { repositoryClonedDirectory, scopeAssetLegacyKind } from '../../shared/types';
 import {
-  commentaryMessageCorrelationKey,
-  nativeCommentaryCorrelationKeys
-} from './commentaryCorrelation';
-import {
   appServerToolEventKind,
   appServerToolName,
   appServerToolPayload,
@@ -65,7 +61,6 @@ export function commentaryMessagesForSession(
 ): CommentaryMessage[] {
   if (!detail) return [];
   const includeInitialPrompt = options.includeInitialPrompt ?? true;
-  const nativeCommentaryKeys = nativeCommentaryCorrelationKeys(events);
   const projectedEvents = coalesceLegacyReasoningSnapshots(events);
   const toolCallsByPrimaryEventId = projectedAppServerToolCalls(
     projectedEvents,
@@ -83,7 +78,7 @@ export function commentaryMessagesForSession(
     if (activity) return [activity];
     const toolUsage = toolUsageMessage(event, toolCallsByPrimaryEventId, useActiveToolTense);
     if (toolUsage) return [toolUsage];
-    const kind = commentaryMessageKind(event, nativeCommentaryKeys);
+    const kind = commentaryMessageKind(event);
     const contentMarkdown = commentaryMessageContentMarkdown(event, kind);
     if (!kind || !contentMarkdown) return [];
     return [{
@@ -311,10 +306,7 @@ function coalesceConsecutiveToolMessages(
   return coalesced;
 }
 
-function commentaryMessageKind(
-  event: TraceDisplayEvent,
-  nativeCommentaryKeys: ReadonlySet<string>
-): CommentaryMessageKind | null {
+function commentaryMessageKind(event: TraceDisplayEvent): CommentaryMessageKind | null {
   const role = payloadString(event, 'transcriptRole');
   const source = payloadString(event, 'transcriptSource');
   const phase = payloadString(event, 'messagePhase');
@@ -324,8 +316,6 @@ function commentaryMessageKind(
   if (payloadString(event, 'finalResultKind') === 'error' || legacyAppServerFinalErrorText(event)) return 'error';
   if (source === 'app_server_commentary') return 'commentary';
   if (source === 'openai_reasoning_summary') {
-    const key = commentaryMessageCorrelationKey(event);
-    if (key && nativeCommentaryKeys.has(key)) return null;
     return payloadString(event, 'provider') === 'xai' ? 'commentary' : 'progress';
   }
   if (phase === 'commentary') return 'commentary';
@@ -526,6 +516,16 @@ const TOOL_USAGE_COPY: Readonly<Record<string, ToolUsageCopy>> = {
   'code.references': { singular: 'Finding References', plural: (count) => `Running ${count} Reference Searches` },
   'experiment.run': { singular: 'Running an Experiment', plural: (count) => `Running ${count} Experiments` },
   'file.read': { singular: 'Reading a File', plural: (count) => `Reading ${count} Files` },
+  'features.load': { singular: 'Loading Features', plural: (count) => `Loading Features ${count} Times` },
+  'features.preview': { singular: 'Previewing a Feature', plural: (count) => `Previewing ${count} Features` },
+  'surface.get': { singular: 'Inspecting a Surface', plural: (count) => `Inspecting ${count} Surfaces` },
+  'surface.list': { singular: 'Listing Surfaces', plural: (count) => `Listing Surfaces ${count} Times` },
+  'surface.focus': { singular: 'Focusing on a Surface', plural: (count) => `Focusing on ${count} Surfaces` },
+  'plugins.load': { singular: 'Loading Plugins', plural: (count) => `Loading Plugins ${count} Times` },
+  'plugins.preview': { singular: 'Previewing a Plugin', plural: (count) => `Previewing ${count} Plugins` },
+  'status': { singular: 'Checking Status', plural: (count) => `Checking Status ${count} Times` },
+  'iphones': { singular: 'Listing iPhones', plural: (count) => `Listing iPhones ${count} Times` },
+  'mcp.browser.snapshot': { singular: 'Capturing a Browser Snapshot', plural: (count) => `Capturing ${count} Browser Snapshots` },
   'list_agents': { singular: 'Checking on Subagents', plural: (count) => `Checking on Subagents ${count} Times` },
   'local.inspection': { singular: 'Inspecting the Target', plural: (count) => `Inspecting the Target ${count} Times` },
   'memory.correct': { singular: 'Correcting a Memory', plural: (count) => `Correcting ${count} Memories` },
@@ -577,17 +577,40 @@ export function commentaryToolUsageText(
   ) {
     return `${singularDetailVerb} ${toolName === 'file.read' ? compactUserPath(detail) : detail}`;
   }
-  const copy = TOOL_USAGE_COPY[toolName];
+  const copy = TOOL_USAGE_COPY[toolName]
+    ?? (toolName.startsWith('mcp.') ? TOOL_USAGE_COPY[toolName.split('.').at(-1) ?? ''] : undefined);
   if (completed && toolName === 'shell.run') {
     return normalizedCount === 1 ? 'Ran a command' : `Ran ${normalizedCount} commands`;
   }
   const description = copy
     ? normalizedCount === 1 ? copy.singular : copy.plural(normalizedCount)
-    : normalizedCount === 1
-      ? `Using ${humanizeToolName(toolName)}`
-      : `Using ${humanizeToolName(toolName)} ${normalizedCount} Times`;
+    : fallbackToolUsageDescription(toolName, normalizedCount);
   return sentenceCaseToolDescription(description);
 }
+
+function fallbackToolUsageDescription(toolName: string, count: number): string {
+  const operation = toolName.split('.').at(-1) ?? '';
+  const action = FALLBACK_TOOL_ACTIONS[operation] ?? 'Calling';
+  const tool = humanizeToolName(toolName);
+  return count === 1 ? `${action} ${tool}` : `${action} ${tool} ${count} Times`;
+}
+
+const FALLBACK_TOOL_ACTIONS: Readonly<Record<string, string>> = {
+  create: 'Creating with',
+  edit: 'Editing with',
+  get: 'Fetching with',
+  list: 'Listing with',
+  load: 'Loading with',
+  preview: 'Previewing with',
+  query: 'Querying with',
+  read: 'Reading with',
+  run: 'Running with',
+  scan: 'Scanning with',
+  search: 'Searching with',
+  snapshot: 'Capturing with',
+  update: 'Updating with',
+  write: 'Writing with'
+};
 
 function commentaryToolMessageUsageText(
   toolName: string,
@@ -621,6 +644,13 @@ const STRUCTURED_SINGULAR_TOOL_NAMES = new Set([
   'runbook.list',
   'runbook.run',
   'resource.catalog',
+  'surface.get',
+  'surface.list',
+  'surface.focus',
+  'features.load',
+  'features.preview',
+  'plugins.load',
+  'plugins.preview',
   'wait_agent'
 ]);
 
@@ -634,8 +664,47 @@ function commentaryStructuredToolCallLabel(
     ?? commentaryRunbookCallLabel(toolName, inputValue, outputValue, detail)
     ?? commentaryLeadListCallLabel(toolName, inputValue)
     ?? commentaryResearchCatalogCallLabel(toolName, inputValue)
+    ?? commentarySurfaceCallLabel(toolName, inputValue, outputValue)
+    ?? commentaryExtensionCallLabel(toolName, inputValue)
     ?? commentarySubagentCallLabel(toolName, inputValue)
     ?? commentaryMemoryCallLabel(toolName, inputValue, outputValue, detail);
+}
+
+function commentarySurfaceCallLabel(toolName: string, inputValue: unknown, outputValue: unknown): string | null {
+  if (!toolName.startsWith('surface.')) return null;
+  const input = unknownRecord(inputValue);
+  const output = unknownRecord(outputValue);
+  const surfaceTrail = Array.isArray(output.surfaceTrail) ? output.surfaceTrail : [];
+  const focusedSurface = unknownRecord(surfaceTrail.at(-1));
+  const name = firstStringValue(output, ['name'])
+    ?? firstStringValue(focusedSurface, ['name'])
+    ?? firstStringValue(input, ['name', 'surfaceId']);
+  if (toolName === 'surface.get') return name ? `Inspecting surface "${name}"` : 'Inspecting a surface';
+  if (toolName === 'surface.focus') return name ? `Focusing on surface "${name}"` : 'Focusing on a surface';
+  if (toolName === 'surface.list') {
+    const parentId = firstStringValue(input, ['parentId']);
+    if (parentId) return `Listing surfaces under "${parentId}"`;
+    const resourceId = firstStringValue(input, ['resourceId']);
+    return resourceId ? `Listing surfaces for resource "${resourceId}"` : 'Listing surfaces';
+  }
+  return null;
+}
+
+function commentaryExtensionCallLabel(toolName: string, inputValue: unknown): string | null {
+  const input = unknownRecord(inputValue);
+  const kind = toolName.startsWith('features.') ? 'feature' : toolName.startsWith('plugins.') ? 'plugin' : null;
+  if (!kind) return null;
+  if (toolName === `${kind}s.load`) {
+    const names = firstStringArrayValue(input, [`${kind}s`]);
+    return names.length === 0
+      ? `Loading ${kind}s`
+      : `Loading ${names.length === 1 ? kind : `${kind}s`} ${names.map((name) => `"${name}"`).join(', ')}`;
+  }
+  if (toolName === `${kind}s.preview`) {
+    const name = firstStringValue(input, [kind]);
+    return name ? `Previewing ${kind} "${name}"` : `Previewing a ${kind}`;
+  }
+  return null;
 }
 
 function commentaryRunbookCallLabel(
@@ -739,7 +808,16 @@ function commentaryResearchCatalogCallLabel(toolName: string, inputValue: unknow
   }
   if (toolName === 'resource.catalog') {
     const operation = firstStringValue(input, ['operation']);
-    return operation ? `Cataloging resource with ${operation} operation` : 'Cataloging resource';
+    const resource = firstStringValue(input, ['name', 'resourceId']);
+    if (operation === 'list') return 'Listing research resources';
+    if (operation === 'discover') return resource ? `Discovering resource "${resource}"` : 'Discovering a resource';
+    if (operation === 'touch') return resource ? `Reviewing first touch for resource "${resource}"` : 'Reviewing resource first touch';
+    if (operation === 'history') {
+      const reference = firstStringValue(input, ['historyId']);
+      if (reference) return `Reading saved resource reference "${reference}"`;
+      return resource ? `Reviewing resource history for "${resource}"` : 'Reviewing resource history';
+    }
+    return 'Cataloging a resource';
   }
   return null;
 }
@@ -1018,7 +1096,7 @@ function repositoryShortName(value: string): string | null {
 }
 
 function sentenceCaseToolDescription(value: string): string {
-  return `${value.charAt(0).toUpperCase()}${value.slice(1).toLowerCase()}`;
+  return value.replace(/\b[A-Z]/gu, (character, offset: number) => offset === 0 ? character : character.toLowerCase());
 }
 
 function humanizeToolName(toolName: string): string {
@@ -1030,13 +1108,20 @@ function humanizeToolName(toolName: string): string {
 
 function coalesceLegacyReasoningSnapshots(events: readonly TraceDisplayEvent[]): readonly TraceDisplayEvent[] {
   const lastIndexByKey = new Map<string, number>();
+  const completedIndices = new Set<number>();
   events.forEach((event, index) => {
     const key = legacyReasoningSnapshotKey(event);
-    if (key) lastIndexByKey.set(key, index);
+    if (!key) return;
+    const previousIndex = lastIndexByKey.get(key);
+    // A later summary may reuse the item ID after the previous one completed.
+    if (previousIndex !== undefined && payloadString(events[previousIndex]!, 'phase') === 'completed') {
+      completedIndices.add(previousIndex);
+    }
+    lastIndexByKey.set(key, index);
   });
   return events.filter((event, index) => {
     const key = legacyReasoningSnapshotKey(event);
-    return !key || lastIndexByKey.get(key) === index;
+    return !key || completedIndices.has(index) || lastIndexByKey.get(key) === index;
   });
 }
 

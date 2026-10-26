@@ -491,11 +491,40 @@ describe('run detail commentary projection', () => {
     expect(message?.toolCalls?.[0]?.detailsDeferred).toBe(true);
   });
 
+  it('keeps a bounded surface name for the collapsed tool label without retaining its body', () => {
+    const requested = toolEvent('request', 'tool.requested', {
+      toolActionId: 'surface-one',
+      toolName: 'surface.get',
+      normalizedInputs: { surfaceId: 'surface_example', hidden: 'not rendered' }
+    });
+    const observed = toolEvent('observation', 'tool.observed', {
+      toolActionId: 'surface-one',
+      toolName: 'surface.get',
+      normalizedInputs: { surfaceId: 'surface_example', hidden: 'not rendered' },
+      result: { id: 'surface_example', name: 'Parser entry boundary', foundation: { hidden: 'not rendered' } }
+    });
+    const projected = projectRunDetailForRenderer(runDetail({ traceEvents: [requested, observed] }), 'commentary');
+    const message = commentaryMessagesForSession(
+      projected,
+      buildTraceDisplayEventsForAgentPath(projected, null)
+    ).find((candidate) => candidate.toolName === 'surface.get');
+
+    expect(projected.traceEvents[1]?.payload.payload).toMatchObject({
+      result: { name: 'Parser entry boundary' }
+    });
+    expect(JSON.stringify(projected.traceEvents)).not.toContain('not rendered');
+    expect(message?.contentMarkdown).toBe('Inspecting surface "Parser entry boundary"');
+  });
+
   it.each([
     ['finding.transition', { toStatus: 'report_ready', hidden: 'not rendered' }, { toStatus: 'report_ready' }],
     ['finding.completion_check', { targetStatus: 'verified', hidden: 'not rendered' }, { targetStatus: 'verified' }],
     ['finding.list', { query: 'memory safety', hidden: 'not rendered' }, { query: 'memory safety' }],
-    ['resource.catalog', { operation: 'discover', hidden: 'not rendered' }, { operation: 'discover' }]
+    ['resource.catalog', { operation: 'discover', name: 'Example parser', hidden: 'not rendered' }, { operation: 'discover', name: 'Example parser' }],
+    ['surface.get', { surfaceId: 'surface_example', hidden: 'not rendered' }, { surfaceId: 'surface_example' }],
+    ['surface.list', { parentId: 'surface_example', hidden: 'not rendered' }, { parentId: 'surface_example' }],
+    ['features.load', { features: ['code-navigation'], hidden: 'not rendered' }, { features: ['code-navigation'] }],
+    ['plugins.load', { plugins: ['example-plugin'], hidden: 'not rendered' }, { plugins: ['example-plugin'] }]
   ])('retains %s inputs needed for collapsed commentary labels', (toolName, inputs, expectedInputs) => {
     const projected = projectCommentaryTraceEvent(toolEvent('request', 'tool.requested', {
       toolActionId: `${toolName}-one`,
