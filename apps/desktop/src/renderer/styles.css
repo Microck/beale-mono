@@ -13169,12 +13169,19 @@ button.runbook-catalog-item:not(.breakout-room-catalog-item):hover:not(:disabled
   min-width: 0;
   display: grid;
   align-content: start;
-  gap: 6px;
   font-size: var(--steer-control-font-size, 13px);
 }
 
-.plugin-manager-body > .resource-workspace-heading {
-  padding-top: 4px;
+.plugin-manager-body > .research-side-view-tabs {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+.plugin-manager-panel {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 6px;
 }
 
 .plugin-sidebar-heading {
@@ -13299,6 +13306,14 @@ button.runbook-catalog-item:not(.breakout-room-catalog-item):hover:not(:disabled
   corner-shape: squircle;
   background: var(--panel-raised);
   padding: 18px 22px;
+}
+
+.plugin-manager-enable {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  cursor: pointer;
 }
 
 .plugin-detail-properties {

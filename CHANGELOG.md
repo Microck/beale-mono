@@ -62,6 +62,7 @@
 
 #### Changed
 
+- Plugins now has All Plugins and workspace tabs. Installed plugins apply to every workspace by default; workspace tabs can override enablement, and bundled research-kit plugins only run in workspaces using their kit. All Plugins controls reset workspace overrides.
 - Ticketing settings and submission are temporarily unavailable; Reporting remains available, and existing Ticketing configuration is retained for later use.
 - Workspace Campaign Track controls now use a compact icon row with hover progress and error details.
 - OpenRouter model choices refresh from OpenRouter's current tool-capable catalog, including context limits and pricing; the bundled catalog remains available when refresh fails.
@@ -1505,6 +1506,7 @@
 
 #### Changed
 
+- Hosted sessions now load workspace-scoped plugin catalogs, skills, and MCP settings. Research-kit plugins are available only to workspaces using the matching kit.
 - The Findings board restores Lead as its first lane and removes Reported. Model tools can create and list Leads, then promote the same claim after direct observation; human board moves can also promote or return Leads. Disclosed claims remain in Verified while retaining their disclosure status. Control contract v61 and updated finding and memory-summary schemas require rebuilt clients and app servers.
 - Fleet research tools now show whether a VM is reserved by the current session, another session, or nobody without exposing owner IDs. Model-facing `fleet.stop` accepts only current-session reservations, and VM guidance checks shared lead/subagent ownership before declaring a capacity blocker.
 - Research tracks now rank surfaces by likely impact, available target validation, and stalled epochs. Session and first-touch guidance prioritize reachable vendor APIs and SDKs, seek new security surfaces after low-yield work, and keep third-party integrations outside the recorded boundary.

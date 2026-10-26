@@ -891,7 +891,7 @@ export class AppServerHostService {
     const [loadedPluginRuntime, workspaceReferences] = await Promise.all([
       introspection?.runtimeMode === 'isolated'
         ? this.loadIntrospectionPluginRuntime()
-        : this.resolvePluginRuntime(),
+        : this.resolvePluginRuntime(workspace),
       this.sameSubjectWorkspaceReferences(workspace, storage)
     ]);
     const metaSkillDirectory = resolve(builtinPluginPath('meta-skills', 'managed'), 'skills');
@@ -1904,17 +1904,18 @@ export class AppServerHostService {
     return workspace;
   }
 
-  private async resolvePluginRuntime(): Promise<ResolvedAppServerSessionLaunch['pluginRuntime'] | null> {
-    return this.loadPluginRuntime();
+  private async resolvePluginRuntime(workspace?: AppServerHostWorkspace): Promise<ResolvedAppServerSessionLaunch['pluginRuntime'] | null> {
+    return this.loadPluginRuntime(workspace);
   }
 
-  private async loadPluginRuntime(): Promise<ResolvedAppServerSessionLaunch['pluginRuntime'] | null> {
+  private async loadPluginRuntime(workspace?: AppServerHostWorkspace): Promise<ResolvedAppServerSessionLaunch['pluginRuntime'] | null> {
     try {
       const runtime = await this.invokeProtocol<AppServerPluginRuntimeProjection>('plugin.runtime', {
         args: ['harness', 'plugin-runtime'],
         input: {
           registryDirectory: this.registry.registryDirectory,
-          builtinPlugins: defaultBuiltinPlugins()
+          builtinPlugins: defaultBuiltinPlugins(),
+          ...(workspace ? { workspaceId: workspace.workspaceId, researchKitId: workspace.researchKitId } : {})
         }
       });
       return {

@@ -41,7 +41,8 @@ describe('optional agent features', () => {
     }));
     const plugins = renderToStaticMarkup(createElement(PluginManagerWorkspace, {
       state, selectedPluginId: traditionalPlugin.id, loading: false, busy: false, error: null,
-      onRemove: () => undefined
+      workspaces: [], selectedWorkspaceId: null, onScopeChange: () => undefined,
+      onSetEnabled: () => undefined, onRemove: () => undefined
     }));
 
     expect(settingsSectionLabel('optional-features')).toBe('Features');

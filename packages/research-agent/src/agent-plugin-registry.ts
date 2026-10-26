@@ -50,6 +50,8 @@ export interface AgentPluginRecord {
   errors: string[];
   removable?: boolean;
   removalBlockedReason?: string;
+  workspaceOverrides?: Record<string, boolean>;
+  requiredByResearchKits?: string[];
 }
 
 export interface AgentPluginRegistryState {
@@ -83,6 +85,7 @@ interface StoredAgentPlugin {
   enabled: boolean;
   installed?: boolean;
   installedAt: string;
+  workspaceOverrides?: Record<string, boolean>;
 }
 
 interface AgentPluginRegistryFile {
@@ -149,7 +152,6 @@ export class AgentPluginRegistry {
   private readonly pluginStorePath: string;
   private readonly pluginDataPath: string;
   private readonly runtimePath: string;
-  private readonly runtimeMcpConfigPath: string;
 
   public constructor(
     private readonly registryDirectory: string,
@@ -160,7 +162,6 @@ export class AgentPluginRegistry {
     this.pluginStorePath = resolve(registryDirectory, 'agent-plugin-repositories');
     this.pluginDataPath = join(registryDirectory, 'agent-plugin-data');
     this.runtimePath = join(registryDirectory, 'agent-plugin-runtime');
-    this.runtimeMcpConfigPath = join(this.runtimePath, 'mcp.json');
     mkdirSync(this.pluginStorePath, { recursive: true });
     mkdirSync(this.pluginDataPath, { recursive: true });
     mkdirSync(this.runtimePath, { recursive: true });
@@ -176,8 +177,14 @@ export class AgentPluginRegistry {
     };
   }
 
-  public getAppServerRuntime(): AgentPluginAppServerRuntime {
+  public getAppServerRuntime(scope?: { workspaceId: string; researchKitId: string }): AgentPluginAppServerRuntime {
     const state = this.getState();
+    const enabledPlugins = state.plugins.filter((plugin) => plugin.installed && plugin.status === 'ready'
+      && (scope
+        ? (plugin.requiredByResearchKits?.length ? plugin.requiredByResearchKits.includes(scope.researchKitId) : true)
+          && (plugin.workspaceOverrides && Object.hasOwn(plugin.workspaceOverrides, scope.workspaceId)
+            ? plugin.workspaceOverrides[scope.workspaceId] : plugin.enabled)
+        : plugin.enabled));
     const managedPlugins = state.plugins.filter((plugin) => plugin.source.kind === 'builtin'
       && plugin.id === `${plugin.name}-builtin` && isManagedToolPluginId(plugin.name));
     const skillDirs: string[] = [];
@@ -186,8 +193,7 @@ export class AgentPluginRegistry {
     const allowedMcpServers: string[] = [];
     const warnings: string[] = [];
     const usedMcpNames = new Set<string>();
-    const catalog: ResearchPluginCatalogEntry[] = state.plugins
-      .filter((plugin) => plugin.installed && plugin.enabled && plugin.status === 'ready')
+    const catalog: ResearchPluginCatalogEntry[] = enabledPlugins
       .map((plugin) => ({
         id: plugin.source.kind === 'builtin' && isManagedToolPluginId(plugin.name) ? plugin.name : plugin.id,
         name: plugin.name,
@@ -202,8 +208,7 @@ export class AgentPluginRegistry {
         mcpServers: [],
       }));
 
-    for (const plugin of state.plugins) {
-      if (!plugin.installed || !plugin.enabled || plugin.status !== 'ready') continue;
+    for (const plugin of enabledPlugins) {
       if (plugin.skills.length > 0) {
         skillDirs.push(containedPath(plugin.source.path, 'skills'));
         selectedSkillIds.push(...plugin.skills.map((skill) => skill.id));
@@ -239,9 +244,12 @@ export class AgentPluginRegistry {
       ...dedupeSorted(skillDirs).flatMap((path) => ['--skill-dir', path]),
       ...dedupeSorted(selectedSkillIds).flatMap((id) => ['--skill', id])
     ];
-    const mcpConfigPath = allowedMcpServers.length > 0 ? this.runtimeMcpConfigPath : null;
+    const runtimePath = scope
+      ? join(this.runtimePath, createHash('sha256').update(`${scope.workspaceId}\n${scope.researchKitId}`).digest('hex').slice(0, 24))
+      : this.runtimePath;
+    const mcpConfigPath = allowedMcpServers.length > 0 ? join(runtimePath, 'mcp.json') : null;
     if (mcpConfigPath) {
-      mkdirSync(this.runtimePath, { recursive: true });
+      mkdirSync(runtimePath, { recursive: true });
       writeFileSync(
         mcpConfigPath,
         `${JSON.stringify({ servers: mcpServers }, null, 2)}\n`,
@@ -254,15 +262,16 @@ export class AgentPluginRegistry {
     }
 
     const managedPluginIds = managedPlugins.length > 0
-      ? managedPlugins.filter((plugin) => plugin.enabled && plugin.status === 'ready').map((plugin) => plugin.name)
+      ? managedPlugins.filter((plugin) => enabledPlugins.some((enabled) => enabled.id === plugin.id)).map((plugin) => plugin.name)
       : undefined;
     if (managedPluginIds !== undefined) args.push('--managed-plugins', managedPluginIds.join(',') || 'none');
-    const pluginCatalogPath = join(this.runtimePath, 'plugin-catalog.json');
+    mkdirSync(runtimePath, { recursive: true });
+    const pluginCatalogPath = join(runtimePath, 'plugin-catalog.json');
     writeFileSync(pluginCatalogPath, `${JSON.stringify(catalog, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
     args.push('--plugin-catalog', pluginCatalogPath);
     return {
       ...(managedPluginIds !== undefined ? { managedPluginIds } : {}),
-      runtimeDirectory: this.runtimePath,
+      runtimeDirectory: runtimePath,
       pluginCatalogPath,
       pluginCatalog: catalog,
       skillDirs: dedupeSorted(skillDirs),
@@ -286,6 +295,7 @@ export class AgentPluginRegistry {
     if (existing) {
       existing.source = { kind: 'filesystem', path: sourcePath };
       existing.enabled = true;
+      delete existing.workspaceOverrides;
     } else {
       registry.plugins.push({
         id,
@@ -324,6 +334,7 @@ export class AgentPluginRegistry {
     if (existing) {
       existing.source = { kind: 'repository', path: sourcePath, repositoryUrl: normalizedUrl };
       existing.enabled = true;
+      delete existing.workspaceOverrides;
     } else {
       registry.plugins.push({
         id,
@@ -358,6 +369,30 @@ export class AgentPluginRegistry {
       plugin.installedAt = new Date().toISOString();
     }
     plugin.enabled = enabled;
+    delete plugin.workspaceOverrides;
+    this.writeRegistryFile(registry);
+    return this.getState();
+  }
+
+  public setWorkspaceEnabled(pluginIdValue: string, workspaceId: string, researchKitId: string, enabled: boolean): AgentPluginRegistryState {
+    if (!workspaceId.trim()) throw new Error('Workspace ID is required.');
+    const registry = this.readRegistryFile();
+    const plugin = registry.plugins.find((candidate) => candidate.id === pluginIdValue);
+    const builtin = this.builtinPlugins().find((candidate) => candidate.id === pluginIdValue);
+    if (!plugin && !builtin) throw new Error('Plugin not found.');
+    if (builtin?.requiredByResearchKits?.length && !builtin.requiredByResearchKits.includes(researchKitId)) {
+      throw new Error('This plugin belongs to a different research kit.');
+    }
+    if (builtin?.installable && plugin?.installed !== true) throw new Error('Install this plugin before changing its enabled state.');
+    const stored: StoredAgentPlugin = plugin ?? {
+      id: builtin!.id,
+      source: { kind: 'builtin' as const, path: builtin!.path },
+      enabled: builtin!.enabledByDefault ?? true,
+      installed: true,
+      installedAt: builtin!.installedAt
+    };
+    if (!plugin) registry.plugins.push(stored);
+    stored.workspaceOverrides = { ...stored.workspaceOverrides, [workspaceId]: enabled };
     this.writeRegistryFile(registry);
     return this.getState();
   }
@@ -395,6 +430,8 @@ export class AgentPluginRegistry {
       installed,
       removable: stored.source.kind !== 'builtin' || builtin?.installable === true,
       enabled: installed && stored.enabled && scanned.status === 'ready',
+      ...(stored.workspaceOverrides ? { workspaceOverrides: stored.workspaceOverrides } : {}),
+      ...(builtin?.requiredByResearchKits?.length ? { requiredByResearchKits: builtin.requiredByResearchKits } : {}),
       source: stored.source,
       installedAt: stored.installedAt,
       updatedAt: new Date().toISOString(),
@@ -896,6 +933,9 @@ function normalizeStoredPlugin(value: unknown): StoredAgentPlugin | null {
       ...(typeof source.repositoryUrl === 'string' ? { repositoryUrl: source.repositoryUrl } : {})
     },
     enabled: object.enabled === true,
+    ...(object.workspaceOverrides && typeof object.workspaceOverrides === 'object' && !Array.isArray(object.workspaceOverrides)
+      ? { workspaceOverrides: Object.fromEntries(Object.entries(object.workspaceOverrides).filter(([id, enabled]) => id.length > 0 && typeof enabled === 'boolean')) }
+      : {}),
     ...(object.installed === true ? { installed: true } : {}),
     installedAt: typeof object.installedAt === 'string' ? object.installedAt : new Date().toISOString()
   };

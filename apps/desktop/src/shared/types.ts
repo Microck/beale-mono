@@ -1219,6 +1219,8 @@ export interface AgentPluginRecord {
   errors: string[];
   removable?: boolean;
   removalBlockedReason?: string;
+  workspaceOverrides?: Record<string, boolean>;
+  requiredByResearchKits?: string[];
 }
 
 export interface AgentPluginRegistryState {
@@ -2353,7 +2355,7 @@ export interface BealeApi {
   stopFleetVm(machineId: string): Promise<import('@beale/app-server-runtime/protocol').FleetState>;
   addAgentPluginFromFilesystem(): Promise<AgentPluginRegistryState>;
   addAgentPluginFromRepository(repositoryUrl: string): Promise<AgentPluginRegistryState>;
-  setAgentPluginEnabled(pluginId: string, enabled: boolean): Promise<AgentPluginRegistryState>;
+  setAgentPluginEnabled(pluginId: string, enabled: boolean, workspaceId?: string): Promise<AgentPluginRegistryState>;
   removeAgentPlugin(pluginId: string): Promise<AgentPluginRegistryState>;
   getMemorySettings(): Promise<MemorySettings>;
   setMemoryTypeDescriptions(descriptions: MemoryTypeDescriptions): Promise<MemorySettings>;

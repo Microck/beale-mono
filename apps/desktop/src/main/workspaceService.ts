@@ -923,8 +923,15 @@ export class WorkspaceService {
 
   public async previewPromptTemplate(profileId: ResearchProfileId, template: string, agentPath?: string): Promise<string> {
     const plugins = this.getAgentPluginRegistry().getState().plugins;
+    const workspace = this.workspacePath ? this.getWorkspaceRegistry().getWorkspaceByPath(this.workspacePath) : null;
+    const pluginScope = workspace ? { workspaceId: workspace.workspaceId, researchKitId: workspace.researchKitId } : undefined;
     const fallbackCatalog: ResearchPluginCatalogEntry[] = plugins
-      .filter((plugin) => plugin.enabled && plugin.status === 'ready')
+      .filter((plugin) => plugin.installed && plugin.status === 'ready'
+        && (pluginScope
+          ? (!plugin.requiredByResearchKits?.length || plugin.requiredByResearchKits.includes(pluginScope.researchKitId))
+            && (plugin.workspaceOverrides && Object.hasOwn(plugin.workspaceOverrides, pluginScope.workspaceId)
+              ? plugin.workspaceOverrides[pluginScope.workspaceId] : plugin.enabled)
+          : plugin.enabled))
       .map((plugin) => ({
         id: plugin.source.kind === 'builtin' && isManagedToolPluginId(plugin.name) ? plugin.name : plugin.id,
         name: plugin.name,
@@ -940,10 +947,10 @@ export class WorkspaceService {
         })),
         mcpServers: plugin.mcpServers.filter((server) => server.valid).map((server) => server.name),
       }));
-    const key = JSON.stringify(plugins.map((plugin) => [plugin.id, plugin.enabled, plugin.status, plugin.version, plugin.source.path,
-      plugin.skills.map((skill) => [skill.id, skill.description, skill.resourceCounts]), plugin.mcpServers.map((server) => [server.name, server.valid])]));
+    const key = JSON.stringify({ scope: pluginScope, plugins: plugins.map((plugin) => [plugin.id, plugin.enabled, plugin.workspaceOverrides, plugin.status, plugin.version, plugin.source.path,
+      plugin.skills.map((skill) => [skill.id, skill.description, skill.resourceCounts]), plugin.mcpServers.map((server) => [server.name, server.valid])]) });
     if (!this.pluginPreviewDiscovery || this.pluginPreviewDiscovery.key !== key || this.pluginPreviewDiscovery.expiresAt <= Date.now()) {
-      const promise = this.discoverPluginPreviewTools(fallbackCatalog);
+      const promise = this.discoverPluginPreviewTools(fallbackCatalog, pluginScope);
       this.pluginPreviewDiscovery = { key, expiresAt: Date.now() + 60_000, promise };
     }
     const discoveryRequest = this.pluginPreviewDiscovery;
@@ -961,11 +968,11 @@ export class WorkspaceService {
     return this.getWorkspaceRegistry().previewPromptTemplate(profileId, template, agentPath, pluginCatalog);
   }
 
-  private async discoverPluginPreviewTools(fallbackCatalog: ResearchPluginCatalogEntry[]): Promise<{
+  private async discoverPluginPreviewTools(fallbackCatalog: ResearchPluginCatalogEntry[], scope?: { workspaceId: string; researchKitId: string }): Promise<{
     catalog: ResearchPluginCatalogEntry[];
     toolCounts: Map<string, number>;
   }> {
-    const runtime = this.getAgentPluginRegistry().getAppServerRuntime();
+    const runtime = this.getAgentPluginRegistry().getAppServerRuntime(scope);
     const catalog = runtime.pluginCatalog ?? fallbackCatalog;
     if (!runtime.mcpConfigPath || runtime.allowedMcpServers.length === 0) return { catalog, toolCounts: new Map() };
     const result = await invokeAppServerCliProtocolAsync<{ tools: { name: string }[] }>('tools.list', [
@@ -1130,8 +1137,12 @@ export class WorkspaceService {
     return this.getAgentPluginRegistry().addFromRepository(repositoryUrl);
   }
 
-  public setAgentPluginEnabled(pluginId: string, enabled: boolean): AgentPluginRegistryState {
-    return this.getAgentPluginRegistry().setEnabled(pluginId, enabled);
+  public setAgentPluginEnabled(pluginId: string, enabled: boolean, workspaceId?: string): AgentPluginRegistryState {
+    const registry = this.getAgentPluginRegistry();
+    if (!workspaceId) return registry.setEnabled(pluginId, enabled);
+    const workspace = this.getWorkspaceRegistry().getState().workspaces.find((candidate) => candidate.workspaceId === workspaceId);
+    if (!workspace) throw new Error('Workspace is not registered.');
+    return registry.setWorkspaceEnabled(pluginId, workspaceId, workspace.researchKitId, enabled);
   }
 
   public removeAgentPlugin(pluginId: string): AgentPluginRegistryState {
@@ -1903,7 +1914,9 @@ export class WorkspaceService {
       invokeAppServerToolsList(
         runtime.workspacePath,
         this.getWorkspaceRegistry().getShellOptionsPath(),
-        this.getAgentPluginRegistry().getAppServerRuntime().args
+        this.getAgentPluginRegistry().getAppServerRuntime({
+          workspaceId: runtime.db.getWorkspaceId(), researchKitId: runtime.db.getResearchKitId()
+        }).args
       ),
       runtime.workspacePath
     );
@@ -1919,7 +1932,9 @@ export class WorkspaceService {
       invokeAppServerToolsList(
         runtime.workspacePath,
         this.getWorkspaceRegistry().getShellOptionsPath(),
-        this.getAgentPluginRegistry().getAppServerRuntime().args
+        this.getAgentPluginRegistry().getAppServerRuntime({
+          workspaceId: runtime.db.getWorkspaceId(), researchKitId: runtime.db.getResearchKitId()
+        }).args
       ),
       runtime.workspacePath
     );

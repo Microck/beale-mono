@@ -357,8 +357,8 @@ const api: BealeApi = {
   addAgentPluginFromRepository(repositoryUrl: string): Promise<AgentPluginRegistryState> {
     return ipcRenderer.invoke(IPC_CHANNELS.addAgentPluginFromRepository, repositoryUrl);
   },
-  setAgentPluginEnabled(pluginId: string, enabled: boolean): Promise<AgentPluginRegistryState> {
-    return ipcRenderer.invoke(IPC_CHANNELS.setAgentPluginEnabled, pluginId, enabled);
+  setAgentPluginEnabled(pluginId: string, enabled: boolean, workspaceId?: string): Promise<AgentPluginRegistryState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.setAgentPluginEnabled, pluginId, enabled, workspaceId);
   },
   removeAgentPlugin(pluginId: string): Promise<AgentPluginRegistryState> {
     return ipcRenderer.invoke(IPC_CHANNELS.removeAgentPlugin, pluginId);

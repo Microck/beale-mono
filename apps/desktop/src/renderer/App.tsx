@@ -409,6 +409,7 @@ export function App(): JSX.Element {
   }, []);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null);
+  const [pluginScopeWorkspaceId, setPluginScopeWorkspaceId] = useState<string | null>(null);
   const [automationsOpen, setAutomationsOpen] = useState(false);
   const [automationScopeWorkspaceId, setAutomationScopeWorkspaceId] = useState<string | null>(null);
   const [automations, setAutomations] = useState<AutomationSummary[]>([]);
@@ -953,6 +954,10 @@ export function App(): JSX.Element {
     void runAgentPluginAction(() => window.beale.setAgentPluginEnabled(pluginId, enabled));
   }, [runAgentPluginAction]);
 
+  const setVisibleAgentPluginEnabled = useCallback((pluginId: string, enabled: boolean, workspaceId: string | null): void => {
+    void runAgentPluginAction(() => window.beale.setAgentPluginEnabled(pluginId, enabled, workspaceId ?? undefined));
+  }, [runAgentPluginAction]);
+
   const installAgentPlugin = useCallback((pluginId: string): void => {
     setSelectedPluginId(pluginId);
     void runAgentPluginAction(() => window.beale.setAgentPluginEnabled(pluginId, true));
@@ -1106,6 +1111,13 @@ export function App(): JSX.Element {
     if (workspaceRegistry.workspaces.some((workspace) => workspace.workspaceId === automationScopeWorkspaceId)) return;
     setAutomationScopeWorkspaceId(null);
   }, [automationScopeWorkspaceId, workspaceRegistry]);
+
+  useEffect(() => {
+    if (!workspaceRegistry || !pluginScopeWorkspaceId) return;
+    if (workspaceRegistry.workspaces.some((workspace) => workspace.workspaceId === pluginScopeWorkspaceId)) return;
+    setPluginScopeWorkspaceId(null);
+    setSelectedPluginId(null);
+  }, [pluginScopeWorkspaceId, workspaceRegistry]);
 
   useEffect(() => {
     if (!selectedAutomationRunId || !selectedAutomationWorkspaceId) return;
@@ -2302,6 +2314,7 @@ export function App(): JSX.Element {
       ) : pluginsOpen ? (
         <PluginsSidebar
           state={agentPluginState}
+          selectedWorkspace={workspaceRegistry?.workspaces.find((workspace) => workspace.workspaceId === pluginScopeWorkspaceId) ?? null}
           selectedPluginId={selectedPluginId}
           collapsed={sidebarCollapsed}
           loading={agentPluginsLoading}
@@ -2312,7 +2325,7 @@ export function App(): JSX.Element {
           onAddFilesystem={addAgentPluginFromFilesystem}
           onAddRepository={addAgentPluginFromRepository}
           onInstall={installAgentPlugin}
-          onSetEnabled={setAgentPluginEnabled}
+          onSetEnabled={setVisibleAgentPluginEnabled}
           onSelectPlugin={setSelectedPluginId}
           onResizePointerDown={beginSidebarResize}
         />
@@ -2512,13 +2525,17 @@ export function App(): JSX.Element {
               />
             ) : pluginsOpen ? (
               <PluginManagerWorkspace
-                key={selectedPluginId ?? 'none'}
+                key={`${pluginScopeWorkspaceId ?? 'all'}:${selectedPluginId ?? 'none'}`}
                 state={agentPluginState}
+                workspaces={workspaceRegistry?.workspaces ?? []}
+                selectedWorkspaceId={pluginScopeWorkspaceId}
                 selectedPluginId={selectedPluginId}
                 loading={agentPluginsLoading}
                 busy={agentPluginsBusy}
                 error={agentPluginsError}
                 onRemove={removeAgentPlugin}
+                onScopeChange={(workspaceId) => { setPluginScopeWorkspaceId(workspaceId); setSelectedPluginId(null); }}
+                onSetEnabled={setVisibleAgentPluginEnabled}
               />
             ) : automationsOpen ? (
               <AutomationsWorkspace

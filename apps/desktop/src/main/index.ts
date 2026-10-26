@@ -804,8 +804,8 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.addAgentPluginFromRepository, (_event, repositoryUrl: string) =>
     workspaceService.addAgentPluginFromRepository(repositoryUrl)
   );
-  ipcMain.handle(IPC_CHANNELS.setAgentPluginEnabled, (_event, pluginId: string, enabled: boolean) =>
-    workspaceService.setAgentPluginEnabled(pluginId, enabled)
+  ipcMain.handle(IPC_CHANNELS.setAgentPluginEnabled, (_event, pluginId: string, enabled: boolean, workspaceId?: string) =>
+    workspaceService.setAgentPluginEnabled(pluginId, enabled, workspaceId)
   );
   ipcMain.handle(IPC_CHANNELS.removeAgentPlugin, (_event, pluginId: string) => workspaceService.removeAgentPlugin(pluginId));
   ipcMain.handle(IPC_CHANNELS.getMemorySettings, () => workspaceService.getMemorySettings());

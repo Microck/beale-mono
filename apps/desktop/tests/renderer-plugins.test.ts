@@ -2,8 +2,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { AgentPluginRecord, AgentPluginRegistryState } from '../src/shared/types';
+import type { AgentPluginRecord, AgentPluginRegistryState, WorkspaceRegistryEntry } from '../src/shared/types';
 import { PluginManagerWorkspace, PluginsSidebar } from '../src/renderer/features/plugins/PluginManagerWorkspace';
+import { pluginEnabledForWorkspace, setPluginEnabledForScope } from '../src/renderer/features/plugins/pluginScope';
 
 const builtinPlugin: AgentPluginRecord = {
   id: 'example-builtin', name: 'Example Plugin', version: '0.1.0', description: 'Example guidance.',
@@ -29,9 +30,24 @@ const state: AgentPluginRegistryState = {
   plugins: [builtinPlugin, repositoryPlugin, { ...builtinPlugin, id: 'available-builtin', name: 'Available Plugin', installed: false, enabled: false, removable: true }, { ...builtinPlugin, id: 'beale-source-builtin', name: 'beale-source' }]
 };
 
+const workspace: WorkspaceRegistryEntry = {
+  id: 'registry-example', workspaceId: 'workspace-example', workspacePath: '/example/workspace',
+  workspaceName: 'Example Workspace', researchProfileId: 'security-research', researchKitId: 'general',
+  scopeOwner: 'ExampleCo', descriptionMarkdown: '', rulesMarkdown: '', expiresAt: null,
+  createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  lastOpenedAt: null, runCount: 0, lastRunAt: null
+};
+
+const managerScope = {
+  workspaces: [], selectedWorkspaceId: null,
+  onScopeChange: () => undefined,
+  onSetEnabled: () => undefined
+};
+
 function renderSidebar(pluginState: AgentPluginRegistryState = state): string {
   return renderToStaticMarkup(createElement(PluginsSidebar, {
     state: pluginState,
+    selectedWorkspace: null,
     selectedPluginId: builtinPlugin.id,
     collapsed: false,
     loading: false,
@@ -59,8 +75,8 @@ describe('plugin manager workspace', () => {
     expect(html).toContain('class="workspace-list-title"><span>Available</span>');
     expect(html).toContain('aria-label="Available plugins"');
     expect(html).toContain('aria-label="Install Available Plugin"');
-    expect(html).toContain('aria-label="Enable Example Plugin"');
-    expect(html).toContain('aria-label="Enable Repository Plugin"');
+    expect(html).toContain('aria-label="Enable Example Plugin in all workspaces"');
+    expect(html).toContain('aria-label="Enable Repository Plugin in all workspaces"');
     expect(html.match(/class="plugin-sidebar-toggle"/gu)).toHaveLength(2);
     expect(html).toContain('aria-current="page"');
     expect(html).not.toContain('beale-source');
@@ -77,7 +93,7 @@ describe('plugin manager workspace', () => {
 
   it('uses the shared centered loading state in the main panel', () => {
     const html = renderToStaticMarkup(createElement(PluginManagerWorkspace, {
-      state: null, loading: true, busy: false, error: null, onRemove: () => undefined
+      ...managerScope, state: null, loading: true, busy: false, error: null, onRemove: () => undefined
     }));
 
     expect(html).toContain('class="centered-loading-state"');
@@ -87,14 +103,14 @@ describe('plugin manager workspace', () => {
 
   it('shows a selected plugin’s full details without a duplicate catalog or add controls', () => {
     const empty = renderToStaticMarkup(createElement(PluginManagerWorkspace, {
-      state, selectedPluginId: null, loading: false, busy: false, error: null, onRemove: () => undefined
+      ...managerScope, state, selectedPluginId: null, loading: false, busy: false, error: null, onRemove: () => undefined
     }));
     expect(empty).toContain('Select a plugin in the sidebar to view its details.');
     expect(empty).not.toContain('plugin-manager-detail');
     expect(empty).not.toContain('Add from Filesystem');
 
     const builtin = renderToStaticMarkup(createElement(PluginManagerWorkspace, {
-      state, selectedPluginId: builtinPlugin.id, loading: false, busy: false, error: null, onRemove: () => undefined
+      ...managerScope, state, selectedPluginId: builtinPlugin.id, loading: false, busy: false, error: null, onRemove: () => undefined
     }));
     expect(builtin).toContain('<h1>Example Plugin</h1>');
     expect(builtin).toContain('aria-label="Details for Example Plugin"');
@@ -102,13 +118,13 @@ describe('plugin manager workspace', () => {
     expect(builtin).not.toContain('Remove Plugin');
 
     const available = renderToStaticMarkup(createElement(PluginManagerWorkspace, {
-      state, selectedPluginId: 'available-builtin', loading: false, busy: false, error: null, onRemove: () => undefined
+      ...managerScope, state, selectedPluginId: 'available-builtin', loading: false, busy: false, error: null, onRemove: () => undefined
     }));
     expect(available).toContain('<dd>Available</dd>');
     expect(available).not.toContain('Remove Plugin');
 
     const repository = renderToStaticMarkup(createElement(PluginManagerWorkspace, {
-      state, selectedPluginId: repositoryPlugin.id, loading: false, busy: false, error: null, onRemove: () => undefined
+      ...managerScope, state, selectedPluginId: repositoryPlugin.id, loading: false, busy: false, error: null, onRemove: () => undefined
     }));
     expect(repository).toContain('https://example.test/plugin.git');
     expect(repository).toContain('Example Skill');
@@ -118,11 +134,85 @@ describe('plugin manager workspace', () => {
     expect(repository).not.toContain('plugin-manager-list');
 
     const required = renderToStaticMarkup(createElement(PluginManagerWorkspace, {
+      ...managerScope,
       state: { ...state, plugins: [{ ...builtinPlugin, removable: true, removalBlockedReason: 'Required by an active research kit.' }] },
       selectedPluginId: builtinPlugin.id, loading: false, busy: false, error: null, onRemove: () => undefined
     }));
     expect(required).toContain('Required by an active research kit.');
     expect(required).toContain('disabled=""');
+  });
+
+  it('shows All Plugins first and uses workspace overrides only in matching workspace tabs', () => {
+    const kitWorkspace: WorkspaceRegistryEntry = { ...workspace, id: 'registry-kit', workspaceId: 'workspace-kit',
+      workspaceName: 'Kit Workspace', researchKitId: 'meta-bug-bounty' };
+    const scopedState: AgentPluginRegistryState = { ...state, plugins: [
+      { ...builtinPlugin, workspaceOverrides: { [workspace.workspaceId]: false } },
+      { ...repositoryPlugin, enabled: true },
+      { ...builtinPlugin, id: 'meta-skills-builtin', name: 'Kit Plugin',
+        requiredByResearchKits: ['meta-bug-bounty'] }
+    ] };
+    const all = renderToStaticMarkup(createElement(PluginManagerWorkspace, {
+      ...managerScope, state: scopedState, workspaces: [workspace, kitWorkspace],
+      selectedPluginId: builtinPlugin.id, loading: false, busy: false, error: null, onRemove: () => undefined
+    }));
+    expect(all.indexOf('All Plugins')).toBeLessThan(all.indexOf('Example Workspace'));
+    expect(all).toContain('role="tab" aria-selected="true"');
+    expect(all).toContain('Enabled in all workspaces');
+
+    const scoped = renderToStaticMarkup(createElement(PluginManagerWorkspace, {
+      ...managerScope, state: scopedState, workspaces: [workspace, kitWorkspace],
+      selectedWorkspaceId: workspace.workspaceId, selectedPluginId: builtinPlugin.id,
+      loading: false, busy: false, error: null, onRemove: () => undefined
+    }));
+    expect(scoped).toContain('Enabled in Example Workspace');
+    expect(scoped).toContain('<dd>Disabled</dd>');
+    const sidebar = renderToStaticMarkup(createElement(PluginsSidebar, {
+      state: scopedState, selectedWorkspace: workspace, selectedPluginId: null, collapsed: false,
+      loading: false, busy: false, error: null, repositoryUrl: '',
+      onRepositoryUrlChange: () => undefined, onAddFilesystem: () => undefined,
+      onAddRepository: () => undefined, onInstall: () => undefined,
+      onSetEnabled: () => undefined, onSelectPlugin: () => undefined,
+      onResizePointerDown: () => undefined
+    }));
+    expect(sidebar).not.toContain('Kit Plugin');
+    const kitSidebar = renderToStaticMarkup(createElement(PluginsSidebar, {
+      state: scopedState, selectedWorkspace: kitWorkspace, selectedPluginId: null, collapsed: false,
+      loading: false, busy: false, error: null, repositoryUrl: '',
+      onRepositoryUrlChange: () => undefined, onAddFilesystem: () => undefined,
+      onAddRepository: () => undefined, onInstall: () => undefined,
+      onSetEnabled: () => undefined, onSelectPlugin: () => undefined,
+      onResizePointerDown: () => undefined
+    }));
+    expect(kitSidebar).toContain('Kit Plugin');
+  });
+
+  it('routes each toggle to the workspace shown by that control', () => {
+    const secondWorkspace: WorkspaceRegistryEntry = {
+      ...workspace,
+      id: 'registry-second',
+      workspaceId: 'workspace-second',
+      workspaceName: 'Second Workspace'
+    };
+    const calls: Array<[string, boolean, string | null]> = [];
+    const onSetEnabled = (pluginId: string, enabled: boolean, workspaceId: string | null): void => {
+      calls.push([pluginId, enabled, workspaceId]);
+    };
+
+    setPluginEnabledForScope(onSetEnabled, builtinPlugin.id, false, workspace);
+    setPluginEnabledForScope(onSetEnabled, builtinPlugin.id, true, secondWorkspace);
+    setPluginEnabledForScope(onSetEnabled, builtinPlugin.id, false, null);
+
+    expect(calls).toEqual([
+      [builtinPlugin.id, false, workspace.workspaceId],
+      [builtinPlugin.id, true, secondWorkspace.workspaceId],
+      [builtinPlugin.id, false, null]
+    ]);
+    const independentlyScoped = {
+      ...builtinPlugin,
+      workspaceOverrides: { [workspace.workspaceId]: false, [secondWorkspace.workspaceId]: true }
+    };
+    expect(pluginEnabledForWorkspace(independentlyScoped, workspace)).toBe(false);
+    expect(pluginEnabledForWorkspace(independentlyScoped, secondWorkspace)).toBe(true);
   });
 
   it('keeps plugin navigation out of the modal layer', () => {

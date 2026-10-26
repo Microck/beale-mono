@@ -84,6 +84,50 @@ test('research kits identify their bundled plugin dependencies', () => {
   assert.deepEqual(bundledPluginsRequiredByResearchKit('general'), []);
 });
 
+test('workspace plugin overrides persist and scoped runtimes exclude other research kits', () => {
+  const registryRoot = mkdtempSync(join(tmpdir(), 'beale-plugin-workspace-scope-'));
+  try {
+    const ordinaryRoot = join(registryRoot, 'ordinary-plugin');
+    mkdirSync(join(ordinaryRoot, 'skills', 'example'), { recursive: true });
+    writeFileSync(join(ordinaryRoot, 'plugin.json'), JSON.stringify({
+      $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json', name: 'example-plugin'
+    }));
+    writeFileSync(join(ordinaryRoot, 'skills', 'example', 'SKILL.md'), [
+      '---', 'name: example-skill', 'description: Synthetic test guidance.', '---', '', 'Use the synthetic example.'
+    ].join('\n'));
+    const builtinPlugins = [{ id: 'meta-skills-builtin', path: resolve('managed-plugins/meta-skills'),
+      installedAt: '2026-01-01T00:00:00.000Z', installable: true,
+      requiredByResearchKits: ['meta-bug-bounty'] }];
+    const registry = new AgentPluginRegistry(registryRoot, { builtinPlugins });
+    const ordinaryId = registry.addFromFilesystem(ordinaryRoot).plugins.find((plugin) => plugin.name === 'example-plugin')?.id;
+    assert.ok(ordinaryId);
+    registry.setEnabled('meta-skills-builtin', true);
+    assert.deepEqual(registry.getAppServerRuntime({ workspaceId: 'workspace-example-a', researchKitId: 'general' }).selectedSkillIds, ['example']);
+    assert.deepEqual(registry.getAppServerRuntime({ workspaceId: 'workspace-example-b', researchKitId: 'meta-bug-bounty' }).selectedSkillIds,
+      ['example', 'meta-bug-bounty-tools']);
+
+    registry.setWorkspaceEnabled(ordinaryId, 'workspace-example-a', 'general', false);
+    registry.setWorkspaceEnabled(ordinaryId, 'workspace-example-b', 'meta-bug-bounty', true);
+    const reloaded = new AgentPluginRegistry(registryRoot, { builtinPlugins });
+    assert.deepEqual(reloaded.getState().plugins.find((plugin) => plugin.id === ordinaryId)?.workspaceOverrides,
+      { 'workspace-example-a': false, 'workspace-example-b': true });
+    const general = reloaded.getAppServerRuntime({ workspaceId: 'workspace-example-a', researchKitId: 'general' });
+    const kit = reloaded.getAppServerRuntime({ workspaceId: 'workspace-example-b', researchKitId: 'meta-bug-bounty' });
+    assert.deepEqual(general.selectedSkillIds, []);
+    assert.deepEqual(kit.selectedSkillIds, ['example', 'meta-bug-bounty-tools']);
+    assert.notEqual(general.pluginCatalogPath, kit.pluginCatalogPath);
+    assert.throws(() => reloaded.setWorkspaceEnabled('meta-skills-builtin', 'workspace-example-a', 'general', true),
+      /different research kit/);
+
+    reloaded.setEnabled(ordinaryId, false);
+    assert.deepEqual(reloaded.getState().plugins.find((plugin) => plugin.id === ordinaryId)?.workspaceOverrides, undefined);
+    assert.deepEqual(reloaded.getAppServerRuntime({ workspaceId: 'workspace-example-b', researchKitId: 'meta-bug-bounty' }).selectedSkillIds,
+      ['meta-bug-bounty-tools']);
+  } finally {
+    rmSync(registryRoot, { recursive: true, force: true });
+  }
+});
+
 test('legacy filesystem imports of a bundled plugin become one installed entry', () => {
   const registryRoot = mkdtempSync(join(tmpdir(), 'beale-bundled-plugin-migration-'));
   const bundledPath = resolve('managed-plugins/apple-target-flags');

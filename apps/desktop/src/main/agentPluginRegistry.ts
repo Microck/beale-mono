@@ -32,13 +32,13 @@ export class AgentPluginRegistry {
     return listAppServerPlugins(this.baseInput());
   }
 
-  public getAppServerRuntime(): AgentPluginAppServerRuntime {
+  public getAppServerRuntime(scope?: { workspaceId: string; researchKitId: string }): AgentPluginAppServerRuntime {
     const state = this.getState();
     const runtimeEnvironment = Object.fromEntries(state.plugins.map((plugin) => [
       plugin.id,
       this.options.runtimeEnvironment?.(plugin) ?? {}
     ]));
-    return getAppServerPluginRuntime({ ...this.baseInput(), runtimeEnvironment });
+    return getAppServerPluginRuntime({ ...this.baseInput(), runtimeEnvironment, ...scope });
   }
 
   public addFromFilesystem(pluginRoot: string): AgentPluginRegistryState {
@@ -51,6 +51,10 @@ export class AgentPluginRegistry {
 
   public setEnabled(pluginId: string, enabled: boolean): AgentPluginRegistryState {
     return setAppServerPluginEnabled({ ...this.baseInput(), pluginId, enabled });
+  }
+
+  public setWorkspaceEnabled(pluginId: string, workspaceId: string, researchKitId: string, enabled: boolean): AgentPluginRegistryState {
+    return setAppServerPluginEnabled({ ...this.baseInput(), pluginId, workspaceId, researchKitId, enabled });
   }
 
   public remove(pluginId: string): AgentPluginRegistryState {

@@ -806,9 +806,13 @@ async function harnessOperation(operation: AppServerProtocolOperation, options: 
     case 'plugin.list': return pluginRegistry(input).getState();
     case 'plugin.add_filesystem': return pluginRegistry(input).addFromFilesystem(requiredText(input.pluginRoot, 'pluginRoot'));
     case 'plugin.add_repository': return pluginRegistry(input).addFromRepository(requiredText(input.repositoryUrl, 'repositoryUrl'));
-    case 'plugin.set_enabled': return pluginRegistry(input).setEnabled(requiredText(input.pluginId, 'pluginId'), input.enabled === true);
+    case 'plugin.set_enabled': return input.workspaceId !== undefined
+      ? pluginRegistry(input).setWorkspaceEnabled(requiredText(input.pluginId, 'pluginId'), requiredText(input.workspaceId, 'workspaceId'), requiredText(input.researchKitId, 'researchKitId'), input.enabled === true)
+      : pluginRegistry(input).setEnabled(requiredText(input.pluginId, 'pluginId'), input.enabled === true);
     case 'plugin.remove': return pluginRegistry(input).remove(requiredText(input.pluginId, 'pluginId'));
-    case 'plugin.runtime': return pluginRegistry(input).getAppServerRuntime();
+    case 'plugin.runtime': return pluginRegistry(input).getAppServerRuntime(input.workspaceId !== undefined
+      ? { workspaceId: requiredText(input.workspaceId, 'workspaceId'), researchKitId: requiredText(input.researchKitId, 'researchKitId') }
+      : undefined);
     default: throw new Error(`Unsupported app-server operation: ${operation}`);
   }
 }

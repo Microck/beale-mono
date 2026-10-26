@@ -38,4 +38,34 @@ describe('registered research kit plugin installation', () => {
     expect(result.plugins.filter((plugin) => plugin.installed).map((plugin) => plugin.id)).toEqual(installed);
     expect(result.plugins.find((plugin) => plugin.id === 'meta-skills-builtin')?.installed).toBe(false);
   });
+
+  it('routes workspace toggles through the registered kit and keeps All Plugins global', () => {
+    const calls: string[] = [];
+    const service = Object.create(WorkspaceService.prototype) as WorkspaceService;
+    Object.assign(service, {
+      workspaceRegistry: {
+        getState: () => ({ workspaces: [
+          { workspaceId: 'workspace-example', researchKitId: 'meta-bug-bounty' },
+          { workspaceId: 'workspace-second', researchKitId: 'general' }
+        ] })
+      },
+      agentPluginRegistry: {
+        setEnabled: (pluginId: string, enabled: boolean) => { calls.push(`all:${pluginId}:${enabled}`); return {} as AgentPluginRegistryState; },
+        setWorkspaceEnabled: (pluginId: string, workspaceId: string, researchKitId: string, enabled: boolean) => {
+          calls.push(`${workspaceId}:${researchKitId}:${pluginId}:${enabled}`);
+          return {} as AgentPluginRegistryState;
+        }
+      }
+    });
+
+    service.setAgentPluginEnabled('example-plugin', false, 'workspace-example');
+    service.setAgentPluginEnabled('example-plugin', true, 'workspace-second');
+    service.setAgentPluginEnabled('example-plugin', true);
+    expect(calls).toEqual([
+      'workspace-example:meta-bug-bounty:example-plugin:false',
+      'workspace-second:general:example-plugin:true',
+      'all:example-plugin:true'
+    ]);
+    expect(() => service.setAgentPluginEnabled('example-plugin', true, 'unknown-workspace')).toThrow('Workspace is not registered.');
+  });
 });

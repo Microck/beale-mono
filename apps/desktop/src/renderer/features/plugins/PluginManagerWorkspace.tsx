@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, JSX, PointerEvent as ReactPointerEvent } from 'react';
 import { FolderPlus, GitBranch, Plus, Trash2 } from 'lucide-react';
-import type { AgentPluginRecord, AgentPluginRegistryState } from '@shared/types';
+import type { AgentPluginRecord, AgentPluginRegistryState, WorkspaceRegistryEntry } from '@shared/types';
 import { isOptionalAgentFeaturePlugin } from '../../../shared/optionalAgentFeatures';
 import { CenteredLoadingState } from '../../app/CenteredLoadingState';
 import { CollectionSidebar } from '../../app/CollectionSidebar';
 import { formatSessionDateTime } from '../../lib/formatting';
+import { pluginAppliesToWorkspace, pluginEnabledForWorkspace, setPluginEnabledForScope } from './pluginScope';
 
 export function PluginsSidebar({
   state,
+  selectedWorkspace,
   selectedPluginId,
   collapsed,
   loading,
@@ -24,6 +26,7 @@ export function PluginsSidebar({
   onResizePointerDown
 }: {
   state: AgentPluginRegistryState | null;
+  selectedWorkspace: WorkspaceRegistryEntry | null;
   selectedPluginId: string | null;
   collapsed: boolean;
   loading: boolean;
@@ -34,11 +37,11 @@ export function PluginsSidebar({
   onAddFilesystem: () => void;
   onAddRepository: () => void;
   onInstall: (pluginId: string) => void;
-  onSetEnabled: (pluginId: string, enabled: boolean) => void;
+  onSetEnabled: (pluginId: string, enabled: boolean, workspaceId: string | null) => void;
   onSelectPlugin: (pluginId: string) => void;
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
 }): JSX.Element {
-  const plugins = state?.plugins.filter((plugin) => !isOptionalAgentFeaturePlugin(plugin)) ?? [];
+  const plugins = state?.plugins.filter((plugin) => !isOptionalAgentFeaturePlugin(plugin) && pluginAppliesToWorkspace(plugin, selectedWorkspace)) ?? [];
   const installedPlugins = plugins.filter((plugin) => plugin.installed);
   const availablePlugins = plugins.filter((plugin) => !plugin.installed);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -82,7 +85,7 @@ export function PluginsSidebar({
       label="Plugins sidebar"
       collapsed={collapsed}
       error={error}
-      updateKey={plugins.map((plugin) => `${plugin.id}:${plugin.installed}:${plugin.enabled}:${plugin.status}`).join(',')}
+      updateKey={`${selectedWorkspace?.workspaceId ?? 'all'}:${plugins.map((plugin) => `${plugin.id}:${plugin.installed}:${pluginEnabledForWorkspace(plugin, selectedWorkspace)}:${plugin.status}`).join(',')}`}
       onResizePointerDown={onResizePointerDown}
       primaryAction={<div className="section-row workspace-list-header plugin-sidebar-heading">
         <div className="workspace-list-title"><span>Installed</span></div>
@@ -131,11 +134,11 @@ export function PluginsSidebar({
             <input
               type="checkbox"
               className="plugin-sidebar-toggle"
-              aria-label={`Enable ${plugin.name}`}
-              title={invalid ? 'Invalid plugins cannot be enabled' : plugin.enabled ? 'Disable plugin' : 'Enable plugin'}
-              checked={plugin.enabled}
+              aria-label={`Enable ${plugin.name}${selectedWorkspace ? ` in ${selectedWorkspace.workspaceName}` : plugin.requiredByResearchKits?.length ? ' in all matching workspaces' : ' in all workspaces'}`}
+              title={invalid ? 'Invalid plugins cannot be enabled' : pluginEnabledForWorkspace(plugin, selectedWorkspace) ? 'Disable plugin' : 'Enable plugin'}
+              checked={pluginEnabledForWorkspace(plugin, selectedWorkspace)}
               disabled={busy || loading || invalid}
-              onChange={(event) => onSetEnabled(plugin.id, event.currentTarget.checked)}
+              onChange={(event) => setPluginEnabledForScope(onSetEnabled, plugin.id, event.currentTarget.checked, selectedWorkspace)}
             />
           </div>;
         })}
@@ -161,47 +164,80 @@ export function PluginsSidebar({
 
 export function PluginManagerWorkspace({
   state,
+  workspaces,
+  selectedWorkspaceId,
   selectedPluginId = null,
   loading,
   busy,
   error,
-  onRemove
+  onRemove,
+  onScopeChange,
+  onSetEnabled
 }: {
   state: AgentPluginRegistryState | null;
+  workspaces: readonly WorkspaceRegistryEntry[];
+  selectedWorkspaceId: string | null;
   selectedPluginId?: string | null;
   loading: boolean;
   busy: boolean;
   error: string | null;
   onRemove: (pluginId: string) => void;
+  onScopeChange: (workspaceId: string | null) => void;
+  onSetEnabled: (pluginId: string, enabled: boolean, workspaceId: string | null) => void;
 }): JSX.Element {
-  const plugins = state?.plugins.filter((plugin) => !isOptionalAgentFeaturePlugin(plugin)) ?? [];
+  const selectedWorkspace = workspaces.find((workspace) => workspace.workspaceId === selectedWorkspaceId) ?? null;
+  const plugins = state?.plugins.filter((plugin) => !isOptionalAgentFeaturePlugin(plugin) && pluginAppliesToWorkspace(plugin, selectedWorkspace)) ?? [];
   const selectedPlugin = plugins.find((plugin) => plugin.id === selectedPluginId);
+  const scopeTabs = [
+    { id: null, key: 'all', label: 'All Plugins' },
+    ...workspaces.filter((workspace) => workspace.workspaceId.length > 0)
+      .map((workspace) => ({ id: workspace.workspaceId, key: workspace.id, label: workspace.workspaceName }))
+  ];
 
   return (
     <section className="plugin-manager-workspace" aria-label="Plugins" aria-busy={loading}>
       <div className="plugin-manager-body wide-content-container">
-        <header className="resource-workspace-heading">
-          <h1>{selectedPlugin?.name ?? 'Plugins'}</h1>
-          <p>{selectedPlugin ? selectedPlugin.description ?? 'No description provided.' : plugins.length ? 'Select a plugin in the sidebar to view its details.' : 'Add a plugin from the Installed menu in the sidebar.'}</p>
-        </header>
-        {error ? <div className="plugin-manager-error" role="alert">{error}</div> : null}
-        {loading ? <CenteredLoadingState label="Loading plugins…" /> : selectedPlugin ? (
-          <PluginDetails plugin={selectedPlugin} busy={busy} onRemove={onRemove} />
-        ) : null}
+        <div className="research-side-view-tabs research-side-view-tabs-scrollable pill-view-tabs" role="tablist" aria-label="Plugin workspace scope">
+          {scopeTabs.map((scope) => {
+            const selected = selectedWorkspaceId === scope.id;
+            return <div className={`research-side-view-tab provider-settings-tab ${selected ? 'active' : ''}`.trim()} key={scope.key}>
+              <button type="button" className="research-side-view-tab-activate" role="tab" aria-selected={selected}
+                aria-controls="plugin-manager-panel" onClick={() => onScopeChange(scope.id)}><span>{scope.label}</span></button>
+            </div>;
+          })}
+        </div>
+        <div className="plugin-manager-panel" id="plugin-manager-panel" role="tabpanel">
+          <header className="resource-workspace-heading">
+            <h1>{selectedPlugin?.name ?? (selectedWorkspace ? `${selectedWorkspace.workspaceName} Plugins` : 'All Plugins')}</h1>
+            <p>{selectedPlugin ? selectedPlugin.description ?? 'No description provided.' : plugins.length ? 'Select a plugin in the sidebar to view its details.' : 'Add a plugin from the Installed menu in the sidebar.'}</p>
+          </header>
+          {error ? <div className="plugin-manager-error" role="alert">{error}</div> : null}
+          {loading ? <CenteredLoadingState label="Loading plugins…" /> : selectedPlugin ? (
+            <PluginDetails plugin={selectedPlugin} workspace={selectedWorkspace} busy={busy} onRemove={onRemove} onSetEnabled={onSetEnabled} />
+          ) : null}
+        </div>
       </div>
     </section>
   );
 }
 
-function PluginDetails({ plugin, busy, onRemove }: {
+function PluginDetails({ plugin, workspace, busy, onRemove, onSetEnabled }: {
   plugin: AgentPluginRecord;
+  workspace: WorkspaceRegistryEntry | null;
   busy: boolean;
   onRemove: (pluginId: string) => void;
+  onSetEnabled: (pluginId: string, enabled: boolean, workspaceId: string | null) => void;
 }): JSX.Element {
   const invalid = plugin.status === 'invalid';
+  const enabled = pluginEnabledForWorkspace(plugin, workspace);
   return <article className="plugin-manager-detail" aria-label={`Details for ${plugin.name}`}>
+    {plugin.installed ? <label className="plugin-manager-enable">
+      <input type="checkbox" checked={enabled} disabled={busy || invalid}
+        onChange={(event) => setPluginEnabledForScope(onSetEnabled, plugin.id, event.currentTarget.checked, workspace)} />
+      <span>{workspace ? `Enabled in ${workspace.workspaceName}` : plugin.requiredByResearchKits?.length ? 'Enabled in all matching workspaces' : 'Enabled in all workspaces'}</span>
+    </label> : null}
     <dl className="plugin-detail-properties">
-      <div><dt>Status</dt><dd>{!plugin.installed ? 'Available' : invalid ? 'Invalid' : plugin.enabled ? 'Enabled' : 'Disabled'}</dd></div>
+      <div><dt>Status</dt><dd>{!plugin.installed ? 'Available' : invalid ? 'Invalid' : enabled ? 'Enabled' : 'Disabled'}</dd></div>
       <div><dt>Version</dt><dd>{plugin.version ?? 'Not specified'}</dd></div>
       <div><dt>Source</dt><dd>{plugin.source.kind === 'builtin' ? 'Built in' : plugin.source.kind === 'repository' ? 'Git repository' : 'Filesystem'}</dd></div>
       {plugin.source.repositoryUrl ? <div><dt>Repository</dt><dd className="plugin-detail-path">{plugin.source.repositoryUrl}</dd></div> : null}
