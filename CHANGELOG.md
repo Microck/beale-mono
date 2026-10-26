@@ -6,6 +6,7 @@
 
 #### Changed
 
+- Following a live session transcript now slides existing content upward as new items and lines arrive.
 - New session transcript messages reveal character by character in order, with their icons growing into place. Existing history and reduced-motion views render immediately.
 
 #### Fixed
