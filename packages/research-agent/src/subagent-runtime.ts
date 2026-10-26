@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
-import type { SimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { createResearchEventId, nowIso } from "./ids.js";
 import type { ResearchEvent } from "./types.js";
 import type { SurfaceFoundationScout, SurfaceStore } from "./surfaces.js";
@@ -27,7 +27,7 @@ export interface SubagentRunRequest {
   depth: number;
   provider: string;
   model: string;
-  reasoning?: SimpleStreamOptions["reasoning"];
+  reasoning?: ModelThinkingLevel;
   prompt: string;
   inheritedMessages: AgentMessage[];
   freshSubagentContext?: boolean;
@@ -81,7 +81,7 @@ export interface SubagentDelegationRole {
 export interface SubagentProviderPreference {
   provider: string;
   model: string;
-  reasoning?: SimpleStreamOptions["reasoning"];
+  reasoning?: ModelThinkingLevel;
   enabled: boolean;
   roles?: readonly string[];
 }
@@ -123,7 +123,7 @@ interface SubagentSession {
   depth: number;
   provider: string;
   model: string;
-  reasoning?: SimpleStreamOptions["reasoning"];
+  reasoning?: ModelThinkingLevel;
   forkTurns: string;
   freshSubagentContext: boolean;
   roomName: string | null;
@@ -207,7 +207,7 @@ const MIN_WAIT_TIMEOUT_MS = 1_000;
 const MAX_WAIT_TIMEOUT_MS = 60_000;
 const MAX_ROOM_PACKET_CONTENT_CHARACTERS = 6_000;
 const TASK_NAME_PATTERN = /^[a-z0-9_]+$/;
-const REASONING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const REASONING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const ROOM_PACKET_KINDS = ["independent_memo", "evidence", "challenge", "response", "outcome"] as const;
 const ROOM_PACKET_CONFIDENCE = ["low", "medium", "high", "verified"] as const;
 
@@ -1723,9 +1723,9 @@ function optionalNonNegativeInteger(value: unknown): number {
   return normalized;
 }
 
-function optionalReasoning(value: unknown): SimpleStreamOptions["reasoning"] | undefined {
+function optionalReasoning(value: unknown): ModelThinkingLevel | undefined {
   return typeof value === "string" && REASONING_LEVELS.includes(value as (typeof REASONING_LEVELS)[number])
-    ? value as SimpleStreamOptions["reasoning"]
+    ? value as ModelThinkingLevel
     : undefined;
 }
 

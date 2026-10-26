@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from '
 import { dirname } from 'node:path';
 import type { ResearchModelProviderId } from '@shared/types';
 
-const API_KEY_ENVIRONMENT_VARIABLES: Readonly<Record<ResearchModelProviderId, string>> = {
+const API_KEY_ENVIRONMENT_VARIABLES: Readonly<Record<Exclude<ResearchModelProviderId, `custom-${string}`>, string>> = {
   'openai-codex': 'OPENAI_API_KEY',
   anthropic: 'ANTHROPIC_API_KEY',
   xai: 'XAI_API_KEY',
@@ -46,6 +46,9 @@ export class ProviderCredentialStore {
   public setApiKey(providerId: ResearchModelProviderId, apiKey: string): void {
     this.ensureManifestLoaded();
     requireProviderId(providerId);
+    if (!this.initialEnvironment.has(providerId)) {
+      this.initialEnvironment.set(providerId, process.env[environmentVariable(providerId)]);
+    }
     const normalized = apiKey.trim();
     if (!normalized) throw new Error('API key is required.');
     if (normalized.length > MAX_API_KEY_LENGTH) throw new Error('API key is too long.');
@@ -114,7 +117,8 @@ export class ProviderCredentialStore {
   }
 
   public unlockAllApiKeys(): boolean {
-    return this.unlockApiKeys(providerIds());
+    this.ensureManifestLoaded();
+    return this.unlockApiKeys([...providerIds(), ...this.encryptedApiKeys.keys()]);
   }
 
   public removeApiKey(providerId: ResearchModelProviderId): void {
@@ -152,9 +156,8 @@ export class ProviderCredentialStore {
     try {
       const parsed = JSON.parse(readFileSync(this.path, 'utf8')) as EncryptedCredentialFile;
       if (parsed.version !== 1 || !parsed.apiKeys || typeof parsed.apiKeys !== 'object') return;
-      for (const providerId of providerIds()) {
-        const encrypted = parsed.apiKeys[providerId];
-        if (typeof encrypted === 'string' && encrypted.length > 0) {
+      for (const [providerId, encrypted] of Object.entries(parsed.apiKeys)) {
+        if (isProviderId(providerId) && typeof encrypted === 'string' && encrypted.length > 0) {
           this.encryptedApiKeys.set(providerId, encrypted);
         }
       }
@@ -206,11 +209,18 @@ function providerIds(): ResearchModelProviderId[] {
 }
 
 function environmentVariable(providerId: ResearchModelProviderId): string {
-  return API_KEY_ENVIRONMENT_VARIABLES[providerId];
+  return providerId.startsWith('custom-')
+    ? `BEALE_CUSTOM_PROVIDER_KEY_${providerId.slice(7).replaceAll('-', '_').toUpperCase()}`
+    : API_KEY_ENVIRONMENT_VARIABLES[providerId as Exclude<ResearchModelProviderId, `custom-${string}`>];
 }
 
 function requireProviderId(providerId: ResearchModelProviderId): void {
-  if (!providerIds().includes(providerId)) throw new Error('Unsupported provider credential target.');
+  if (!isProviderId(providerId)) throw new Error('Unsupported provider credential target.');
+}
+
+function isProviderId(value: string): value is ResearchModelProviderId {
+  return providerIds().includes(value as ResearchModelProviderId)
+    || /^custom-[a-z0-9][a-z0-9-]{0,63}$/u.test(value);
 }
 
 function uniqueProviderIds(providerIdsToCheck: readonly ResearchModelProviderId[]): ResearchModelProviderId[] {

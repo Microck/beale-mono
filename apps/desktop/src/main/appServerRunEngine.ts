@@ -2700,9 +2700,11 @@ export class AppServerRunEngine {
 
 export function appServerProcessEnvironment(
   storage: { databasePath: string; artifactDirectoryPath: string } | null = null,
-  preferredAuthenticationMethods: ProviderSettings['preferredAuthenticationMethods'] = undefined
+  preferredAuthenticationMethods: ProviderSettings['preferredAuthenticationMethods'] = undefined,
+  customProviders: ProviderSettings['customProviders'] = undefined
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: process.env.NO_COLOR ?? '1' };
+  if (customProviders) env.APP_SERVER_CUSTOM_PROVIDERS = JSON.stringify(customProviders);
   if (storage) {
     env.APP_SERVER_DATABASE_PATH = storage.databasePath;
     env.APP_SERVER_ARTIFACT_DIRECTORY = storage.artifactDirectoryPath;

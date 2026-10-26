@@ -16,6 +16,7 @@ export interface ProviderTextCompletionRequest {
   cwd: string;
   signal?: AbortSignal;
   preferredAuthenticationMethods?: ProviderSettings['preferredAuthenticationMethods'];
+  customProviders?: ProviderSettings['customProviders'];
 }
 
 export type ProviderTextCompleter = (request: ProviderTextCompletionRequest) => Promise<string>;
@@ -24,7 +25,7 @@ export async function completeProviderText(request: ProviderTextCompletionReques
   // Keep credential/environment injection in Beale's trusted host adapter;
   // completion validation and provider execution belong to app-server.
   const envelope = await invokeAppServerCliProtocolAsync<{ text: string }>('provider.complete', ['complete', '--json'], {
-    env: appServerProcessEnvironment(null, request.preferredAuthenticationMethods),
+    env: appServerProcessEnvironment(null, request.preferredAuthenticationMethods, request.customProviders),
     ...(request.signal ? { signal: request.signal } : {}),
     stdin: JSON.stringify({
     schemaVersion: 1,

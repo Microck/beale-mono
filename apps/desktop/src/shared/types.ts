@@ -1258,11 +1258,21 @@ export interface AppServerRemoteAccessUpdate {
 export interface ProviderSettings {
   defaultProviderId: ResearchModelProviderId | null;
   modelDefaults: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>>;
+  customProviders?: CustomProviderDefinition[];
   contextSizes?: Partial<Record<ResearchModelProviderId, ProviderContextSize>>;
   enabledOptionalModels?: Partial<Record<ResearchModelProviderId, string[]>>;
   disabledOptionalModels?: Partial<Record<ResearchModelProviderId, string[]>>;
   cyberPolicyRiskAcknowledgements?: Partial<Record<ResearchModelProviderId, true>>;
   preferredAuthenticationMethods?: Partial<Record<ResearchModelProviderId, ProviderAuthenticationMethod>>;
+}
+
+export interface CustomProviderDefinition {
+  id: `custom-${string}`;
+  name: string;
+  baseUrl: string;
+  contextWindow: number;
+  maxTokens: number;
+  models: { id: string; name: string }[];
 }
 
 export interface ProviderCredentialAccessRequest {
@@ -1495,7 +1505,7 @@ export interface OpenAiOAuthStartResult {
 
 export type ResearchProviderId = 'anthropic' | 'xai' | 'zai' | 'openrouter';
 
-export type ResearchModelProviderId = 'openai-codex' | ResearchProviderId;
+export type ResearchModelProviderId = 'openai-codex' | ResearchProviderId | `custom-${string}`;
 
 export type ResearchModelEffortLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
@@ -2302,6 +2312,8 @@ export interface BealeApi {
   setAppServerRemoteAccessSettings(update: AppServerRemoteAccessUpdate): Promise<AppServerRemoteAccessSettings>;
   getProviderSettings(): Promise<ProviderSettings>;
   setDefaultProviderId(providerId: ResearchModelProviderId | null): Promise<ProviderSettings>;
+  saveCustomProvider(input: { id?: `custom-${string}`; name: string; baseUrl: string; contextWindow?: number; maxTokens?: number; apiKey?: string }): Promise<ProviderSettings>;
+  removeCustomProvider(providerId: `custom-${string}`): Promise<ProviderSettings>;
   setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): Promise<ProviderSettings>;
   setProviderContextSize(providerId: ResearchModelProviderId, contextSize: ProviderContextSize): Promise<ProviderSettings>;
   setProviderOptionalModelEnabled(providerId: ResearchModelProviderId, modelId: string, enabled: boolean): Promise<ProviderSettings>;

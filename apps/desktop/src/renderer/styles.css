@@ -15541,6 +15541,46 @@ button.research-goal-choice:focus-visible {
   margin-inline: auto;
 }
 
+.provider-custom-field {
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 320px);
+}
+
+.provider-custom-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--gray-14);
+  color: var(--text);
+  font: inherit;
+}
+
+.provider-custom-field input[type='number'] {
+  width: 150px;
+  justify-self: end;
+}
+
+.provider-custom-actions {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.provider-custom-actions button {
+  border: 0;
+}
+
+@media (max-width: 620px) {
+  .provider-custom-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .provider-custom-field input[type='number'] {
+    justify-self: start;
+  }
+}
+
 .provider-settings-form-title {
   min-width: 0;
   display: flex;

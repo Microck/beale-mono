@@ -4,6 +4,10 @@
 
 ### Beale
 
+#### Added
+
+- Provider settings can connect multiple custom OpenAI Chat Completions endpoints, fetch their available models, choose Lead and small models, and keep optional API keys in Beale Safe Storage.
+
 #### Changed
 
 - Track progress lists retained attacker paths and outcomes, and shows automatic pause reasons directly.
@@ -43,6 +47,8 @@
 ### app-server
 
 #### Changed
+
+- App-server launches register custom providers from the host registry and route their model requests through the existing research runtime. Custom provider metadata stays separate from host-only API keys.
 
 - Research tracks reserve recurring epochs for distinct eligible resources and favor underexplored resource kinds, including reviewed discoveries outside configured source repositories. Surface lists expose resource kind filters, and epoch guidance records newly identified in-scope services and binaries as independent resources. Control contract v65 requires rebuilt Beale and app-server clients; no storage migration is needed.
 - Source research can materialize any repository verified under the recorded workspace scope and search its managed checkout; the configured source list is no longer treated as the scope boundary. Materialization performs Auto-Review before cloning.

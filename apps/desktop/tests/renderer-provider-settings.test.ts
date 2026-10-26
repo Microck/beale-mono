@@ -15,6 +15,43 @@ import {
 import { resolvedProviderModelDefaults } from '../src/renderer/view-models/providerModelDefaults';
 
 describe('renderer provider settings', () => {
+  it('includes saved custom providers in Lead selection', () => {
+    const options = providerSettingsOptions(null, [], [{ id: 'custom-example', name: 'Example API',
+      baseUrl: 'https://api.example.test/v1', contextWindow: 128_000, maxTokens: 16_000,
+      models: [{ id: 'model-example', name: 'Example Model' }] }]);
+    expect(options.find((provider) => provider.id === 'custom-example')).toMatchObject({
+      name: 'Example API', configured: true
+    });
+    expect(defaultProviderPickerOptions(options.filter((provider) => provider.configured)))
+      .toContainEqual({ value: 'custom-example', label: 'Example API' });
+  });
+
+  it('shows custom provider models and editable endpoint settings', () => {
+    const html = renderToStaticMarkup(createElement(ProvidersSettingsView, {
+      openAiStatus: null,
+      openAiOAuthResult: null,
+      researchProviderOAuthResults: {},
+      researchProviderStatuses: [],
+      researchProviderModelCatalog: [],
+      providerSettings: {
+        defaultProviderId: 'custom-example',
+        customProviders: [{ id: 'custom-example', name: 'Example API', baseUrl: 'https://api.example.test/v1',
+          contextWindow: 128_000, maxTokens: 16_000, models: [{ id: 'model-example', name: 'Example Model' }] }],
+        modelDefaults: { 'custom-example': { largeModel: 'model-example', smallModel: 'model-example', reasoningEffort: 'off' } }
+      },
+      providerStatusesLoaded: true,
+      busy: false,
+      onRefreshOpenAi: async () => undefined,
+      onStartOpenAiOAuth: async () => undefined,
+      onStartResearchProviderOAuth: async () => undefined,
+      onSetDefaultProviderId: async () => undefined,
+      onSetProviderModelDefaults: async () => undefined
+    }));
+    expect(html).toContain('Example API');
+    expect(html).toContain('model-example');
+    expect(html).toContain('https://api.example.test/v1');
+    expect(html).toContain('Save and refresh models');
+  });
   it('replaces the provider removal control with progress text while removing', () => {
     const html = renderToStaticMarkup(createElement(ProviderRemoveControl, {
       providerName: 'OpenAI',

@@ -2025,6 +2025,7 @@ test("resolves workspace identity and host policy from the shared Beale registry
   assert.equal(registry.resolveWorkspace("registry-workspace-test").workspaceDirectories.length, 1);
   assert.deepEqual(registry.providerSettings(), {
     defaultProviderId: "openai-codex",
+    customProviders: [],
     modelDefaults: {
       "openai-codex": { leadModel: "gpt-lead", smallModel: "gpt-small", reasoningEffort: "high" },
     },

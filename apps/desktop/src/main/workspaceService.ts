@@ -1,11 +1,11 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, release, tmpdir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { bundledPluginsRequiredByResearchKit, composeResearchPromptWithContext, isManagedToolPluginId, MANAGED_TOOL_PLUGINS, type ResearchPluginCatalogEntry } from '@beale/research-agent';
+import { bundledPluginsRequiredByResearchKit, composeResearchPromptWithContext, customProviderKeyEnvironmentVariable, discoverCustomProviderModels, isManagedToolPluginId, MANAGED_TOOL_PLUGINS, normalizeCustomProviderDefinition, type ResearchPluginCatalogEntry } from '@beale/research-agent';
 import { WORKSPACE_PRIMARY_DIRECTORY_MISSING_MESSAGE } from '../shared/ipc';
 import { fleetBrowserViewerTargetId } from '../shared/fleet';
 import { findingRevisionContext } from './findingRevisionContext';
@@ -126,6 +126,7 @@ import type {
   DebuggingSettings,
   ProviderCredentialAccessRequest,
   ProviderSettings,
+  CustomProviderDefinition,
   ProviderModelDefaults,
   ProviderAuthenticationMethod,
   ProviderContextSize,
@@ -843,6 +844,52 @@ export class WorkspaceService {
 
   public setDefaultProviderId(providerId: ResearchModelProviderId | null): ProviderSettings {
     return this.getWorkspaceRegistry().setDefaultProviderId(providerId);
+  }
+
+  public async saveCustomProvider(input: { id?: `custom-${string}`; name: string; baseUrl: string; contextWindow?: number; maxTokens?: number; apiKey?: string }): Promise<ProviderSettings> {
+    const id = input.id ?? `custom-${randomUUID()}` as const;
+    const existing = this.getProviderSettings().customProviders?.find((provider) => provider.id === id);
+    if (input.id && !existing) throw new Error('Unknown custom provider.');
+    const apiKey = input.apiKey?.trim() || undefined;
+    if (apiKey && apiKey.length > 16_384) throw new Error('API key is too long.');
+    if (existing && !apiKey) this.providerCredentials.unlockApiKeys([id]);
+    const effectiveKey = apiKey ?? process.env[customProviderKeyEnvironmentVariable(id)];
+    const models = await discoverCustomProviderModels(input.baseUrl, effectiveKey);
+    const definition = normalizeCustomProviderDefinition({ id, name: input.name, baseUrl: input.baseUrl,
+      contextWindow: input.contextWindow ?? existing?.contextWindow,
+      maxTokens: input.maxTokens ?? existing?.maxTokens, models }) as CustomProviderDefinition;
+    if (apiKey) this.providerCredentials.setApiKey(id, apiKey);
+    const registry = this.getWorkspaceRegistry();
+    registry.saveCustomProvider(definition);
+    const currentDefaults = registry.getProviderSettings().modelDefaults[id];
+    const available = new Set(models.map((model) => model.id));
+    if (!currentDefaults || !available.has(currentDefaults.largeModel) || !available.has(currentDefaults.smallModel)
+      || currentDefaults.reasoningEffort !== 'off') {
+      registry.setProviderModelDefaults(id, {
+        largeModel: currentDefaults && available.has(currentDefaults.largeModel) ? currentDefaults.largeModel : models[0]!.id,
+        smallModel: currentDefaults && available.has(currentDefaults.smallModel) ? currentDefaults.smallModel : models[0]!.id,
+        reasoningEffort: 'off'
+      });
+    }
+    await this.options.providerEnvironmentChanged?.();
+    this.emitChange();
+    return registry.getProviderSettings();
+  }
+
+  public async removeCustomProvider(providerId: `custom-${string}`): Promise<ProviderSettings> {
+    const registry = this.getWorkspaceRegistry();
+    if (!registry.getProviderSettings().customProviders?.some((provider) => provider.id === providerId)) {
+      throw new Error('Unknown custom provider.');
+    }
+    try {
+      this.providerCredentials.removeApiKey(providerId);
+    } catch (error) {
+      if (!(error instanceof Error && error.message === 'This API key comes from the host environment and must be removed there.')) throw error;
+    }
+    const settings = registry.removeCustomProvider(providerId);
+    await this.options.providerEnvironmentChanged?.();
+    this.emitChange();
+    return settings;
   }
 
   public setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): ProviderSettings {
@@ -2706,10 +2753,18 @@ export class WorkspaceService {
 
   public async getResearchProviderModelCatalog(): Promise<ResearchProviderModelCatalog[]> {
     const semantics = getAppServerProviderSemantics();
-    return (await this.researchProviderAuth.getModelCatalog()).map((catalog) => ({
+    const settings = this.getProviderSettings();
+    const builtins = (await this.researchProviderAuth.getModelCatalog()).map((catalog) => ({
       ...catalog,
-      defaultSmallModel: semantics.defaultSmallModels[catalog.providerId]
+      defaultSmallModel: semantics.defaultSmallModels[catalog.providerId as keyof typeof semantics.defaultSmallModels]
     }));
+    const custom = (settings.customProviders ?? []).map((provider): ResearchProviderModelCatalog => ({
+      providerId: provider.id,
+      providerName: provider.name,
+      defaultSmallModel: settings.modelDefaults[provider.id]?.smallModel ?? provider.models[0]?.id,
+      models: provider.models.map((model) => ({ ...model, reasoning: false, effortLevels: ['off'], contextWindow: provider.contextWindow, maxTokens: provider.maxTokens }))
+    }));
+    return [...builtins, ...custom];
   }
 
   public async listGitHubOrganizationRepositories(organization: string): Promise<GitHubRepositorySummary[]> {
@@ -2775,7 +2830,7 @@ export class WorkspaceService {
     const provider = options.provider ?? await this.resolveConfiguredLeadProvider(providerSettings);
     const defaults = providerSettings.modelDefaults[provider];
     const providerFallback = options.size === 'small'
-      ? getAppServerProviderSemantics().defaultSmallModels[provider]
+      ? getAppServerProviderSemantics().defaultSmallModels[provider as keyof ReturnType<typeof getAppServerProviderSemantics>['defaultSmallModels']]
       : provider === 'openai-codex'
         ? this.openAiAuth.getStatus().defaultModel
         : (await this.researchProviderAuth.getStatuses()).find((status) => status.id === provider)?.defaultModel ?? null;
@@ -2820,7 +2875,8 @@ export class WorkspaceService {
       ...(maxTokens ? { maxTokens } : {}),
       cwd: runtime.workspacePath,
       ...(signal ? { signal } : {}),
-      preferredAuthenticationMethods: providerSettings.preferredAuthenticationMethods
+      preferredAuthenticationMethods: providerSettings.preferredAuthenticationMethods,
+      customProviders: providerSettings.customProviders
     });
   }
 
@@ -3404,7 +3460,8 @@ export class WorkspaceService {
           prompt: input.prompt,
           maxTokens: 16_384,
           cwd: process.cwd(),
-          preferredAuthenticationMethods: providerSettings.preferredAuthenticationMethods
+          preferredAuthenticationMethods: providerSettings.preferredAuthenticationMethods,
+          customProviders: providerSettings.customProviders
         });
     const parsed = parseProgramImportReview(output, input.program);
     return {
@@ -4418,13 +4475,14 @@ export class WorkspaceService {
   }
 
   public async removeProvider(providerId: ResearchModelProviderId): Promise<ProviderSettings> {
+    if (providerId.startsWith('custom-')) return this.removeCustomProvider(providerId as `custom-${string}`);
     const apiKeyConfigured = this.providerCredentials.isApiKeyConfigured(providerId);
     if (providerId === 'openai-codex') this.openAiAuth.cancelOAuthLogin();
-    else this.researchProviderAuth.cancelOAuthLogin(providerId);
+    else this.researchProviderAuth.cancelOAuthLogin(providerId as ResearchProviderId);
 
     if (await this.isProviderSubscriptionConfigured(providerId)) {
       if (providerId === 'openai-codex') await this.openAiAuth.forgetSubscription();
-      else await this.researchProviderAuth.forgetSubscription(providerId);
+      else await this.researchProviderAuth.forgetSubscription(providerId as ResearchProviderId);
     }
     this.providerCredentials.removeApiKey(providerId);
     if (apiKeyConfigured) await this.options.providerEnvironmentChanged?.();
@@ -4437,8 +4495,9 @@ export class WorkspaceService {
   }
 
   public async forgetProviderSubscription(providerId: ResearchModelProviderId): Promise<ProviderSettings> {
+    if (providerId.startsWith('custom-')) throw new Error('Custom providers use API keys or keyless access.');
     if (providerId === 'openai-codex') await this.openAiAuth.forgetSubscription();
-    else await this.researchProviderAuth.forgetSubscription(providerId);
+    else await this.researchProviderAuth.forgetSubscription(providerId as ResearchProviderId);
     this.openAiAuth.clearCachedCredential();
     const registry = this.getWorkspaceRegistry();
     if (
@@ -7314,7 +7373,8 @@ function hostGoalSuggestionCount(profile: ResearchProfile, workflow: ResearchPro
 }
 
 function isResearchModelProviderId(value: unknown): value is ResearchModelProviderId {
-  return value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai' || value === 'openrouter';
+  return value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai' || value === 'openrouter'
+    || (typeof value === 'string' && /^custom-[a-z0-9][a-z0-9-]{0,63}$/u.test(value));
 }
 
 function resolveRecommendationResearchSubject(
@@ -8099,7 +8159,8 @@ function requireCollaborationPolicyAcknowledgements(
   providers: readonly ResearchModelProviderId[],
   settings: ProviderSettings
 ): void {
-  const missing = [...new Set(providers)].filter((provider) => settings.cyberPolicyRiskAcknowledgements?.[provider] !== true);
+  const missing = [...new Set(providers)].filter((provider) => !provider.startsWith('custom-')
+    && settings.cyberPolicyRiskAcknowledgements?.[provider] !== true);
   if (missing.length === 0) return;
   const labels = missing.map((provider) => provider === 'openai-codex'
     ? 'OpenAI Daybreak Access and policy-use risk'

@@ -1395,6 +1395,7 @@ function parseToolsConfigArgs(argv: readonly string[]): ParsedToolsConfigArgs {
 
 function parseReasoning(value: string): ResearchModelEffort {
   if (
+    value === "off" ||
     value === "minimal" ||
     value === "low" ||
     value === "medium" ||
@@ -1405,7 +1406,7 @@ function parseReasoning(value: string): ResearchModelEffort {
     return value;
   }
 
-  throw new Error("--reasoning must be one of minimal, low, medium, high, xhigh, max.");
+  throw new Error("--reasoning must be one of off, minimal, low, medium, high, xhigh, max.");
 }
 
 function parseShellSafetyMode(value: string): ShellSafetyMode {
@@ -1421,6 +1422,7 @@ function parseShellReviewEffort(value: string): ResearchModelEffort {
 
 function parseAuxiliaryModelEffort(value: string, option: string): ResearchModelEffort {
   if (
+    value === "off" ||
     value === "minimal" ||
     value === "low" ||
     value === "medium" ||
@@ -1430,7 +1432,7 @@ function parseAuxiliaryModelEffort(value: string, option: string): ResearchModel
   ) {
     return value;
   }
-  throw new Error(`${option} must be one of minimal, low, medium, high, xhigh, max.`);
+  throw new Error(`${option} must be one of off, minimal, low, medium, high, xhigh, max.`);
 }
 
 function parseShellReviewModels(value: string): Readonly<Record<string, string>> {
@@ -1654,7 +1656,7 @@ function usage(): string {
     "  --title-style research-track  Name the current track investigation rather than its surface",
     "  --executor <kind>      agent (default: agent)",
     "  --max-tokens <n>       Max output tokens for real mode",
-    "  --effort <level>       Model effort for real mode: minimal, low, medium, high, xhigh, max",
+    "  --effort <level>       Model effort for real mode: off, minimal, low, medium, high, xhigh, max",
     "  --reasoning <level>    Alias for --effort",
     "  --tool-execution <m>   Agent tool execution mode: sequential or parallel",
     "  --inspect-root <path>  Allow a local root for read-only inspection",
@@ -2176,7 +2178,7 @@ export async function main(
             provider,
             model,
             reasoningEffort: active?.reasoningEffort === "off"
-              ? "low"
+              ? (provider.startsWith("custom-") ? "off" : "low")
               : active?.reasoningEffort ?? modelConfig?.effort ?? "medium",
           };
         },
@@ -2507,7 +2509,7 @@ function createRealAgentExecutor(
     daybreakMode: args.daybreakMode,
     ...(providerSessionId ? { sessionId: providerSessionId } : {}),
     ...(args.maxTokens ? { maxTokens: args.maxTokens } : {}),
-    ...(modelConfig.effort ? { reasoning: modelConfig.effort } : {}),
+    ...(modelConfig.effort !== "off" ? { reasoning: modelConfig.effort } : {}),
     ...(toolRegistry ? { toolRegistry } : {}),
     ...(surfaceStore ? { surfaceStore } : {}),
   };
@@ -2705,7 +2707,7 @@ function createProviderNeutralSubagentRunner({
         : createPiAgentExecutor({
           provider: request.provider,
           model: request.model,
-          ...(request.reasoning ? { reasoning: request.reasoning } : {}),
+          ...(request.reasoning && request.reasoning !== "off" ? { reasoning: request.reasoning } : {}),
           ...(toolRegistry ? { toolRegistry } : {}),
           researchProfile: resolvedResearchProfile.profile,
           ...(promptTemplate !== undefined ? { promptTemplate } : {}),
@@ -3163,7 +3165,7 @@ function configUsage(): string {
     "  show                       Show model preference and authorization status",
     "  set provider <id>          Set preferred provider",
     "  set model <id>             Set preferred model",
-    "  set effort <level>         Set effort: minimal, low, medium, high, xhigh, or max",
+    "  set effort <level>         Set effort: off, minimal, low, medium, high, xhigh, or max",
     "",
     "Options:",
     "  --config <path>            Preference config path",

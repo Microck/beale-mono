@@ -285,13 +285,14 @@ export class AppServerHostService {
     const connectedProviderIds = new Set([
       ...(settings.defaultProviderId ? [settings.defaultProviderId] : []),
       ...Object.keys(settings.modelDefaults),
-      ...Object.keys(settings.authenticationPreferences)
+      ...Object.keys(settings.authenticationPreferences),
+      ...(settings.customProviders ?? []).map((provider) => provider.id)
     ]);
     if (connectedProviderIds.has('openrouter')) await refreshOpenRouterModels();
     return {
       controlVersion: BEALE_APP_SERVER_CONTROL_VERSION,
       defaultProviderId: settings.defaultProviderId,
-      providers: getProviderModelCatalog()
+      providers: getProviderModelCatalog(undefined, settings.customProviders ?? [])
         .filter((catalog) => connectedProviderIds.has(catalog.providerId))
         .map((catalog) => {
           const defaults = settings.modelDefaults[catalog.providerId];
@@ -731,12 +732,13 @@ export class AppServerHostService {
     const connectedProviderIds = new Set([
       ...(settings.defaultProviderId ? [settings.defaultProviderId] : []),
       ...Object.keys(settings.modelDefaults),
-      ...Object.keys(settings.authenticationPreferences)
+      ...Object.keys(settings.authenticationPreferences),
+      ...(settings.customProviders ?? []).map((provider) => provider.id)
     ]);
     if (!connectedProviderIds.has(providerId)) {
       throw new Error(`Provider ${providerId} is not connected to this Beale host.`);
     }
-    const catalog = getProviderModelCatalog().find((candidate) => candidate.providerId === providerId);
+    const catalog = getProviderModelCatalog(undefined, settings.customProviders ?? []).find((candidate) => candidate.providerId === providerId);
     if (!catalog) throw new Error(`Unsupported research model provider: ${providerId}.`);
     const requestedModel = isRecord(input.provider) ? nonEmpty(input.provider.model) : undefined;
     if (requestedModel && !catalog.models.some((candidate) => candidate.id === requestedModel)) {
@@ -803,6 +805,11 @@ export class AppServerHostService {
     }
     const storage = this.registry.storageForProfile(profileId);
     const providerSettings = this.registry.providerSettings();
+    if (providerSettings.customProviders?.length) {
+      process.env.APP_SERVER_CUSTOM_PROVIDERS = JSON.stringify(providerSettings.customProviders);
+    } else {
+      delete process.env.APP_SERVER_CUSTOM_PROVIDERS;
+    }
     const providerSemantics = await this.resolveProviderSemantics();
     const providerId = request.launch.provider?.id?.trim()
       || providerSettings.defaultProviderId;
@@ -1022,14 +1029,14 @@ export class AppServerHostService {
                   ...(providerDefaults?.smallModel || providerSemantics.defaultSmallModels[providerId]
                     ? { model: providerDefaults?.smallModel ?? providerSemantics.defaultSmallModels[providerId]! }
                     : {}),
-                  effort: providerSemantics.sessionTitleEffort,
+                  effort: providerId.startsWith('custom-') ? 'off' : providerSemantics.sessionTitleEffort,
                   ...(request.launch.mode === 'research-track' ? { style: 'research-track' as const } : {})
                 }
               }
             : {}),
           shellReview: {
             models: shellReviewModels,
-            effort: providerSemantics.shellReviewEffort
+            effort: providerId.startsWith('custom-') ? 'off' : providerSemantics.shellReviewEffort
           }
         },
         shellSafetyMode: request.launch.shellSafetyMode?.trim() || 'auto_review',

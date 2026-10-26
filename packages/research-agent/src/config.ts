@@ -12,6 +12,7 @@ import {
 import { refreshOpenRouterModels } from "./openrouter-models.js";
 
 export type ResearchModelEffort =
+  | "off"
   | "minimal"
   | "low"
   | "medium"
@@ -237,6 +238,7 @@ function normalizeResearchModelEffort(
   configPath: string,
 ): ResearchModelEffort {
   if (
+    value === "off" ||
     value === "minimal" ||
     value === "low" ||
     value === "medium" ||
@@ -248,7 +250,7 @@ function normalizeResearchModelEffort(
   }
 
   throw new Error(
-    `Research config ${configPath} has invalid effort; expected minimal, low, medium, high, xhigh, or max.`,
+    `Research config ${configPath} has invalid effort; expected off, minimal, low, medium, high, xhigh, or max.`,
   );
 }
 

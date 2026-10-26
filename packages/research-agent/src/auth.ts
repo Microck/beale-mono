@@ -19,6 +19,7 @@ import type {
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { brokeredModels } from "./model-broker.js";
 import { currentOpenRouterModels, refreshOpenRouterModels } from "./openrouter-models.js";
+import { registerCustomProviders, type CustomProviderDefinition } from "./custom-providers.js";
 export { refreshOpenRouterModels } from "./openrouter-models.js";
 
 // The session-scoped broker capability stays in the runtime process. Tools and
@@ -630,8 +631,8 @@ export function listAuthProviders(): AuthProviderSummary[] {
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
-export function getProviderModelCatalog(providerId?: string): ProviderModelCatalog[] {
-  const models = appServerModels();
+export function getProviderModelCatalog(providerId?: string, customProviders?: readonly CustomProviderDefinition[]): ProviderModelCatalog[] {
+  const models = appServerModels(undefined, customProviders);
   return models
     .getProviders()
     .filter((provider) => !providerId || provider.id === providerId)
@@ -901,8 +902,10 @@ function getProviderAuthMethods(
 
 function appServerModels(
   options?: Parameters<typeof builtinModels>[0],
+  customProviders?: readonly CustomProviderDefinition[],
 ): MutableModels {
   const models = builtinModels(options);
+  registerCustomProviders(models, customProviders ? [...customProviders] : undefined);
 
   for (const [providerId, additionalModels] of Object.entries(
     AUTHENTICATED_ADDITIONAL_PROVIDER_MODELS,

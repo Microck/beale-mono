@@ -190,6 +190,12 @@ const api: BealeApi = {
   setDefaultProviderId(providerId: ResearchModelProviderId | null): Promise<ProviderSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setDefaultProviderId, providerId);
   },
+  saveCustomProvider(input: { id?: `custom-${string}`; name: string; baseUrl: string; contextWindow?: number; maxTokens?: number; apiKey?: string }): Promise<ProviderSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.saveCustomProvider, input);
+  },
+  removeCustomProvider(providerId: `custom-${string}`): Promise<ProviderSettings> {
+    return ipcRenderer.invoke(IPC_CHANNELS.removeCustomProvider, providerId);
+  },
   setProviderModelDefaults(providerId: ResearchModelProviderId, defaults: ProviderModelDefaults): Promise<ProviderSettings> {
     return ipcRenderer.invoke(IPC_CHANNELS.setProviderModelDefaults, providerId, defaults);
   },

@@ -584,6 +584,7 @@ const REGISTRY_STATE_ACTIONS = new Set([
   'listArchivedQuickChats', 'getProfilingEnabled', 'setProfilingEnabled', 'getDeveloperSettings',
   'getDeveloperModeEnabled', 'setDeveloperModeEnabled', 'getProviderSettings', 'setDefaultProviderId',
   'setProviderModelDefaults', 'setProviderOptionalModelEnabled', 'setProviderCyberPolicyRiskAcknowledged',
+  'saveCustomProvider', 'removeCustomProvider',
   'setProviderContextSize',
   'setProviderPreferredAuthenticationMethod', 'getMemorySettings', 'setMemoryTypeDescriptions',
   'setWorkspaceMemoryBackend', 'getShellOptions', 'setShellOptions', 'getShellOptionsPath',

@@ -12,6 +12,7 @@ import type {
   OpenAiAuthReadiness,
   OpenAiOAuthStartResult,
   ProviderSettings,
+  CustomProviderDefinition,
   ProviderAuthenticationMethod,
   ProviderContextSize,
   ProviderModelDefaults,
@@ -190,6 +191,8 @@ export function SettingsView({
   onRemoveProvider = async () => undefined,
   onConfigureProviderApiKey = async () => undefined,
   onRemoveProviderApiKey = async () => undefined,
+  onSaveCustomProvider = async () => undefined,
+  onRemoveCustomProvider = async () => undefined,
   onSetDefaultProviderId,
   onSetProviderModelDefaults,
   onSetProviderOptionalModelEnabled = async () => undefined,
@@ -254,6 +257,8 @@ export function SettingsView({
   onRemoveProvider?: (providerId: ResearchModelProviderId) => Promise<void>;
   onConfigureProviderApiKey?: (providerId: ResearchModelProviderId, apiKey: string) => Promise<void>;
   onRemoveProviderApiKey?: (providerId: ResearchModelProviderId) => Promise<void>;
+  onSaveCustomProvider?: (input: { id?: `custom-${string}`; name: string; baseUrl: string; contextWindow?: number; maxTokens?: number; apiKey?: string }) => Promise<void>;
+  onRemoveCustomProvider?: (providerId: `custom-${string}`) => Promise<void>;
   onSetDefaultProviderId: (providerId: ResearchModelProviderId | null) => Promise<void>;
   onSetProviderModelDefaults: (providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) => Promise<void>;
   onSetProviderContextSize?: (
@@ -343,6 +348,8 @@ export function SettingsView({
             onRemoveProvider={onRemoveProvider}
             onConfigureProviderApiKey={onConfigureProviderApiKey}
             onRemoveProviderApiKey={onRemoveProviderApiKey}
+            onSaveCustomProvider={onSaveCustomProvider}
+            onRemoveCustomProvider={onRemoveCustomProvider}
             onSetDefaultProviderId={onSetDefaultProviderId}
             onSetProviderModelDefaults={onSetProviderModelDefaults}
             onSetProviderOptionalModelEnabled={onSetProviderOptionalModelEnabled}
@@ -2004,7 +2011,8 @@ export function ProviderApiKeyDialog({
 
 export function providerSettingsOptions(
   openAiStatus: OpenAiAccountStatus | null,
-  researchProviderStatuses: readonly ResearchProviderStatus[]
+  researchProviderStatuses: readonly ResearchProviderStatus[],
+  customProviders: readonly CustomProviderDefinition[] = []
 ): ProviderSettingsOption[] {
   return [
     {
@@ -2018,7 +2026,8 @@ export function providerSettingsOptions(
       name: providerCompanyName(provider.id),
       configured: provider.configured,
       authenticationRunning: provider.loginInProgress
-    }))
+    })),
+    ...customProviders.map((provider) => ({ id: provider.id, name: provider.name, configured: true, authenticationRunning: false }))
   ];
 }
 
@@ -2065,6 +2074,8 @@ export function ProvidersSettingsView({
   onRemoveProvider = async () => undefined,
   onConfigureProviderApiKey = async () => undefined,
   onRemoveProviderApiKey = async () => undefined,
+  onSaveCustomProvider = async () => undefined,
+  onRemoveCustomProvider = async () => undefined,
   onSetDefaultProviderId,
   onSetProviderModelDefaults,
   onSetProviderOptionalModelEnabled = async () => undefined,
@@ -2087,6 +2098,8 @@ export function ProvidersSettingsView({
   onRemoveProvider?: (providerId: ResearchModelProviderId) => Promise<void>;
   onConfigureProviderApiKey?: (providerId: ResearchModelProviderId, apiKey: string) => Promise<void>;
   onRemoveProviderApiKey?: (providerId: ResearchModelProviderId) => Promise<void>;
+  onSaveCustomProvider?: (input: { id?: `custom-${string}`; name: string; baseUrl: string; contextWindow?: number; maxTokens?: number; apiKey?: string }) => Promise<void>;
+  onRemoveCustomProvider?: (providerId: `custom-${string}`) => Promise<void>;
   onSetDefaultProviderId: (providerId: ResearchModelProviderId | null) => Promise<void>;
   onSetProviderModelDefaults: (providerId: ResearchModelProviderId, defaults: ProviderModelDefaults) => Promise<void>;
   onSetProviderContextSize?: (
@@ -2107,7 +2120,7 @@ export function ProvidersSettingsView({
     method: ProviderAuthenticationMethod
   ) => Promise<void>;
 }): JSX.Element {
-  const providers = providerSettingsOptions(openAiStatus, researchProviderStatuses);
+  const providers = providerSettingsOptions(openAiStatus, researchProviderStatuses, providerSettings?.customProviders);
   const configuredProviders = providers.filter((provider) => provider.configured);
   const availableProviders = providers.filter((provider) => !provider.configured);
   const configuredProviderKey = configuredProviders.map((provider) => provider.id).join('|');
@@ -2130,6 +2143,7 @@ export function ProvidersSettingsView({
   const [authenticationProviderId, setAuthenticationProviderId] = useState<ProviderSettingsId | null>(initialAuthenticationProviderId);
   const [apiKeyDialogProviderId, setApiKeyDialogProviderId] = useState<ResearchModelProviderId | null>(null);
   const [removingProviderId, setRemovingProviderId] = useState<ResearchModelProviderId | null>(null);
+  const [addingCustomProvider, setAddingCustomProvider] = useState(false);
   const defaultProviderUpdateRef = useRef<ResearchModelProviderId | null | undefined>(undefined);
 
   useEffect(() => {
@@ -2195,7 +2209,7 @@ export function ProvidersSettingsView({
     if (providerId === 'openai-codex') {
       void onStartOpenAiOAuth();
     } else {
-      void onStartResearchProviderOAuth(providerId);
+      void onStartResearchProviderOAuth(providerId as ResearchProviderId);
     }
   };
   const removeProvider = async (providerId: ProviderSettingsId): Promise<void> => {
@@ -2215,6 +2229,7 @@ export function ProvidersSettingsView({
     }
   };
   const showProvider = (providerId: ProviderSettingsId): void => {
+    setAddingCustomProvider(false);
     setAuthenticationProviderId(providerId);
     setActiveProviderId(providerId);
   };
@@ -2239,11 +2254,33 @@ export function ProvidersSettingsView({
         viewProviders={viewProviders}
         configuredProviders={configuredProviders}
         defaultProviderId={providerSettings?.defaultProviderId ?? null}
-        onActivate={setActiveProviderId}
+        onActivate={(providerId) => { setAddingCustomProvider(false); setActiveProviderId(providerId); }}
         onAuthenticate={showProvider}
         onSetDefaultProviderId={(providerId) => void onSetDefaultProviderId(providerId)}
+        onAddCustomProvider={() => { setAddingCustomProvider(true); setActiveProviderId(null); }}
       />
-      {activeProvider?.id === 'openai-codex' ? (
+      {addingCustomProvider ? (
+        <CustomProviderCard
+          busy={busy}
+          onCancel={() => { setAddingCustomProvider(false); setActiveProviderId(preferredProviderId); }}
+          onSave={async (input) => { await onSaveCustomProvider(input); setAddingCustomProvider(false); }}
+        />
+      ) : activeProvider?.id.startsWith('custom-') ? (
+        <CustomProviderCard
+          key={activeProvider.id}
+          busy={busy}
+          provider={providerSettings?.customProviders?.find((provider) => provider.id === activeProvider.id)}
+          defaults={providerSettings?.modelDefaults[activeProvider.id]}
+          onSave={onSaveCustomProvider}
+          onRemove={async () => {
+            await onRemoveCustomProvider(activeProvider.id as `custom-${string}`);
+            setActiveProviderId(nextConfiguredProviderIdAfterRemoval(
+              configuredProviders.map((provider) => provider.id), activeProvider.id,
+              providerSettings?.defaultProviderId ?? null));
+          }}
+          onSetDefaults={(defaults) => onSetProviderModelDefaults(activeProvider.id, defaults)}
+        />
+      ) : activeProvider?.id === 'openai-codex' ? (
         <OpenAiProviderCard
           busy={busy}
           removing={removingProviderId === 'openai-codex'}
@@ -2277,7 +2314,7 @@ export function ProvidersSettingsView({
           busy={busy}
           removing={removingProviderId === activeProvider.id}
           provider={researchProviderStatuses.find((provider) => provider.id === activeProvider.id)!}
-          result={researchProviderOAuthResults[activeProvider.id] ?? null}
+          result={researchProviderOAuthResults[activeProvider.id as ResearchProviderId] ?? null}
           onRefresh={refresh}
           onAuthenticate={() => authenticateProvider(activeProvider.id)}
           onForgetSubscription={() => void onForgetProviderSubscription(activeProvider.id)}
@@ -2333,7 +2370,8 @@ function ProviderSettingsTabs({
   defaultProviderId,
   onActivate,
   onAuthenticate,
-  onSetDefaultProviderId
+  onSetDefaultProviderId,
+  onAddCustomProvider
 }: {
   activeProviderId: ProviderSettingsId | null;
   availableProviders: readonly ProviderSettingsOption[];
@@ -2344,6 +2382,7 @@ function ProviderSettingsTabs({
   onActivate: (providerId: ProviderSettingsId) => void;
   onAuthenticate: (providerId: ProviderSettingsId) => void;
   onSetDefaultProviderId: (providerId: ResearchModelProviderId | null) => void;
+  onAddCustomProvider: () => void;
 }): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
@@ -2395,7 +2434,7 @@ function ProviderSettingsTabs({
           </div>
         ))}
       </div>
-      {availableProviders.length > 0 ? (
+      {availableProviders.length > 0 || onAddCustomProvider ? (
         <div className={`research-side-view-picker ${pickerOpen ? 'open' : ''}`} ref={pickerRef}>
           <button
             type="button"
@@ -2430,6 +2469,10 @@ function ProviderSettingsTabs({
                   <span>{provider.name}{provider.authenticationRunning ? ' — authenticating' : ''}</span>
                 </button>
               ))}
+              <button type="button" role="menuitem" disabled={busy} onClick={() => { onAddCustomProvider(); setPickerOpen(false); }}>
+                <ServerCog size={15} aria-hidden="true" />
+                <span>Custom API provider</span>
+              </button>
             </div>
           ) : null}
         </div>
@@ -2449,6 +2492,114 @@ function ProviderSettingsTabs({
         </select>
       </label>
     </header>
+  );
+}
+
+function CustomProviderCard({ provider, defaults, busy, onSave, onCancel, onRemove, onSetDefaults }: {
+  provider?: CustomProviderDefinition;
+  defaults?: ProviderModelDefaults;
+  busy: boolean;
+  onSave: (input: { id?: `custom-${string}`; name: string; baseUrl: string; contextWindow?: number; maxTokens?: number; apiKey?: string }) => Promise<void>;
+  onCancel?: () => void;
+  onRemove?: () => Promise<void>;
+  onSetDefaults?: (defaults: ProviderModelDefaults) => Promise<void>;
+}): JSX.Element {
+  const [name, setName] = useState(provider?.name ?? '');
+  const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? '');
+  const [contextWindow, setContextWindow] = useState(provider?.contextWindow ?? 128_000);
+  const [maxTokens, setMaxTokens] = useState(provider?.maxTokens ?? 16_000);
+  const [apiKey, setApiKey] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const submit = async (): Promise<void> => {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave({ ...(provider ? { id: provider.id } : {}), name, baseUrl, contextWindow, maxTokens,
+        ...(apiKey ? { apiKey } : {}) });
+      setApiKey('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally { setSaving(false); }
+  };
+  const remove = async (): Promise<void> => {
+    if (!onRemove) return;
+    setRemoving(true);
+    setError(null);
+    try {
+      await onRemove();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally { setRemoving(false); }
+  };
+  return (
+    <section className="provider-card provider-settings-provider-panel" role="tabpanel" aria-label="Custom provider settings">
+      <form className="settings-form provider-settings-form provider-custom-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <header className="settings-form-heading provider-settings-form-heading">
+          <div className="provider-settings-form-title">
+            <ServerCog className="provider-settings-heading-icon" size={18} aria-hidden="true" />
+            <h2>{provider?.name ?? 'Add custom provider'}</h2>
+            {onRemove ? <ProviderRemoveControl providerName={provider?.name ?? 'custom'} disabled={busy || saving} removing={removing} onRemove={() => void remove()} /> : null}
+          </div>
+          <p>Connect an OpenAI Chat Completions compatible endpoint. Beale fetches its models from /models.</p>
+        </header>
+        <div className="settings-form-squircle provider-settings-form-squircle">
+          <div className="settings-form-control-list provider-custom-fields">
+            <label className="settings-form-control-row provider-custom-field">
+              <span className="settings-form-control-copy"><strong>Name</strong><small>Shown in the provider list and model picker.</small></span>
+              <input value={name} maxLength={100} disabled={busy || saving} onChange={(event) => setName(event.target.value)} placeholder="My provider" />
+            </label>
+            <label className="settings-form-control-row provider-custom-field">
+              <span className="settings-form-control-copy"><strong>Base URL</strong><small>Include the API version path if required.</small></span>
+              <input value={baseUrl} disabled={busy || saving} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.example.test/v1" />
+            </label>
+            <label className="settings-form-control-row provider-custom-field">
+              <span className="settings-form-control-copy"><strong>API key</strong><small>Optional. {provider ? 'Leave blank to keep the current key.' : 'Stored in Beale Safe Storage.'}</small></span>
+              <input type="password" autoComplete="off" value={apiKey} disabled={busy || saving} onChange={(event) => setApiKey(event.target.value)} placeholder={provider ? 'Keep current key' : 'Paste API key'} />
+            </label>
+            <label className="settings-form-control-row provider-custom-field">
+              <span className="settings-form-control-copy"><strong>Context window</strong><small>Maximum input and output tokens for each model.</small></span>
+              <input type="number" min={1024} max={10000000} value={contextWindow} disabled={busy || saving} onChange={(event) => setContextWindow(Number(event.target.value))} />
+            </label>
+            <label className="settings-form-control-row provider-custom-field">
+              <span className="settings-form-control-copy"><strong>Maximum output tokens</strong><small>Upper limit for a model response.</small></span>
+              <input type="number" min={256} max={contextWindow} value={maxTokens} disabled={busy || saving} onChange={(event) => setMaxTokens(Number(event.target.value))} />
+            </label>
+          </div>
+        </div>
+        {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
+        <div className="settings-form-actions provider-custom-actions">
+          {onCancel ? <button className="secondary-button" type="button" disabled={saving} onClick={onCancel}>Cancel</button> : null}
+          <button className="primary-button" type="submit" disabled={busy || saving || removing || !name.trim() || !baseUrl.trim()}>
+            {saving ? 'Fetching models…' : provider ? 'Save and refresh models' : 'Add provider'}
+          </button>
+        </div>
+      </form>
+      {provider && defaults && onSetDefaults ? (
+        <section className="settings-form provider-settings-form provider-default-models-form">
+          <header className="settings-form-heading"><h2>Default Models</h2><p>Choose the models used for primary and supporting research.</p></header>
+          <div className="settings-form-squircle provider-settings-form-squircle">
+            <div className="provider-model-defaults" aria-label="Provider model defaults">
+              <div className="provider-model-defaults-controls">
+                <label className="provider-model-default-row">
+                  <span className="provider-model-default-copy"><strong>Large Model</strong><small>Primary model for complex research work.</small></span>
+                  <select aria-label="Large model" value={defaults.largeModel} disabled={busy || saving || removing} onChange={(event) => void onSetDefaults({ ...defaults, largeModel: event.target.value })}>
+                    {provider.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
+                  </select>
+                </label>
+                <label className="provider-model-default-row">
+                  <span className="provider-model-default-copy"><strong>Small Model</strong><small>Lighter model for supporting research tasks.</small></span>
+                  <select aria-label="Small model" value={defaults.smallModel} disabled={busy || saving || removing} onChange={(event) => void onSetDefaults({ ...defaults, smallModel: event.target.value })}>
+                    {provider.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
+                  </select>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+    </section>
   );
 }
 

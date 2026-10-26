@@ -15,7 +15,7 @@ import {
   readCompatibleEnvironment
 } from '@beale/research-agent/legacy-compatibility';
 import { FEATURE_PROMPT_SETTINGS_KEY, WorkspaceRegistry } from './workspaceRegistryStore.js';
-import { decodeFeaturePromptOverrides, type FeaturePromptOverrides } from '@beale/research-agent';
+import { decodeFeaturePromptOverrides, normalizeCustomProviderDefinition, type CustomProviderDefinition, type FeaturePromptOverrides } from '@beale/research-agent';
 
 export type AppServerMemoryBackendId = 'app-server' | 'disabled';
 export type AppServerProviderContextSize = 'default' | 'large';
@@ -32,6 +32,7 @@ export interface AppServerHostWorkspace extends BealeAppServerWorkspaceSummary {
 
 export interface AppServerHostProviderSettings {
   defaultProviderId: string | null;
+  customProviders: readonly CustomProviderDefinition[];
   modelDefaults: Readonly<Record<string, { leadModel?: string; smallModel?: string; reasoningEffort?: string }>>;
   authenticationPreferences: Readonly<Record<string, AppServerProviderAuthenticationMethod>>;
   contextSizes?: Readonly<Record<string, AppServerProviderContextSize>>;
@@ -203,6 +204,12 @@ export class AppServerHostRegistry {
 
   public providerSettings(): AppServerHostProviderSettings {
     const meta = this.readMeta();
+    const rawCustomProviders = parseJson(meta.get('custom_providers_json'));
+    const customProviders = Array.isArray(rawCustomProviders)
+      ? rawCustomProviders.flatMap((provider) => {
+        try { return [normalizeCustomProviderDefinition(provider)]; } catch { return []; }
+      }) : [];
+    process.env.APP_SERVER_CUSTOM_PROVIDERS = JSON.stringify(customProviders);
     const modelDefaults = recordOfRecords(meta.get('provider_model_defaults_json'));
     const authenticationPreferences = authenticationPreferenceRecord(
       meta.get('provider_preferred_authentication_methods_json')
@@ -228,6 +235,7 @@ export class AppServerHostRegistry {
     }
     return {
       defaultProviderId: nonEmpty(meta.get('default_provider_id')),
+      customProviders,
       modelDefaults,
       authenticationPreferences,
       contextSizes,

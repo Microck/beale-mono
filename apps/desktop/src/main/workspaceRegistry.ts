@@ -9,6 +9,7 @@ import { invokeAppServerRegistryState, invokeAppServerRegistryStateAsync } from 
 import type {
   DebuggingSettings,
   DeveloperSettings,
+  CustomProviderDefinition,
   FeaturePromptSettings,
   MemorySettings,
   MemoryTypeDescriptions,
@@ -158,6 +159,14 @@ export class WorkspaceRegistry {
 
   public setDefaultProviderId(providerId: ResearchModelProviderId | null): ProviderSettings {
     return this.updateProviderSettings('setDefaultProviderId', [providerId]);
+  }
+
+  public saveCustomProvider(definition: CustomProviderDefinition): ProviderSettings {
+    return this.updateProviderSettings('saveCustomProvider', [definition]);
+  }
+
+  public removeCustomProvider(providerId: string): ProviderSettings {
+    return this.updateProviderSettings('removeCustomProvider', [providerId]);
   }
 
   public setProviderModelDefaults(

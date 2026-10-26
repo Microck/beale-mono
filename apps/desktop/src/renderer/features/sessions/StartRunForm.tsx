@@ -468,6 +468,8 @@ export function ResearchSettingsForm({
       label: providerLabel(catalog.providerId, catalog.providerName),
       configured: configuredProviderIds
         ? configuredProviderIds.includes(catalog.providerId)
+        : catalog.providerId.startsWith('custom-')
+          ? true
         : catalog.providerId === 'openai-codex'
           ? openAiStatus?.configured ?? false
           : researchProviderStatuses.find((provider) => provider.id === catalog.providerId)?.configured ?? false,
@@ -733,7 +735,7 @@ export function ResearchSettingsForm({
       const providers = providerOptions.flatMap((provider) => {
         const preferredModelId = providerDefaultModel(provider.id, openAiStatus, researchProviderStatuses, providerModelDefaults);
         const defaultEffort = providerModelDefaults[provider.id]?.reasoningEffort ?? 'high';
-        const ready = provider.configured && providerPolicyRiskAcknowledgements[provider.id] === true;
+        const ready = provider.configured && providerPolicyReady(provider.id, providerPolicyRiskAcknowledgements);
         const orderedModels = [...provider.models].sort((left, right) => {
           if (left.id === preferredModelId) return -1;
           if (right.id === preferredModelId) return 1;
@@ -758,7 +760,7 @@ export function ResearchSettingsForm({
       const leadEffort = effortLevelFromInput(current.reasoningEffort);
       const leadReady = leadProviderId !== null
         && leadProvider?.configured === true
-        && providerPolicyRiskAcknowledgements[leadProviderId] === true
+        && providerPolicyReady(leadProviderId, providerPolicyRiskAcknowledgements)
         && leadModel?.effortLevels.includes(leadEffort) === true;
       const candidateCollaboration = { ...currentCollaboration, providers };
       const collaboration = leadReady
@@ -816,7 +818,7 @@ export function ResearchSettingsForm({
     const provider = providerOptions.find((option) => option.id === candidate.provider);
     return provider?.configured === true
       && provider.models.length > 0
-      && (!requiresCyberPolicyAcknowledgement || providerPolicyRiskAcknowledgements?.[candidate.provider] === true);
+      && (!requiresCyberPolicyAcknowledgement || providerPolicyReady(candidate.provider, providerPolicyRiskAcknowledgements));
   });
   const nextCollaborator = selectNextAvailableCollaborator(
     availableCollaborators,
@@ -827,7 +829,7 @@ export function ResearchSettingsForm({
       const provider = providerOptions.find((candidate) => candidate.id === preference.provider);
       return provider?.configured === true
         && provider.models.some((model) => model.id === preference.model && model.effortLevels.includes(preference.reasoningEffort))
-        && (!requiresCyberPolicyAcknowledgement || providerPolicyRiskAcknowledgements?.[preference.provider] === true);
+        && (!requiresCyberPolicyAcknowledgement || providerPolicyReady(preference.provider, providerPolicyRiskAcknowledgements));
     });
   const canGenerate = hasPromptDraft && selectedProvider?.configured === true && !generatingPrompt;
   const vmRepeatConflict = selectedMachineIds.some((machineId) => machineId.startsWith('vm:')) && repeatSchedule.type !== 'none';
@@ -1297,7 +1299,7 @@ export function ResearchSettingsForm({
                             label: candidate.label,
                             disabled: candidate.models.length === 0
                               || !candidate.configured
-                              || providerPolicyRiskAcknowledgements?.[candidate.id] !== true
+                              || !providerPolicyReady(candidate.id, providerPolicyRiskAcknowledgements)
                               || !collaboration.providers.some((available) => (
                                 available.provider === candidate.id
                                 && (candidate.id === preference.provider || !available.enabled)
@@ -1969,7 +1971,12 @@ export function researchSettingsInput(
 
 function researchProviderId(value: string | null | undefined): ResearchModelProviderId | null {
   if (value === 'openai-codex' || value === 'anthropic' || value === 'xai' || value === 'zai' || value === 'openrouter') return value;
+  if (value && /^custom-[a-z0-9][a-z0-9-]{0,63}$/u.test(value)) return value as `custom-${string}`;
   return null;
+}
+
+function providerPolicyReady(providerId: ResearchModelProviderId, acknowledgements: ProviderSettings['cyberPolicyRiskAcknowledgements']): boolean {
+  return providerId.startsWith('custom-') || acknowledgements?.[providerId] === true;
 }
 
 function repeatTypeLabel(type: RepeatSchedule['type']): string {

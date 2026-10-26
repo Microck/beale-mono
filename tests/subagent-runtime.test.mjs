@@ -491,6 +491,28 @@ test("subagent runtime normalizes exact routes and validates same-provider model
   );
 });
 
+test("custom provider child keeps off reasoning when the root uses reasoning", async () => {
+  const requests = [];
+  const manager = new SubagentManager({
+    rootProvider: "openai",
+    rootModel: "root-model",
+    rootReasoning: "high",
+    providerPreferences: [{ provider: "custom-example", model: "model-example", reasoning: "off", enabled: true }],
+    async run(request) {
+      requests.push(request);
+      return resultFor(request, "Example review complete.");
+    },
+  });
+  await toolsByName(manager, "root").spawn_agent.execute("spawn_custom", {
+    task_name: "custom_review",
+    message: "Review the example boundary.",
+    fork_turns: "none",
+    provider: "custom-example/model-example",
+  });
+  await manager.settle();
+  assert.equal(requests[0].reasoning, "off");
+});
+
 test("collaboration config decoder allows distinct models per provider and rejects duplicate routes", () => {
   const valid = {
     mode: "adaptive",

@@ -1341,6 +1341,30 @@ export function App(): JSX.Element {
     }
   }, []);
 
+  const saveCustomProvider = useCallback(async (input: { id?: `custom-${string}`; name: string; baseUrl: string; contextWindow?: number; maxTokens?: number; apiKey?: string }): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      setProviderSettings(await window.beale.saveCustomProvider(input));
+      await loadResearchProviderModelCatalog();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      throw caught;
+    } finally { setBusy(false); }
+  }, [loadResearchProviderModelCatalog]);
+
+  const removeCustomProvider = useCallback(async (providerId: `custom-${string}`): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      setProviderSettings(await window.beale.removeCustomProvider(providerId));
+      await loadResearchProviderModelCatalog();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      throw caught;
+    } finally { setBusy(false); }
+  }, [loadResearchProviderModelCatalog]);
+
   const setProviderModelDefaults = useCallback(async (
     providerId: ResearchModelProviderId,
     defaults: ProviderModelDefaults
@@ -1466,7 +1490,7 @@ export function App(): JSX.Element {
         setResearchProviderOAuthResults((current) => {
           if (!(providerId in current)) return current;
           const next = { ...current };
-          delete next[providerId];
+          delete next[providerId as ResearchProviderId];
           return next;
         });
       }
@@ -1489,7 +1513,7 @@ export function App(): JSX.Element {
         setResearchProviderOAuthResults((current) => {
           if (!(providerId in current)) return current;
           const next = { ...current };
-          delete next[providerId];
+          delete next[providerId as ResearchProviderId];
           return next;
         });
       }
@@ -2455,6 +2479,8 @@ export function App(): JSX.Element {
             onRemoveProvider={removeProvider}
             onConfigureProviderApiKey={configureProviderApiKey}
             onRemoveProviderApiKey={removeProviderApiKey}
+            onSaveCustomProvider={saveCustomProvider}
+            onRemoveCustomProvider={removeCustomProvider}
             onSetDefaultProviderId={setDefaultProviderId}
             onSetProviderModelDefaults={setProviderModelDefaults}
             onSetProviderOptionalModelEnabled={setProviderOptionalModelEnabled}
