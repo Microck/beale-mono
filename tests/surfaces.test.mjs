@@ -53,6 +53,9 @@ test("resource roots, agent-discovered children, lookup, and one-time first touc
     assert.equal(root.firstTouchedAt, null);
     assert.equal(state.surface.list().total, 2);
     assert.equal(state.surface.list().surfaces.find((item) => item.id === root.id).focusEligible, true);
+    assert.equal(state.surface.list({ resourceKind: 'service' }).total, 2);
+    assert.equal(state.surface.list({ resourceKind: 'repository' }).total, 0);
+    assert.equal(state.surface.list().surfaces.find((item) => item.id === root.id).resourceKind, 'service');
 
     const child = state.surface.create(root.id, "Request parser", "Lower-trust request parser boundary.");
     assert.equal(child.parentId, root.id);
@@ -121,6 +124,9 @@ test("surface tools expose simple query and track focus without duplicate touch"
     assert.equal(repeated.output.firstTouch, false);
     const query = await tools["surface.query"].execute(action("surface.query", { query: "example service" }));
     assert.equal(query.output.surfaces[0].id, state.rootId);
+    const services = await tools["surface.list"].execute(action("surface.list", { resourceKind: "service" }));
+    assert.equal(services.output.total, 2);
+    assert.equal(services.output.surfaces[0].resourceKind, "service");
     const missing = await tools["surface.get"].execute(action("surface.get", { surfaceId: "surface-missing" }));
     assert.equal(missing.status, "error");
   } finally { state.close(); }

@@ -174,6 +174,7 @@ function buildResearchPromptSections(
         "",
         "Resource first touch:",
         "Discover and add unlisted resources or assets with resource.catalog when they fit the recorded authorized scope, including instances covered by a broad inclusion. Discovery records inventory only. Before substantive research on a discovered resource or canonical repository revision, request its Auto-Reviewed first touch and proceed when approved. A denied review, explicit exclusion, or missing scope link is not authorization; continue other in-scope work.",
+        "When repository work identifies a distinct covered service, daemon, executable, API, or SDK, register that target as its own resource and map its attacker paths as surfaces. Keep its scope link explicit so later research can select it independently of the repository where it was noticed. Use surface.list resourceKind filters and pagination to compare eligible work across resource kinds.",
         "Complete the emitted baseline before broad exploration: establish provenance and build identity; check CVEs, advisories, vendor releases, fixed-version records, upstream and vendor history, and referenced fixes. Search aliases, record dated no-match queries and deferred sources, and treat shallow history as incomplete.",
         "",
         "Execution dependencies:",

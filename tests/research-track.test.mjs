@@ -211,11 +211,13 @@ test('actionability promotes child proof work, decays without evidence, and retu
     state.store.finishEpoch('session-example-child-two', true);
     assert.ok(state.store.get().surfaces.find((work) => work.surfaceId === children[0].id).actionabilityScore < 80);
 
+    const alternateRoot = state.store.reserveNext('session-example-breadth', map);
+    assert.equal(alternateRoot.surface.id, surfaces[1].id);
+    state.store.finishEpoch('session-example-breadth', true);
     const nextChild = state.store.reserveNext('session-example-child-three', map);
-    assert.equal(nextChild.surface.id, children[1].id);
+    assert.equal(nextChild.surface.id, children[0].id);
     assert.deepEqual(researchTrackProgress(state.store.get()), { investigated: 3, complete: 0, total: 4 });
     state.store.finishEpoch('session-example-child-three', true);
-    assert.equal(state.store.reserveNext('session-example-next-root', map).surface.id, surfaces[1].id);
 
     state.database.prepare('UPDATE app_server_research_track_surfaces SET score_updated_at=? WHERE workspace_id=? AND surface_id=?')
       .run('2000-01-01T00:00:00.000Z', workspaceId, children[0].id);
@@ -345,6 +347,74 @@ test('track scheduling does not favor low-impact work solely because it yields e
       SET actionability_score=65, impact='medium' WHERE workspace_id=? AND surface_id=?`)
       .run(workspaceId, surfaces[1].id);
     assert.equal(state.store.reserveNext('session-example-impact-rotation', surfaces).surface.id, surfaces[1].id);
+  } finally { state.close(); }
+});
+
+test('track breadth escapes a high-scoring repository family for another resource kind', () => {
+  const state = fixture();
+  try {
+    const map = [
+      { id: 'resource-example-repository', resourceId: 'resource-example-repository', resourceKind: 'repository',
+        resourceSource: 'explicit_scope', parentId: null, name: 'Example source', coverageState: open, progressBlocker: null },
+      { id: 'surface-example-repository-child', resourceId: 'resource-example-repository', resourceKind: 'repository',
+        resourceSource: 'explicit_scope', parentId: 'resource-example-repository', name: 'Example parser path', coverageState: open, progressBlocker: null },
+      { id: 'resource-example-other', resourceId: 'resource-example-other', resourceKind: 'other',
+        resourceSource: 'explicit_scope', parentId: null, name: 'Example platform resource', coverageState: open, progressBlocker: null },
+      { id: 'resource-example-binary', resourceId: 'resource-example-binary', resourceKind: 'binary',
+        resourceSource: 'runtime_discovery', parentId: null, name: 'Example service executable', coverageState: open, progressBlocker: null },
+    ];
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'], surfaces: map });
+    state.database.prepare(`UPDATE app_server_research_tracks SET epoch_count=8, last_surface_id=? WHERE workspace_id=?`)
+      .run(map[1].id, workspaceId);
+    state.database.prepare(`UPDATE app_server_research_track_surfaces SET epochs=7,
+      actionability_score=95, impact='high' WHERE workspace_id=? AND surface_id=?`)
+      .run(workspaceId, map[1].id);
+    state.database.prepare(`UPDATE app_server_research_track_surfaces SET epochs=1
+      WHERE workspace_id=? AND surface_id=?`).run(workspaceId, map[0].id);
+    assert.equal(state.store.reserveNext('session-example-cross-resource', map).surface.id, map[2].id);
+  } finally { state.close(); }
+});
+
+test('a newly approved service becomes a selectable track root after repository-only epochs', () => {
+  const state = fixture();
+  try {
+    const repository = { id: 'resource-example-repository', resourceId: 'resource-example-repository',
+      resourceKind: 'repository', resourceSource: 'explicit_scope', parentId: null,
+      name: 'Example source', coverageState: open, progressBlocker: null };
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces: [repository] });
+    state.database.prepare(`UPDATE app_server_research_tracks SET epoch_count=4, last_surface_id=? WHERE workspace_id=?`)
+      .run(repository.id, workspaceId);
+    state.database.prepare(`UPDATE app_server_research_track_surfaces SET epochs=4,
+      actionability_score=90, impact='high' WHERE workspace_id=? AND surface_id=?`)
+      .run(workspaceId, repository.id);
+    const service = { id: 'resource-example-service', resourceId: 'resource-example-service',
+      resourceKind: 'service', resourceSource: 'runtime_discovery', parentId: null,
+      name: 'Example daemon', coverageState: open, progressBlocker: null };
+    assert.equal(state.store.reserveNext('session-example-new-service', [repository, service]).surface.id, service.id);
+  } finally { state.close(); }
+});
+
+test('recurring breadth selects a different resource after every root has been investigated', () => {
+  const state = fixture();
+  try {
+    const map = [
+      { id: 'resource-example-repository', resourceId: 'resource-example-repository', resourceKind: 'repository',
+        parentId: null, name: 'Example source', coverageState: open, progressBlocker: null },
+      { id: 'surface-example-repository-child', resourceId: 'resource-example-repository', resourceKind: 'repository',
+        parentId: 'resource-example-repository', name: 'Example parser path', coverageState: open, progressBlocker: null },
+      { id: 'resource-example-service', resourceId: 'resource-example-service', resourceKind: 'service',
+        parentId: null, name: 'Example daemon', coverageState: open, progressBlocker: null },
+    ];
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'], surfaces: map });
+    state.database.prepare(`UPDATE app_server_research_tracks SET epoch_count=3, last_surface_id=? WHERE workspace_id=?`)
+      .run(map[1].id, workspaceId);
+    const update = state.database.prepare(`UPDATE app_server_research_track_surfaces
+      SET epochs=?, actionability_score=? WHERE workspace_id=? AND surface_id=?`);
+    update.run(1, 35, workspaceId, map[0].id);
+    update.run(2, 95, workspaceId, map[1].id);
+    update.run(1, 35, workspaceId, map[2].id);
+    assert.equal(state.store.reserveNext('session-example-recurring-breadth', map).surface.id, map[2].id);
   } finally { state.close(); }
 });
 
@@ -550,7 +620,7 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     assert.equal(first.request.sessionId, started.id);
     assert.deepEqual(first.request.launch.collaboration, collaboration);
     assert.match(first.request.launch.promptMarkdown, /Selected execution targets: local/);
-    assert.match(first.request.launch.promptMarkdown, /briefly compare the eligible roots in surface.list before deep work/);
+    assert.match(first.request.launch.promptMarkdown, /compare eligible roots across resource kinds with surface.list/);
     assert.match(first.request.launch.promptMarkdown, /listed resources are an inventory/);
     assert.match(first.request.launch.promptMarkdown, /authorized physical iPhone/);
     assert.match(first.request.launch.promptMarkdown, /localhost run alone does not validate target behavior/);

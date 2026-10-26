@@ -4,7 +4,7 @@ import { openResearchDatabase } from "./database.js";
 import { nowIso } from "./ids.js";
 import type { ResearchResourceCatalog, TrackedResearchResource } from "./research-resources.js";
 import type { ResearchExecutableTool, ResearchToolExecutionContext } from "./tool-registry.js";
-import type { ResearchToolAction } from "./types.js";
+import type { ResearchResourceKind, ResearchToolAction } from "./types.js";
 
 export interface SurfaceFoundation {
   bugHistory: { summary: string; limits: string };
@@ -76,6 +76,8 @@ export interface ResearchSurface {
 export interface SurfaceCard {
   id: string;
   resourceId: string;
+  resourceKind: ResearchResourceKind | null;
+  resourceSource: TrackedResearchResource["source"] | null;
   parentId: string | null;
   name: string;
   path: string;
@@ -163,10 +165,11 @@ export class SurfaceStore {
     return surface;
   }
 
-  public list(input: { resourceId?: string; parentId?: string; limit?: number; offset?: number } = {}): { surfaces: SurfaceCard[]; nextOffset: number | null; total: number } {
+  public list(input: { resourceId?: string; resourceKind?: string; parentId?: string; limit?: number; offset?: number } = {}): { surfaces: SurfaceCard[]; nextOffset: number | null; total: number } {
     const offset = Math.max(0, Math.floor(input.offset ?? 0));
     const limit = bound(input.limit, 50);
     const matches = this.#all().filter((surface) => (!input.resourceId || surface.resourceId === input.resourceId)
+      && (!input.resourceKind || this.#resources.get(surface.resourceId)?.kind === input.resourceKind)
       && (input.parentId === undefined || surface.parentId === input.parentId));
     return { surfaces: matches.slice(offset, offset + limit).map((surface) => this.#card(surface)), nextOffset: offset + limit < matches.length ? offset + limit : null, total: matches.length };
   }
@@ -362,8 +365,10 @@ export class SurfaceStore {
 
   #card(surface: ResearchSurface): SurfaceCard {
     const coverage = surface.foundation?.coverage;
+    const resource = this.#resources.get(surface.resourceId);
     return {
-      id: surface.id, resourceId: surface.resourceId, parentId: surface.parentId,
+      id: surface.id, resourceId: surface.resourceId, resourceKind: resource?.kind ?? null,
+      resourceSource: resource?.source ?? null, parentId: surface.parentId,
       name: surface.name, path: this.path(surface.id), root: surface.root,
       focusEligible: this.#focusEligible(surface),
       firstTouchedAt: surface.firstTouchedAt, foundationReady: surface.foundation !== null,
@@ -440,7 +445,7 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
     },
   };
   const specs = [
-    { name: "surface.list", transportName: "surface_list", effect: "read", properties: { resourceId: { type: "string" }, parentId: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: [] },
+    { name: "surface.list", transportName: "surface_list", effect: "read", properties: { resourceId: { type: "string" }, resourceKind: { type: "string", enum: ["domain", "repository", "binary", "service", "tool", "documentation", "other"], description: "Filter roots and children by resource kind to compare research outside a dominant source index." }, parentId: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: [] },
     { name: "surface.get", transportName: "surface_get", effect: "read", properties: { surfaceId: { type: "string" } }, required: ["surfaceId"] },
     { name: "surface.query", transportName: "surface_query", effect: "read", properties: { query: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: ["query"] },
     { name: "surface.create", transportName: "surface_create", effect: "write", properties: { parentId: { type: "string" }, name: { type: "string" }, description: { type: "string", description: "Security-relevant attacker path, trust boundary, privilege context, sink, or effect that distinguishes this child surface." } }, required: ["parentId", "name", "description"] },
@@ -468,7 +473,7 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
       try {
         let output: unknown;
         switch (spec.name) {
-          case "surface.list": output = store.list({ ...(typeof input.resourceId === "string" ? { resourceId: input.resourceId } : {}), ...(typeof input.parentId === "string" ? { parentId: input.parentId } : {}), ...(typeof input.limit === "number" ? { limit: input.limit } : {}), ...(typeof input.offset === "number" ? { offset: input.offset } : {}) }); break;
+          case "surface.list": output = store.list({ ...(typeof input.resourceId === "string" ? { resourceId: input.resourceId } : {}), ...(typeof input.resourceKind === "string" ? { resourceKind: input.resourceKind } : {}), ...(typeof input.parentId === "string" ? { parentId: input.parentId } : {}), ...(typeof input.limit === "number" ? { limit: input.limit } : {}), ...(typeof input.offset === "number" ? { offset: input.offset } : {}) }); break;
           case "surface.get": {
             const surface = store.require(nonempty(input.surfaceId, "surfaceId"));
             output = { ...surface, coverageState: store.coverageState(surface.id) };

@@ -44,6 +44,7 @@
 
 #### Changed
 
+- Research tracks reserve recurring epochs for distinct eligible resources and favor underexplored resource kinds, including reviewed discoveries outside configured source repositories. Surface lists expose resource kind filters, and epoch guidance records newly identified in-scope services and binaries as independent resources. Control contract v65 requires rebuilt Beale and app-server clients; no storage migration is needed.
 - Source research can materialize any repository verified under the recorded workspace scope and search its managed checkout; the configured source list is no longer treated as the scope boundary. Materialization performs Auto-Review before cloning.
 - Track checkpoints now map attacker control, trust boundary, possible failure mode, and unauthorized effect for each new path, and reject renamed copies of the same vector. Older paths remain readable and can be updated in place.
 
