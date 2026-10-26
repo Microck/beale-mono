@@ -281,8 +281,19 @@ describe('renderer commentary projection', () => {
     expect(commentaryToolUsageText('shell.run', 1, 'npm run Check')).toBe('Running npm run Check');
     expect(commentaryToolUsageText('shell.run', 4)).toBe('Running 4 commands');
     expect(commentaryToolUsageText('shell.run', 1, 'npm test', true)).toBe('Ran npm test');
-    expect(commentaryToolUsageText('mcp.browser.snapshot', 1)).toBe('Using snapshot');
-    expect(commentaryToolUsageText('custom.scan', 2)).toBe('Using custom scan 2 times');
+    expect(commentaryToolUsageText('surface.get', 1)).toBe('Inspecting a surface');
+    expect(commentaryToolUsageText('surface.list', 1)).toBe('Listing surfaces');
+    expect(commentaryToolUsageText('surface.focus', 1)).toBe('Focusing on a surface');
+    expect(commentaryToolUsageText('features.load', 1)).toBe('Loading features');
+    expect(commentaryToolUsageText('plugins.load', 1)).toBe('Loading plugins');
+    expect(commentaryToolUsageText('status', 1)).toBe('Checking status');
+    expect(commentaryToolUsageText('iphones', 1)).toBe('Listing iPhones');
+    expect(commentaryToolUsageText('mcp.browser.snapshot', 1)).toBe('Capturing a browser snapshot');
+    expect(commentaryToolUsageText('mcp.example.status', 1)).toBe('Checking status');
+    expect(commentaryToolUsageText('mcp.example.iphones', 1)).toBe('Listing iPhones');
+    expect(commentaryToolUsageText('custom.scan', 2)).toBe('Scanning with custom scan 2 times');
+    expect(commentaryToolUsageText('custom.search', 1)).toBe('Searching with custom search');
+    expect(commentaryToolUsageText('custom.unknown', 1)).toBe('Calling custom unknown');
   });
 
   it('shows one activity row per tool call, coalesces repeats, and suppresses paired results', () => {
@@ -723,12 +734,36 @@ describe('renderer commentary projection', () => {
     }))).toBe('Memorizing test strategy "Parser regression suite"');
     expect(toolMessage(pairedEvents('file.read', 'file-read', { path: 'src/parser.ts' }, { text: 'source' })))
       .toBe('Reading src/parser.ts');
+    expect(toolMessage(pairedEvents('surface.get', 'surface-get', { surfaceId: 'surface_example' }, {
+      id: 'surface_example', name: 'Parser entry boundary'
+    }))).toBe('Inspecting surface "Parser entry boundary"');
+    expect(toolMessage(pairedEvents('surface.list', 'surface-list', { parentId: 'surface_example' }, {
+      surfaces: []
+    }))).toBe('Listing surfaces under "surface_example"');
+    expect(toolMessage(pairedEvents('surface.list', 'resource-surfaces', { resourceId: 'resource_example' }, {
+      surfaces: []
+    }))).toBe('Listing surfaces for resource "resource_example"');
+    expect(toolMessage(pairedEvents('surface.focus', 'surface-focus', { surfaceId: 'surface_example' }, {
+      surfaceTrail: [{ id: 'surface_example', name: 'Parser entry boundary' }]
+    }))).toBe('Focusing on surface "Parser entry boundary"');
+    expect(toolMessage(pairedEvents('features.load', 'features-load', { features: ['code-navigation'] }, {
+      loadedFeatureIds: ['code-navigation']
+    }))).toBe('Loading feature "code-navigation"');
+    expect(toolMessage(pairedEvents('plugins.load', 'plugins-load', { plugins: ['example-plugin', 'example-reference'] }, {
+      loadedPluginIds: ['example-plugin', 'example-reference']
+    }))).toBe('Loading plugins "example-plugin", "example-reference"');
     expect(toolMessage(pairedEvents('finding.list', 'finding-list', {
       query: 'memory safety'
     }, { findings: [] }))).toBe('Querying findings for "memory safety"');
     expect(toolMessage(pairedEvents('resource.catalog', 'resource-catalog', {
-      operation: 'discover'
-    }, { resource: {} }))).toBe('Cataloging resource with discover operation');
+      operation: 'discover', name: 'Example parser'
+    }, { resource: {} }))).toBe('Discovering resource "Example parser"');
+    expect(toolMessage(pairedEvents('resource.catalog', 'resource-list', {
+      operation: 'list'
+    }, { resources: [] }))).toBe('Listing research resources');
+    expect(toolMessage(pairedEvents('resource.catalog', 'resource-history', {
+      operation: 'history', resourceId: 'resource_example', historyId: 'reference_example'
+    }, { records: [] }))).toBe('Reading saved resource reference "reference_example"');
     expect(toolMessage(pairedEvents('finding.transition', 'finding-transition', {
       id: 'finding_parser', toStatus: 'report_ready'
     }, { status: 'report_ready' }))).toBe('Transitioning finding to report ready');

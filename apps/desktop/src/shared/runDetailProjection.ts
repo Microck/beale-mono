@@ -357,7 +357,7 @@ function toolLabelInputKeys(toolName: string): readonly string[] {
     case 'finding.transition': return ['toStatus'];
     case 'finding.completion_check': return ['targetStatus'];
     case 'finding.list': return ['query'];
-    case 'resource.catalog': return ['operation'];
+    case 'resource.catalog': return ['operation', 'name', 'resourceId', 'historyId'];
     case 'history.search':
     case 'memory.search': return ['query'];
     case 'history.mark_duplicate': return ['type', 'id', 'parentId'];
@@ -375,6 +375,13 @@ function toolLabelInputKeys(toolName: string): readonly string[] {
     case 'runbook.edit': return ['id', 'cellId', 'expectedRevision'];
     case 'runbook.run': return ['id', 'cellId', 'startCellId', 'endCellId'];
     case 'file.read': return ['path'];
+    case 'surface.get':
+    case 'surface.focus': return ['surfaceId'];
+    case 'surface.list': return ['parentId', 'resourceId'];
+    case 'features.load': return ['features'];
+    case 'plugins.load': return ['plugins'];
+    case 'features.preview': return ['feature'];
+    case 'plugins.preview': return ['plugin'];
     case 'shell.run': return ['command', 'utility', 'args'];
     case 'repository.search': return ['query', 'root', 'path', 'repositoryPath', 'repository'];
     case 'workspace.search': return ['workspaceId', 'query', 'path', 'mode', 'categories', 'extensions', 'modifiedAfter', 'includeRaw', 'includeTemporary', 'includeCanonicalExports', 'offset', 'maxResults'];
@@ -394,6 +401,7 @@ function toolLabelResultKeys(toolName: string): readonly string[] {
     case 'runbook.run': return ['runbookId', 'title'];
     case 'shell.run': return ['command', 'utility', 'args'];
     case 'repository.search': return ['query', 'roots', 'attemptedRoots'];
+    case 'surface.get': return ['name'];
     case 'workspace.search': return ['workspace', 'query', 'matches', 'nextOffset', 'visitedFiles', 'partial'];
     case 'list_agents': return [];
     default: return [];
