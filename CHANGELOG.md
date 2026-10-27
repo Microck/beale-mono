@@ -57,6 +57,7 @@
 #### Security
 
 - Release actions use fixed commit references. macOS packaging checks the expected signing team and the app inside the DMG and ZIP; publication checks artifact digests and requires a second protected-environment approval.
+- Workspace publication replaces known host paths even when nested JSON has escaped Windows separators, keeping those paths out of exported execution evidence.
 
 #### Changed
 
