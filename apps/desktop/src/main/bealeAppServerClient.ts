@@ -912,7 +912,7 @@ function legacyMacSupervisorPid(expectedEntry: string): number {
       encoding: 'utf8', timeout: 5_000
     });
     pid = Number(/^p(\d+)$/mu.exec(listener)?.[1]);
-    command = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5_000 });
+    command = execFileSync('ps', ['-ww', '-p', String(pid), '-o', 'command='], { encoding: 'utf8', timeout: 5_000 });
   } catch {
     throw new Error('The older app-server supervisor could not be identified before updating Beale.');
   }
