@@ -34,6 +34,7 @@
 
 #### Fixed
 
+- Windows Desktop releases now pass cross-platform verification; local file links with drive letters open correctly, and editor icon discovery uses macOS paths consistently.
 - Provider cybersecurity safeguard retries in canonical app-server sessions now appear as session markers, including after reopening the session.
 - Aurora ribbons darken the window background in dark themes and lighten it in light themes to preserve text contrast.
 - The session context usage tooltip has a larger hover target while the circle stays in place.

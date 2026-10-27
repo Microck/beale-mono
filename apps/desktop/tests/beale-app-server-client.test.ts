@@ -78,8 +78,10 @@ describe('beale app-server client', () => {
       PROVIDER_TOKEN: 'host-only-test-value'
     });
     try {
-      expect(statSync(launchEnvironment.directory).mode & 0o777).toBe(0o700);
-      expect(statSync(launchEnvironment.path).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') {
+        expect(statSync(launchEnvironment.directory).mode & 0o777).toBe(0o700);
+        expect(statSync(launchEnvironment.path).mode & 0o777).toBe(0o600);
+      }
       expect(JSON.parse(readFileSync(launchEnvironment.path, 'utf8'))).toEqual({
         BEALE_APP_SERVER_STATE_FILE: '/tmp/beale-state.json',
         PROVIDER_TOKEN: 'host-only-test-value'
