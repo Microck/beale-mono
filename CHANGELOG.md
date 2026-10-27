@@ -34,6 +34,7 @@
 
 #### Fixed
 
+- Windows Desktop releases now pass cross-platform verification; local file links with drive letters open correctly, and editor icon discovery uses macOS paths consistently.
 - Provider cybersecurity safeguard retries in canonical app-server sessions now appear as session markers, including after reopening the session.
 - Aurora ribbons darken the window background in dark themes and lighten it in light themes to preserve text contrast.
 - The session context usage tooltip has a larger hover target while the circle stays in place.
@@ -57,6 +58,7 @@
 #### Security
 
 - Release actions use fixed commit references. macOS packaging checks the expected signing team and the app inside the DMG and ZIP; publication checks artifact digests and requires a second protected-environment approval.
+- Workspace publication replaces known host paths even when nested JSON has escaped Windows separators, keeping those paths out of exported execution evidence.
 
 #### Changed
 
@@ -1503,6 +1505,7 @@
 
 #### Fixed
 
+- Failed topic-store initialization closes its SQLite handle, avoiding locked database files on Windows.
 - Research track scheduling retains testable high-impact paths for deeper work and moves to another available surface after three unproductive epochs on one surface. Checkpoints preserve distinct attacker paths with evidence-backed outcomes across epochs. Existing track surfaces gain an empty attacker-path ledger; control contract v64 requires rebuilt Beale and app-server clients.
 - Research tracks continue with another eligible surface when an agent retires the assigned surface. Automatic pause reasons remain visible after the worker exits.
 - Guardian-enabled tracks recover worker exits without terminal session records, close the interrupted attempt, and review durable progress in the next epoch instead of pausing. The selected Guardian setting persists across epochs; existing track rows gain a default-enabled column. Rebuild Beale and app-server together for the updated control contract.

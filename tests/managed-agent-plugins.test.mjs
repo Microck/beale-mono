@@ -7,6 +7,9 @@ import net from 'node:net';
 import test from 'node:test';
 import { AgentPluginRegistry, bundledPluginsRequiredByResearchKit } from '../packages/research-agent/dist/agent-plugin-registry.js';
 
+// These fixtures launch POSIX executables or use Unix domain sockets.
+const testPosixTransport = process.platform === 'win32' ? test.skip : test;
+
 const pluginRoot = resolve('managed-plugins/apple-security-devices');
 const serverPath = join(pluginRoot, 'server.mjs');
 const targetFlagsPluginRoot = resolve('managed-plugins/apple-target-flags');
@@ -320,7 +323,7 @@ test('apple-security-devices reports capabilities without claiming iOS Simulator
   assert.equal(typeof status.darwinVm.available, 'boolean');
 });
 
-test('apple-security-devices reattaches a verified Darwin VM after an MCP restart', () => {
+testPosixTransport('apple-security-devices reattaches a verified Darwin VM after an MCP restart', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-darwin-restart-'));
   const pluginData = join(directory, 'plugin-data');
   const checkoutRoot = join(directory, 'checkout');
@@ -409,7 +412,7 @@ setInterval(() => {}, 1000);
   }
 });
 
-test('apple-security-devices refuses to adopt a live PID with mismatched QEMU identity', async () => {
+testPosixTransport('apple-security-devices refuses to adopt a live PID with mismatched QEMU identity', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-darwin-mismatch-'));
   const pluginData = join(directory, 'plugin-data');
   const checkoutRoot = join(directory, 'checkout');
@@ -464,7 +467,7 @@ test('apple-security-devices refuses to adopt a live PID with mismatched QEMU id
   }
 });
 
-test('apple-security-devices allows name-bound Tart concurrency by default but supports explicit exclusivity', () => {
+testPosixTransport('apple-security-devices allows name-bound Tart concurrency by default but supports explicit exclusivity', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-tart-'));
   const fakeTart = join(directory, 'tart');
   try {
@@ -520,7 +523,7 @@ process.exit(99);
   }
 });
 
-test('apple-security-devices returns the real diagnostic when Tart exits during startup', () => {
+testPosixTransport('apple-security-devices returns the real diagnostic when Tart exits during startup', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-tart-start-failure-'));
   const fakeTart = join(directory, 'tart');
   try {
@@ -555,7 +558,7 @@ process.exit(99);
   }
 });
 
-test('apple-security-devices resolves an explicitly named Tart IP with concurrent guests', () => {
+testPosixTransport('apple-security-devices resolves an explicitly named Tart IP with concurrent guests', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-tart-ip-'));
   const fakeTart = join(directory, 'tart');
   try {
@@ -595,7 +598,7 @@ process.exit(99);
   }
 });
 
-test('apple-security-devices falls back to configured SSH when Tart Guest Agent is unavailable', () => {
+testPosixTransport('apple-security-devices falls back to configured SSH when Tart Guest Agent is unavailable', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-tart-ssh-fallback-'));
   const fakeTart = join(directory, 'tart');
   const fakeSsh = join(directory, 'ssh');
@@ -732,7 +735,7 @@ process.exit(97);
   }
 });
 
-test('apple-security-devices uses a native helper before exec argv', () => {
+testPosixTransport('apple-security-devices uses a native helper before exec argv', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-tart-fd-sanitizer-'));
   const fakeTart = join(directory, 'tart');
   const invocationLog = join(directory, 'invocations.log');
@@ -815,7 +818,7 @@ process.exit(98);
   }
 });
 
-test('apple-security-devices repairs a guest helper removed by an external VM reset', () => {
+testPosixTransport('apple-security-devices repairs a guest helper removed by an external VM reset', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-tart-helper-repair-'));
   const fakeTart = join(directory, 'tart');
   const helperState = join(directory, 'helper-present');
@@ -896,7 +899,7 @@ process.exit(98);
   }
 });
 
-test('apple-security-devices recycles Guest Agent descriptor pressure before running requested argv', () => {
+testPosixTransport('apple-security-devices recycles Guest Agent descriptor pressure before running requested argv', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-tart-fd-recovery-'));
   const fakeTart = join(directory, 'tart');
   const statePath = join(directory, 'state');
@@ -970,7 +973,7 @@ process.exit(98);
   }
 });
 
-test('apple-security-devices stops on Guest Agent descriptor exhaustion without opening fallback transport', () => {
+testPosixTransport('apple-security-devices stops on Guest Agent descriptor exhaustion without opening fallback transport', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-tart-fd-exhaustion-'));
   const fakeTart = join(directory, 'tart');
   const fakeSsh = join(directory, 'ssh');
@@ -1029,7 +1032,7 @@ process.exit(97);
   }
 });
 
-test('apple-security-devices cancels an abandoned Tart request and releases the per-VM queue', () => {
+testPosixTransport('apple-security-devices cancels an abandoned Tart request and releases the per-VM queue', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-tart-cancel-'));
   const fakeTart = join(directory, 'tart');
   try {
@@ -1082,7 +1085,7 @@ setInterval(() => {}, 1000);
   }
 });
 
-test('apple-security-devices copies bounded files through the Tart Guest Agent in both directions', () => {
+testPosixTransport('apple-security-devices copies bounded files through the Tart Guest Agent in both directions', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-tart-copy-'));
   const fakeTart = join(directory, 'tart');
   const source = join(directory, 'host-source');
@@ -1193,7 +1196,7 @@ process.exit(98);
   }
 });
 
-test('apple-security-devices copies files through the private host runner when Guest Agent is unavailable', () => {
+testPosixTransport('apple-security-devices copies files through the private host runner when Guest Agent is unavailable', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-tart-runner-copy-'));
   const fakeTart = join(directory, 'tart');
   const fakeSsh = join(directory, 'ssh');
@@ -1290,7 +1293,7 @@ process.exit(result.status ?? 97);
   }
 });
 
-test('apple-security-devices rejects over-limit and clobbering transfers before opening a guest transport', () => {
+testPosixTransport('apple-security-devices rejects over-limit and clobbering transfers before opening a guest transport', () => {
   const directory = mkdtempSync(join(tmpdir(), 'beale-fake-tart-copy-guards-'));
   const fakeTart = join(directory, 'tart');
   const source = join(directory, 'source');
