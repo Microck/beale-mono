@@ -688,12 +688,15 @@ export function createPiAgentExecutor(
           const apiKey = authenticationRouter.requestApiKey(active.model.provider);
           if (!options.getModelSelection || !request.root) {
             const { reasoning: _unusedReasoning, ...nonReasoningOptions } = streamOptions ?? {};
+            const optionsForModel = routedModel.provider.startsWith("custom-") && routedModel.reasoning !== true
+              ? nonReasoningOptions
+              : streamOptions;
             return models.streamSimple(
               routedModel,
               context,
               withProviderSession(
                 routedModel,
-                { ...(routedModel.provider.startsWith("custom-") ? nonReasoningOptions : streamOptions), ...(apiKey ? { apiKey } : {}) },
+                { ...optionsForModel, ...(apiKey ? { apiKey } : {}) },
                 providerSessionId,
                 options.fastMode === true,
                 options.daybreakMode ?? 'blue',
