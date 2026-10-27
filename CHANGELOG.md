@@ -14,7 +14,8 @@
 #### Changed
 
 - Installer staging now uses the reviewed dependency lockfile. The release workflow verifies the tag on macOS and Windows before requesting signing approval, requires signed installers, and checks signatures and macOS notarization before publishing.
-- The release workflow can publish macOS alone when Windows signing credentials are absent; incomplete Windows credentials still fail the release.
+- The release workflow can publish macOS alone while Windows signing is disabled; incomplete enabled Windows configuration fails the release.
+- Windows release packaging uses Azure Artifact Signing with GitHub OIDC instead of exported certificate keys. It verifies the signed app and installer publisher and timestamps before publishing.
 - Track progress lists retained attacker paths and outcomes, and shows automatic pause reasons directly.
 - Active sessions animate overlapping aurora ribbons through the window's profile-colored heat gradient; reduced-motion settings keep them still.
 - The active session stop icon makes a brief quarter turn followed by a longer pause to indicate ongoing work.
