@@ -23,13 +23,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           version: 11.7.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22.19.0
           cache: pnpm
@@ -46,14 +47,17 @@ jobs:
     runs-on: macos-15
     environment: release
     timeout-minutes: 90
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           version: 11.7.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22.19.0
           cache: pnpm
@@ -72,8 +76,9 @@ jobs:
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          MACOS_SIGNING_TEAM_ID: ${{ vars.MACOS_SIGNING_TEAM_ID }}
         run: |
-          for name in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD APPLE_API_KEY_CONTENT APPLE_API_KEY_ID APPLE_API_ISSUER; do
+          for name in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD APPLE_API_KEY_CONTENT APPLE_API_KEY_ID APPLE_API_ISSUER MACOS_SIGNING_TEAM_ID; do
             if [[ -z "${!name}" ]]; then echo "Missing signing credential: $name"; exit 1; fi
           done
       - name: Write the App Store Connect API key
@@ -82,6 +87,7 @@ jobs:
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
         run: |
           if [[ -n "$APPLE_API_KEY_CONTENT" ]]; then
+            umask 077
             printf '%s' "$APPLE_API_KEY_CONTENT" > "$RUNNER_TEMP/apple-api-key.p8"
             echo "APPLE_API_KEY=$RUNNER_TEMP/apple-api-key.p8" >> "$GITHUB_ENV"
           fi
@@ -91,12 +97,16 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      - name: Verify macOS app signature
+      - name: Verify macOS release artifacts
         shell: bash
-        run: |
-          codesign --verify --deep --strict apps/desktop/release/mac-arm64/Beale.app
-          xcrun stapler validate apps/desktop/release/mac-arm64/Beale.app
-      - uses: actions/upload-artifact@v4
+        env:
+          MACOS_SIGNING_TEAM_ID: ${{ vars.MACOS_SIGNING_TEAM_ID }}
+        run: bash scripts/verify-macos-release.sh
+      - name: Remove temporary notarization key
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/apple-api-key.p8"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: installers-macos
           if-no-files-found: error
@@ -115,13 +125,14 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           version: 11.7.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22.19.0
           cache: pnpm
@@ -202,7 +213,7 @@ jobs:
             if ($publisher -ne $env:WINDOWS_SIGNING_PUBLISHER) { throw "Unexpected signer on $file`: $publisher" }
             if (-not $signature.TimeStamperCertificate) { throw "Missing timestamp on $file" }
           }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: steps.signing.outputs.enabled == 'true'
         with:
           name: installers-windows
@@ -215,18 +226,51 @@ jobs:
   publish:
     needs: [package-macos, package-windows]
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: installers
+          pattern: installers-*
           merge-multiple: true
+          digest-mismatch: error
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          WINDOWS_SIGNING_ENABLED: ${{ vars.WINDOWS_SIGNING_ENABLED }}
         run: |
+          shopt -s nullglob
+          mac_dmg=(installers/*.dmg)
+          mac_zip=(installers/*.zip)
+          win_exe=(installers/*.exe)
+          if [[ ${#mac_dmg[@]} -ne 1 || ${#mac_zip[@]} -ne 1 || ! -f installers/latest-mac.yml ]]; then
+            echo "Expected one macOS DMG, one ZIP, and latest-mac.yml."
+            exit 1
+          fi
+          if [[ "$WINDOWS_SIGNING_ENABLED" == true ]]; then
+            if [[ ${#win_exe[@]} -ne 1 || ! -f installers/latest.yml ]]; then
+              echo "Expected one signed Windows installer and latest.yml."
+              exit 1
+            fi
+          elif [[ ${#win_exe[@]} -ne 0 ]]; then
+            echo "Windows installer present while signing is disabled."
+            exit 1
+          fi
+          for file in installers/*; do
+            if [[ ! -f "$file" || -L "$file" ]]; then
+              echo "Unexpected release artifact type: $file"
+              exit 1
+            fi
+            case "$file" in
+              *.dmg|*.zip|*.exe|*.blockmap|*/latest.yml|*/latest-mac.yml) ;;
+              *) echo "Unexpected release artifact: $file"; exit 1 ;;
+            esac
+          done
           version="${GITHUB_REF_NAME#v}"
           # The numbered changelog section is the release notes.
           awk -v heading="## $version" '$0 == heading { found = 1; next } found && /^## / { exit } found { print }' CHANGELOG.md > notes.md

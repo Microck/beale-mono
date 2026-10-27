@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.0
+
 ### Beale
 
 #### Added
@@ -16,6 +18,7 @@
 - Installer staging now uses the reviewed dependency lockfile. The release workflow verifies the tag on macOS and Windows before requesting signing approval, requires signed installers, and checks signatures and macOS notarization before publishing.
 - The release workflow can publish macOS alone while Windows signing is disabled; incomplete enabled Windows configuration fails the release.
 - Windows release packaging uses Azure Artifact Signing with GitHub OIDC instead of exported certificate keys. It verifies the signed app and installer publisher and timestamps before publishing.
+
 - Track progress lists retained attacker paths and outcomes, and shows automatic pause reasons directly.
 - Active sessions animate overlapping aurora ribbons through the window's profile-colored heat gradient; reduced-motion settings keep them still.
 - The active session stop icon makes a brief quarter turn followed by a longer pause to indicate ongoing work.
@@ -51,27 +54,9 @@
 - Session and workspace memory summaries exclude Rejected records from totals and per-type counts, including when profile metadata is unavailable.
 - Stopping a running research track session now ends the current epoch while the track continues; Pause still pauses the track. The track controls show paused state explicitly.
 
-### app-server
+#### Security
 
-#### Changed
-
-- App-server launches register custom providers from the host registry and route their model requests through the existing research runtime. Custom provider metadata stays separate from host-only API keys.
-
-- Research tracks reserve recurring epochs for distinct eligible resources and favor underexplored resource kinds, including reviewed discoveries outside configured source repositories. Surface lists expose resource kind filters, and epoch guidance records newly identified in-scope services and binaries as independent resources. Control contract v65 requires rebuilt Beale and app-server clients; no storage migration is needed.
-- Source research can materialize any repository verified under the recorded workspace scope and search its managed checkout; the configured source list is no longer treated as the scope boundary. Materialization performs Auto-Review before cloning.
-- Track checkpoints now map attacker control, trust boundary, possible failure mode, and unauthorized effect for each new path, and reject renamed copies of the same vector. Older paths remain readable and can be updated in place.
-
-#### Fixed
-
-- Research track scheduling retains testable high-impact paths for deeper work and moves to another available surface after three unproductive epochs on one surface. Checkpoints preserve distinct attacker paths with evidence-backed outcomes across epochs. Existing track surfaces gain an empty attacker-path ledger; control contract v64 requires rebuilt Beale and app-server clients.
-- Research tracks continue with another eligible surface when an agent retires the assigned surface. Automatic pause reasons remain visible after the worker exits.
-- Guardian-enabled tracks recover worker exits without terminal session records, close the interrupted attempt, and review durable progress in the next epoch instead of pausing. The selected Guardian setting persists across epochs; existing track rows gain a default-enabled column. Rebuild Beale and app-server together for the updated control contract.
-- Stopping an individual research epoch no longer pauses its track; an explicit track pause still does.
-- Sessions stopped after a track pause record the track-control cause even when the scheduler observes the pause first.
-
-## 0.9.0
-
-### Beale
+- Release actions use fixed commit references. macOS packaging checks the expected signing team and the app inside the DMG and ZIP; publication checks artifact digests and requires a second protected-environment approval.
 
 #### Changed
 
@@ -1507,6 +1492,22 @@
 - Added MIT licensing metadata and a root `LICENSE`.
 
 ### app-server
+
+#### Changed
+
+- App-server launches register custom providers from the host registry and route their model requests through the existing research runtime. Custom provider metadata stays separate from host-only API keys.
+
+- Research tracks reserve recurring epochs for distinct eligible resources and favor underexplored resource kinds, including reviewed discoveries outside configured source repositories. Surface lists expose resource kind filters, and epoch guidance records newly identified in-scope services and binaries as independent resources. Control contract v65 requires rebuilt Beale and app-server clients; no storage migration is needed.
+- Source research can materialize any repository verified under the recorded workspace scope and search its managed checkout; the configured source list is no longer treated as the scope boundary. Materialization performs Auto-Review before cloning.
+- Track checkpoints now map attacker control, trust boundary, possible failure mode, and unauthorized effect for each new path, and reject renamed copies of the same vector. Older paths remain readable and can be updated in place.
+
+#### Fixed
+
+- Research track scheduling retains testable high-impact paths for deeper work and moves to another available surface after three unproductive epochs on one surface. Checkpoints preserve distinct attacker paths with evidence-backed outcomes across epochs. Existing track surfaces gain an empty attacker-path ledger; control contract v64 requires rebuilt Beale and app-server clients.
+- Research tracks continue with another eligible surface when an agent retires the assigned surface. Automatic pause reasons remain visible after the worker exits.
+- Guardian-enabled tracks recover worker exits without terminal session records, close the interrupted attempt, and review durable progress in the next epoch instead of pausing. The selected Guardian setting persists across epochs; existing track rows gain a default-enabled column. Rebuild Beale and app-server together for the updated control contract.
+- Stopping an individual research epoch no longer pauses its track; an explicit track pause still does.
+- Sessions stopped after a track pause record the track-control cause even when the scheduler observes the pause first.
 
 #### Changed
 
