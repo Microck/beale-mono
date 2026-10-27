@@ -272,12 +272,7 @@ jobs:
             esac
           done
           version="${GITHUB_REF_NAME#v}"
-          # The numbered changelog section is the release notes.
-          awk -v heading="## $version" '$0 == heading { found = 1; next } found && /^## / { exit } found { print }' CHANGELOG.md > notes.md
-          if [[ ! -s notes.md ]]; then
-            echo "CHANGELOG.md has no '## $version' section."
-            exit 1
-          fi
+          node scripts/release-notes.mjs "$version" notes.md
           (cd installers && sha256sum * > SHA256SUMS.txt)
           gh release create "$GITHUB_REF_NAME" installers/* \
             --verify-tag \

@@ -14,7 +14,7 @@ Protect `main` with the CI `fast` check and require review before merging. The `
 
 ## Prepare a candidate
 
-1. Complete the candidate's numbered changelog section, grouped by Beale and app-server, and leave `## Unreleased` ready for subsequent changes. Describe migrations, compatibility requirements, and operator actions. Keep all examples synthetic and review the full diff for live workspace content and machine-local data.
+1. Complete the candidate's numbered changelog section, grouped by Beale and app-server, and leave `## Unreleased` ready for subsequent changes. Describe migrations, compatibility requirements, and operator actions. Release notes use this section by default; if it exceeds GitHub's 125,000-character limit, add a concise `.github/release-notes/X.Y.Z.md` file that links readers to the full changelog. `release:check` validates the selected notes before tagging. Keep all examples synthetic and review the full diff for live workspace content and machine-local data.
 2. For a new candidate version, run `pnpm release:version X.Y.Z`. This updates the five package manifests and the release-facing runtime identifiers. Keep independent managed plugin versions and the iOS repository's version on their own lifecycle.
 3. Run `pnpm install --frozen-lockfile`, `pnpm release:check`, and `pnpm release:verify` locally. Live-provider tests are opt-in and require operator-supplied credentials.
 4. Merge the candidate. Run the manual Release gate on the merged commit and review both OS results. Fix failures and rerun on the new commit.

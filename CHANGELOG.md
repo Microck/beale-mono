@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Beale
+
+#### Fixed
+
+- Release checks reject oversized GitHub Release notes before tagging. A concise reviewed notes file can be used when the numbered changelog section is too long.
+
 ## 0.9.1
 
 ### Beale
