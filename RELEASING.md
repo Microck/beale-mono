@@ -31,8 +31,9 @@ Installed builds check the latest GitHub Release a few seconds after launch and 
 
 One-time repository setup:
 
-- Create a `release` environment with required reviewers and store all signing secrets there. The packaging jobs cannot access those secrets until approval.
-- For macOS, add `MACOS_CERTIFICATE` (base64 Developer ID Application .p12), `MACOS_CERTIFICATE_PASSWORD`, `APPLE_API_KEY` (App Store Connect .p8 contents), `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`.
+- Create a `release` environment with required reviewers, restrict it to `v*` tags, and store all signing secrets there. The packaging jobs cannot access those secrets until approval.
+- For macOS, create a Developer ID Application certificate in the Apple Developer team and export its certificate and private key as a password-protected `.p12`. Add `MACOS_CERTIFICATE` (base64 of the `.p12`) and `MACOS_CERTIFICATE_PASSWORD` (its export password). Keep the original `.p12` outside the repository and retain a secure backup; a certificate without its private key cannot sign a release.
+- Have the Apple Developer Account Holder request App Store Connect API access; Apple reviews the request before team keys become available. Create a team API key with the minimum role needed for notarization. Add `APPLE_API_KEY` (the complete `.p8` contents), `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER`. Apple offers the `.p8` for download only when the key is created. Keep it outside the repository and retain a secure backup. Do not use an individual API key with this workflow: the workflow requires a team issuer ID.
 - For Windows, add `WINDOWS_CERTIFICATE` and `WINDOWS_CERTIFICATE_PASSWORD`. Published installers require a valid Authenticode signature so the Windows updater can verify the publisher. Source installs remain available without a signing certificate.
 
 The Release workflow fails rather than publishing an unsigned installer when signing credentials are missing or invalid. A local `pnpm package:desktop` build for macOS or Windows also requires signing credentials; use the source installer for unsigned development setups.
