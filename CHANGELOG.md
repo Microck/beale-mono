@@ -6,6 +6,7 @@
 
 #### Changed
 
+- beale.ai now has a 29-page product handbook covering current Desktop, app-server, and iOS companion behavior. The iOS guide states that no App Store download is available.
 - beale.ai now leads with the latest signed macOS and Windows desktop downloads, while keeping source installation available. The WordPress plugin resolves versioned installer assets from the latest published GitHub Release.
 
 ## 0.9.2
