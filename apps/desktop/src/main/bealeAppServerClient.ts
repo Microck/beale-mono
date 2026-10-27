@@ -815,6 +815,7 @@ export async function stopBealeAppServerForUpdate(): Promise<void> {
   const existing = readBealeAppServerDiscovery(stateFile);
   const token = appServerSupervisorToken(stateFile, existing);
   if (existing && isBealeAppServerAlive(existing)) await stopAppServerForUpgrade(existing);
+  if (process.env.BEALE_APP_SERVER_COMMAND?.trim()) return;
   if (!token) return;
   try {
     const response = await fetch(`http://127.0.0.1:${BEALE_APP_SERVER_SUPERVISOR_LOCAL_PORT}${BEALE_APP_SERVER_SUPERVISOR_SHUTDOWN_PATH}`, {
@@ -836,7 +837,8 @@ export async function stopBealeAppServerForUpdate(): Promise<void> {
 }
 
 async function stopOrphanedPackagedSupervisor(stateFile: string): Promise<void> {
-  if (!isAppServerTrayPlatform(process.platform) || !packagedAppServerRuntimeRoot()) return;
+  if (process.env.BEALE_APP_SERVER_COMMAND?.trim()
+    || !isAppServerTrayPlatform(process.platform) || !packagedAppServerRuntimeRoot()) return;
   try {
     const health = await fetch(`http://127.0.0.1:${BEALE_APP_SERVER_SUPERVISOR_LOCAL_PORT}/health`, {
       signal: AbortSignal.timeout(500)

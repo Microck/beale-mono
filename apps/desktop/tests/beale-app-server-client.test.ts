@@ -125,6 +125,18 @@ describe('beale app-server client', () => {
     }
   });
 
+  it('leaves a custom app-server launcher supervisor under operator control during updates', async () => {
+    process.env.BEALE_APP_SERVER_COMMAND = 'custom-app-server';
+    writeFileSync(join(temporaryDirectory, 'app-server.token'), 'synthetic-operator-token');
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    try {
+      await stopBealeAppServerForUpdate();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   it('writes a private one-shot environment envelope for LaunchServices startup', () => {
     const launchEnvironment = writePrivateAppServerLaunchEnvironment({
       BEALE_APP_SERVER_STATE_FILE: '/tmp/beale-state.json',
