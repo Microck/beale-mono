@@ -52,7 +52,7 @@ export async function checkReleaseArtifacts(directory, version, mode) {
     ...(includeMac ? [dmg, `${dmg}.blockmap`, zip, `${zip}.blockmap`, 'latest-mac.yml'] : []),
     ...(includeWindows ? [exe, `${exe}.blockmap`, 'latest.yml'] : []),
   ]);
-  const actual = (await readdir(directory)).filter((name) => /\.(?:dmg|zip|exe|blockmap)$|^latest(?:-mac)?\.yml$/u.test(name));
+  const actual = (await readdir(directory)).filter((name) => /\.(?:dmg|zip|exe|blockmap)$|^latest.*\.yml$/u.test(name));
   if (actual.length !== expected.size) throw new Error('Unexpected number of release artifacts');
   for (const name of actual) {
     if (!safeName.test(name) || !expected.delete(name) || !(await lstat(join(directory, name))).isFile()) {

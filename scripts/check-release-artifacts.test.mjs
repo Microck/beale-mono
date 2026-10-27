@@ -67,6 +67,13 @@ test('rejects a GitHub-normalized installer filename', async () => {
   });
 });
 
+test('rejects an extra update feed selected by the upload glob', async () => {
+  await fixture(async (directory) => {
+    await writeFile(join(directory, 'latest-other.yml'), 'version: 1.2.3');
+    await assert.rejects(checkReleaseArtifacts(directory, version, 'both'), /Unexpected number of release artifacts/u);
+  });
+});
+
 test('rejects an artifact changed after feed generation', async () => {
   await fixture(async (directory) => {
     await writeFile(join(directory, exe), 'different payload');
