@@ -314,7 +314,10 @@ test('apple-security-devices reports capabilities without claiming iOS Simulator
   const messages = runServer([
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } },
     { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'environment_status', arguments: {} } }
-  ]);
+  ], {
+    APPLE_SECURITY_TART_COMMAND: process.execPath,
+    APPLE_SECURITY_XCRUN_COMMAND: process.execPath
+  });
   assert.equal(messages[1].result.isError, undefined);
   const status = JSON.parse(messages[1].result.content[0].text);
   assert.equal(status.iosSimulatorSupported, false);
