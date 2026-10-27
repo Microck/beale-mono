@@ -1273,6 +1273,8 @@ export interface CustomProviderDefinition {
   contextWindow: number;
   maxTokens: number;
   models: { id: string; name: string }[];
+  /** Register the endpoint's models as reasoning-capable and send thinking controls. */
+  reasoning?: boolean;
 }
 
 export interface ProviderCredentialAccessRequest {

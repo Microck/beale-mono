@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Beale
+
+#### Fixed
+
+- Custom OpenAI-compatible providers can opt into reasoning controls and persist their effort selection. DeepSeek model IDs use explicit thinking toggles and preserve reasoning content for tool calls.
+
 ## 0.9.4
 
 ### Beale
