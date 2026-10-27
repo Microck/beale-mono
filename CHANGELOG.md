@@ -2,12 +2,18 @@
 
 ## Unreleased
 
+## 0.9.3
+
 ### Beale
 
 #### Changed
 
 - beale.ai now has a 29-page product handbook covering current Desktop, app-server, and iOS companion behavior. The iOS guide states that no App Store download is available.
 - beale.ai now leads with the latest signed macOS and Windows desktop downloads, while keeping source installation available. The WordPress plugin resolves versioned installer assets from the latest published GitHub Release.
+
+#### Removed
+
+- Removed the animated aurora layers from active session backgrounds. The session heat gradient and color transitions remain.
 
 ## 0.9.2
 

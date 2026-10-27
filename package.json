@@ -1,6 +1,6 @@
 {
   "name": "beale-mono",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "private": true,
   "description": "Beale authorized vulnerability research workbench and app-server research runtime.",
   "type": "module",
