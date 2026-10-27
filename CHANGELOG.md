@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Beale
+
+#### Changed
+
+- beale.ai now leads with the latest signed macOS and Windows desktop downloads, while keeping source installation available. The WordPress plugin resolves versioned installer assets from the latest published GitHub Release.
+
 ## 0.9.2
 
 ### Beale
