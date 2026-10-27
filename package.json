@@ -24,13 +24,14 @@
     "start:desktop": "pnpm --filter @beale/desktop start",
     "package:desktop": "pnpm build && pnpm --filter @beale/desktop package",
     "test:app-server": "pnpm --filter @beale/app-server test",
-    "release:check": "node scripts/release-version.mjs check",
+    "release:check": "node scripts/release-version.mjs check && node --test scripts/check-release-artifacts.test.mjs",
     "release:version": "node scripts/release-version.mjs set",
     "release:verify": "pnpm release:check && pnpm build && pnpm typecheck:desktop && pnpm test:all && pnpm build:desktop"
   },
   "devDependencies": {
     "@types/node": "24.12.4",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "yaml": "2.9.0"
   },
   "engines": {
     "node": ">=22.19.0"

@@ -6,6 +6,7 @@
 
 #### Fixed
 
+- Windows NSIS installers use a GitHub-safe filename that matches the generated update feed. Publication checks release filenames, feed URLs, sizes, and SHA-512 hashes before creating the release.
 - Release checks reject oversized GitHub Release notes before tagging. A concise reviewed notes file can be used when the numbered changelog section is too long.
 
 ## 0.9.1

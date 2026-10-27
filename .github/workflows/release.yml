@@ -101,7 +101,9 @@ jobs:
         shell: bash
         env:
           MACOS_SIGNING_TEAM_ID: ${{ vars.MACOS_SIGNING_TEAM_ID }}
-        run: bash scripts/verify-macos-release.sh
+        run: |
+          bash scripts/verify-macos-release.sh
+          node scripts/check-release-artifacts.mjs apps/desktop/release "${GITHUB_REF_NAME#v}" macos
       - name: Remove temporary notarization key
         if: always()
         shell: bash
@@ -213,6 +215,8 @@ jobs:
             if ($publisher -ne $env:WINDOWS_SIGNING_PUBLISHER) { throw "Unexpected signer on $file`: $publisher" }
             if (-not $signature.TimeStamperCertificate) { throw "Missing timestamp on $file" }
           }
+          node scripts/check-release-artifacts.mjs apps/desktop/release $env:GITHUB_REF_NAME.Substring(1) windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: steps.signing.outputs.enabled == 'true'
         with:

@@ -58,6 +58,8 @@ win:
     - target: nsis
       arch: [x64]
 nsis:
+  # Use the same GitHub-safe name for the asset and generated latest.yml URL.
+  artifactName: 'Beale-Setup-${version}.${ext}'
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
