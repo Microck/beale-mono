@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.4
+
 ### Beale
 
 #### Fixed
