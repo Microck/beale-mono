@@ -68,6 +68,7 @@ jobs:
           git merge-base --is-ancestor HEAD origin/main
       - run: pnpm install --frozen-lockfile
       - name: Require signing credentials
+        id: signing
         shell: bash
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
@@ -83,10 +84,16 @@ jobs:
               if [[ -z "${!name}" ]]; then echo "Missing signing credential: $name"; exit 1; fi
             done
           else
+            if [[ -z "$WINDOWS_CERTIFICATE" && -z "$WINDOWS_CERTIFICATE_PASSWORD" ]]; then
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              echo "Windows signing credentials absent; skipping Windows installer."
+              exit 0
+            fi
             for name in WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD; do
               if [[ -z "${!name}" ]]; then echo "Missing signing credential: $name"; exit 1; fi
             done
           fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
       - name: Write the App Store Connect API key
         if: runner.os == 'macOS'
         shell: bash
@@ -98,6 +105,7 @@ jobs:
             echo "APPLE_API_KEY=$RUNNER_TEMP/apple-api-key.p8" >> "$GITHUB_ENV"
           fi
       - run: pnpm package:desktop
+        if: steps.signing.outputs.enabled == 'true'
         env:
           CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -112,7 +120,7 @@ jobs:
           codesign --verify --deep --strict apps/desktop/release/mac-arm64/Beale.app
           xcrun stapler validate apps/desktop/release/mac-arm64/Beale.app
       - name: Verify Windows app and installer signatures
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.signing.outputs.enabled == 'true'
         shell: pwsh
         run: |
           $files = @('apps/desktop/release/win-unpacked/Beale.exe') +
@@ -123,6 +131,7 @@ jobs:
             if ($signature.Status -ne 'Valid') { throw "Invalid signature on $file`: $($signature.Status)" }
           }
       - uses: actions/upload-artifact@v4
+        if: steps.signing.outputs.enabled == 'true'
         with:
           name: installers-${{ matrix.os }}
           if-no-files-found: error
