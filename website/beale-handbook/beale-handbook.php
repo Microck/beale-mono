@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Beale Handbook
  * Description: Serves the Beale product handbook at /docs/.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Requires PHP: 7.4
  */
 
@@ -107,6 +107,12 @@ add_action('template_redirect', static function () {
     $canonical = $page !== null
         ? beale_handbook_url($section_slug, $page_slug)
         : ($section !== null ? beale_handbook_url($section_slug) : home_url('/docs/'));
+    // Leaf handbook routes are served here without WordPress rewrite entries.
+    // Clear the query's 404 flag so wp_head does not emit noindex metadata.
+    global $wp_query;
+    if ($wp_query instanceof WP_Query) {
+        $wp_query->is_404 = false;
+    }
     status_header(200);
     add_filter('pre_get_document_title', static function () use ($title) {
         return $title . ' – Beale Docs';
