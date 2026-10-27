@@ -61,6 +61,7 @@ import {
   unlockProviderApiKeysForAppServerStartup
 } from './providerCredentialStore';
 import { restoreAndFocusWindow } from './windowLifecycle';
+import { desktopBundlePath } from './desktopBundlePath';
 import { rendererRecoveryDecision } from './rendererRecovery';
 import { DesktopRestartPromptController } from './desktopRestartPrompt';
 import { autoUpdater } from 'electron-updater';
@@ -204,7 +205,7 @@ function createWindow(): void {
           frame: false
         }),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: desktopBundlePath(app.getAppPath(), 'preload', 'index.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -265,7 +266,7 @@ function createWindow(): void {
   if (process.env.ELECTRON_RENDERER_URL) {
     window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    window.loadFile(join(__dirname, '../renderer/index.html'));
+    window.loadFile(desktopBundlePath(app.getAppPath(), 'renderer', 'index.html'));
   }
   installApplicationMenu();
 }
@@ -285,7 +286,7 @@ function recordRendererExit(reason: string, exitCode: number): void {
 function registerRendererNavigationPolicy(window: BrowserWindow): void {
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   const allowedOrigin = rendererUrl ? new URL(rendererUrl).origin : null;
-  const allowedFile = join(__dirname, '../renderer/index.html').replaceAll('\\', '/');
+  const allowedFile = desktopBundlePath(app.getAppPath(), 'renderer', 'index.html').replaceAll('\\', '/');
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event, target) => {
     let allowed = false;
@@ -390,7 +391,6 @@ function appIconSourcePath(): string | null {
   const candidates = [
     join(app.getAppPath(), 'resources/app-icon.png'),
     join(process.cwd(), 'resources/app-icon.png'),
-    join(__dirname, '../../resources/app-icon.png'),
     join(process.resourcesPath, 'app-icon.png'),
     join(process.resourcesPath, 'resources/app-icon.png')
   ];
