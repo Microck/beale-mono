@@ -11,7 +11,7 @@
     "postinstall": "pnpm run brand:electron",
     "prestart": "pnpm run brand:electron",
     "start": "electron out/main/index.js",
-    "predev": "pnpm run brand:electron",
+    "predev": "pnpm -w build && pnpm run brand:electron",
     "dev": "electron-vite dev",
     "prepreview": "pnpm run brand:electron",
     "preview": "electron-vite preview",

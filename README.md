@@ -159,6 +159,8 @@ pnpm --filter @beale/desktop typecheck
 pnpm --filter @beale/desktop test         # unit tests (vitest)
 ```
 
+The Desktop dev command builds the runtime packages and app-server before starting Electron.
+
 The desktop integration tests (`pnpm --filter @beale/desktop test:integration`) exercise real app-server sessions and require the packages to be built first. `pnpm --filter @beale/desktop test:fast` is an explicit alias for the unit tier.
 
 Live provider tests remain opt-in because they require local credentials.
