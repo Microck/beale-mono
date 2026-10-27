@@ -41,13 +41,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm release:verify
 
-  package:
+  package-macos:
     needs: verify
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [macos-15, windows-2022]
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-15
     environment: release
     timeout-minutes: 90
     steps:
@@ -76,26 +72,11 @@ jobs:
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          if [[ "$RUNNER_OS" == macOS ]]; then
-            for name in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD APPLE_API_KEY_CONTENT APPLE_API_KEY_ID APPLE_API_ISSUER; do
-              if [[ -z "${!name}" ]]; then echo "Missing signing credential: $name"; exit 1; fi
-            done
-          else
-            if [[ -z "$WINDOWS_CERTIFICATE" && -z "$WINDOWS_CERTIFICATE_PASSWORD" ]]; then
-              echo "enabled=false" >> "$GITHUB_OUTPUT"
-              echo "Windows signing credentials absent; skipping Windows installer."
-              exit 0
-            fi
-            for name in WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD; do
-              if [[ -z "${!name}" ]]; then echo "Missing signing credential: $name"; exit 1; fi
-            done
-          fi
-          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          for name in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD APPLE_API_KEY_CONTENT APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            if [[ -z "${!name}" ]]; then echo "Missing signing credential: $name"; exit 1; fi
+          done
       - name: Write the App Store Connect API key
-        if: runner.os == 'macOS'
         shell: bash
         env:
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
@@ -105,23 +86,111 @@ jobs:
             echo "APPLE_API_KEY=$RUNNER_TEMP/apple-api-key.p8" >> "$GITHUB_ENV"
           fi
       - run: pnpm package:desktop
-        if: steps.signing.outputs.enabled == 'true'
         env:
           CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          WIN_CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
       - name: Verify macOS app signature
-        if: runner.os == 'macOS'
         shell: bash
         run: |
           codesign --verify --deep --strict apps/desktop/release/mac-arm64/Beale.app
           xcrun stapler validate apps/desktop/release/mac-arm64/Beale.app
-      - name: Verify Windows app and installer signatures
-        if: runner.os == 'Windows' && steps.signing.outputs.enabled == 'true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-macos
+          if-no-files-found: error
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest*.yml
+
+  package-windows:
+    needs: verify
+    runs-on: windows-2022
+    environment: release
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - name: Validate release tag
+        shell: bash
+        run: |
+          node scripts/release-version.mjs check "$GITHUB_REF_NAME"
+          git merge-base --is-ancestor HEAD origin/main
+      - name: Check Windows signing configuration
+        id: signing
+        shell: bash
+        env:
+          WINDOWS_SIGNING_ENABLED: ${{ vars.WINDOWS_SIGNING_ENABLED }}
+          WINDOWS_AZURE_CLIENT_ID: ${{ vars.WINDOWS_AZURE_CLIENT_ID }}
+          WINDOWS_AZURE_TENANT_ID: ${{ vars.WINDOWS_AZURE_TENANT_ID }}
+          WINDOWS_AZURE_SUBSCRIPTION_ID: ${{ vars.WINDOWS_AZURE_SUBSCRIPTION_ID }}
+          WINDOWS_SIGNING_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          WINDOWS_SIGNING_ACCOUNT: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
+          WINDOWS_SIGNING_PROFILE: ${{ vars.WINDOWS_SIGNING_PROFILE }}
+          WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+        run: |
+          if [[ "$WINDOWS_SIGNING_ENABLED" == false || -z "$WINDOWS_SIGNING_ENABLED" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Windows signing is not enabled; skipping Windows installer."
+            exit 0
+          fi
+          if [[ "$WINDOWS_SIGNING_ENABLED" != true ]]; then
+            echo "WINDOWS_SIGNING_ENABLED must be true or false."
+            exit 1
+          fi
+          for name in WINDOWS_AZURE_CLIENT_ID WINDOWS_AZURE_TENANT_ID WINDOWS_AZURE_SUBSCRIPTION_ID WINDOWS_SIGNING_ENDPOINT WINDOWS_SIGNING_ACCOUNT WINDOWS_SIGNING_PROFILE WINDOWS_SIGNING_PUBLISHER; do
+            if [[ -z "${!name}" ]]; then echo "Missing Windows signing variable: $name"; exit 1; fi
+          done
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+      - run: pnpm install --frozen-lockfile
+        if: steps.signing.outputs.enabled == 'true'
+      - name: Sign in to Azure with GitHub OIDC
+        if: steps.signing.outputs.enabled == 'true'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.WINDOWS_AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.WINDOWS_AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.WINDOWS_AZURE_SUBSCRIPTION_ID }}
+      - name: Package signed Windows installer
+        if: steps.signing.outputs.enabled == 'true'
         shell: pwsh
+        env:
+          WINDOWS_SIGNING_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          WINDOWS_SIGNING_ACCOUNT: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
+          WINDOWS_SIGNING_PROFILE: ${{ vars.WINDOWS_SIGNING_PROFILE }}
+          WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+        run: |
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @beale/desktop build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @beale/desktop stage:runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @beale/desktop exec electron-builder --publish never `
+            "-c.win.azureSignOptions.endpoint=$env:WINDOWS_SIGNING_ENDPOINT" `
+            "-c.win.azureSignOptions.codeSigningAccountName=$env:WINDOWS_SIGNING_ACCOUNT" `
+            "-c.win.azureSignOptions.certificateProfileName=$env:WINDOWS_SIGNING_PROFILE" `
+            "-c.win.azureSignOptions.publisherName=$env:WINDOWS_SIGNING_PUBLISHER"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify Windows app and installer signatures
+        if: steps.signing.outputs.enabled == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
         run: |
           $files = @('apps/desktop/release/win-unpacked/Beale.exe') +
             @(Get-ChildItem apps/desktop/release -Filter '*.exe' -File | Select-Object -ExpandProperty FullName)
@@ -129,21 +198,22 @@ jobs:
           foreach ($file in $files) {
             $signature = Get-AuthenticodeSignature $file
             if ($signature.Status -ne 'Valid') { throw "Invalid signature on $file`: $($signature.Status)" }
+            $publisher = $signature.SignerCertificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false)
+            if ($publisher -ne $env:WINDOWS_SIGNING_PUBLISHER) { throw "Unexpected signer on $file`: $publisher" }
+            if (-not $signature.TimeStamperCertificate) { throw "Missing timestamp on $file" }
           }
       - uses: actions/upload-artifact@v4
         if: steps.signing.outputs.enabled == 'true'
         with:
-          name: installers-${{ matrix.os }}
+          name: installers-windows
           if-no-files-found: error
           path: |
-            apps/desktop/release/*.dmg
-            apps/desktop/release/*.zip
             apps/desktop/release/*.exe
             apps/desktop/release/*.blockmap
             apps/desktop/release/latest*.yml
 
   publish:
-    needs: package
+    needs: [package-macos, package-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
