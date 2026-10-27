@@ -7,6 +7,8 @@
 #### Fixed
 
 - Custom OpenAI-compatible providers can opt into reasoning controls and persist their effort selection. DeepSeek model IDs use explicit thinking toggles and preserve reasoning content for tool calls.
+- Desktop dev mode rebuilds the shared runtime and app-server after source updates, preventing stale protocol output from blocking startup.
+- Packaged Desktop builds load the renderer and preload from the app root after the main process is split into a chunk, so the window opens after an update.
 
 ## 0.9.4
 
