@@ -86,6 +86,7 @@ import {
   restartBealeAppServerViaSupervisor,
   setBealeDesktopRestartRequiredHandler,
   stopBealeAppServer,
+  stopBealeAppServerForUpdate,
   testLocalAppServerConnection
 } from './bealeAppServerClient';
 import {
@@ -1282,7 +1283,7 @@ function startDesktopUpdater(): void {
   desktopUpdater = new DesktopUpdater({
     backend: autoUpdater,
     currentVersion: app.getVersion(),
-    stopLocalAppServer: stopBealeAppServer,
+    stopLocalAppServer: stopBealeAppServerForUpdate,
     onChange: (state) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC_CHANNELS.desktopUpdateState, state);
     }
