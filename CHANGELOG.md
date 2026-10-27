@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.9.0
+## 0.9.1
 
 ### Beale
 
@@ -58,6 +58,7 @@
 #### Security
 
 - Release actions use fixed commit references. macOS packaging checks the expected signing team and the app inside the DMG and ZIP; publication checks artifact digests and requires a second protected-environment approval.
+- Tag-triggered release jobs use the fixed checkout version that preserves annotated tags for release validation.
 - Workspace publication replaces known host paths even when nested JSON has escaped Windows separators, keeping those paths out of exported execution evidence.
 
 #### Changed
@@ -1830,3 +1831,7 @@
 - Removed Topics operations and model-facing collaboration tools. Legacy topic snapshots remain readable for compatibility, and the shared app-server contract requires rebuilt clients.
 
 - Removed the second-model background memory curator, its advisory `memory.request` tool, provider-model CLI options, turn queue, notifications, and synthetic activity events.
+
+## 0.9.0
+
+The release tag was not published. Its workflow stopped during annotated-tag validation before either platform signed an installer.
