@@ -1627,7 +1627,26 @@ code {
 }
 
 .desktop-update-button {
+  height: 28px;
+  min-height: 28px;
+  align-self: center;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel-raised);
   color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 400;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+
+.desktop-update-button:hover:not(:disabled) {
+  background: var(--gray-24);
+}
+
+.desktop-update-button:disabled {
+  opacity: 0.65;
 }
 
 .window-control-button:hover:not(:disabled) {

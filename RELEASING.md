@@ -25,9 +25,9 @@ Do not treat a green source gate as installer validation. The Release workflow v
 
 ## Installers and updates
 
-`pnpm package:desktop` builds the workspace, stages the app-server runtime under `apps/desktop/build/runtime` (`apps/desktop/scripts/stage-runtime.mjs`), and runs electron-builder with `apps/desktop/electron-builder.yml`. Installed builds run app-server with Beale's own Electron binary in Node mode, so they do not need a system Node.js. The packaged app-server runs headless; the tray host still needs a source checkout.
+`pnpm package:desktop` builds the workspace, stages the app-server runtime under `apps/desktop/build/runtime` (`apps/desktop/scripts/stage-runtime.mjs`), and runs electron-builder with `apps/desktop/electron-builder.yml`. Installed builds run app-server with Beale's own Electron binary, so they do not need a system Node.js. Windows launches the packaged tray host; macOS currently launches the packaged headless host.
 
-Installed builds check the latest GitHub Release a few seconds after launch and every four hours. When a newer version exists, the header shows **Update to X.Y.Z**. The download starts only when the user clicks it, and **Restart to update** stops the local app-server first. While research sessions are active the app-server refuses to stop, so the restart waits and the button explains why. Updating Desktop does not update connected remote app-servers.
+Installed builds check the latest GitHub Release a few seconds after launch and every four hours. When a newer version exists, the header shows **Update to X.Y.Z**. The download starts only when the user clicks it, and **Restart Now** stops the local app-server and its restart supervisor before installing. While research sessions are active the app-server refuses to stop, so the restart waits and the button explains why. Updating Desktop does not update connected remote app-servers.
 
 One-time repository setup:
 

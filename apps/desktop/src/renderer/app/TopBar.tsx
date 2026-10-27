@@ -42,7 +42,7 @@ export function desktopUpdateAction(state: DesktopUpdateState): DesktopUpdateAct
       return { label: `Downloading ${state.downloadPercent ?? 0}%`, title: `Downloading Beale ${state.availableVersion}.`, run: null };
     case 'ready':
       return {
-        label: 'Restart to update',
+        label: 'Restart Now',
         title: `Stop the local app-server and restart into Beale ${state.availableVersion}.${failure}`,
         run: () => window.beale.installDesktopUpdate()
       };
@@ -436,7 +436,7 @@ export const TopBar = memo(function TopBar({
           {updateAction ? (
             <button
               type="button"
-              className="window-debug-button desktop-update-button"
+              className="desktop-update-button"
               title={updateAction.title}
               disabled={!updateAction.run}
               onClick={() => void updateAction.run?.()}

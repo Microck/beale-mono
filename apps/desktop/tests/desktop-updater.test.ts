@@ -129,7 +129,7 @@ describe('Desktop update header action', () => {
   it('labels each actionable step and disables the in-progress ones', () => {
     expect(desktopUpdateAction({ ...base, status: 'available' })).toMatchObject({ label: 'Update to 0.9.1' });
     expect(desktopUpdateAction({ ...base, status: 'downloading', downloadPercent: 42 })).toMatchObject({ label: 'Downloading 42%', run: null });
-    expect(desktopUpdateAction({ ...base, status: 'ready' })?.label).toBe('Restart to update');
+    expect(desktopUpdateAction({ ...base, status: 'ready' })?.label).toBe('Restart Now');
     expect(desktopUpdateAction({ ...base, status: 'installing' })?.run).toBeNull();
   });
 

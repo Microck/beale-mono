@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Beale
+
+#### Fixed
+
+- Installed Windows builds now launch the app-server tray host from the bundled runtime.
+- Desktop updates show a regular-weight pill control labeled **Restart Now** and stop the app-server restart supervisor before installation.
+
 ## 0.9.3
 
 ### Beale
