@@ -39,7 +39,7 @@ async function checkFeed(directory, feedName, version, fileNames, primary) {
 }
 
 export async function checkReleaseArtifacts(directory, version, mode) {
-  if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(version)) {
+  if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/u.test(version)) {
     throw new Error(`Invalid release version: ${version}`);
   }
   if (!['macos', 'windows', 'both'].includes(mode)) throw new Error(`Invalid release mode: ${mode}`);
