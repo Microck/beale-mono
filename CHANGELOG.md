@@ -1504,6 +1504,7 @@
 
 #### Fixed
 
+- Failed topic-store initialization closes its SQLite handle, avoiding locked database files on Windows.
 - Research track scheduling retains testable high-impact paths for deeper work and moves to another available surface after three unproductive epochs on one surface. Checkpoints preserve distinct attacker paths with evidence-backed outcomes across epochs. Existing track surfaces gain an empty attacker-path ledger; control contract v64 requires rebuilt Beale and app-server clients.
 - Research tracks continue with another eligible surface when an agent retires the assigned surface. Automatic pause reasons remain visible after the worker exits.
 - Guardian-enabled tracks recover worker exits without terminal session records, close the interrupted attempt, and review durable progress in the next epoch instead of pausing. The selected Guardian setting persists across epochs; existing track rows gain a default-enabled column. Rebuild Beale and app-server together for the updated control contract.
