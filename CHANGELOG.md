@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Beale
+
+#### Fixed
+
+- Packaged Desktop builds load the renderer and preload from the app root after the main process is split into a chunk, so the window opens after an update.
+
 ## 0.9.4
 
 ### Beale
