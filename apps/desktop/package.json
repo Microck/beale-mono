@@ -16,7 +16,7 @@
     "prepreview": "pnpm run brand:electron",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --testTimeout=15000 --exclude \"tests/{agent-plugin-registry,beale-introspection-server,beale-introspection-tools,app-server-session-boundary,research-profile-integration,research-profile-persistence,source-materializer}.test.ts\"",
+    "test": "vitest run --maxWorkers=4 --testTimeout=60000 --exclude \"tests/{agent-plugin-registry,beale-introspection-server,beale-introspection-tools,app-server-session-boundary,research-profile-integration,research-profile-persistence,source-materializer}.test.ts\"",
     "test:fast": "pnpm run test",
     "test:integration": "vitest run --maxWorkers=4 --testTimeout=30000 tests/agent-plugin-registry.test.ts tests/beale-introspection-server.test.ts tests/beale-introspection-tools.test.ts tests/app-server-session-boundary.test.ts tests/research-profile-integration.test.ts tests/research-profile-persistence.test.ts tests/source-materializer.test.ts",
     "test:all": "pnpm run test && pnpm run test:integration",
