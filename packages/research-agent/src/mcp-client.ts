@@ -281,7 +281,7 @@ class StdioMcpServerConnection {
       capabilities: {},
       clientInfo: {
         name: "app-server",
-        version: "0.9.1",
+        version: "0.9.2",
       },
     });
     this.sendNotification("notifications/initialized", {});

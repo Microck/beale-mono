@@ -2,11 +2,13 @@
 
 ## Unreleased
 
+## 0.9.2
+
 ### Beale
 
 #### Fixed
 
-- Windows NSIS installers use a GitHub-safe filename that matches the generated update feed. Publication checks release filenames, feed URLs, sizes, and SHA-512 hashes before creating the release.
+- Windows NSIS installers use a GitHub-safe filename that matches the generated update feed, correcting the Windows update URL published in 0.9.1. Packaging checks release filenames, feed URLs, sizes, and SHA-512 hashes before upload.
 - Release checks reject oversized GitHub Release notes before tagging. A concise reviewed notes file can be used when the numbered changelog section is too long.
 
 ## 0.9.1
