@@ -4,8 +4,26 @@
 
 ### Beale
 
+#### Added
+
+- Surface Recon tracks general research assets with Untouched, In Progress, and Complete states. Existing surface foundations load with an empty asset list.
+- New memories and claims persist a nullable surface association in the global database. Model tools default it to the agent's current surface and allow an explicit surface ID. Existing records migrate with no association.
+
+#### Changed
+
+- Surface progress reaches 100% after a recorded threat-model review when no assigned leads remain active and no assigned findings await verification or a blocker. Refuted, verified, report-ready, and disclosed claims no longer block progress; new claims can lower it again. Existing threat-model notes count as prior review, while legacy mapping flags remain stored without controlling progress.
+- Surface threat models store Mermaid diagrams and separate Security Objectives, Risk Impact, Assumptions, Invariants, Sinks, and Mitigations notes. The sidebar renders diagrams and retains older threat-model notes as context.
+- Surface first-touch attribution shows the provider icon and model display name when available.
+- Workspace Resources now live under Surfaces. A resource-type row filters the map and adds resources; root surface details expose the resource form, checkout state, and saved prior art. Out-of-scope resources remain visible for management but are excluded from research tracks.
+- Surface details use Breakdown, Recon, Analysis, Threat Model, and a conditional Resources tab. Recon holds a full discovery note, structured technology mapping, and individual advisory history with impact; Analysis lists findings assigned to the surface or its child components. Existing Bug History notes remain readable. The History and Hierarchy views have been removed.
+- Surface Breakdown omits coverage prose and the Open Questions and Related Components lists. Recon shows saved proposal findings assigned to the surface as its Leads list; older coverage notes remain stored.
+- Surface maps now describe concrete component hierarchies. Foundation notes can be partial, and research track checkpoints no longer require a fixed number of attacker paths or evidence updates for completion; cited claims and evidence still receive validation.
+
 #### Fixed
 
+- The workspace Surfaces hierarchy now fills the main content area, fades at its top and bottom edges, and reveals its scrollbar on hover or scroll. Selecting a surface opens a right sidebar with a circular back control, component title, inline status, first-touch model attribution, last-update time, and sections for its recorded context and state. Older app-server responses without a model show Unknown for recorded touches.
+- Surface cards have a transparent unfilled background, progress shading, and 1px outlines matching the hierarchy links. They show up to three regular-weight name lines and mark blockers with an orange warning icon. Cards and the detail sidebar omit visible percentage labels and inferred type labels.
+- Workspace resource cards no longer show incomplete per-resource research counts or recency, and repository clone status reflects existing local Git checkouts, including managed checkouts created outside the resource clone button.
 - Custom OpenAI-compatible providers can opt into reasoning controls and persist their effort selection. DeepSeek model IDs use explicit thinking toggles and preserve reasoning content for tool calls.
 - Desktop dev mode rebuilds the shared runtime and app-server after source updates, preventing stale protocol output from blocking startup.
 - Packaged Desktop builds load the renderer and preload from the app root after the main process is split into a chunk, so the window opens after an update.

@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
+  createFindingTools,
+  createMemoryGraphTools,
   createSurfaceTools,
+  FindingStore,
   initializeWorkspaceProject,
   MemoryGraphStore,
   publishWorkspaceResearch,
@@ -19,9 +22,23 @@ import {
 
 const workspaceId = "workspace-example-surfaces";
 const foundation = {
-  bugHistory: { summary: "No relevant published bug found in the searched component history.", limits: "Only the dated public sources inspected so far." },
+  discovery: `Synthetic reconnaissance note. ${"Context ".repeat(650)}`,
+  techStack: [{ technology: "Example Parser", role: "Request parsing", version: "2.x", environment: "Example service",
+    evidence: "Synthetic package manifest", confidence: "observed" }],
+  assets: [{ name: "src/request_parser.ts", status: "untouched" },
+    { name: "parseExampleRequest()", status: "in_progress" },
+    { name: "https://example.test/parser", status: "complete" }],
+  bugHistory: { summary: "Earlier bounded search note.", limits: "Only the dated public sources inspected so far.", entries: [
+    { identifier: "EXAMPLE-ADVISORY-001", impact: "Malformed requests may bypass validation.", affectedVersions: "1.x",
+      reference: "https://example.test/advisory", notes: "Applicability to 2.x is unknown." }
+  ] },
   coverage: { summary: "Reviewed one parser path.", gaps: "Alternate input modes remain unexamined.", opportunities: "Check the boundary before dispatch." },
-  threatModel: { attackerControl: "Supplied request bytes.", trustBoundaries: "Untrusted request to privileged parser.", assetsAtRisk: "ExampleCo service state.", plausibleImpacts: "Unauthorized state change if parsing fails open.", assumptions: "Reachability requires the enabled service." },
+  threatModel: { diagram: 'flowchart LR\n  client["Client"] --> parser["Request Parser"]\n  parser --> state["Service State"]',
+    securityObjectives: "Preserve service state integrity.", riskImpact: "Unauthorized state change.",
+    assumptions: "Reachability requires the enabled service.", invariants: "Only validated requests change state.",
+    sinks: "State update operation.", mitigations: "Input validation before dispatch.",
+    attackerControl: "Supplied request bytes.", trustBoundaries: "Untrusted request to privileged parser.",
+    assetsAtRisk: "ExampleCo service state.", plausibleImpacts: "Unauthorized state change if parsing fails open." },
 };
 const completeFoundation = {
   ...foundation,
@@ -80,10 +97,16 @@ test("resource roots, agent-discovered children, lookup, and one-time first touc
     const rootUpdated = state.surface.update(root.id, root.revision, foundation);
     assert.equal(rootUpdated.revision, 2);
     assert.equal(state.surface.get(root.id).foundation.bugHistory.summary, foundation.bugHistory.summary);
+    assert.equal(state.surface.get(root.id).foundation.discovery.length, foundation.discovery.trim().length);
+    assert.equal(state.surface.get(root.id).foundation.techStack[0].technology, "Example Parser");
+    assert.equal(state.surface.get(root.id).foundation.assets[1].status, "in_progress");
+    assert.equal(state.surface.get(root.id).foundation.bugHistory.entries[0].identifier, "EXAMPLE-ADVISORY-001");
 
     const updated = state.surface.update(child.id, child.revision, foundation);
     assert.equal(updated.revision, 2);
+    assert.equal(state.surface.query("parseExampleRequest").surfaces.some((item) => item.id === child.id), true);
     assert.equal(state.surface.query("privileged parser").surfaces.some((item) => item.id === child.id), true);
+    assert.equal(state.surface.query("EXAMPLE-ADVISORY-001").surfaces.some((item) => item.id === child.id), true);
     assert.throws(() => state.surface.update(child.id, child.revision, foundation), /revision changed/i);
 
     const otherSession = new SurfaceStore({ databasePath: state.databasePath, workspaceId, sessionId: "session-example-two", resources: state.resources });
@@ -100,21 +123,139 @@ test("resource roots, agent-discovered children, lookup, and one-time first touc
     try {
       assert.equal(database.prepare("SELECT COUNT(*) AS count FROM app_server_surface_touches").get().count, 2);
       assert.equal(database.prepare("SELECT COUNT(*) AS count FROM app_server_surface_focus_events").get().count, 5);
+      assert.equal(database.prepare("SELECT COUNT(*) AS count FROM app_server_surface_update_events").get().count, 2);
     } finally { database.close(); }
   } finally { state.close(); }
+});
+
+test("recon lists preserve partial updates and validate structured entries", () => {
+  const state = fixture();
+  try {
+    const root = state.surface.get(state.rootId);
+    const legacy = state.surface.update(root.id, root.revision, { discovery: "Earlier reconnaissance." });
+    assert.deepEqual(legacy.foundation.assets, []);
+    const first = state.surface.update(root.id, legacy.revision, foundation);
+    const second = state.surface.update(root.id, first.revision, { discovery: "Updated discovery note." });
+    assert.equal(second.foundation.discovery, "Updated discovery note.");
+    assert.equal(second.foundation.techStack[0].technology, "Example Parser");
+    assert.deepEqual(second.foundation.assets, foundation.assets);
+    assert.equal(second.foundation.bugHistory.entries[0].identifier, "EXAMPLE-ADVISORY-001");
+    assert.throws(() => state.surface.update(root.id, second.revision, { techStack: [{ role: "Parser" }] }), /technology/);
+    assert.throws(() => state.surface.update(root.id, second.revision, { assets: [{ name: "example.ts", status: "queued" }] }), /status is invalid/);
+    assert.throws(() => state.surface.update(root.id, second.revision, { assets: [{ status: "complete" }] }), /name/);
+    assert.throws(() => state.surface.update(root.id, second.revision,
+      { bugHistory: { entries: [{ identifier: "EXAMPLE-ADVISORY-002" }] } }), /impact/);
+    const progressed = state.surface.update(root.id, second.revision, { assets: [
+      { name: "src/request_parser.ts", status: "complete" }, { name: "parseExampleRequest()" }
+    ] });
+    assert.deepEqual(progressed.foundation.assets, [
+      { name: "src/request_parser.ts", status: "complete" }, { name: "parseExampleRequest()", status: "untouched" }
+    ]);
+    const cleared = state.surface.update(root.id, progressed.revision, { techStack: [], assets: [], bugHistory: { entries: [] } });
+    assert.deepEqual(cleared.foundation.techStack, []);
+    assert.deepEqual(cleared.foundation.assets, []);
+    assert.deepEqual(cleared.foundation.bugHistory.entries, []);
+    assert.equal(cleared.foundation.bugHistory.summary, foundation.bugHistory.summary);
+  } finally { state.close(); }
+});
+
+test("threat models preserve older notes while accepting partial diagram updates", () => {
+  const state = fixture();
+  try {
+    const root = state.surface.get(state.rootId);
+    const legacy = state.surface.update(root.id, root.revision, { threatModel: {
+      attackerControl: "Example request bytes.", trustBoundaries: "Request to parser.",
+      assetsAtRisk: "Example state.", plausibleImpacts: "Unauthorized update.", assumptions: "Service enabled."
+    } });
+    assert.equal(legacy.foundation.threatModel.riskImpact, "Unauthorized update.");
+    assert.equal(legacy.foundation.threatModel.diagram, "");
+    const database = new DatabaseSync(state.databasePath);
+    try {
+      const row = database.prepare("SELECT foundation_json FROM app_server_surface_roots WHERE resource_id=?").get(root.id);
+      const stored = JSON.parse(row.foundation_json);
+      delete stored.threatModelReviewed;
+      database.prepare("UPDATE app_server_surface_roots SET foundation_json=? WHERE resource_id=?")
+        .run(JSON.stringify(stored), root.id);
+    } finally { database.close(); }
+    assert.equal(state.surface.get(root.id).foundation.threatModelReviewed, true);
+    const updated = state.surface.update(root.id, legacy.revision, { threatModel: {
+      diagram: 'flowchart LR\n  input["Request"] --> parser["Parser"]',
+      securityObjectives: "Preserve example state.", invariants: "Validate before update."
+    } });
+    assert.equal(updated.foundation.threatModel.attackerControl, "Example request bytes.");
+    assert.equal(updated.foundation.threatModel.assumptions, "Service enabled.");
+    assert.equal(updated.foundation.threatModel.riskImpact, "Unauthorized update.");
+    assert.equal(updated.foundation.threatModel.securityObjectives, "Preserve example state.");
+    assert.throws(() => state.surface.update(root.id, updated.revision, { threatModel: { diagram: 7 } }), /diagram must be a string/);
+  } finally { state.close(); }
+});
+
+test("new memories and findings persist the focused surface in their canonical records", async () => {
+  const state = fixture();
+  const graph = new MemoryGraphStore({ workspaceRoot: state.directory, databasePath: state.databasePath,
+    context: { workspaceId, workspaceName: "Example Workspace", subjectId: "subject-example",
+      subjectName: "Example subject", sessionId: "session-example-one" } });
+  const claims = new FindingStore(graph);
+  try {
+    const child = state.surface.create(state.rootId, "Request parser", "Example request boundary.");
+    state.surface.focus("agent-example", child.id);
+    const memory = createMemoryGraphTools(graph, state.surface).find((tool) => tool.descriptor.name === "memory.save");
+    const finding = createFindingTools(claims, { surfaceStore: state.surface }).find((tool) => tool.descriptor.name === "finding.create");
+    assert.ok(memory);
+    assert.ok(finding);
+    assert.ok(memory.parameters.properties.surfaceId);
+    assert.ok(finding.parameters.properties.surfaceId);
+    const context = { agentId: "agent-example" };
+    const saved = await memory.execute({ id: "save-example", toolName: "memory.save", actionClass: "synthesize",
+      input: { type: "invariant", title: "Example parser boundary" } }, context);
+    assert.equal(saved.status, "complete");
+    assert.equal(saved.output.surfaceId, child.id);
+    const memoryCorrect = createMemoryGraphTools(graph, state.surface).find((tool) => tool.descriptor.name === "memory.correct");
+    const observed = await finding.execute({ id: "finding-example", toolName: "finding.create", actionClass: "synthesize",
+      input: { title: "Example parser issue", classification: "security.vulnerability", rating: "low",
+        evidence: [{ kind: "code", referenceId: "src/example-parser.ts:42", summary: "Example boundary observed." }] } }, context);
+    assert.equal(observed.status, "complete");
+    assert.equal(observed.output.surfaceId, child.id);
+    const findingRevise = createFindingTools(claims, { surfaceStore: state.surface }).find((tool) => tool.descriptor.name === "finding.revise");
+    const database = new DatabaseSync(state.databasePath, { readOnly: true });
+    try {
+      assert.equal(database.prepare("SELECT surface_id FROM memory_nodes WHERE id=?").get(saved.output.id).surface_id, child.id);
+      assert.equal(database.prepare("SELECT surface_id FROM app_server_research_claims WHERE id=?").get(observed.output.id).surface_id, child.id);
+    } finally { database.close(); }
+    const movedMemory = await memoryCorrect.execute({ id: "correct-example", toolName: "memory.correct", actionClass: "synthesize",
+      input: { id: saved.output.id, expectedRevision: saved.output.revision, surfaceId: state.rootId } }, context);
+    assert.equal(movedMemory.status, "complete");
+    assert.equal(movedMemory.output.surfaceId, state.rootId);
+    const movedFinding = await findingRevise.execute({ id: "revise-example", toolName: "finding.revise", actionClass: "synthesize",
+      input: { id: observed.output.id, expectedRevision: observed.output.revision, reason: "Assign the broader component.",
+        surfaceId: state.rootId } }, context);
+    assert.equal(movedFinding.status, "complete");
+    assert.equal(movedFinding.output.surfaceId, state.rootId);
+    const invalid = await memory.execute({ id: "invalid-example", toolName: "memory.save", actionClass: "synthesize",
+      input: { type: "invariant", title: "Another example boundary", surfaceId: "surface-missing" } }, context);
+    assert.equal(invalid.status, "error");
+  } finally { claims.close(); graph.close(); state.close(); }
 });
 
 test("surface tools expose simple query and track focus without duplicate touch", async () => {
   const state = fixture();
   try {
     const tools = Object.fromEntries(createSurfaceTools(state.surface).map((tool) => [tool.descriptor.name, tool]));
-    assert.match(tools["surface.create"].descriptor.description, /security surface tree/);
-    assert.match(tools["surface.create"].parameters.properties.description.description, /attacker path, trust boundary/);
-    assert.match(tools["surface.update"].parameters.properties.foundation.properties.coverage.properties.summary.description,
-      /do not count general code browsing as security coverage/);
-    assert.match(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.plausibleImpacts.description,
+    assert.match(tools["surface.create"].descriptor.description, /component tree/);
+    assert.match(tools["surface.create"].parameters.properties.name.description, /concrete component or subcomponent/);
+    assert.deepEqual(tools["surface.create"].parameters.required, ["parentId", "name"]);
+    assert.equal(tools["surface.update"].parameters.properties.foundation.properties.coverage, undefined);
+    assert.match(tools["surface.update"].parameters.properties.foundation.properties.bugHistory.properties.entries.description,
+      /Prefer prior_art\.search and prior_art\.fetch; use the browser to supplement when enabled/);
+    assert.equal(tools["surface.update"].parameters.properties.foundation.properties.techStack.items.required[0], "technology");
+    assert.deepEqual(tools["surface.update"].parameters.properties.foundation.properties.assets.items.required, ["name"]);
+    assert.deepEqual(tools["surface.update"].parameters.properties.foundation.properties.assets.items.properties.status.enum,
+      ["untouched", "in_progress", "complete"]);
+    assert.match(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.riskImpact.description,
       /ordinary malfunction alone is not security impact/);
-    assert.match(tools["surface.update"].parameters.properties.progressBlocker.anyOf[0].properties.reason.description, /pre-auth testing/);
+    assert.match(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.diagram.description,
+      /Raw Mermaid diagram source/);
+    assert.match(tools["surface.update"].parameters.properties.progressBlocker.anyOf[0].properties.reason.description, /external dependency/);
     assert.deepEqual(tools["surface.update"].parameters.required, ["surfaceId", "expectedRevision"]);
     assert.equal(tools["surface.update"].parameters.properties.progressBlocker.anyOf[1].type, "null");
     const action = (name, input) => ({ id: `action-${name}`, toolName: name, actionClass: "recall", input });
@@ -129,6 +270,9 @@ test("surface tools expose simple query and track focus without duplicate touch"
     assert.equal(services.output.surfaces[0].resourceKind, "service");
     const missing = await tools["surface.get"].execute(action("surface.get", { surfaceId: "surface-missing" }));
     assert.equal(missing.status, "error");
+    const created = await tools["surface.create"].execute(action("surface.create", { parentId: state.rootId, name: "Request decoder" }));
+    assert.equal(created.status, "complete");
+    assert.equal(created.output.description, "");
   } finally { state.close(); }
 });
 
@@ -137,9 +281,7 @@ test("a surface blocker records a concrete dependency after first touch and rema
   try {
     const child = state.surface.create(state.rootId, "Authenticated endpoint", "Session boundary.");
     const reason = "Mapped public routes and tested pre-auth inputs; an authorized account is required to test the authenticated endpoint. Provide a test account to resume.";
-    assert.throws(() => state.surface.update(child.id, child.revision, foundation, undefined, undefined, { reason }), /Focus and investigate/);
     state.surface.focus("agent-example", child.id);
-    assert.throws(() => state.surface.update(child.id, child.revision, completeFoundation, undefined, undefined, { reason }), /coverage.gaps/);
     const tools = Object.fromEntries(createSurfaceTools(state.surface).map((tool) => [tool.descriptor.name, tool]));
     const action = (input) => ({ id: "action-surface-update", toolName: "surface.update", actionClass: "recall", input });
     const invalid = await tools["surface.update"].execute(action({ surfaceId: child.id, expectedRevision: child.revision,
@@ -153,10 +295,9 @@ test("a surface blocker records a concrete dependency after first touch and rema
     assert.equal(Object.hasOwn(set.output.foundation, "progressBlocker"), false);
     assert.equal(set.output.progressBlocker.actorId, "agent-example");
     assert.ok(Number.isFinite(Date.parse(set.output.progressBlocker.setAt)));
-    assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements.includes("blocked"), true);
+    assert.equal(state.surface.coverageState(child.id).covered, true);
     assert.equal(state.surface.list().surfaces.find((item) => item.id === child.id).progressBlocker.reason, reason);
     assert.equal(state.surface.query("authorized account").surfaces[0].id, child.id);
-    assert.throws(() => state.surface.update(child.id, set.output.revision, completeFoundation), /coverage.gaps/);
     const updated = state.surface.update(child.id, set.output.revision, foundation);
     assert.equal(updated.progressBlocker.reason, reason);
     const registry = new ResearchToolRegistry([tools["surface.update"]]);
@@ -175,43 +316,73 @@ test("a surface blocker records a concrete dependency after first touch and rema
   } finally { state.close(); }
 });
 
-test("surface coverage requires a complete threat-model map, investigated sinks, resolved connections, and no unblocked findings", () => {
+test("a concrete external blocker can be recorded without completing a foundation form", () => {
+  const state = fixture();
+  try {
+    const child = state.surface.create(state.rootId, "Session verifier");
+    const blocked = state.surface.update(child.id, child.revision, undefined, undefined, undefined,
+      { reason: "An example account is needed to continue." });
+    assert.equal(blocked.progressBlocker.reason, "An example account is needed to continue.");
+    assert.equal(blocked.foundation.coverage.mappingComplete, false);
+  } finally { state.close(); }
+});
+
+test("surface progress follows a threat-model review and live claim resolution", () => {
   const state = fixture();
   try {
     const child = state.surface.create(state.rootId, "Request parser", "Parser boundary.");
-    assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements,
-      ["foundation", "surface_map", "sinks"]);
-    state.surface.update(child.id, child.revision, {
-      ...completeFoundation,
-      coverage: { ...completeFoundation.coverage, openQuestions: ["Does fallback parsing reach the same sink?"] },
+    assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements, ["threat_model"]);
+    const renamed = state.surface.update(child.id, child.revision, undefined, "Request decoder");
+    assert.equal(renamed.name, "Request decoder");
+    assert.equal(renamed.foundation, null);
+    const noted = state.surface.update(child.id, renamed.revision, {
+      coverage: { summary: "Reviewed decoding boundaries.", mappingComplete: true }
     });
-    assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements, ["open_questions"]);
-    state.surface.update(child.id, 2, completeFoundation);
+    assert.equal(noted.foundation.coverage.summary, "Reviewed decoding boundaries.");
+    assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements, ["threat_model"]);
+    const modeled = state.surface.update(child.id, noted.revision, { threatModel: {
+      diagram: 'flowchart LR\n  request["Request"] --> parser["Parser"]'
+    } });
+    assert.equal(modeled.foundation.threatModelReviewed, true);
     assert.equal(state.surface.coverageState(child.id).covered, true);
-    assert.deepEqual(state.surface.coverageState(state.rootId).unmetRequirements,
-      ["foundation", "surface_map", "sinks"]);
-    state.surface.update(state.rootId, 1, completeFoundation);
+    const clearedDiagram = state.surface.update(child.id, modeled.revision, { threatModel: { diagram: "" } });
+    assert.equal(clearedDiagram.foundation.threatModelReviewed, true);
+    assert.equal(state.surface.list({ parentId: state.rootId }).surfaces[0].threatModelReviewed, true);
+    state.surface.update(state.rootId, 1, { threatModel: { securityObjectives: "Protect example state." } });
     assert.equal(state.surface.coverageState(state.rootId).covered, true);
-
     const database = new DatabaseSync(state.databasePath);
     try {
       database.exec(`CREATE TABLE app_server_research_claims (
-        id TEXT, workspace_id TEXT, status TEXT, classification TEXT,
-        duplicate_of_claim_id TEXT, security_tracking_json TEXT
+        id TEXT, workspace_id TEXT, status TEXT, stale_from_status TEXT,
+        surface_id TEXT, duplicate_of_claim_id TEXT, security_tracking_json TEXT
       )`);
-      database.prepare(`INSERT INTO app_server_research_claims VALUES (?, ?, ?, ?, NULL, ?)`).run(
-        "claim-example", workspaceId, "observed", "security.vulnerability", JSON.stringify({ surfaceIds: [child.id], progressBlocker: null }),
-      );
-      assert.deepEqual(state.surface.coverageState(child.id).unblockedFindingIds, ["claim-example"]);
-      assert.equal(state.surface.coverageState(state.rootId).covered, false);
-      database.prepare("UPDATE app_server_research_claims SET security_tracking_json = ? WHERE id = ?").run(
-        JSON.stringify({ surfaceIds: [child.id], progressBlocker: { reason: "Authorized input routes were tested and cannot reach this sink; a new route is needed to advance the finding." } }), "claim-example",
-      );
-      state.surface.update(child.id, 3, {
-        ...completeFoundation,
-        coverage: { ...completeFoundation.coverage, gaps: "The observed primitive remains blocked on reachability." },
-      });
+      const insert = database.prepare(`INSERT INTO app_server_research_claims
+        (id, workspace_id, status, stale_from_status, surface_id, duplicate_of_claim_id, security_tracking_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`);
+      insert.run("lead-example", workspaceId, "hypothesis", null, child.id, null, "{}");
+      insert.run("refuted-example", workspaceId, "rejected", null, child.id, null, "{}");
+      insert.run("duplicate-example", workspaceId, "hypothesis", null, child.id, "lead-example", "{}");
+      insert.run("unassigned-example", workspaceId, "hypothesis", null, null, null, "{}");
+      assert.deepEqual(state.surface.coverageState(child.id).openLeadIds, ["lead-example"]);
+      insert.run("stale-lead-example", workspaceId, "stale", "hypothesis", null, null,
+        JSON.stringify({ surfaceIds: [child.id] }));
+      assert.deepEqual(state.surface.coverageState(child.id).openLeadIds, ["lead-example", "stale-lead-example"]);
+      database.prepare("UPDATE app_server_research_claims SET status='rejected' WHERE id='stale-lead-example'").run();
+      assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements, ["open_leads"]);
       assert.equal(state.surface.coverageState(state.rootId).covered, true);
+      database.prepare("UPDATE app_server_research_claims SET status='observed' WHERE id='lead-example'").run();
+      assert.deepEqual(state.surface.coverageState(child.id).unblockedFindingIds, ["lead-example"]);
+      assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements, ["unblocked_findings"]);
+      database.prepare("UPDATE app_server_research_claims SET security_tracking_json=? WHERE id='lead-example'")
+        .run(JSON.stringify({ progressBlocker: { reason: "Example account required." } }));
+      assert.equal(state.surface.coverageState(child.id).covered, true);
+      database.prepare("UPDATE app_server_research_claims SET status='verified', security_tracking_json='{}' WHERE id='lead-example'").run();
+      assert.equal(state.surface.coverageState(child.id).covered, true);
+      database.prepare("UPDATE app_server_research_claims SET status='stale', stale_from_status='verified' WHERE id='lead-example'").run();
+      assert.deepEqual(state.surface.coverageState(child.id).unblockedFindingIds, ["lead-example"]);
+      database.prepare("UPDATE app_server_research_claims SET status='rejected' WHERE id='lead-example'").run();
+      assert.equal(state.surface.coverageState(child.id).covered, true);
+      assert.equal(state.surface.focus("agent-later", child.id).surface.id, child.id);
     } finally { database.close(); }
   } finally { state.close(); }
 });
@@ -239,9 +410,9 @@ test("the first focus automatically launches one foundation scout and reports it
     assert.match(first.foundationScout.agentPath, /^\/root\/surface_foundation_/);
     await manager.settle();
     assert.equal(requests.length, 1);
-    assert.match(requests[0].prompt, /Map attacker-controlled entry paths, trust boundaries, privilege contexts, security-relevant sinks/);
-    assert.match(requests[0].prompt, /Define coverage against that threat model, not against general code exploration/);
-    assert.match(requests[0].prompt, /Treat harmless defects as context only unless a security consequence is supported/);
+    assert.match(requests[0].prompt, /Give this component a concise research foundation/);
+    assert.match(requests[0].prompt, /progress follows the current claims and can change later/);
+    assert.match(requests[0].prompt, /Keep hypotheses and tests in research records/);
     assert.deepEqual(activities.find((activity) => activity.type === "spawned")?.surfaceTrail,
       [{ id: state.rootId, name: "Example service" }]);
     assert.equal(state.surface.coverageState(state.rootId).covered, true);
@@ -309,7 +480,7 @@ test("subagent spawn requires a valid surface assignment and records first touch
     assert.equal(state.surface.get(child.id).firstTouchedAt !== null, true);
     await manager.settle();
     assert.match(requests[0].prompt, /Assigned surface: Example service \/ Parser/);
-    assert.match(requests[0].prompt, /one-time security foundation/);
+    assert.match(requests[0].prompt, /brief foundation when useful/);
     assert.equal(state.surface.current(result.details.agent_id).id, child.id);
     state.surface.focus(result.details.agent_id, state.rootId, "Moved to parent boundary");
     const listed = await manager.createTools("root").find((tool) => tool.name === "list_agents").execute("list-after-move", {});
@@ -339,15 +510,32 @@ test("surface foundations, first touch, and movement survive workspace publicati
     assert.match(JSON.parse(published.surfaces[0].foundation_json).progressBlocker.reason, /authorized account/);
     assert.equal(published.surfaceTouches.length, 1);
     assert.equal(published.surfaceFocusEvents.length, 1);
+    assert.equal(published.surfaceUpdateEvents.length, 1);
     surfaces.close(); resources.close(); memory.close();
     releaseWorkspaceResearchIndex(options);
+    const emptied = new DatabaseSync(databasePath);
+    try {
+      for (const table of ['app_server_surface_update_events', 'app_server_surface_focus_events',
+        'app_server_surface_focus', 'app_server_surface_touches', 'app_server_surfaces', 'app_server_surface_roots']) {
+        emptied.exec(`DROP TABLE ${table}`);
+      }
+    } finally { emptied.close(); }
     rebuildWorkspaceResearchIndex(options);
     const restoredResources = new ResearchResourceCatalog({ databasePath, workspaceId, explicitResources: [{ id: "asset-example", direction: "in_scope", kind: "repository", locator: "https://example.test/repository", name: "Example repository", source: "explicit_scope" }] });
     const restored = new SurfaceStore({ databasePath, workspaceId, sessionId: "session-later", resources: restoredResources });
     try {
       assert.equal(restored.get(child.id).foundation.threatModel.attackerControl, foundation.threatModel.attackerControl);
+      assert.equal(restored.get(child.id).foundation.threatModel.diagram, foundation.threatModel.diagram);
+      assert.equal(restored.get(child.id).foundation.discovery, foundation.discovery.trim());
+      assert.equal(restored.get(child.id).foundation.techStack[0].technology, "Example Parser");
+      assert.deepEqual(restored.get(child.id).foundation.assets, foundation.assets);
+      assert.equal(restored.get(child.id).foundation.bugHistory.entries[0].identifier, "EXAMPLE-ADVISORY-001");
       assert.match(restored.get(child.id).progressBlocker.reason, /authorized account/);
       assert.equal(restored.focus("agent-later", child.id).firstTouch, false);
+      const database = new DatabaseSync(databasePath, { readOnly: true });
+      try {
+        assert.equal(database.prepare('SELECT COUNT(*) AS count FROM app_server_surface_update_events WHERE surface_id=?').get(child.id).count, 1);
+      } finally { database.close(); }
     } finally { restored.close(); restoredResources.close(); }
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

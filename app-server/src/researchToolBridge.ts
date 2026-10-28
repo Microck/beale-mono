@@ -167,11 +167,26 @@ async function createResearchToolBridgeRuntime(
   try {
     const tools: ResearchExecutableTool[] = [];
     const memoryActive = input.memoryBackend !== 'disabled' && resolvedProfile.profile.capabilities.memoryEnabled;
+    const resources = new ResearchResourceCatalog({
+      databasePath: storage.databasePath,
+      workspaceId: input.workspaceId,
+      explicitResources: binding.resources ?? [],
+      ...(binding.authorization ? { authorization: binding.authorization } : {})
+    });
+    close.unshift(() => resources.close());
+    const surfaces = new SurfaceStore({
+      databasePath: storage.databasePath,
+      workspaceId: input.workspaceId,
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      resources
+    });
+    close.unshift(() => surfaces.close());
 
     if (memoryActive) {
-      tools.push(...createMemoryGraphTools(memoryGraph));
+      tools.push(...createMemoryGraphTools(memoryGraph, surfaces));
       tools.push(...createFindingTools(findingStore, {
         classifications: effectiveClaimClassifications(resolvedProfile.profile).map((classification) => classification.id),
+        surfaceStore: surfaces,
         ...(input.workspaceReferences ? { referenceWorkspaces: input.workspaceReferences } : {})
       }));
     }
@@ -223,20 +238,6 @@ async function createResearchToolBridgeRuntime(
     }
 
 
-    const resources = new ResearchResourceCatalog({
-      databasePath: storage.databasePath,
-      workspaceId: input.workspaceId,
-      explicitResources: binding.resources ?? [],
-      ...(binding.authorization ? { authorization: binding.authorization } : {})
-    });
-    close.unshift(() => resources.close());
-    const surfaces = new SurfaceStore({
-      databasePath: storage.databasePath,
-      workspaceId: input.workspaceId,
-      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-      resources
-    });
-    close.unshift(() => surfaces.close());
     tools.push(...createSurfaceTools(surfaces));
     const scopeAuthorizer = createResearchResourceScopeAuthorizer({
       researchProfileName: resolvedProfile.profile.name,

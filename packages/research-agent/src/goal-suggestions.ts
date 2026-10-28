@@ -424,16 +424,16 @@ function readSuggestionSurfaces(database: DatabaseSync, workspaceId: string): Ar
       foundation = isRecord(parsed) ? parsed : null;
     } catch { /* Unknown foundation. */ }
     const threatModel = isRecord(foundation?.threatModel) ? foundation.threatModel : null;
-    const coverage = isRecord(foundation?.coverage) ? foundation.coverage : null;
     return {
       id: String(row.id),
       name: boundedText(String(row.name), 100),
       description: boundedText(String(row.description ?? ""), 180),
       ...(threatModel ? { attackerControl: boundedText(String(threatModel.attackerControl ?? ""), 180),
         trustBoundaries: boundedText(String(threatModel.trustBoundaries ?? ""), 180),
-        plausibleImpacts: boundedText(String(threatModel.plausibleImpacts ?? ""), 180) } : {}),
-      ...(coverage ? { openQuestions: Array.isArray(coverage.openQuestions)
-        ? coverage.openQuestions.filter((value): value is string => typeof value === "string").slice(0, 2).map((value) => boundedText(value, 160)) : [] } : {}),
+        securityObjectives: boundedText(String(threatModel.securityObjectives ?? ""), 180),
+        invariants: boundedText(String(threatModel.invariants ?? ""), 180),
+        sinks: boundedText(String(threatModel.sinks ?? ""), 180),
+        plausibleImpacts: boundedText(String(threatModel.riskImpact || threatModel.plausibleImpacts || ""), 180) } : {}),
     };
   });
 }

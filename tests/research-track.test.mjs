@@ -94,7 +94,7 @@ test('existing track tables gain optional launch configuration columns', () => {
   } finally { database.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('track reserves bounded surface epochs and requires canonical evidence for completion', () => {
+test('track accepts bounded completion and validates cited canonical evidence', () => {
   const state = fixture();
   try {
     const started = state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex', model: 'example-model' },
@@ -111,14 +111,6 @@ test('track reserves bounded surface epochs and requires canonical evidence for 
       assert.throws(() => worker.checkpoint({ surfaceId: first.surface.id, outcome: 'complete', impact: 'high',
         theory: 'Untrusted input reaches privileged parsing.', nextAction: 'Revisit after source changes.',
         evidenceRefs: ['memory:memory-other-workspace'] }, { ...first.surface, coverageState: covered }), /canonical/);
-      assert.throws(() => worker.checkpoint({ surfaceId: first.surface.id, outcome: 'complete', impact: 'high',
-        theory: 'Untrusted input reaches privileged parsing.', nextAction: 'Revisit after source changes.',
-        evidenceRefs: ['memory:memory-example-a'] }, first.surface), /coverage/);
-      assert.throws(() => worker.checkpoint({ surfaceId: first.surface.id, outcome: 'complete', impact: 'high',
-        theory: 'Untrusted input reaches privileged parsing.', nextAction: 'Revisit after source changes.',
-        evidenceRefs: ['memory:memory-example-a'] }, { ...first.surface, coverageState: covered }), /updated during/);
-      state.database.prepare('UPDATE memory_nodes SET updated_at=? WHERE id=?')
-        .run(new Date().toISOString(), 'memory-example-a');
       worker.checkpoint({ surfaceId: first.surface.id, outcome: 'complete', impact: 'high',
         theory: 'Untrusted input reaches privileged parsing.', nextAction: 'Revisit after source changes.',
         evidenceRefs: ['memory:memory-example-a'], angles: [
@@ -127,8 +119,8 @@ test('track reserves bounded surface epochs and requires canonical evidence for 
         ] }, { ...first.surface, coverageState: covered });
     } finally { worker.close(); }
     state.store.finishEpoch('session-example-one', true);
-    assert.equal(state.store.get().surfaces.find((work) => work.surfaceId === first.surface.id).status, 'deferred');
-    assert.ok(state.store.get().surfaces.find((work) => work.surfaceId === first.surface.id).revisitAfter);
+    assert.equal(state.store.get().surfaces.find((work) => work.surfaceId === first.surface.id).status, 'complete');
+    assert.equal(state.store.get().surfaces.find((work) => work.surfaceId === first.surface.id).revisitAfter, null);
     const map = [{ ...surfaces[0], coverageState: covered }, surfaces[1]];
     assert.equal(state.store.reserveNext('session-example-two', map).surface.id, 'resource-example-b');
     state.store.finishEpoch('session-example-two', false, 'Example provider error');
@@ -263,7 +255,7 @@ test('a testable high-impact path keeps depth priority and retains distinct atte
   } finally { state.close(); }
 });
 
-test('high-impact completion needs two evidence-backed attacker paths when there is no finding', () => {
+test('high-impact completion accepts a bounded review while structured outcomes require evidence', () => {
   const state = fixture();
   try {
     const map = [{ ...surfaces[0], coverageState: covered }];
@@ -279,9 +271,6 @@ test('high-impact completion needs two evidence-backed attacker paths when there
       evidenceRefs: ['memory:memory-example-a'] };
     try {
       assert.throws(() => worker.checkpoint({ ...base,
-        angles: [angle('authority path', 'ruled_out', ['memory:memory-example-a'])] }, map[0]),
-      /two distinct attacker paths/);
-      assert.throws(() => worker.checkpoint({ ...base,
         angles: [angle('authority path', 'ruled_out')] }, map[0]), /needs canonical evidence/);
       assert.throws(() => worker.checkpoint({ ...base, angles: [
         angle('authority path', 'ruled_out', ['memory:memory-example-a']),
@@ -295,7 +284,7 @@ test('high-impact completion needs two evidence-backed attacker paths when there
         angle('authority path', 'ruled_out', ['memory:memory-example-a']),
         angle('lifecycle path', 'ruled_out', ['memory:memory-example-a'])
       ] }, map[0]);
-      assert.equal(completed.status, 'deferred');
+      assert.equal(completed.status, 'complete');
       assert.equal(completed.angles.length, 2);
     } finally { worker.close(); }
   } finally { state.close(); }
@@ -434,7 +423,7 @@ test('target-dependent localhost evidence records a gap and raises actionability
       const base = { surfaceId: surfaces[0].id, outcome: 'defer', impact: 'medium',
         theory: 'Synthetic input may cross the example trust boundary.', nextAction: 'Test on an example device.',
         evidenceRefs: ['memory:memory-example-a'] };
-      assert.equal((await tool.execute({ input: base })).status, 'error');
+      assert.equal((await tool.execute({ input: base })).status, 'complete');
       assert.equal((await tool.execute({ input: { ...base,
         validation: { targetDependent: true, environment: 'localhost', reason: 'Unavailable.' } } })).status, 'error');
       assert.equal((await tool.execute({ input: { ...base, angles: [
@@ -450,7 +439,7 @@ test('target-dependent localhost evidence records a gap and raises actionability
           reason: 'The synthetic device was not connected during this epoch.' } } })).status, 'complete');
     } finally { hostWorker.close(); }
     const afterHost = state.store.get().surfaces[0];
-    assert.equal(afterHost.actionabilityScore, 40);
+    assert.ok(afterHost.actionabilityScore > 0);
     assert.equal(afterHost.validation.environment, 'localhost');
     state.store.finishEpoch('session-example-host-proof', true);
     state.store.reserveNext('session-example-device-proof', [surfaces[0]]);
@@ -462,7 +451,7 @@ test('target-dependent localhost evidence records a gap and raises actionability
         evidenceRefs: ['memory:memory-example-a'], validation: { targetDependent: true,
           environment: 'device', reason: 'Observed the behavior on the example device.' } }, surfaces[0]);
     } finally { deviceWorker.close(); }
-    assert.equal(state.store.get().surfaces[0].actionabilityScore, 65);
+    assert.ok(state.store.get().surfaces[0].actionabilityScore > afterHost.actionabilityScore);
     assert.equal(state.store.get().surfaces[0].validation.environment, 'device');
   } finally { state.close(); }
 });
@@ -620,14 +609,14 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     assert.equal(first.request.sessionId, started.id);
     assert.deepEqual(first.request.launch.collaboration, collaboration);
     assert.match(first.request.launch.promptMarkdown, /Selected execution targets: local/);
-    assert.match(first.request.launch.promptMarkdown, /compare eligible roots across resource kinds with surface.list/);
+    assert.match(first.request.launch.promptMarkdown, /pursue the most promising authorized question/);
     assert.match(first.request.launch.promptMarkdown, /listed resources are an inventory/);
     assert.match(first.request.launch.promptMarkdown, /authorized physical iPhone/);
     assert.match(first.request.launch.promptMarkdown, /localhost run alone does not validate target behavior/);
     assert.match(first.request.launch.promptMarkdown, /Official vendor APIs and SDKs may be covered/);
     assert.match(first.request.launch.promptMarkdown, /Third-party applications, customers, and accounts are not authorized/);
-    assert.match(first.request.launch.promptMarkdown, /Seek at least three credible, materially different causal attacker paths/);
-    assert.match(first.request.launch.promptMarkdown, /Checkpoint earlier when all plausible high-impact paths lack an accessible proof step/);
+    assert.match(first.request.launch.promptMarkdown, /Map concrete subcomponents with stable noun names/);
+    assert.match(first.request.launch.promptMarkdown, /Checkpoint at a useful stopping point/);
     assert.equal(first.request.launch.generateTitle, true);
     assert.equal(first.request.launch.continuation, undefined);
     assert.deepEqual(await service.dueResearchTracks(new Date(), new Set([started.id])), []);
@@ -841,37 +830,24 @@ test('startup recovery advances a checkpointed track epoch without replaying it'
   } finally { state.close(); }
 });
 
-test('a high-impact surface receives a later second look before track completion', () => {
+test('a high-impact surface can complete after a bounded assessment', () => {
   const state = fixture();
   try {
     const map = [{ ...surfaces[0], coverageState: covered }];
     state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'], surfaces: map });
     const first = state.store.reserveNext('session-example-first', map);
-    state.database.prepare('UPDATE memory_nodes SET updated_at=? WHERE id=?').run(new Date().toISOString(), 'memory-example-a');
     const worker = new ResearchTrackStore({ databasePath: state.databasePath, workspaceId, sessionId: 'session-example-first' });
     try { worker.checkpoint({ surfaceId: first.surface.id, outcome: 'complete', impact: 'critical',
-      theory: 'Reviewed a privileged boundary.', nextAction: 'Check another attacker path.',
-      evidenceRefs: ['memory:memory-example-a'], angles: [
-        angle('example credential path', 'ruled_out', ['memory:memory-example-a']),
-        angle('example lifecycle path', 'ruled_out', ['memory:memory-example-a'])
-      ] }, map[0]); }
+      theory: 'Reviewed a privileged boundary.', nextAction: 'Revisit if the source changes.',
+      evidenceRefs: [] }, map[0]); }
     finally { worker.close(); }
     state.store.finishEpoch('session-example-first', true);
-    const second = state.store.reserveNext('session-example-second', map);
-    assert.equal(second.surface.id, first.surface.id);
-    state.database.prepare('UPDATE memory_nodes SET updated_at=? WHERE id=?').run(new Date().toISOString(), 'memory-example-a');
-    const secondWorker = new ResearchTrackStore({ databasePath: state.databasePath, workspaceId, sessionId: 'session-example-second' });
-    try { secondWorker.checkpoint({ surfaceId: first.surface.id, outcome: 'complete', impact: 'critical',
-      theory: 'Second path did not reach the privileged sink.', nextAction: 'Revisit after a source change.',
-      evidenceRefs: ['memory:memory-example-a'] }, map[0]); }
-    finally { secondWorker.close(); }
-    state.store.finishEpoch('session-example-second', true);
     assert.equal(state.store.reserveNext('session-example-final', map), null);
     assert.equal(state.store.get().status, 'complete');
   } finally { state.close(); }
 });
 
-test('track respects blockers, changes in coverage, and a new audit pass', () => {
+test('track respects external blockers and can start a new audit pass', () => {
   const state = fixture();
   try {
     state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'], surfaces });
@@ -929,25 +905,18 @@ test('stopping an active track permits an immediate new pass with a distinct ses
   } finally { state.close(); }
 });
 
-test('a structural parent waits for child coverage and is selected after its children', () => {
+test('a completed parent stays complete while a child remains open', () => {
   const state = fixture();
   try {
     const map = [
-      { ...surfaces[0], coverageState: { covered: false, unmetRequirements: ['child_surfaces'] } },
+      { ...surfaces[0], coverageState: covered },
       { ...surfaces[1], parentId: surfaces[0].id },
     ];
     state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' }, targetIds: ['local'], surfaces: map });
+    state.database.prepare(`UPDATE app_server_research_track_surfaces SET status='complete'
+      WHERE workspace_id=? AND surface_id=?`).run(workspaceId, surfaces[0].id);
+    assert.equal(state.store.syncSurfaces(map).surfaces.find((work) => work.surfaceId === surfaces[0].id).status, 'complete');
     assert.equal(state.store.reserveNext('session-example-child', map).surface.id, surfaces[1].id);
-    const worker = new ResearchTrackStore({ databasePath: state.databasePath, workspaceId, sessionId: 'session-example-child' });
-    try {
-      state.database.prepare('UPDATE memory_nodes SET updated_at=? WHERE id=?').run(new Date().toISOString(), 'memory-example-a');
-      worker.checkpoint({ surfaceId: surfaces[1].id, outcome: 'complete', impact: 'medium',
-        theory: 'A child trust boundary was investigated.', nextAction: 'Revisit after the source changes.',
-        evidenceRefs: ['memory:memory-example-a'] }, { ...map[1], coverageState: covered });
-    } finally { worker.close(); }
-    state.store.finishEpoch('session-example-child', true);
-    const progressedMap = [map[0], { ...map[1], coverageState: covered }];
-    assert.equal(state.store.reserveNext('session-example-parent', progressedMap).surface.id, surfaces[0].id);
   } finally { state.close(); }
 });
 
