@@ -789,7 +789,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteMachines, () => workspaceService.getFleetRemoteMachines());
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteCatalog, (_event, serverId: string) => workspaceService.getFleetRemoteCatalog(serverId));
   ipcMain.handle(IPC_CHANNELS.getFleetRemoteWorkspaceDetails, (_event, serverId: string, workspaceId: string) => workspaceService.getFleetRemoteWorkspaceDetails(serverId, workspaceId));
-  ipcMain.handle(IPC_CHANNELS.getWorkspaceSurfaceMap, (_event, workspaceId: string) => workspaceService.getWorkspaceSurfaceMap(workspaceId));
+  ipcMain.handle(IPC_CHANNELS.getWorkspaceSurfaceMap, (_event, workspaceId: string, sessionId?: string) => workspaceService.getWorkspaceSurfaceMap(workspaceId, sessionId));
   ipcMain.handle(IPC_CHANNELS.getResearchTrack, (_event, workspaceId: string, serverId?: string) => workspaceService.getResearchTrack(workspaceId, serverId));
   ipcMain.handle(IPC_CHANNELS.controlResearchTrack, (_event, workspaceId: string, action: 'start' | 'pause' | 'resume' | 'stop', serverId?: string,
     configuration?: import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrackRequest['configuration']) => workspaceService.controlResearchTrack(workspaceId, action, serverId, configuration));

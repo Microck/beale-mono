@@ -202,8 +202,12 @@ export interface SearchMemoryNodesInput {
   scope?: MemoryScope;
   /** Internal host-authorized workspace filter for same-Subject reference searches. */
   workspaceIds?: readonly string[];
+  /** Restrict results to records directly assigned to these surfaces. */
+  surfaceIds?: readonly string[];
   types?: readonly MemoryNodeType[];
   statuses?: readonly MemoryNodeStatus[];
+  /** Internal lookup filter for view lists that omit rejected records. */
+  excludeStatuses?: readonly MemoryNodeStatus[];
   assetIds?: readonly string[];
   tags?: readonly string[];
   limit?: number;
@@ -834,6 +838,10 @@ export class MemoryGraphStore {
       clauses.push(`n.status IN (${input.statuses.map(() => "?").join(",")})`);
       params.push(...input.statuses);
     }
+    if (input.excludeStatuses?.length) {
+      clauses.push(`n.status NOT IN (${input.excludeStatuses.map(() => "?").join(",")})`);
+      params.push(...input.excludeStatuses);
+    }
     const scope = input.scope ?? "workspace";
     if (scope === "session") {
       if (!this.local.context.sessionId) return [];
@@ -848,6 +856,11 @@ export class MemoryGraphStore {
       clauses.push(`EXISTS (SELECT 1 FROM memory_node_workspaces w_selected
         WHERE w_selected.node_id = n.id AND w_selected.workspace_id IN (${workspaceIds.map(() => "?").join(",")}))`);
       params.push(...workspaceIds);
+    }
+    if (input.surfaceIds?.length) {
+      const surfaceIds = unique(input.surfaceIds.filter(Boolean));
+      clauses.push(`n.surface_id IN (${surfaceIds.map(() => "?").join(",")})`);
+      params.push(...surfaceIds);
     }
     for (const assetId of input.assetIds ?? []) {
       clauses.push("EXISTS (SELECT 1 FROM memory_node_assets a WHERE a.node_id = n.id AND a.asset_id = ?)");

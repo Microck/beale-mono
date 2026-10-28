@@ -61,6 +61,41 @@ describe('commentary streaming', () => {
     expect(visibleCommentaryMessages(state, [history, tool, commentary]).at(-1)?.contentMarkdown).toBe('D');
   });
 
+  it('shows inter-agent messages immediately so long messages do not delay later output', () => {
+    const history = message('history', 'Earlier update.');
+    const agentMessage: CommentaryMessage = { ...message('agent-message', 'A long synthetic handoff.\n'.repeat(20), 'task'),
+      taskAction: 'message' };
+    const commentary = message('commentary', 'Next step.');
+    const state = reconcileCommentaryStreaming(initialCommentaryStreamingState('run-example', [history]),
+      'run-example', [history, agentMessage, commentary], true);
+    expect(state.pending.map((entry) => entry.id)).toEqual(['commentary']);
+    expect(visibleCommentaryMessages(state, [history, agentMessage, commentary]).map((entry) => entry.contentMarkdown))
+      .toEqual([history.contentMarkdown, agentMessage.contentMarkdown, '']);
+  });
+
+  it('shows a new threat model diagram immediately with an inspection control', () => {
+    const existing = message('existing', 'Earlier update.');
+    const diagram: CommentaryMessage = { ...message('diagram', 'Example parser threat model diagram', 'diagram'),
+      surfaceDiagram: { source: 'flowchart LR\n  input["Example input"] --> parser["Parser"]',
+        surfaceId: 'surface-example', surfaceName: 'Example parser', changeKind: 'created' } };
+    const state = reconcileCommentaryStreaming(initialCommentaryStreamingState('run-example', [existing]),
+      'run-example', [existing, diagram], true);
+    expect(visibleCommentaryMessages(state, [existing, diagram]).at(-1)?.surfaceDiagram).toEqual(diagram.surfaceDiagram);
+    const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
+      message: diagram, searchHighlightQuery: '', selected: false
+    }));
+    expect(html).not.toContain('Threat model diagram · Example parser');
+    expect(html).not.toContain('main-commentary-diagram-card');
+    expect(html).toContain('aria-label="Expand threat model diagram for Example parser"');
+    expect(html).toContain('Creating threat model diagram for &quot;Example parser&quot;');
+    expect(html.indexOf('Creating threat model diagram')).toBeLessThan(html.indexOf('aria-label="Expand threat model diagram for Example parser"'));
+    const updatedHtml = renderToStaticMarkup(createElement(CommentaryMessageRow, {
+      message: { ...diagram, surfaceDiagram: { ...diagram.surfaceDiagram!, changeKind: 'updated' } },
+      searchHighlightQuery: '', selected: false
+    }));
+    expect(updatedHtml).toContain('Updating threat model diagram for &quot;Example parser&quot;');
+  });
+
   it('reveals whole words on Windows and keeps character streaming on macOS', () => {
     expect(commentaryStreamingModeForUserAgent('Electron (Windows NT 10.0; Win64; x64)')).toBe('word');
     expect(commentaryStreamingModeForUserAgent('Electron (Macintosh; Intel Mac OS X)')).toBe('character');
@@ -325,6 +360,7 @@ describe('renderer commentary projection', () => {
     expect(commentaryToolUsageText('shell.run', 4)).toBe('Running 4 commands');
     expect(commentaryToolUsageText('shell.run', 1, 'npm test', true)).toBe('Ran npm test');
     expect(commentaryToolUsageText('surface.get', 1)).toBe('Inspecting a surface');
+    expect(commentaryToolUsageText('surface.views', 1)).toBe('Inspecting surface views');
     expect(commentaryToolUsageText('surface.list', 1)).toBe('Listing surfaces');
     expect(commentaryToolUsageText('surface.focus', 1)).toBe('Focusing on a surface');
     expect(commentaryToolUsageText('features.load', 1)).toBe('Loading features');
@@ -796,6 +832,10 @@ describe('renderer commentary projection', () => {
     expect(toolMessage(pairedEvents('surface.get', 'surface-get', { surfaceId: 'surface_example' }, {
       id: 'surface_example', name: 'Parser entry boundary'
     }))).toBe('Inspecting surface "Parser entry boundary"');
+    expect(toolMessage(pairedEvents('surface.views', 'surface-views', {
+      surfaceId: 'surface_example', views: ['recon', 'threat_model', 'analysis']
+    }, { surfaceId: 'surface_example', name: 'Parser entry boundary', views: {} })))
+      .toBe('Inspecting recon, threat model, analysis for "Parser entry boundary"');
     expect(toolMessage(pairedEvents('surface.list', 'surface-list', { parentId: 'surface_example' }, {
       surfaces: []
     }))).toBe('Listing surfaces under "surface_example"');
@@ -1793,8 +1833,8 @@ describe('renderer commentary projection', () => {
     ], { includeInitialPrompt: false });
 
     expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
-      ['marker', 'Context compacted'],
-      ['marker', 'Context compacted'],
+      ['marker', 'Context Compacted'],
+      ['marker', 'Context Compacted'],
       ['marker', 'Cybersecurity safeguard encountered · Beale recovering'],
       ['error', 'The model is waiting for a steering instruction after the provider flagged the request for possible cybersecurity risk. Clarify the authorized scope or revise the request, then send the steering message to continue.']
     ]);

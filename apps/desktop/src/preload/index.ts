@@ -317,8 +317,8 @@ const api: BealeApi = {
   getFleetRemoteWorkspaceDetails(serverId: string, workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDetails> {
     return ipcRenderer.invoke(IPC_CHANNELS.getFleetRemoteWorkspaceDetails, serverId, workspaceId);
   },
-  getWorkspaceSurfaceMap(workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceSurfaceMap> {
-    return ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceSurfaceMap, workspaceId);
+  getWorkspaceSurfaceMap(workspaceId: string, sessionId?: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceSurfaceMap> {
+    return ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceSurfaceMap, workspaceId, sessionId);
   },
   getResearchTrack(workspaceId: string, serverId?: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrack | null> {
     return ipcRenderer.invoke(IPC_CHANNELS.getResearchTrack, workspaceId, serverId);

@@ -2,13 +2,14 @@ import { useMemo, useState, type JSX } from 'react';
 import { TriangleAlert } from 'lucide-react';
 import type { BealeWorkspaceSurfaceMap } from '@beale/app-server-runtime/protocol';
 import type { ScopeAssetKind } from '@shared/types';
-import { filterSurfaceHierarchy, layoutSurfaceHierarchy, surfaceCoveragePercent, type MapSurface } from '../../view-models/surfaceMap';
+import { filterSurfaceHierarchy, layoutSurfaceHierarchy, sessionSurfaceCounts, surfaceCoveragePercent, type MapSurface } from '../../view-models/surfaceMap';
 import { surfaceAssetKind } from './WorkspaceResourceKinds';
 import { WorkspaceTitleSearch } from './WorkspaceTitleSearch';
 
-export function WorkspaceSurfaceMap({ map, workspaceName, resourceKind = null, loading = false, error = null, selectedSurfaceId = null, onSelectSurface }: {
+export function WorkspaceSurfaceMap({ map, workspaceName, context = 'workspace', resourceKind = null, loading = false, error = null, selectedSurfaceId = null, onSelectSurface }: {
   map: BealeWorkspaceSurfaceMap | null;
   workspaceName: string;
+  context?: 'workspace' | 'session';
   resourceKind?: ScopeAssetKind | null;
   loading?: boolean;
   error?: string | null;
@@ -25,13 +26,16 @@ export function WorkspaceSurfaceMap({ map, workspaceName, resourceKind = null, l
   const nodes = new Map(layout.nodes.map((node) => [node.surface.id, node]));
   const agents = map?.agents.filter((agent) => nodes.has(agent.surfaceId)) ?? [];
 
-  return <section className="workspace-surface-map" aria-label="Workspace surfaces" id="workspace-dashboard-surfaces-panel" role="tabpanel">
+  const sessionCounts = sessionSurfaceCounts(map);
+  return <section className={`workspace-surface-map${context === 'session' ? ' session-surface-map' : ''}`} aria-label={`${context === 'session' ? 'Session' : 'Workspace'} surfaces`} id={context === 'session' ? 'session-surfaces-panel' : 'workspace-dashboard-surfaces-panel'} role="tabpanel">
     <header className="workspace-surface-map-heading">
       <div className="settings-form-heading">
-        <div className="workspace-catalog-title-row"><h2>{workspaceName.trim() || 'Workspace'} Surfaces</h2><WorkspaceTitleSearch label="surfaces" query={query} onChange={setQuery} /></div>
-        <p>System components and their current research context.</p>
+        <div className="workspace-catalog-title-row"><h2>{context === 'session' ? 'Surfaces' : `${workspaceName.trim() || 'Workspace'} Surfaces`}</h2><WorkspaceTitleSearch label="surfaces" query={query} onChange={setQuery} /></div>
+        <p>{context === 'session' ? 'Surfaces touched during this session.' : 'System components and their current research context.'}</p>
       </div>
-      {map ? <div className="workspace-surface-map-count">{kindSurfaces.filter((surface) => surfaceCoveragePercent(surface) > 0).length} of {kindSurfaces.length} touched · {kindSurfaces.filter((surface) => surface.coverageState.covered).length} complete · {kindSurfaces.filter((surface) => surface.progressBlocker).length} blocked</div> : null}
+      {map ? <div className="workspace-surface-map-count">{context === 'session'
+        ? `${sessionCounts.touched} Touched · ${sessionCounts.completed} Completed`
+        : `${kindSurfaces.filter((surface) => surfaceCoveragePercent(surface) > 0).length} of ${kindSurfaces.length} touched · ${kindSurfaces.filter((surface) => surface.coverageState.covered).length} complete · ${kindSurfaces.filter((surface) => surface.progressBlocker).length} blocked`}</div> : null}
     </header>
     {error ? <p className="workspace-surface-map-status" role="alert">{error}</p> : !map
       ? <p className="workspace-surface-map-status" role="status">{loading ? 'Loading surfaces…' : 'Surface map unavailable.'}</p>

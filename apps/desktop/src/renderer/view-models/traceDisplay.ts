@@ -322,7 +322,8 @@ function traceEventMatchesAgentPath(event: TraceEventRecord, agentPath: string |
   }
   return agentPath
     ? eventAgentPath === agentPath
-    : !eventAgentPath || eventAgentPath === '/root';
+    : !eventAgentPath || eventAgentPath === '/root'
+      || Boolean(tracePayloadRecord(tracePayloadRecord(event.payload, 'payload') ?? {}, 'surfaceDiagram'));
 }
 
 function subagentCommunication(event: TraceEventRecord): {

@@ -1092,10 +1092,10 @@ export class WorkspaceService {
     return invokeAppServerOperation({ operation: 'fleet.remote_workspace_details', input: { serverId, workspaceId } });
   }
 
-  public getWorkspaceSurfaceMap(workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceSurfaceMap> {
+  public getWorkspaceSurfaceMap(workspaceId: string, sessionId?: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceSurfaceMap> {
     const runtime = this.getForegroundRuntime();
     if (!runtime || runtime.db.getWorkspaceId() !== workspaceId) throw new Error('The workspace is not open.');
-    return invokeAppServerOperation({ operation: 'workspace.surface_map', input: { workspaceId } }).then(decodeBealeWorkspaceSurfaceMap);
+    return invokeAppServerOperation({ operation: 'workspace.surface_map', input: { workspaceId, ...(sessionId ? { sessionId } : {}) } }).then(decodeBealeWorkspaceSurfaceMap);
   }
 
   public async getResearchTrack(workspaceId: string, serverId?: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrack | null> {

@@ -28,17 +28,31 @@ function fixture() {
   const databasePath = join(directory, 'memory.sqlite');
   const store = new ResearchTrackStore({ databasePath, workspaceId });
   const database = new DatabaseSync(databasePath);
-  database.exec(`CREATE TABLE memory_nodes (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL);
+  database.exec(`CREATE TABLE memory_nodes (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft', duplicate_of_memory_id TEXT);
     CREATE TABLE memory_node_workspaces (node_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
-      workspace_name TEXT NOT NULL, PRIMARY KEY(node_id, workspace_id))`);
-  database.prepare('INSERT INTO memory_nodes VALUES (?, ?)').run('memory-example-a', '2000-01-01T00:00:00.000Z');
-  database.prepare('INSERT INTO memory_nodes VALUES (?, ?)').run('memory-other-workspace', '2000-01-01T00:00:00.000Z');
+      workspace_name TEXT NOT NULL, PRIMARY KEY(node_id, workspace_id));
+    CREATE TABLE memory_evidence_refs (id TEXT PRIMARY KEY, node_id TEXT NOT NULL, kind TEXT NOT NULL,
+      path TEXT, locator_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)`);
+  database.prepare('INSERT INTO memory_nodes (id, updated_at) VALUES (?, ?)').run('memory-example-a', '2000-01-01T00:00:00.000Z');
+  database.prepare('INSERT INTO memory_nodes (id, updated_at) VALUES (?, ?)').run('memory-other-workspace', '2000-01-01T00:00:00.000Z');
   database.prepare('INSERT INTO memory_node_workspaces VALUES (?, ?, ?)')
     .run('memory-example-a', workspaceId, 'Example workspace');
   database.prepare('INSERT INTO memory_node_workspaces VALUES (?, ?, ?)')
     .run('memory-other-workspace', 'workspace-other', 'Other workspace');
   return { store, database, databasePath, close() { database.close(); store.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
+
+let nextEvidenceId = 0;
+function recordMemoryEvidence(state, kind = 'code') {
+  const id = `evidence-example-${++nextEvidenceId}`;
+  state.database.prepare(`INSERT INTO memory_evidence_refs (id, node_id, kind, path, locator_json, created_at)
+    VALUES (?, ?, ?, ?, '{}', ?)`).run(id, 'memory-example-a', kind,
+    kind === 'code' ? 'src/example.ts' : null, new Date().toISOString());
+  return id;
+}
+
+async function afterEpochStart() { await new Promise((resolve) => setTimeout(resolve, 5)); }
 
 function interruptedTrackSession(guardianEnabled) {
   return { status: 'active', attempts: [{ id: 'attempt-example-interrupted', parentAttemptId: null }],
@@ -107,10 +121,10 @@ test('track accepts bounded completion and validates cited canonical evidence', 
     try {
       assert.throws(() => worker.checkpoint({ surfaceId: first.surface.id, outcome: 'complete', impact: 'high',
         theory: 'Untrusted input reaches privileged parsing.', nextAction: 'Revisit after source changes.',
-        evidenceRefs: ['memory-example-a'] }, { ...first.surface, coverageState: covered }), /canonical/);
+        evidenceRefs: ['memory-example-a'] }, { ...first.surface, coverageState: covered }), /Use finding:<claim ID>, memory:<memory ID>/);
       assert.throws(() => worker.checkpoint({ surfaceId: first.surface.id, outcome: 'complete', impact: 'high',
         theory: 'Untrusted input reaches privileged parsing.', nextAction: 'Revisit after source changes.',
-        evidenceRefs: ['memory:memory-other-workspace'] }, { ...first.surface, coverageState: covered }), /canonical/);
+        evidenceRefs: ['memory:memory-other-workspace'] }, { ...first.surface, coverageState: covered }), /does not exist in this workspace/);
       worker.checkpoint({ surfaceId: first.surface.id, outcome: 'complete', impact: 'high',
         theory: 'Untrusted input reaches privileged parsing.', nextAction: 'Revisit after source changes.',
         evidenceRefs: ['memory:memory-example-a'], angles: [
@@ -156,7 +170,7 @@ test('finishing a user-paused epoch does not invent a pause reason', () => {
   } finally { state.close(); }
 });
 
-test('actionability promotes child proof work, decays without evidence, and returns to breadth', () => {
+test('actionability promotes child proof work, decays without evidence, and returns to breadth', async () => {
   const state = fixture();
   try {
     state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
@@ -179,6 +193,8 @@ test('actionability promotes child proof work, decays without evidence, and retu
     const map = [...surfaces, ...children];
     const firstChild = state.store.reserveNext('session-example-child-one', map);
     assert.equal(firstChild.surface.id, children[0].id);
+    await afterEpochStart();
+    recordMemoryEvidence(state);
     state.database.prepare('UPDATE memory_nodes SET updated_at=? WHERE id=?')
       .run(new Date().toISOString(), 'memory-example-a');
     const firstWorker = new ResearchTrackStore({ databasePath: state.databasePath, workspaceId,
@@ -217,6 +233,80 @@ test('actionability promotes child proof work, decays without evidence, and retu
   } finally { state.close(); }
 });
 
+test('metadata edits and human notes do not raise priority; new source evidence does', async () => {
+  const state = fixture();
+  try {
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces: [surfaces[0]] });
+    for (const [sessionId, kind] of [['session-example-edit', null], ['session-example-note', 'human_note'],
+      ['session-example-source', 'code']]) {
+      state.store.reserveNext(sessionId, [surfaces[0]]);
+      await afterEpochStart();
+      if (kind) recordMemoryEvidence(state, kind);
+      state.database.prepare('UPDATE memory_nodes SET updated_at=? WHERE id=?')
+        .run(new Date().toISOString(), 'memory-example-a');
+      const worker = new ResearchTrackStore({ databasePath: state.databasePath, workspaceId, sessionId });
+      try { worker.checkpoint({ surfaceId: surfaces[0].id, outcome: 'defer', impact: 'high',
+        theory: 'An example path needs direct validation.', nextAction: 'Test the example input.',
+        evidenceRefs: ['memory:memory-example-a'], angles: [angle('example source path')] }, surfaces[0]); }
+      finally { worker.close(); }
+      const work = state.store.get().surfaces[0];
+      if (kind === 'code') {
+        assert.equal(work.actionabilityScore, 33);
+        assert.equal(work.noProgressEpochs, 0);
+        assert.deepEqual(work.priority, { baseScore: 78, actionability: 33, impactAdjustment: 30,
+          testableAngleBonus: 15, targetValidationPenalty: 0, noProgressPenalty: 0 });
+      } else {
+        assert.equal(work.noProgressEpochs, kind === null ? 1 : 2);
+        assert.equal(work.actionabilityScore, kind === null ? 17 : 0);
+      }
+      state.store.finishEpoch(sessionId, true);
+    }
+  } finally { state.close(); }
+});
+
+test('new finding evidence and completed runbook cells qualify as track progress', async () => {
+  const state = fixture();
+  try {
+    state.database.exec(`CREATE TABLE app_server_research_claims (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL, status TEXT NOT NULL, duplicate_of_claim_id TEXT);
+      CREATE TABLE app_server_claim_evidence (id TEXT PRIMARY KEY, claim_id TEXT NOT NULL, kind TEXT NOT NULL,
+        reference_id TEXT, content_hash TEXT, created_at TEXT NOT NULL);
+      CREATE TABLE app_server_runbooks (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE app_server_runbook_executions (run_id TEXT PRIMARY KEY, runbook_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL, completed_at TEXT, status TEXT NOT NULL);
+      CREATE TABLE app_server_runbook_cell_executions (run_id TEXT NOT NULL, status TEXT NOT NULL)`);
+    state.database.prepare(`INSERT INTO app_server_research_claims VALUES (?, ?, ?, 'observed', NULL)`)
+      .run('claim-example', workspaceId, '2000-01-01T00:00:00.000Z');
+    state.database.prepare('INSERT INTO app_server_runbooks VALUES (?, ?, ?)')
+      .run('runbook-example', workspaceId, '2000-01-01T00:00:00.000Z');
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces: [surfaces[0]] });
+    for (const [sessionId, ref] of [['session-example-finding', 'finding:claim-example'],
+      ['session-example-runbook', 'runbook:runbook-example']]) {
+      state.store.reserveNext(sessionId, [surfaces[0]]);
+      await afterEpochStart();
+      const now = new Date().toISOString();
+      if (ref.startsWith('finding:')) {
+        state.database.prepare(`INSERT INTO app_server_claim_evidence VALUES
+          ('claim-evidence-example', 'claim-example', 'artifact', 'artifact-example', NULL, ?)`).run(now);
+      } else {
+        state.database.prepare(`INSERT INTO app_server_runbook_executions VALUES
+          ('run-example', 'runbook-example', ?, ?, 'succeeded')`).run(workspaceId, now);
+        state.database.prepare(`INSERT INTO app_server_runbook_cell_executions VALUES
+          ('run-example', 'succeeded')`).run();
+      }
+      const worker = new ResearchTrackStore({ databasePath: state.databasePath, workspaceId, sessionId });
+      try { worker.checkpoint({ surfaceId: surfaces[0].id, outcome: 'defer', impact: 'medium',
+        theory: 'A synthetic path has new test evidence.', nextAction: 'Inspect the next example path.',
+        evidenceRefs: [ref] }, surfaces[0]); }
+      finally { worker.close(); }
+      assert.equal(state.store.get().surfaces[0].actionabilityScore, ref.startsWith('finding:') ? 60 : 85);
+      state.store.finishEpoch(sessionId, true);
+    }
+  } finally { state.close(); }
+});
+
 test('a testable high-impact path keeps depth priority and retains distinct attempts across epochs', () => {
   const state = fixture();
   try {
@@ -244,12 +334,13 @@ test('a testable high-impact path keeps depth priority and retains distinct atte
     try {
       secondWorker.checkpoint({ surfaceId: first.surface.id, outcome: 'defer', impact: 'high',
         theory: 'The authority path was ruled out; the lifecycle path remains open.',
-        nextAction: 'Test the lifecycle path.', evidenceRefs: ['memory:memory-example-a'],
+        nextAction: 'Test the lifecycle path.', evidenceRefs: [],
         angles: [angle('authority path', 'ruled_out', ['memory:memory-example-a'])] }, first.surface);
     } finally { secondWorker.close(); }
     const recorded = state.store.get().surfaces.find((work) => work.surfaceId === first.surface.id);
     assert.deepEqual(recorded.angles.map(({ name, status }) => [name, status]),
       [['authority path', 'ruled_out'], ['lifecycle path', 'open']]);
+    assert.deepEqual(recorded.evidenceRefs, ['memory:memory-example-a']);
     assert.equal(recorded.angles[0].vector.failureMode, 'Example authority path policy mismatch');
     assert.equal(recorded.angles[1].vector, undefined);
   } finally { state.close(); }
@@ -413,6 +504,8 @@ test('target-dependent localhost evidence records a gap and raises actionability
     state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
       targetIds: ['local'], surfaces: [surfaces[0]] });
     state.store.reserveNext('session-example-host-proof', [surfaces[0]]);
+    await afterEpochStart();
+    recordMemoryEvidence(state);
     state.database.prepare('UPDATE memory_nodes SET updated_at=? WHERE id=?')
       .run(new Date(Date.now() + 1000).toISOString(), 'memory-example-a');
     const hostWorker = new ResearchTrackStore({ databasePath: state.databasePath, workspaceId,
@@ -420,10 +513,16 @@ test('target-dependent localhost evidence records a gap and raises actionability
     try {
       const tool = createResearchTrackTool(hostWorker, () => surfaces[0]);
       assert.ok(tool.parameters.properties.angles.items.required.includes('vector'));
+      assert.match(tool.parameters.properties.evidenceRefs.description, /finding:<claim ID>, memory:<memory ID>/);
+      assert.match(tool.parameters.properties.evidenceRefs.description, /only new source evidence/);
+      assert.match(tool.parameters.properties.angles.items.properties.evidenceRefs.description, /added to the checkpoint automatically/);
       const base = { surfaceId: surfaces[0].id, outcome: 'defer', impact: 'medium',
         theory: 'Synthetic input may cross the example trust boundary.', nextAction: 'Test on an example device.',
         evidenceRefs: ['memory:memory-example-a'] };
       assert.equal((await tool.execute({ input: base })).status, 'complete');
+      const invalidEvidence = await tool.execute({ input: { ...base, evidenceRefs: ['evidence-example-a'] } });
+      assert.equal(invalidEvidence.status, 'error');
+      assert.match(invalidEvidence.error.message, /parent record, not an evidence entry ID/);
       assert.equal((await tool.execute({ input: { ...base,
         validation: { targetDependent: true, environment: 'localhost', reason: 'Unavailable.' } } })).status, 'error');
       assert.equal((await tool.execute({ input: { ...base, angles: [
@@ -443,6 +542,8 @@ test('target-dependent localhost evidence records a gap and raises actionability
     assert.equal(afterHost.validation.environment, 'localhost');
     state.store.finishEpoch('session-example-host-proof', true);
     state.store.reserveNext('session-example-device-proof', [surfaces[0]]);
+    await afterEpochStart();
+    recordMemoryEvidence(state);
     const deviceWorker = new ResearchTrackStore({ databasePath: state.databasePath, workspaceId,
       sessionId: 'session-example-device-proof' });
     try {

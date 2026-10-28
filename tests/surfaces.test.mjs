@@ -8,6 +8,7 @@ import {
   createFindingTools,
   createMemoryGraphTools,
   createSurfaceTools,
+  createToolObservedEvent,
   FindingStore,
   initializeWorkspaceProject,
   MemoryGraphStore,
@@ -60,6 +61,31 @@ function fixture() {
   return { directory, databasePath, resources, surface, rootId: resources.list().find((item) => item.direction === "in_scope").id,
     close() { surface.close(); resources.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
+
+test("successful surface diagram updates emit a session-visible diagram marker", async () => {
+  const state = fixture();
+  try {
+    const tool = createSurfaceTools(state.surface).find((entry) => entry.descriptor.name === "surface.update");
+    assert.ok(tool);
+    const source = 'flowchart LR\n  input["Example input"] --> parser["Example parser"]';
+    const action = { id: "action-example-diagram", toolName: "surface.update", actionClass: "synthesize",
+      input: { surfaceId: state.rootId, expectedRevision: 1, foundation: { threatModel: { diagram: source } } } };
+    const result = await tool.execute(action);
+    assert.equal(result.status, "complete");
+    assert.deepEqual(createToolObservedEvent(result).payload.surfaceDiagram,
+      { source, surfaceId: state.rootId, surfaceName: "Example service", changeKind: "created" });
+    const unchanged = await tool.execute({ ...action, input: { surfaceId: state.rootId, expectedRevision: 2,
+      foundation: { discovery: "Example context update." } } });
+    assert.equal(unchanged.status, "complete");
+    assert.equal(createToolObservedEvent(unchanged).payload.surfaceDiagram, undefined);
+    const revisedSource = 'flowchart LR\n  input["Example input"] --> validator["Example validator"]';
+    const revised = await tool.execute({ ...action, input: { surfaceId: state.rootId, expectedRevision: 3,
+      foundation: { threatModel: { diagram: revisedSource } } } });
+    assert.equal(revised.status, "complete");
+    assert.deepEqual(createToolObservedEvent(revised).payload.surfaceDiagram,
+      { source: revisedSource, surfaceId: state.rootId, surfaceName: "Example service", changeKind: "updated" });
+  } finally { state.close(); }
+});
 
 test("resource roots, agent-discovered children, lookup, and one-time first touch share workspace state", () => {
   const state = fixture();
@@ -168,6 +194,8 @@ test("threat models preserve older notes while accepting partial diagram updates
       assetsAtRisk: "Example state.", plausibleImpacts: "Unauthorized update.", assumptions: "Service enabled."
     } });
     assert.equal(legacy.foundation.threatModel.riskImpact, "Unauthorized update.");
+    assert.deepEqual(legacy.foundation.threatModel.risks, ["Unauthorized update."]);
+    assert.deepEqual(legacy.foundation.threatModel.assumptions, ["Service enabled."]);
     assert.equal(legacy.foundation.threatModel.diagram, "");
     const database = new DatabaseSync(state.databasePath);
     try {
@@ -180,13 +208,20 @@ test("threat models preserve older notes while accepting partial diagram updates
     assert.equal(state.surface.get(root.id).foundation.threatModelReviewed, true);
     const updated = state.surface.update(root.id, legacy.revision, { threatModel: {
       diagram: 'flowchart LR\n  input["Request"] --> parser["Parser"]',
-      securityObjectives: "Preserve example state.", invariants: "Validate before update."
+      securityObjectives: ["Preserve example state.", "Reject invalid requests."],
+      risks: ["Unauthorized state change."], assumptions: ["Example service is enabled."]
     } });
     assert.equal(updated.foundation.threatModel.attackerControl, "Example request bytes.");
-    assert.equal(updated.foundation.threatModel.assumptions, "Service enabled.");
+    assert.deepEqual(updated.foundation.threatModel.assumptions, ["Example service is enabled."]);
     assert.equal(updated.foundation.threatModel.riskImpact, "Unauthorized update.");
-    assert.equal(updated.foundation.threatModel.securityObjectives, "Preserve example state.");
-    assert.throws(() => state.surface.update(root.id, updated.revision, { threatModel: { diagram: 7 } }), /diagram must be a string/);
+    assert.deepEqual(updated.foundation.threatModel.risks, ["Unauthorized state change."]);
+    assert.deepEqual(updated.foundation.threatModel.securityObjectives, ["Preserve example state.", "Reject invalid requests."]);
+    const cleared = state.surface.update(root.id, updated.revision, { threatModel: { risks: [] } });
+    assert.deepEqual(cleared.foundation.threatModel.risks, []);
+    assert.deepEqual(cleared.foundation.threatModel.securityObjectives, updated.foundation.threatModel.securityObjectives);
+    assert.throws(() => state.surface.update(root.id, cleared.revision, { threatModel: { risks: [7] } }), /risks\[0\]/);
+    assert.throws(() => state.surface.update(root.id, cleared.revision, { threatModel: { risks: null } }), /risks must be an array/);
+    assert.throws(() => state.surface.update(root.id, cleared.revision, { threatModel: { diagram: 7 } }), /diagram must be a string/);
   } finally { state.close(); }
 });
 
@@ -251,8 +286,12 @@ test("surface tools expose simple query and track focus without duplicate touch"
     assert.deepEqual(tools["surface.update"].parameters.properties.foundation.properties.assets.items.required, ["name"]);
     assert.deepEqual(tools["surface.update"].parameters.properties.foundation.properties.assets.items.properties.status.enum,
       ["untouched", "in_progress", "complete"]);
-    assert.match(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.riskImpact.description,
+    assert.match(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.risks.description,
       /ordinary malfunction alone is not security impact/);
+    assert.equal(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.securityObjectives.type, "array");
+    assert.equal(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.invariants, undefined);
+    assert.equal(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.sinks, undefined);
+    assert.equal(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.mitigations, undefined);
     assert.match(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.diagram.description,
       /Raw Mermaid diagram source/);
     assert.match(tools["surface.update"].parameters.properties.progressBlocker.anyOf[0].properties.reason.description, /external dependency/);
@@ -276,6 +315,95 @@ test("surface tools expose simple query and track focus without duplicate touch"
   } finally { state.close(); }
 });
 
+test("surface view lookups return focused context and related workspace records", async () => {
+  const state = fixture();
+  const graph = new MemoryGraphStore({ workspaceRoot: state.directory, databasePath: state.databasePath,
+    context: { workspaceId, workspaceName: "Example Workspace", subjectId: "subject-example",
+      subjectName: "Example subject", sessionId: "session-example-one" } });
+  const claims = new FindingStore(graph);
+  try {
+    const child = state.surface.create(state.rootId, "Request parser", "Example request boundary.");
+    const other = state.surface.create(state.rootId, "Other component", "Separate example boundary.");
+    state.surface.update(child.id, child.revision, { discovery: "Example parser discovery.",
+      techStack: [{ technology: "Example Parser", role: "Parsing", version: "1", environment: "Example service",
+        evidence: "Synthetic manifest", confidence: "observed" }],
+      assets: [{ name: "src/example-parser.ts", status: "in_progress" }],
+      threatModel: { diagram: 'flowchart LR\n  input["Example input"] --> parser["Parser"]',
+        securityObjectives: ["Validate input."], risks: ["Unauthorized state change."],
+        assumptions: ["Example service is enabled."] } });
+    const invariant = graph.save({ type: "invariant", title: "Parser invariant", summary: "Example invariant.",
+      body: "Detailed example invariant body.", surfaceId: child.id });
+    graph.save({ type: "sink", title: "Parser sink", surfaceId: child.id });
+    graph.save({ type: "mitigation", title: "Parser mitigation", surfaceId: child.id });
+    graph.save({ type: "trajectory", title: "Parser trajectory", surfaceId: child.id });
+    graph.save({ type: "invariant", title: "Other invariant", surfaceId: other.id });
+    claims.create({ title: "Parser lead", classification: "security.vulnerability", surfaceId: child.id });
+    const finding = claims.createObserved({ title: "Parser finding", classification: "security.vulnerability", surfaceId: child.id,
+      evidence: [{ kind: "code", referenceId: "src/example-parser.ts:42", summary: "Example observation." }] });
+    claims.createObserved({ title: "Other finding", classification: "security.vulnerability", surfaceId: other.id,
+      evidence: [{ kind: "code", referenceId: "src/other.ts:7", summary: "Separate example observation." }] });
+    state.resources.priorArt.save(state.rootId, "action-example-prior-art", {
+      query: "Example parser", aliases: [], fetchedAt: "2026-09-01T00:00:00.000Z", sources: [], records: [],
+      resultCount: 0, returnedSoFar: 0, nextCursor: null, complete: true,
+      disposition: "no_matches_found", caveat: "Limited synthetic search."
+    });
+    const tools = Object.fromEntries(createSurfaceTools(state.surface, { claims, memories: graph })
+      .map((tool) => [tool.descriptor.name, tool]));
+    const read = async (name, input) => {
+      const result = await tools[name].execute({ id: `action-${name}`, toolName: name, actionClass: "recall", input });
+      assert.equal(result.status, "complete", result.error?.message);
+      return result.output;
+    };
+    const overview = await read("surface.get", { surfaceId: child.id });
+    assert.equal(Object.hasOwn(overview, "foundation"), false);
+    assert.ok(overview.views.includes("surface.threat_model"));
+    const breakdown = await read("surface.breakdown", { surfaceId: state.rootId });
+    assert.equal(breakdown.children.total, 2);
+    const recon = await read("surface.recon", { surfaceId: child.id });
+    assert.equal(recon.discovery, "Example parser discovery.");
+    assert.equal(recon.assets[0].name, "src/example-parser.ts");
+    assert.equal(recon.leads.items[0].title, "Parser lead");
+    assert.equal(Object.hasOwn(recon, "diagram"), false);
+    const analysis = await read("surface.analysis", { surfaceId: state.rootId });
+    assert.equal(analysis.findings.total, 2);
+    assert.equal(analysis.trajectories.items[0].title, "Parser trajectory");
+    assert.ok(analysis.findings.items.some((item) => item.id === finding.id));
+    const threatModel = await read("surface.threat_model", { surfaceId: child.id });
+    assert.match(threatModel.diagram, /Example input/);
+    assert.deepEqual(threatModel.securityObjectives, ["Validate input."]);
+    assert.equal(threatModel.invariants.items[0].id, invariant.id);
+    assert.equal(threatModel.sinks.items[0].title, "Parser sink");
+    assert.equal(threatModel.mitigations.items[0].title, "Parser mitigation");
+    assert.equal(Object.hasOwn(threatModel.invariants.items[0], "body"), false);
+    assert.equal((await read("surface.threat_model", { surfaceId: state.rootId })).invariants.items.length, 0);
+    const resources = await read("surface.resources", { surfaceId: child.id });
+    assert.equal(resources.resource.locator, "service.example.test");
+    assert.equal(resources.priorArt.entries[0].title, "Example parser");
+    const requestedViews = ["recon", "threat_model", "analysis", "breakdown", "resources"];
+    const batched = await read("surface.views", { surfaceId: child.id, views: requestedViews });
+    assert.equal(batched.surfaceId, child.id);
+    assert.equal(batched.name, child.name);
+    assert.deepEqual(Object.keys(batched.views), requestedViews);
+    assert.deepEqual(batched.views.recon, recon);
+    assert.deepEqual(batched.views.threat_model, threatModel);
+    assert.deepEqual(batched.views.analysis, await read("surface.analysis", { surfaceId: child.id }));
+    assert.deepEqual(batched.views.breakdown, await read("surface.breakdown", { surfaceId: child.id }));
+    assert.deepEqual(batched.views.resources, resources);
+    assert.equal(tools["surface.views"].descriptor.sideEffects, "read");
+    assert.equal(tools["surface.views"].descriptor.inputSchema.properties.views.maxItems, 5);
+    for (const views of [[], ["recon", "recon"], ["unknown"]]) {
+      const result = await tools["surface.views"].execute({ id: "action-invalid-views", toolName: "surface.views",
+        actionClass: "recall", input: { surfaceId: child.id, views } });
+      assert.equal(result.status, "error");
+      assert.match(result.error.message, /views must contain/);
+    }
+    assert.equal((await read("surface.list", { limit: 1 })).surfaces.some((item) => item.id === child.id), false);
+    assert.equal((await read("surface.search", { query: "request parser" })).surfaces[0].id, child.id);
+    assert.equal((await read("surface.search", { query: "Unauthorized state change" })).surfaces[0].id, child.id);
+    assert.equal((await read("surface.search", { query: "service.example.test" })).surfaces.some((item) => item.id === child.id), true);
+  } finally { claims.close(); graph.close(); state.close(); }
+});
+
 test("a surface blocker records a concrete dependency after first touch and remains visible until cleared", async () => {
   const state = fixture();
   try {
@@ -292,7 +420,7 @@ test("a surface blocker records a concrete dependency after first touch and rema
       foundation, progressBlocker: { reason } }), { agentId: "agent-example" });
     assert.equal(set.status, "complete");
     assert.equal(set.output.progressBlocker.reason, reason);
-    assert.equal(Object.hasOwn(set.output.foundation, "progressBlocker"), false);
+    assert.equal(Object.hasOwn(set.output, "foundation"), false);
     assert.equal(set.output.progressBlocker.actorId, "agent-example");
     assert.ok(Number.isFinite(Date.parse(set.output.progressBlocker.setAt)));
     assert.equal(state.surface.coverageState(child.id).covered, true);
@@ -304,7 +432,8 @@ test("a surface blocker records a concrete dependency after first touch and rema
     const cleared = (await registry.execute({ ...action({ surfaceId: child.id, expectedRevision: updated.revision,
       progressBlocker: null }), actionClass: "synthesize" }, { agentId: "agent-example" })).result;
     assert.equal(cleared.status, "complete");
-    assert.deepEqual(cleared.output.foundation, updated.foundation);
+    assert.deepEqual(state.surface.get(child.id).foundation, updated.foundation);
+    assert.equal(Object.hasOwn(cleared.output, "foundation"), false);
     assert.equal(cleared.output.progressBlocker, null);
     const stale = await tools["surface.update"].execute(action({ surfaceId: child.id, expectedRevision: updated.revision,
       progressBlocker: null }), { agentId: "agent-example" });
@@ -507,6 +636,7 @@ test("surface foundations, first touch, and movement survive workspace publicati
     publishWorkspaceResearch(options);
     const published = JSON.parse(readFileSync(join(workspaceRoot, "references", "resources.json"), "utf8"));
     assert.equal(published.surfaces.length, 1);
+    assert.equal(published.surfaces[0].created_session_id, "session-example");
     assert.match(JSON.parse(published.surfaces[0].foundation_json).progressBlocker.reason, /authorized account/);
     assert.equal(published.surfaceTouches.length, 1);
     assert.equal(published.surfaceFocusEvents.length, 1);
@@ -534,6 +664,8 @@ test("surface foundations, first touch, and movement survive workspace publicati
       assert.equal(restored.focus("agent-later", child.id).firstTouch, false);
       const database = new DatabaseSync(databasePath, { readOnly: true });
       try {
+        assert.equal(database.prepare('SELECT created_session_id FROM app_server_surfaces WHERE id=?').get(child.id).created_session_id,
+          'session-example');
         assert.equal(database.prepare('SELECT COUNT(*) AS count FROM app_server_surface_update_events WHERE surface_id=?').get(child.id).count, 1);
       } finally { database.close(); }
     } finally { restored.close(); restoredResources.close(); }
