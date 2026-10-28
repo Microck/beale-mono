@@ -7,6 +7,7 @@ import type { ResearchToolAction } from "./types.js";
 export type ResearchTrackStatus = "running" | "paused" | "waiting" | "complete" | "stopped";
 export type ResearchTrackWorkStatus = "unexamined" | "active" | "deferred" | "blocked" | "complete" | "excluded";
 export type ResearchTrackImpact = "unknown" | "low" | "medium" | "high" | "critical";
+export type ResearchTrackEpochFocus = "breadth" | "depth";
 export type ResearchTrackValidationEnvironment = "device" | "vm" | "web" | "localhost" | "none";
 export interface ResearchTrackValidation {
   targetDependent: boolean;
@@ -90,7 +91,7 @@ export interface ResearchTrackSurfaceProjection {
   resourceDirection?: string;
   parentId: string | null;
   name: string;
-  coverageState: { covered: boolean; unmetRequirements: string[]; unblockedFindingIds?: string[] };
+  coverageState: { covered: boolean; unmetRequirements: string[]; openLeadIds?: string[]; unblockedFindingIds?: string[] };
   progressBlocker: { reason: string } | null;
 }
 
@@ -354,7 +355,9 @@ export class ResearchTrackStore {
     return this.get();
   }
 
-  public reserveNext(sessionId: string, surfaces: readonly ResearchTrackSurfaceProjection[]): { track: ResearchTrackSnapshot; surface: ResearchTrackSurfaceProjection } | null {
+  public reserveNext(sessionId: string, surfaces: readonly ResearchTrackSurfaceProjection[]): {
+    track: ResearchTrackSnapshot; surface: ResearchTrackSurfaceProjection; focus: ResearchTrackEpochFocus;
+  } | null {
     const track = this.syncSurfaces(surfaces);
     if (!track || track.status !== "running" || track.activeSessionId) return null;
     const byId = new Map(surfaces.map((surface) => [surface.id, surface]));
@@ -374,10 +377,20 @@ export class ResearchTrackStore {
       const recentParent = parent?.lastWorkedAt && Date.now() - Date.parse(parent.lastWorkedAt) < 60 * 60_000;
       return schedulingScore(work) + (surface?.parentId && work.epochs === 0 && recentParent ? 10 : 0);
     };
+    const claimWorkBonus = (work: ResearchTrackSurfaceState): number => {
+      const claims = byId.get(work.surfaceId)?.coverageState;
+      const bonus = Math.min(claims?.unblockedFindingIds?.length ?? 0, 2) * 25
+        + Math.min(claims?.openLeadIds?.length ?? 0, 2) * 15;
+      // An unavailable target does not become actionable merely because claims remain open.
+      return work.priority.targetValidationPenalty > 0 ? Math.min(bonus, 10) : bonus;
+    };
+    const depthScore = (work: ResearchTrackSurfaceState): number => score(work) + claimWorkBonus(work);
     const rank = (left: ResearchTrackSurfaceState, right: ResearchTrackSurfaceState): number =>
       score(right) - score(left)
       || (left.lastWorkedAt ?? "").localeCompare(right.lastWorkedAt ?? "")
       || left.surfaceId.localeCompare(right.surfaceId);
+    const depthRank = (left: ResearchTrackSurfaceState, right: ResearchTrackSurfaceState): number =>
+      depthScore(right) - depthScore(left) || rank(left, right);
     const resourceIdForSurface = (surfaceId: string): string => {
       const surface = byId.get(surfaceId);
       if (surface?.resourceId) return surface.resourceId;
@@ -413,8 +426,10 @@ export class ResearchTrackStore {
     };
     const breadthRank = (left: ResearchTrackSurfaceState, right: ResearchTrackSurfaceState): number =>
       breadthScore(right) - breadthScore(left) || rank(left, right);
-    const breadth = eligible.filter((work) => !byId.get(work.surfaceId)?.parentId && work.epochs === 0).sort(breadthRank);
-    const depth = eligible.filter((work) => byId.get(work.surfaceId)?.parentId || work.epochs > 0).sort(rank);
+    const breadth = eligible.filter((work) => !byId.get(work.surfaceId)?.parentId && work.epochs === 0
+      && claimWorkBonus(work) === 0).sort(breadthRank);
+    const depth = eligible.filter((work) => byId.get(work.surfaceId)?.parentId || work.epochs > 0
+      || claimWorkBonus(work) > 0).sort(depthRank);
     const strongestDepth = depth[0];
     const unexploredKind = breadth.some((work) => resourceKind(work) !== "unknown"
       && !kindEpochs.has(resourceKind(work)));
@@ -422,7 +437,7 @@ export class ResearchTrackStore {
     // Keep three epochs available for depth, then give another resource a turn.
     // Escape a one-kind streak immediately when a reviewed new kind appears.
     const explorationDue = track.epochCount >= 3 && (track.epochCount % 4 === 3 || kindStarvation);
-    const exploreBreadth = breadth.length > 0 && (!strongestDepth || score(strongestDepth) < 45 || explorationDue);
+    const exploreBreadth = breadth.length > 0 && (!strongestDepth || depthScore(strongestDepth) < 20 || explorationDue);
     const history = this.#database.prepare("SELECT last_surface_id, consecutive_surface_epochs FROM app_server_research_tracks WHERE workspace_id=?")
       .get(this.#workspaceId) as { last_surface_id: string | null; consecutive_surface_epochs: number };
     const lastResourceId = history.last_surface_id ? resourceIdForSurface(history.last_surface_id) : null;
@@ -433,7 +448,10 @@ export class ResearchTrackStore {
     const candidates = exploreBreadth ? breadth
       : explorationDue && breadth.length === 0 && alternateResources.length > 0 ? alternateResources
         : depth.length > 0 ? depth : breadth;
-    const selected = history.consecutive_surface_epochs >= 2 && candidates.length > 1 && score(candidates[0]!) < 80
+    const focus: ResearchTrackEpochFocus = exploreBreadth || explorationDue && breadth.length === 0
+      && alternateResources.length > 0 ? "breadth" : depth.length > 0 ? "depth" : "breadth";
+    const selected = history.consecutive_surface_epochs >= 2 && candidates.length > 1
+      && (focus === "depth" ? depthScore(candidates[0]!) : score(candidates[0]!)) < 80
       ? candidates.find((candidate) => candidate.surfaceId !== history.last_surface_id) ?? candidates[0]
       : candidates[0];
     if (!selected) {
@@ -458,7 +476,7 @@ export class ResearchTrackStore {
         .run(now, now, this.#workspaceId, selected.surfaceId);
       this.#database.exec("COMMIT");
     } catch (error) { this.#database.exec("ROLLBACK"); throw error; }
-    return { track: this.get()!, surface: byId.get(selected.surfaceId)! };
+    return { track: this.get()!, surface: byId.get(selected.surfaceId)!, focus };
   }
 
   public checkpoint(input: {

@@ -2521,6 +2521,7 @@ test("research track launch retains collaboration settings and enabled browser t
   assert.equal(prepared.launch.provider.title.style, 'research-track');
   const launchArgs = appServerSessionArgs(prepared.launch, {});
   assert.equal(launchArgs[launchArgs.indexOf('--title-style') + 1], 'research-track');
+  assert.ok(launchArgs.includes('--track-epoch'));
   const titleCall = calls.find((call) => call.operation === "session.append_event");
   assert.equal(titleCall, undefined);
   assert.deepEqual(createCall.options.input.metadata.appServerRestartLaunch.launch.collaboration, collaboration);
@@ -3633,6 +3634,7 @@ test("expands typed session intent into app-server-owned runtime policy", () => 
   assert.ok(args.includes("--profile-side-effect-ceiling"));
   assert.equal(args.includes("--disable-tool-family"), false);
   assert.equal(args.includes("--dev-harness-feedback"), false);
+  assert.equal(args.includes("--track-epoch"), false);
   assert.equal(args[args.indexOf("--tool-max-bytes") + 1], "123456");
   assert.throws(() => appServerSessionArgs(launch, {
     BEALE_APP_SERVER_PROFILE_TOOL_FAMILY_CEILING_JSON: JSON.stringify(["unknown-family"]),

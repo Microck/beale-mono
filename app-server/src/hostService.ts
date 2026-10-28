@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -33,7 +33,7 @@ import {
   decodeFleetSshTestInput
 } from '@beale/app-server-runtime/protocol';
 import { getProviderModelCatalog, refreshOpenRouterModels, readWorkspaceProject, readWorkspaceResearchCacheState, resolveStoredResearchWorkspaceBinding, workspaceResearchIndexNeedsRebuild } from '@beale/app-server-runtime/runtime-services';
-import { applyFeaturePromptOverrides, bundledPluginsRequiredByResearchKit, decodeResearchPluginCatalog, researchKitsRequiringBundledPlugin, validateResearchSystemPromptTemplate, verifyBrokerModelAccess, ResearchResourceCatalog, ResearchTrackStore, type ResearchTrackSurfaceState, type ResearchTrackSurfaceProjection } from '@beale/research-agent';
+import { applyFeaturePromptOverrides, bundledPluginsRequiredByResearchKit, decodeResearchPluginCatalog, researchKitsRequiringBundledPlugin, validateResearchSystemPromptTemplate, verifyBrokerModelAccess, ResearchResourceCatalog, ResearchTrackStore, type ResearchTrackEpochFocus, type ResearchTrackSurfaceState, type ResearchTrackSurfaceProjection } from '@beale/research-agent';
 import { runWorkspaceCheckpoint, workspaceOperationKey } from './workspaceCheckpoints.js';
 import { projectWorkspaceDetails } from './workspaceDetails.js';
 import { readWorkspaceSurfaceMap } from './surfaceMap.js';
@@ -52,6 +52,7 @@ import {
   type ResolvedAppServerSessionLaunch
 } from './sessionLaunch.js';
 import { longSessionRecoveryFallbackPrompt } from './sessionRecovery.js';
+import { reviewResearchTrackContext, type ResearchTrackContextDecision } from './researchTrackContextReview.js';
 import { AppServerWorkerDatabaseCoordinator } from './workerDatabaseBroker.js';
 import { FleetIncompleteResponseError, FleetService } from './fleet.js';
 import { FleetRemoteController } from './fleetRemote.js';
@@ -1053,6 +1054,7 @@ export class AppServerHostService {
         ...(promptTemplatePath ? { promptTemplatePath } : {}),
         ...(resumeCapturePath ? { resumeCapturePath } : {}),
         ...(resumeFallbackPromptPath ? { resumeFallbackPromptPath } : {}),
+        ...(request.launch.mode === 'research-track' ? { trackEpoch: true } : {}),
         ...(request.launch.workflowId ? { workflowId: request.launch.workflowId } : {}),
         researchProfileId: profileId,
         ...(request.launch.researchProfileHash
@@ -1509,10 +1511,15 @@ export class AppServerHostService {
         const assignment = store.reserveNext(sessionId, details.surfaceMap.surfaces);
         if (!assignment) continue;
         const work = assignment.track.surfaces.find((item) => item.surfaceId === assignment.surface.id)!;
-        const promptMarkdown = researchTrackEpochPrompt(assignment.track.id, assignment.track.pass,
-          assignment.surface, work, details.surfaceMap.surfaces.length, assignment.track.targetIds,
-          workspace.researchKitId, recoveringPriorOrphan || assignment.track.lastError === ORPHANED_TRACK_EPOCH_DIAGNOSTIC);
         const continuing = assignment.track.epochCount > 1;
+        const contextReview = continuing
+          ? await this.reviewResearchTrackEpochContext(workspace, storage, sessionId)
+          : null;
+        const promptMarkdown = researchTrackEpochPrompt(assignment.track.id, assignment.track.pass,
+          assignment.track.epochCount, assignment.surface, work, assignment.focus,
+          details.surfaceMap.surfaces.length, assignment.track.targetIds, contextReview?.decision,
+          assignment.track.collaboration?.mode !== undefined && assignment.track.collaboration.mode !== 'solo',
+          workspace.researchKitId, recoveringPriorOrphan || assignment.track.lastError === ORPHANED_TRACK_EPOCH_DIAGNOSTIC);
         due.push({ dueAt: at.toISOString(), request: { launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
           sessionId, launch: { workspaceId: workspace.workspaceId,
             mode: 'research-track',
@@ -1520,7 +1527,13 @@ export class AppServerHostService {
             targetIds: track.targetIds, promptMarkdown,
             provider: track.provider, ...(track.collaboration ? { collaboration: track.collaboration } : {}),
             shellSafetyMode: 'auto_review', guardianEnabled: track.guardianEnabled,
-            ...(continuing ? { continuation: { fallbackPrompt: promptMarkdown } } : {}),
+            ...(continuing ? { continuation: {
+              fallbackPrompt: promptMarkdown,
+              ...(contextReview?.resumeAttemptId ? {
+                resumeAttemptId: contextReview.resumeAttemptId,
+                resumeFromInitialAttempt: contextReview.resumeFromInitialAttempt,
+              } : {}),
+            } } : {}),
             generateTitle: true } } });
       } catch (error) {
         const track = store.get();
@@ -1529,6 +1542,61 @@ export class AppServerHostService {
       } finally { store.close(); }
     }
     return due;
+  }
+
+  private async reviewResearchTrackEpochContext(
+    workspace: AppServerHostWorkspace,
+    storage: AppServerHostStorage,
+    sessionId: string,
+  ): Promise<{ decision: ResearchTrackContextDecision; resumeAttemptId?: string; resumeFromInitialAttempt?: boolean }> {
+    let session: AppServerSessionSummaryProjection;
+    try {
+      session = await this.invokeProtocol<AppServerSessionSummaryProjection>('session.get', {
+        args: ['session', 'get', '--session-id', sessionId], storage,
+      });
+    } catch {
+      return { decision: { mode: 'reset', reason: 'capture_unavailable' } };
+    }
+    if (nonEmpty(session.workspaceId) !== workspace.workspaceId) {
+      return { decision: { mode: 'reset', reason: 'capture_unavailable' } };
+    }
+    const attempt = latestAttempt(session.attempts);
+    if (!attempt || !/^[A-Za-z0-9_-]{1,128}$/u.test(attempt.id)) {
+      return { decision: { mode: 'reset', reason: 'capture_unavailable' } };
+    }
+    const firstAttempt = Array.isArray(session.attempts) ? latestAttempt(session.attempts.slice(0, 1)) : null;
+    const fromInitialAttempt = firstAttempt?.id === attempt.id;
+    const workspacePath = nonEmpty(workspace.workspacePath);
+    if (!workspacePath) return { decision: { mode: 'reset', reason: 'capture_unavailable' } };
+    const runDirectory = readWorkspaceProject(workspacePath)
+      ? join(workspacePath, 'traces', sessionId, 'outputs')
+      : join(workspacePath, '.beale', 'app-server-runs');
+    const capturePath = join(runDirectory,
+      `${fromInitialAttempt ? sessionId : `${sessionId}.${attempt.id}`}.capture.json`);
+    let captureAvailable = false;
+    try {
+      const capture = await stat(capturePath);
+      if (capture.size > 256 * 1024 * 1024) {
+        return { decision: { mode: 'reset', reason: 'capture_oversized' } };
+      }
+      captureAvailable = capture.isFile() && capture.size > 0;
+    } catch { /* A missing capture starts a fresh model context. */ }
+    let events: unknown = [];
+    if (captureAvailable) {
+      try {
+        const page = await this.invokeProtocol<{ events?: unknown }>('session.events', {
+          args: ['session', 'events', '--session-id', sessionId, '--stream', 'trace',
+            '--tail', '--limit', '2000', '--max-bytes', '4000000'], storage,
+        });
+        events = page.events;
+      } catch { /* The capture can still be resumed without context metrics. */ }
+    }
+    const decision = reviewResearchTrackContext({ captureAvailable,
+      ...(attempt.startedAt ? { attemptStartedAt: attempt.startedAt } : {}),
+      events: Array.isArray(events) ? events : [] });
+    return decision.mode === 'resume'
+      ? { decision, resumeAttemptId: attempt.id, resumeFromInitialAttempt: fromInitialAttempt }
+      : { decision };
   }
 
   private async markOrphanedTrackSessionForReview(
@@ -2681,13 +2749,13 @@ function guardianEnabledForTrackSession(session: AppServerSessionSummaryProjecti
   return restart?.launch.mode === 'research-track' && restart.launch.guardianEnabled === true;
 }
 
-function latestAttempt(value: unknown): { id: string; parentAttemptId: string | null } | null {
+function latestAttempt(value: unknown): { id: string; parentAttemptId: string | null; startedAt: string | null } | null {
   if (!Array.isArray(value)) return null;
   for (let index = value.length - 1; index >= 0; index -= 1) {
     const attempt = value[index];
     if (!isRecord(attempt)) continue;
     const id = nonEmpty(attempt.id);
-    if (id) return { id, parentAttemptId: nonEmpty(attempt.parentAttemptId) };
+    if (id) return { id, parentAttemptId: nonEmpty(attempt.parentAttemptId), startedAt: nonEmpty(attempt.startedAt) };
   }
   return null;
 }
@@ -2769,18 +2837,31 @@ function stringArray(value: unknown): string[] {
 function researchTrackEpochPrompt(
   trackId: string,
   pass: number,
+  epoch: number,
   surface: ResearchTrackSurfaceProjection,
   work: ResearchTrackSurfaceState,
+  focus: ResearchTrackEpochFocus,
   surfaceCount: number,
   targetIds: readonly string[],
+  contextReview: ResearchTrackContextDecision | undefined,
+  collaborationEnabled: boolean,
   researchKitId?: string,
   reviewInterruptedEpoch = false
 ): string {
+  const linkedClaims = (ids: readonly string[] | undefined): string => !ids?.length ? 'none'
+    : `${ids.slice(0, 6).join(', ')}${ids.length > 6 ? `, and ${ids.length - 6} more` : ''}`;
   return [
-    '# Continuous research track',
+    `# Continuous research track epoch ${epoch}`,
     `Track ${trackId}, pass ${pass}. The workspace currently contains ${surfaceCount} eligible security surfaces.`,
     `Assigned surface: ${surface.name} (${surface.id}).`,
-    `Work direction: ${surface.parentId ? 'inspect this subcomponent in context' : 'understand this resource and its main components'}.`,
+    `Epoch focus: ${focus}.`,
+    ...(contextReview ? [contextReview.mode === 'resume'
+      ? 'Context transition: use retained model history when available. This epoch assignment supersedes earlier surface and work-direction instructions; use current canonical records when prior notes conflict.'
+      : `Context transition: start with fresh model context after ${contextReview.reason.replaceAll('_', ' ')}. Durable research state remains available; follow this assignment without repeating broad orientation.`] : []),
+    `Work direction: ${focus === 'depth'
+      ? 'advance a specific attacker path, lead, or finding toward a decisive result; use this component in its parent context when relevant'
+      : 'explore an underexamined resource or component for distinct attacker-controlled paths and trust boundaries'}.`,
+    `Linked open leads: ${linkedClaims(surface.coverageState.openLeadIds)}. Findings needing resolution: ${linkedClaims(surface.coverageState.unblockedFindingIds)}.`,
     `Prior impact estimate: ${work.impact}. Prior theory: ${work.theory || 'Unexamined.'}`,
     `Current actionability: ${work.actionabilityScore}/100.`,
     `Prior validation: ${work.validation ? `${work.validation.environment}; target-dependent=${work.validation.targetDependent}; ${work.validation.reason}` : 'No target-validation result recorded.'}`,
@@ -2797,6 +2878,16 @@ function researchTrackEpochPrompt(
     ] : []),
     '',
     'Conduct one bounded research epoch on the assigned component. Inspect its existing notes and relevant evidence, then pursue the most promising authorized question. Map concrete subcomponents with stable noun names when that structure helps future work. Keep attack theories, experiments, and unanswered questions in notes or research records rather than adding them as surfaces. Use surface.focus to associate work with the component when useful. Compare alternative explanations and capture the observation that would distinguish them. Check nearby resources when they materially affect the current theory.',
+    ...(focus === 'depth' ? [
+      'Depth epoch: inspect the linked leads and findings, using surface.views for the full Recon and Analysis lists when the IDs above are truncated; use claim.get for candidate evidence and history. Pick the highest-value unresolved proof obligation. Establish attacker control, target reachability, and the unauthorized effect with a discriminating experiment where possible. Move a supported claim through the evidence and review gates; narrow, reject, or record a concrete blocker for a candidate when evidence warrants it. If this component has no linked claim, deepen one specific attacker path from the existing notes and checkpoint instead of repeating a general map. Finish with the exact remaining proof question.'
+    ] : [
+      'Breadth epoch: look for a distinct, in-scope path that the current board does not cover. Record a concrete lead when the attacker control, boundary, and possible effect form a testable theory. Add a surface only for a real component, not for a hypothesis. Avoid extending the inventory after the best new path is clear; leave its proof question ready for a depth epoch.'
+    ]),
+    ...(collaborationEnabled ? [
+      `Track collaboration: keep one complementary ${focus === 'breadth' ? 'depth' : 'breadth'} subagent active while useful work and capacity permit. Check active agents first and continue a suitable assignment rather than duplicating it. ${focus === 'breadth'
+        ? 'Give a distinct collaborator one existing lead, finding, or recorded attacker path to advance with a bounded proof or review question; in advanced mode, use a Prover for reproduction or a Reviewer only when independent verification is due.'
+        : 'Give a breadth scout a distinct underexamined in-scope surface to search for new attacker paths and leads; use the Discoverer role in advanced mode.'} Include the surface ID and canonical claim IDs when relevant. Continue the primary epoch while it runs, reconcile its durable results, and resolve active delegates before the final response. If no concrete complementary task or capacity exists, proceed with the primary work.`
+    ] : []),
     'The listed resources are an inventory, not the whole authorization boundary. When source research reveals a distinct covered daemon, service, executable, API, or SDK, record it with resource.catalog discover and request Auto-Reviewed touch before substantive research. Do not leave a separate in-scope target only as a note beneath the current repository surface: an approved discovered resource becomes eligible for a later track epoch. Record the scope link; explicit exclusions still control. Official vendor APIs and SDKs may be covered even when their source was not attached. Third-party applications, customers, and accounts are not authorized just because they integrate with an in-scope vendor. Treat sample implementations as context unless independently included; prioritize the vendor-owned API or SDK behavior and impacts.',
     'For a web-facing theory, use available browser tools to inspect the actual application behavior and test discriminating requests within the recorded authorization. Browser tools are exposed when the Browser feature is enabled; if no usable browser target exists, record that limit in the surface checkpoint. Do not substitute a broad crawl for threat-model reasoning.',
     'Favor concrete source-to-sink reasoning and discriminating experiments over inventory scans. Follow privilege changes, object ownership, state transitions, and cross-component handoffs beyond obvious entry points. For the chosen path, state the observation that would support the suspected failure, an alternative harmless explanation, and a control or comparison that separates them. A missing prerequisite or unreachable target leaves the path open or blocked; it does not refute the mechanism. Search existing findings before creating a new one. Advance a candidate through the existing evidence, reproduction, independent-review, and report gates when authorized work can do so. A negative result must name its bounds and be recorded in durable memory before it supports ruling out an attacker path.',

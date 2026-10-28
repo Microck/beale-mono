@@ -305,6 +305,7 @@ interface ParsedArgs {
   userPreferences: string[];
   mock: boolean;
   devHarnessFeedback: boolean;
+  trackEpoch: boolean;
   configPath: string | undefined;
   collaborationConfigPath: string | undefined;
   provider: string | undefined;
@@ -429,6 +430,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   let version = false;
   let mock = false;
   let devHarnessFeedback = false;
+  let trackEpoch = false;
   let configPath: string | undefined;
   let collaborationConfigPath: string | undefined;
   let provider: string | undefined;
@@ -519,6 +521,8 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
       goal = true;
     } else if (arg === "--dev-harness-feedback") {
       devHarnessFeedback = true;
+    } else if (arg === "--track-epoch") {
+      trackEpoch = true;
     } else if (arg === "--goal-objective") {
       goalObjective = readOptionValue(argv, index, arg);
       goal = true;
@@ -806,6 +810,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
     userPreferences,
     mock,
     devHarnessFeedback,
+    trackEpoch,
     configPath,
     collaborationConfigPath,
     provider,
@@ -1654,6 +1659,7 @@ function usage(): string {
     "  --title-model-default <model>  Host fallback used only when the profile has no applicable title model",
     "  --title-effort-default <level> Host fallback used only when the profile has no applicable title effort",
     "  --title-style research-track  Name the current track investigation rather than its surface",
+    "  --track-epoch        Use bounded incremental context when resuming a research-track epoch",
     "  --executor <kind>      agent (default: agent)",
     "  --max-tokens <n>       Max output tokens for real mode",
     "  --effort <level>       Model effort for real mode: off, minimal, low, medium, high, xhigh, max",
@@ -2321,13 +2327,15 @@ export async function main(
 
       hostOptions.markReady?.();
       const restoringSession = Boolean(args.resumeCapturePath || args.resumeFallbackPrompt || args.resumeFallbackPromptPath);
+      const retainedTrackContext = args.trackEpoch && Boolean(resumableState);
       const result = await runResearchAgent({
         prompt: effectivePrompt,
         workspaceRoot: args.workspaceRoot,
         workspaceContext: runtimeConfig.workspaceContext,
-        modelWorkspaceContext: createModelWorkspaceContext(runtimeConfig.workspaceContext, { minimal: !restoringSession }),
+        modelWorkspaceContext: createModelWorkspaceContext(runtimeConfig.workspaceContext,
+          { minimal: !restoringSession || retainedTrackContext }),
         agentInstructions,
-        ...(restoringSession ? {
+        ...(restoringSession && !retainedTrackContext ? {
           campaignContext: createCampaignModelContext(runtimeConfig.campaignContext),
           surfaceContext: runtimeConfig.surfaceStore.modelContext(),
           continuityContext: runtimeConfig.continuityContext,
