@@ -8,6 +8,7 @@ import type {
 import { isResearchKitId } from '../../../shared/researchKits';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
 import { WorkspaceUnderstandingView } from '../workspaces/WorkspaceUnderstandingView';
+import { WorkspaceSurfaceDetails } from '../workspaces/WorkspaceSurfaceDetails';
 import type { WorkspaceDashboardView } from '../workspaces/WorkspaceUnderstandingView';
 
 const RESOURCE_KINDS: readonly ScopeAssetKind[] = ['repo', 'documentation', 'binary', 'service', 'domain', 'other'];
@@ -116,19 +117,23 @@ export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board
   onStartTrack?: () => void;
   onTrackResumed?: (track: BealeWorkspaceResearchTrack) => void;
 }): JSX.Element {
-  const [selected, setSelected] = useState<{ kind: 'claim' | 'memory' | 'runbook' | 'report'; id: string } | null>(null);
+  const [selected, setSelected] = useState<{ kind: 'claim' | 'memory' | 'runbook' | 'report' | 'surface'; id: string } | null>(null);
   const [documentState, setDocumentState] = useState<{ key: string; value: BealeAppServerWorkspaceDocument | null; error: string | null } | null>(null);
   const scope = useMemo(() => remoteScope(details), [details]);
   const memory = useMemo(() => remoteMemory(details), [details]);
   const workspaceName = scope?.workspaceName ?? details.workspace.name;
   const selectedRunbook = selected?.kind === 'runbook' ? memory.runbooks.find((item) => item.id === selected.id) ?? null : null;
   const selectedReport = selected?.kind === 'report' ? memory.reports.find((item) => item.id === selected.id) ?? null : null;
+  const selectedSurface = selected?.kind === 'surface' ? details.surfaceMap.surfaces.find((item) => item.id === selected.id) ?? null : null;
   const documentKey = selectedRunbook ? `runbook:${selectedRunbook.id}` : selectedReport ? `report:${selectedReport.id}` : null;
-  const open = (kind: 'claim' | 'memory' | 'runbook' | 'report', id: string): void => {
+  const open = (kind: 'claim' | 'memory' | 'runbook' | 'report' | 'surface', id: string): void => {
     setDocumentState(null);
     setSelected({ kind, id });
   };
   const close = (): void => { setSelected(null); setDocumentState(null); };
+  useEffect(() => {
+    if (selected?.kind === 'surface' && !selectedSurface) close();
+  }, [selected, selectedSurface]);
   useEffect(() => {
     if (!documentKey || !selected || (selected.kind !== 'runbook' && selected.kind !== 'report')) return undefined;
     let active = true;
@@ -165,6 +170,9 @@ export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board
       onStartTrack={onStartTrack}
       onTrackResumed={onTrackResumed}
       onActiveViewChange={onViewChange}
+      onViewSelectionChange={(view) => { if (view !== 'surfaces' && selected?.kind === 'surface') close(); }}
+      selectedSurfaceId={selectedSurface?.id ?? null}
+      onOpenSurface={(surface) => open('surface', surface.id)}
       onOpenClaim={(id) => open('claim', id)}
       openClaimId={selected?.kind === 'claim' ? selected.id : null}
       onOpenMemory={(id) => open('memory', id)}
@@ -173,7 +181,7 @@ export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board
     />
     <div className="research-side-resize-handle" aria-hidden="true" />
     <div className="research-side-column">
-      <ResearchSidePanel
+      {selectedSurface ? <WorkspaceSurfaceDetails surface={selectedSurface} map={details.surfaceMap} onClose={close} /> : <ResearchSidePanel
         browserContextsEnabled={false}
         detail={null}
         events={[]}
@@ -207,7 +215,7 @@ export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board
         onBackToSubagents={() => undefined}
         onExpandedChange={(expanded) => { if (!expanded) close(); }}
         viewSpace="workspace"
-      />
+      />}
     </div>
   </div>;
 }

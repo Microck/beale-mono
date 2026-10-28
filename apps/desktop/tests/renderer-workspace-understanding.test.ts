@@ -1007,16 +1007,11 @@ describe('workspace dashboard', () => {
     expect(html).not.toContain('campaign-tree-track');
   });
 
-  it('shows workspace sources with session, memory, and recency coverage', () => {
-    const run = runRow('run_surface', [['2026-08-12T10:00:00.000Z', '2026-08-12T11:00:00.000Z']]);
-    run.run.targetAssetId = 'asset_repo';
-    const memory = memorySummary({
-      nodes: [{ id: 'memory_repo', assetIds: ['asset_repo'], createdAt: '2026-08-12T11:30:00.000Z' }]
-    });
+  it('shows workspace resources without misleading research counts', () => {
     const html = renderToStaticMarkup(createElement(WorkspaceUnderstandingView, {
       busy: false,
       initialView: 'resources',
-      appServerMemory: memory,
+      appServerMemory: null,
       activeScope: {
         id: 'scope_surface',
         version: 1,
@@ -1042,7 +1037,7 @@ describe('workspace dashboard', () => {
       },
       researchProfile: testResearchProfile(),
       workspaceName: 'Parser Workspace',
-      runs: [run],
+      runs: [],
       nowMs: NOW,
     }));
 
@@ -1054,9 +1049,9 @@ describe('workspace dashboard', () => {
     expect(html).toContain('>Repository</span>');
     expect(html).toContain('role="tab"');
     expect(html).toContain('aria-label="Add repository"');
-    expect(html).toContain('>1 session</span>');
-    expect(html).toContain('>1 memory</span>');
-    expect(html).toContain('>Last 2h ago</span>');
+    expect(html).not.toContain('>0 sessions</span>');
+    expect(html).not.toContain('>0 memories</span>');
+    expect(html).not.toContain('Never researched');
     expect(html).toContain('>Not cloned</span>');
     expect(html).toContain('>Clone</span>');
     expect(html).toContain('title="Open parser"');
@@ -1069,7 +1064,7 @@ describe('workspace dashboard', () => {
       sensitivity: 'public',
       attributes: {},
       createdAt: '2026-08-12T00:00:00.000Z'
-    }], [run], memory))).toEqual(['repo']);
+    }]))).toEqual(['repo']);
   });
 
   it('prefills the resource dialog for editing and offers removal', () => {
@@ -1106,11 +1101,6 @@ describe('workspace dashboard', () => {
   });
 
   it('labels materialized repository checkouts from repository metadata instead of the checkout folder', () => {
-    const run = runRow('run_gitlab', [['2026-08-12T10:00:00.000Z', '2026-08-12T11:00:00.000Z']]);
-    run.run.targetAssetId = 'asset_gitlab_disk';
-    const memory = memorySummary({
-      nodes: [{ id: 'memory_gitlab', assetIds: ['asset_gitlab_url'], createdAt: '2026-08-12T11:30:00.000Z' }]
-    });
     const assets: ScopeAsset[] = [{
       id: 'asset_gitlab_url',
       scopeVersionId: 'scope_surface',
@@ -1152,14 +1142,15 @@ describe('workspace dashboard', () => {
       createdAt: '2026-08-12T00:00:00.000Z'
     }];
 
-    const items = workspaceResearchSurfaceItems(assets, [run], memory);
+    const items = workspaceResearchSurfaceItems(assets, {
+      asset_gitlab_url: 'C:\\Users\\research\\.beale\\repositories\\gitlab.com_gitlab-org_gitlab\\default'
+    });
+    expect(workspaceResearchSurfaceItems(assets, {}).find((item) => item.label === 'gitlab')?.repositoryCloned).toBe(false);
     const labels = items.map((item) => item.label);
 
     expect(labels).toEqual(['gitaly', 'gitlab']);
     expect(labels).not.toContain('default');
     expect(items.find((item) => item.label === 'gitlab')).toMatchObject({
-      sessionCount: 1,
-      memoryCount: 1,
       repositoryCloned: true,
       repositoryCloneAssetId: 'asset_gitlab_url',
       repositoryLocalPath: 'C:\\Users\\research\\.beale\\repositories\\gitlab.com_gitlab-org_gitlab\\default'

@@ -202,10 +202,10 @@ test('the app-server reserves a safe research-track epoch and retains its pause 
   assert.deepEqual(due[0].request.launch.targetIds, ['local']);
   assert.deepEqual(due[0].request.launch.collaboration, collaboration);
   assert.match(due[0].request.launch.promptMarkdown, /Assigned surface: Example service/u);
-  assert.match(due[0].request.launch.promptMarkdown, /three credible, materially different causal attacker paths/u);
-  assert.match(due[0].request.launch.promptMarkdown, /1 to 4 attacker-path updates/u);
-  assert.match(due[0].request.launch.promptMarkdown, /security invariant/u);
-  assert.match(due[0].request.launch.promptMarkdown, /possible failure mode/u);
+  assert.match(due[0].request.launch.promptMarkdown, /Map concrete subcomponents with stable noun names/u);
+  assert.match(due[0].request.launch.promptMarkdown, /Compare alternative explanations/u);
+  assert.match(due[0].request.launch.promptMarkdown, /Add structured attacker-path updates or validation details when they clarify the work/u);
+  assert.match(due[0].request.launch.promptMarkdown, /A bounded review can complete with open leads/u);
   assert.match(due[0].request.launch.promptMarkdown, /use available browser tools/u);
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).activeSessionId,
     due[0].request.sessionId);
@@ -2511,7 +2511,7 @@ test("research track launch retains collaboration settings and enabled browser t
   const createCall = calls.find((call) => call.operation === "session.create");
 
   assert.deepEqual(createCall.options.input.metadata.bealeRun.budget.collaboration, collaboration);
-  assert.equal(createCall.options.input.title, 'Map the attacker path and highest-impact');
+  assert.equal(createCall.options.input.title, 'Inspect the component and choose a');
   assert.equal(prepared.launch.provider.title.model, 'example-small-model');
   assert.equal(prepared.launch.provider.title.style, 'research-track');
   const launchArgs = appServerSessionArgs(prepared.launch, {});

@@ -37,11 +37,26 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     };
     surfaces.update(child.id, child.revision, foundation);
     surfaces.update(root.id, 1, foundation);
+    surfaces.focus('root', root.id);
+    surfaces.focus('root', child.id);
     const map = readWorkspaceSurfaceMap(databasePath, workspaceId);
     assert.equal(map.surfaces.length, 2);
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).parentId, root.id);
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).resourceKind, 'service');
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).resourceSource, 'explicit_scope');
+    assert.equal(map.surfaces.find((surface) => surface.id === child.id).firstTouchedBy, 'root');
+    assert.equal(map.surfaces.find((surface) => surface.id === root.id).firstTouchedBy, '/root/scout');
+    assert.equal(map.surfaces.find((surface) => surface.id === child.id).firstTouchedModel, 'gpt-example');
+    assert.equal(map.surfaces.find((surface) => surface.id === root.id).firstTouchedModel, null);
+    assert.equal(map.surfaces.find((surface) => surface.id === child.id).updatedAt, surfaces.get(child.id).updatedAt);
+    assert.equal(map.surfaces.find((surface) => surface.id === root.id).updatedAt, surfaces.get(root.id).updatedAt);
+    assert.deepEqual(new Set(map.surfaces.find((surface) => surface.id === child.id).history.map((event) => event.kind)),
+      new Set(['updated', 'focused', 'first_touch', 'created']));
+    assert.equal(map.surfaces.find((surface) => surface.id === child.id).history.filter((event) => event.kind === 'first_touch').length, 1);
+    assert.ok(map.surfaces.find((surface) => surface.id === child.id).history.some((event) => event.kind === 'updated' && event.actorId === 'host'));
+    assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.coverage.summary, 'Mapped input to sink.');
+    assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.threatModel.attackerControl, 'Request bytes.');
+    assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.bugHistory.limits, 'Search limited to public sources.');
     assert.ok(map.surfaces.every((surface) => surface.firstTouchedAt));
     assert.equal(map.surfaces.every((surface) => surface.coverageState.covered), true);
     assert.equal(map.surfaces.every((surface) => surface.progressBlocker === null), true);
@@ -51,12 +66,24 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     undefined, undefined, { reason }, '/root/scout');
     const blocked = decodeBealeWorkspaceSurfaceMap(readWorkspaceSurfaceMap(databasePath, workspaceId));
     assert.equal(blocked.surfaces.find((surface) => surface.id === child.id).progressBlocker.reason, reason);
+    assert.ok(blocked.surfaces.find((surface) => surface.id === child.id).history.some((event) =>
+      event.kind === 'blocked' && event.actorId === '/root/scout'));
     assert.deepEqual(blocked.surfaces.find((surface) => surface.id === child.id).coverageState.unmetRequirements, ['blocked']);
-    assert.deepEqual(blocked.surfaces.find((surface) => surface.id === root.id).coverageState.unmetRequirements, ['child_surfaces']);
+    assert.deepEqual(blocked.surfaces.find((surface) => surface.id === root.id).coverageState.unmetRequirements, []);
     assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
       surface.id === child.id ? { ...surface, progressBlocker: { reason } } : surface) }), /invalid workspace surface map/);
     assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
       surface.id === child.id ? { ...surface, resourceKind: 7 } : surface) }), /invalid workspace surface map/);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, firstTouchedBy: 7 } : surface) }), /invalid workspace surface map/);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, firstTouchedModel: 7 } : surface) }), /invalid workspace surface map/);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, updatedAt: 7 } : surface) }), /invalid workspace surface map/);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, history: [{ kind: 'updated', at: 7, actorId: 'root' }] } : surface) }), /invalid workspace surface map/);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, foundation: { ...surface.foundation, threatModel: { attackerControl: 7 } } } : surface) }), /invalid workspace surface map/);
     const discovered = resources.discover({ kind: 'binary', name: 'Example daemon',
       locator: 'binary.example.test/daemon', rationale: 'Example authorized service executable.' });
     assert.equal(readWorkspaceSurfaceMap(databasePath, workspaceId).surfaces.some((surface) => surface.id === discovered.id), false);

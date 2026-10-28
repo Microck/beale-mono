@@ -100,6 +100,7 @@ test("resource roots, agent-discovered children, lookup, and one-time first touc
     try {
       assert.equal(database.prepare("SELECT COUNT(*) AS count FROM app_server_surface_touches").get().count, 2);
       assert.equal(database.prepare("SELECT COUNT(*) AS count FROM app_server_surface_focus_events").get().count, 5);
+      assert.equal(database.prepare("SELECT COUNT(*) AS count FROM app_server_surface_update_events").get().count, 2);
     } finally { database.close(); }
   } finally { state.close(); }
 });
@@ -108,13 +109,14 @@ test("surface tools expose simple query and track focus without duplicate touch"
   const state = fixture();
   try {
     const tools = Object.fromEntries(createSurfaceTools(state.surface).map((tool) => [tool.descriptor.name, tool]));
-    assert.match(tools["surface.create"].descriptor.description, /security surface tree/);
-    assert.match(tools["surface.create"].parameters.properties.description.description, /attacker path, trust boundary/);
+    assert.match(tools["surface.create"].descriptor.description, /component tree/);
+    assert.match(tools["surface.create"].parameters.properties.name.description, /concrete component or subcomponent/);
+    assert.deepEqual(tools["surface.create"].parameters.required, ["parentId", "name"]);
     assert.match(tools["surface.update"].parameters.properties.foundation.properties.coverage.properties.summary.description,
-      /do not count general code browsing as security coverage/);
+      /Brief account of what has been examined/);
     assert.match(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.plausibleImpacts.description,
       /ordinary malfunction alone is not security impact/);
-    assert.match(tools["surface.update"].parameters.properties.progressBlocker.anyOf[0].properties.reason.description, /pre-auth testing/);
+    assert.match(tools["surface.update"].parameters.properties.progressBlocker.anyOf[0].properties.reason.description, /external dependency/);
     assert.deepEqual(tools["surface.update"].parameters.required, ["surfaceId", "expectedRevision"]);
     assert.equal(tools["surface.update"].parameters.properties.progressBlocker.anyOf[1].type, "null");
     const action = (name, input) => ({ id: `action-${name}`, toolName: name, actionClass: "recall", input });
@@ -129,6 +131,9 @@ test("surface tools expose simple query and track focus without duplicate touch"
     assert.equal(services.output.surfaces[0].resourceKind, "service");
     const missing = await tools["surface.get"].execute(action("surface.get", { surfaceId: "surface-missing" }));
     assert.equal(missing.status, "error");
+    const created = await tools["surface.create"].execute(action("surface.create", { parentId: state.rootId, name: "Request decoder" }));
+    assert.equal(created.status, "complete");
+    assert.equal(created.output.description, "");
   } finally { state.close(); }
 });
 
@@ -137,9 +142,7 @@ test("a surface blocker records a concrete dependency after first touch and rema
   try {
     const child = state.surface.create(state.rootId, "Authenticated endpoint", "Session boundary.");
     const reason = "Mapped public routes and tested pre-auth inputs; an authorized account is required to test the authenticated endpoint. Provide a test account to resume.";
-    assert.throws(() => state.surface.update(child.id, child.revision, foundation, undefined, undefined, { reason }), /Focus and investigate/);
     state.surface.focus("agent-example", child.id);
-    assert.throws(() => state.surface.update(child.id, child.revision, completeFoundation, undefined, undefined, { reason }), /coverage.gaps/);
     const tools = Object.fromEntries(createSurfaceTools(state.surface).map((tool) => [tool.descriptor.name, tool]));
     const action = (input) => ({ id: "action-surface-update", toolName: "surface.update", actionClass: "recall", input });
     const invalid = await tools["surface.update"].execute(action({ surfaceId: child.id, expectedRevision: child.revision,
@@ -156,7 +159,6 @@ test("a surface blocker records a concrete dependency after first touch and rema
     assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements.includes("blocked"), true);
     assert.equal(state.surface.list().surfaces.find((item) => item.id === child.id).progressBlocker.reason, reason);
     assert.equal(state.surface.query("authorized account").surfaces[0].id, child.id);
-    assert.throws(() => state.surface.update(child.id, set.output.revision, completeFoundation), /coverage.gaps/);
     const updated = state.surface.update(child.id, set.output.revision, foundation);
     assert.equal(updated.progressBlocker.reason, reason);
     const registry = new ResearchToolRegistry([tools["surface.update"]]);
@@ -175,24 +177,36 @@ test("a surface blocker records a concrete dependency after first touch and rema
   } finally { state.close(); }
 });
 
-test("surface coverage requires a complete threat-model map, investigated sinks, resolved connections, and no unblocked findings", () => {
+test("a concrete external blocker can be recorded without completing a foundation form", () => {
+  const state = fixture();
+  try {
+    const child = state.surface.create(state.rootId, "Session verifier");
+    const blocked = state.surface.update(child.id, child.revision, undefined, undefined, undefined,
+      { reason: "An example account is needed to continue." });
+    assert.equal(blocked.progressBlocker.reason, "An example account is needed to continue.");
+    assert.equal(blocked.foundation.coverage.mappingComplete, false);
+  } finally { state.close(); }
+});
+
+test("surface coverage reflects a bounded component review without gating open leads or children", () => {
   const state = fixture();
   try {
     const child = state.surface.create(state.rootId, "Request parser", "Parser boundary.");
-    assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements,
-      ["foundation", "surface_map", "sinks"]);
-    state.surface.update(child.id, child.revision, {
-      ...completeFoundation,
-      coverage: { ...completeFoundation.coverage, openQuestions: ["Does fallback parsing reach the same sink?"] },
+    assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements, ["foundation", "surface_map"]);
+    const renamed = state.surface.update(child.id, child.revision, undefined, "Request decoder");
+    assert.equal(renamed.name, "Request decoder");
+    assert.equal(renamed.foundation, null);
+    const noted = state.surface.update(child.id, renamed.revision, {
+      coverage: { summary: "Reviewed decoding boundaries.", openQuestions: ["Is the fallback reachable?"] }
     });
-    assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements, ["open_questions"]);
-    state.surface.update(child.id, 2, completeFoundation);
+    assert.equal(noted.foundation.coverage.summary, "Reviewed decoding boundaries.");
+    assert.equal(noted.foundation.coverage.openQuestions.length, 1);
+    assert.deepEqual(state.surface.coverageState(child.id).unmetRequirements, ["surface_map"]);
+    state.surface.update(child.id, noted.revision, { coverage: { mappingComplete: true } });
     assert.equal(state.surface.coverageState(child.id).covered, true);
-    assert.deepEqual(state.surface.coverageState(state.rootId).unmetRequirements,
-      ["foundation", "surface_map", "sinks"]);
-    state.surface.update(state.rootId, 1, completeFoundation);
+    assert.equal(state.surface.get(child.id).foundation.coverage.summary, "Reviewed decoding boundaries.");
+    state.surface.update(state.rootId, 1, { coverage: { summary: "Reviewed service structure.", mappingComplete: true } });
     assert.equal(state.surface.coverageState(state.rootId).covered, true);
-
     const database = new DatabaseSync(state.databasePath);
     try {
       database.exec(`CREATE TABLE app_server_research_claims (
@@ -203,14 +217,7 @@ test("surface coverage requires a complete threat-model map, investigated sinks,
         "claim-example", workspaceId, "observed", "security.vulnerability", JSON.stringify({ surfaceIds: [child.id], progressBlocker: null }),
       );
       assert.deepEqual(state.surface.coverageState(child.id).unblockedFindingIds, ["claim-example"]);
-      assert.equal(state.surface.coverageState(state.rootId).covered, false);
-      database.prepare("UPDATE app_server_research_claims SET security_tracking_json = ? WHERE id = ?").run(
-        JSON.stringify({ surfaceIds: [child.id], progressBlocker: { reason: "Authorized input routes were tested and cannot reach this sink; a new route is needed to advance the finding." } }), "claim-example",
-      );
-      state.surface.update(child.id, 3, {
-        ...completeFoundation,
-        coverage: { ...completeFoundation.coverage, gaps: "The observed primitive remains blocked on reachability." },
-      });
+      assert.equal(state.surface.coverageState(child.id).covered, true);
       assert.equal(state.surface.coverageState(state.rootId).covered, true);
     } finally { database.close(); }
   } finally { state.close(); }
@@ -239,9 +246,9 @@ test("the first focus automatically launches one foundation scout and reports it
     assert.match(first.foundationScout.agentPath, /^\/root\/surface_foundation_/);
     await manager.settle();
     assert.equal(requests.length, 1);
-    assert.match(requests[0].prompt, /Map attacker-controlled entry paths, trust boundaries, privilege contexts, security-relevant sinks/);
-    assert.match(requests[0].prompt, /Define coverage against that threat model, not against general code exploration/);
-    assert.match(requests[0].prompt, /Treat harmless defects as context only unless a security consequence is supported/);
+    assert.match(requests[0].prompt, /Give this component a concise research foundation/);
+    assert.match(requests[0].prompt, /Mark mappingComplete when a bounded review/);
+    assert.match(requests[0].prompt, /Keep hypotheses and tests in research records/);
     assert.deepEqual(activities.find((activity) => activity.type === "spawned")?.surfaceTrail,
       [{ id: state.rootId, name: "Example service" }]);
     assert.equal(state.surface.coverageState(state.rootId).covered, true);
@@ -309,7 +316,7 @@ test("subagent spawn requires a valid surface assignment and records first touch
     assert.equal(state.surface.get(child.id).firstTouchedAt !== null, true);
     await manager.settle();
     assert.match(requests[0].prompt, /Assigned surface: Example service \/ Parser/);
-    assert.match(requests[0].prompt, /one-time security foundation/);
+    assert.match(requests[0].prompt, /brief foundation when useful/);
     assert.equal(state.surface.current(result.details.agent_id).id, child.id);
     state.surface.focus(result.details.agent_id, state.rootId, "Moved to parent boundary");
     const listed = await manager.createTools("root").find((tool) => tool.name === "list_agents").execute("list-after-move", {});
@@ -339,8 +346,16 @@ test("surface foundations, first touch, and movement survive workspace publicati
     assert.match(JSON.parse(published.surfaces[0].foundation_json).progressBlocker.reason, /authorized account/);
     assert.equal(published.surfaceTouches.length, 1);
     assert.equal(published.surfaceFocusEvents.length, 1);
+    assert.equal(published.surfaceUpdateEvents.length, 1);
     surfaces.close(); resources.close(); memory.close();
     releaseWorkspaceResearchIndex(options);
+    const emptied = new DatabaseSync(databasePath);
+    try {
+      for (const table of ['app_server_surface_update_events', 'app_server_surface_focus_events',
+        'app_server_surface_focus', 'app_server_surface_touches', 'app_server_surfaces', 'app_server_surface_roots']) {
+        emptied.exec(`DROP TABLE ${table}`);
+      }
+    } finally { emptied.close(); }
     rebuildWorkspaceResearchIndex(options);
     const restoredResources = new ResearchResourceCatalog({ databasePath, workspaceId, explicitResources: [{ id: "asset-example", direction: "in_scope", kind: "repository", locator: "https://example.test/repository", name: "Example repository", source: "explicit_scope" }] });
     const restored = new SurfaceStore({ databasePath, workspaceId, sessionId: "session-later", resources: restoredResources });
@@ -348,6 +363,10 @@ test("surface foundations, first touch, and movement survive workspace publicati
       assert.equal(restored.get(child.id).foundation.threatModel.attackerControl, foundation.threatModel.attackerControl);
       assert.match(restored.get(child.id).progressBlocker.reason, /authorized account/);
       assert.equal(restored.focus("agent-later", child.id).firstTouch, false);
+      const database = new DatabaseSync(databasePath, { readOnly: true });
+      try {
+        assert.equal(database.prepare('SELECT COUNT(*) AS count FROM app_server_surface_update_events WHERE surface_id=?').get(child.id).count, 1);
+      } finally { database.close(); }
     } finally { restored.close(); restoredResources.close(); }
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

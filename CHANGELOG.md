@@ -4,8 +4,20 @@
 
 ### Beale
 
+#### Added
+
+- Surface details now have Breakdown, History, and Hierarchy tabs. History shows recorded creation, first touch, focus moves, and durable update and blocker events; older updates appear from their last saved timestamp when individual events are unavailable. Update events survive workspace publication and rebuild.
+
+#### Changed
+
+- Surface Breakdown now shows Open Questions and Related Components as separate sections, with coverage notes in About.
+- Surface maps now describe concrete component hierarchies. Foundation notes can be partial, and bounded review can complete while questions, findings, or child work remain open. Research track checkpoints no longer require a fixed number of attacker paths or evidence updates for completion; cited claims and evidence still receive validation.
+
 #### Fixed
 
+- The workspace Surfaces hierarchy now fills the main content area, fades at its top and bottom edges, and reveals its scrollbar on hover or scroll. Selecting a surface opens a right sidebar with a circular back control, component title, inline status, first-touch model attribution, last-update time, and sections for its recorded context and state. Older app-server responses without a model show Unknown for recorded touches.
+- Surface cards have a transparent unfilled background, progress shading, and 1px outlines matching the hierarchy links. They show up to three regular-weight name lines and mark blockers with an orange warning icon. Cards and the detail sidebar omit visible percentage labels and inferred type labels.
+- Workspace resource cards no longer show incomplete per-resource research counts or recency, and repository clone status reflects existing local Git checkouts, including managed checkouts created outside the resource clone button.
 - Custom OpenAI-compatible providers can opt into reasoning controls and persist their effort selection. DeepSeek model IDs use explicit thinking toggles and preserve reasoning content for tool calls.
 - Desktop dev mode rebuilds the shared runtime and app-server after source updates, preventing stale protocol output from blocking startup.
 - Packaged Desktop builds load the renderer and preload from the app root after the main process is split into a chunk, so the window opens after an update.

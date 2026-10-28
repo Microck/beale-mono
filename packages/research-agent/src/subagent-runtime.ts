@@ -294,7 +294,7 @@ export class SubagentManager {
         task_name: `surface_foundation_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
         surface_id: surfaceId,
         ...(this.delegationRoles.has("discoverer") ? { role: "discoverer" } : {}),
-        message: "Establish this surface's one-time security foundation. Bound the history of relevant security bugs and advisories. Identify protected operations and the security invariants they should preserve. Map attacker-controlled entry paths, trust boundaries, privilege contexts, security-relevant sinks, and plausible unauthorized effects; connect them into possible causal paths, including uncertain reachability and cross-surface chains. Compare distinct failure modes and lifecycle or composition routes instead of listing adjacent inputs to one mechanism. Define coverage against that threat model, not against general code exploration. Record whether the full security surface is mapped, whether all known security-relevant sinks were investigated, and any open questions or unexplored connections using surface.update. If a concrete external dependency such as a missing account limits research, continue all authorized accessible work, including pre-auth testing, before setting a progressBlocker. Explain the blocked action, dependency, completed accessible work, and unblock condition; record remaining work in coverage.gaps. Treat harmless defects as context only unless a security consequence is supported. Keep uncertainty explicit. Send concise interim observations to /root as they arise, then report the durable result and remaining gaps. Coordinate with the main agent to avoid duplicated work.",
+        message: "Give this component a concise research foundation. Identify its role, neighboring components, relevant trust boundaries, what is already known, and useful open leads. Use surface.update for brief notes; fields may be partial. Mark mappingComplete when a bounded review can describe the component and its current state, even if questions remain. Keep hypotheses and tests in research records rather than making them child surfaces. Create a child surface only for a concrete subcomponent with a stable noun name. Coordinate with the main agent and report useful observations and limits.",
       }, [], false, false, true);
       const agentPath = typeof result.task_name === "string" ? result.task_name : null;
       if (firstAgentId !== "root") {
@@ -1240,7 +1240,7 @@ export class SubagentManager {
     const assignment = surface ? [
       `Assigned surface: ${this.options.surfaceStore?.path(surface.id)} (${surface.id}).`,
       "You may move to another surface with surface.focus; record the move when it happens.",
-      ...(!surface.foundation ? ["This surface needs its one-time security foundation: relevant security bug history, attacker paths and trust boundaries, security-relevant sinks, plausible unauthorized effects, and threat-model-based coverage. Record uncertainty and gaps rather than inventing completeness."] : []),
+      ...(!surface.foundation ? ["This component has no context notes yet. Add a brief foundation when useful; keep uncertainties as notes rather than child surfaces."] : []),
     ] : [];
     if (!role) return [...assignment, prompt].join("\n\n");
     return [

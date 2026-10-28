@@ -31,6 +31,7 @@ import { MemoryCatalogItem, ReportCatalogItem, RunbookCatalogItem } from '../res
 import { memoryTypeGroupsByHeat } from '../../view-models/memoryCatalog';
 import { EMPTY_SESSION_HEAT_PREFERENCES } from '../../view-models/sessionHeat';
 import type { SessionHeatPreferences } from '../../view-models/sessionHeat';
+import type { MapSurface } from '../../view-models/surfaceMap';
 import { errorMessage } from '../../lib/errors';
 import { renderTraceProseText } from '../traces/traceMarkup';
 import { WorkspaceDirectoriesField } from './WorkspaceDirectoriesWidget';
@@ -184,6 +185,7 @@ export function WorkspaceUnderstandingView({
   busy,
   appServerMemory,
   activeScope = null,
+  repositoryCheckouts,
   workspaceRules = [],
   researchProfile = null,
   researchKitId = 'general',
@@ -223,12 +225,16 @@ export function WorkspaceUnderstandingView({
   remoteTargets,
   trackServerId,
   surfaceMap,
+  selectedSurfaceId = null,
+  onOpenSurface,
+  onSurfaceMapChange,
   researchProfileLabel,
   nowMs
 }: {
   busy: boolean;
   appServerMemory: AppServerMemorySummary | null;
   activeScope?: WorkspaceScopeVersion | null;
+  repositoryCheckouts?: Readonly<Record<string, string>>;
   workspaceRules?: readonly WorkspaceRule[];
   researchProfile?: ResearchProfile | null;
   researchKitId?: ResearchKitId;
@@ -247,6 +253,9 @@ export function WorkspaceUnderstandingView({
   remoteTargets?: readonly { id: string; name: string; ready: boolean }[];
   trackServerId?: string;
   surfaceMap?: BealeWorkspaceSurfaceMap | null;
+  selectedSurfaceId?: string | null;
+  onOpenSurface?: (surface: MapSurface) => void;
+  onSurfaceMapChange?: (map: BealeWorkspaceSurfaceMap | null) => void;
   researchProfileLabel?: string;
   onAddResource?: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
@@ -314,6 +323,10 @@ export function WorkspaceUnderstandingView({
     const timer = window.setInterval(refresh, 5_000);
     return () => { active = false; window.clearInterval(timer); };
   }, [activeView, surfaceMap, workspaceId]);
+  const visibleSurfaceMap = surfaceMap === undefined ? localSurfaceMap : surfaceMap;
+  useEffect(() => {
+    if (activeView === 'surfaces') onSurfaceMapChange?.(visibleSurfaceMap);
+  }, [activeView, onSurfaceMapChange, visibleSurfaceMap]);
   const workspaceMemoryNodes = useMemo(
     () => campaignActive && activeCampaignView === 'memory'
       ? (appServerMemory?.nodes ?? [])
@@ -340,7 +353,7 @@ export function WorkspaceUnderstandingView({
   );
 
   return (
-    <main className={`workspace-dashboard wide-content-container${campaignActive ? ' campaign-active' : ''}`} aria-label="Workspace dashboard">
+    <main className={`workspace-dashboard wide-content-container${campaignActive ? ' campaign-active' : ''}${activeView === 'surfaces' ? ' surfaces-active' : ''}`} aria-label="Workspace dashboard">
       <div className="workspace-dashboard-tabs research-side-view-tabs pill-view-tabs" role="tablist" aria-label="Workspace dashboard views">
         {dashboardViews.map((view) => {
           const selected = activeView === view;
@@ -422,10 +435,9 @@ export function WorkspaceUnderstandingView({
         onEditStateChange={setResourceEditState}
         workspaceId={workspaceId}
         activeScope={activeScope}
+        repositoryCheckouts={repositoryCheckouts}
         hidden={false}
-        appServerMemory={appServerMemory}
         nowMs={timelineNowMs}
-        runs={runs}
         onAddResource={onAddResource}
         onChangeResource={onChangeResource}
         onCloneRepository={onCloneRepository}
@@ -434,10 +446,12 @@ export function WorkspaceUnderstandingView({
       /> : null}
 
       {activeView === 'surfaces' ? <WorkspaceSurfaceMap
-        map={surfaceMap === undefined ? localSurfaceMap : surfaceMap}
+        map={visibleSurfaceMap}
         workspaceName={activeScope?.workspaceName || workspaceName}
         loading={surfaceMap === undefined && localSurfaceMap === null && !surfaceMapError}
         error={surfaceMapError}
+        selectedSurfaceId={selectedSurfaceId}
+        onSelectSurface={onOpenSurface}
       /> : null}
 
       {pendingResourceNavigation ? <Modal title="Discard resource changes?" onClose={() => setPendingResourceNavigation(null)} footer={<>
@@ -1541,38 +1555,16 @@ interface WorkspaceResearchSurfaceItem {
   repositoryCloned: boolean | null;
   repositoryCloneAssetId: string | null;
   repositoryLocalPath: string | null;
-  sessionCount: number;
-  memoryCount: number;
-  lastResearchedAt: string | null;
 }
 
 export function workspaceResearchSurfaceItems(
   assets: readonly ScopeAsset[],
-  runs: readonly RunRow[],
-  memory: AppServerMemorySummary | null | undefined
+  repositoryCheckouts?: Readonly<Record<string, string>>
 ): WorkspaceResearchSurfaceItem[] {
   const assetGroups = new Map<string, ScopeAsset[]>();
   for (const asset of assets) {
     const key = workspaceAssetGroupKey(asset);
     assetGroups.set(key, [...(assetGroups.get(key) ?? []), asset]);
-  }
-  const runStatsByAssetId = new Map<string, { count: number; lastResearchedAt: string | null }>();
-  for (const { run } of runs) {
-    if (!run.targetAssetId) continue;
-    const researchedAt = run.startedAt ?? run.createdAt;
-    const current = runStatsByAssetId.get(run.targetAssetId) ?? { count: 0, lastResearchedAt: null };
-    runStatsByAssetId.set(run.targetAssetId, {
-      count: current.count + 1,
-      lastResearchedAt: latestTimestamp(current.lastResearchedAt, researchedAt)
-    });
-  }
-  const memoryIdsByAssetId = new Map<string, Set<string>>();
-  for (const node of memory?.nodes ?? []) {
-    for (const assetId of node.assetIds) {
-      const memoryIds = memoryIdsByAssetId.get(assetId) ?? new Set<string>();
-      memoryIds.add(node.id);
-      memoryIdsByAssetId.set(assetId, memoryIds);
-    }
   }
   return [...assetGroups.values()].map((groupAssets) => {
     const asset = preferredWorkspaceSurfaceAsset(groupAssets);
@@ -1584,36 +1576,23 @@ export function workspaceResearchSurfaceItems(
       ? groupAssets.find((candidate) => !repositoryNameFromUrl(candidate.value) && repositoryIdentityFromPath(candidate.value)) ?? null
       : null;
     const clonedDirectory = asset.kind === 'repo'
-      ? repositoryClonedDirectory(repositorySourceAsset ?? asset) ?? repositoryLocalAsset?.value ?? null
+      ? repositoryCheckouts
+        ? groupAssets.map((candidate) => repositoryCheckouts[candidate.id]).find(Boolean) ?? null
+        : repositoryClonedDirectory(repositorySourceAsset ?? asset) ?? repositoryLocalAsset?.value ?? null
       : null;
-    const memoryIds = new Set(assetIds.flatMap((assetId) => [...(memoryIdsByAssetId.get(assetId) ?? [])]));
-    const runStats = assetIds.map((assetId) => runStatsByAssetId.get(assetId));
     return {
       asset,
       assetIds,
       label: workspaceAssetLabel(asset),
       repositoryCloned: asset.kind === 'repo' ? clonedDirectory !== null : null,
       repositoryCloneAssetId: repositorySourceAsset?.id ?? null,
-      repositoryLocalPath: clonedDirectory,
-      sessionCount: runStats.reduce((count, stats) => count + (stats?.count ?? 0), 0),
-      memoryCount: memoryIds.size,
-      lastResearchedAt: runStats.reduce<string | null>(
-        (latest, stats) => latestTimestamp(latest, stats?.lastResearchedAt ?? null),
-        null
-      )
+      repositoryLocalPath: clonedDirectory
     };
   }).sort((left, right) => {
     if (left.asset.direction !== right.asset.direction) return left.asset.direction === 'in_scope' ? -1 : 1;
     return workspaceAssetKindOrder(left.asset.kind) - workspaceAssetKindOrder(right.asset.kind)
       || left.label.localeCompare(right.label);
   });
-}
-
-function latestTimestamp(left: string | null, right: string | null): string | null {
-  const leftMs = left ? Date.parse(left) : Number.NaN;
-  const rightMs = right ? Date.parse(right) : Number.NaN;
-  if (!Number.isFinite(rightMs)) return Number.isFinite(leftMs) ? left : null;
-  return !Number.isFinite(leftMs) || rightMs > leftMs ? right : left;
 }
 
 function workspaceAssetGroupKey(asset: ScopeAsset): string {
@@ -1655,10 +1634,9 @@ function WorkspaceResearchSurface({
   onEditStateChange,
   workspaceId,
   activeScope,
+  repositoryCheckouts,
   hidden,
-  appServerMemory,
   nowMs,
-  runs,
   onAddResource,
   onChangeResource,
   onCloneRepository,
@@ -1668,10 +1646,9 @@ function WorkspaceResearchSurface({
   onEditStateChange: (state: { dirty: boolean; pending: boolean }) => void;
   workspaceId: string;
   activeScope: WorkspaceScopeVersion | null;
+  repositoryCheckouts?: Readonly<Record<string, string>>;
   hidden: boolean;
-  appServerMemory: AppServerMemorySummary | null;
   nowMs: number;
-  runs: RunRow[];
   onAddResource: (asset: ScopeAssetInput) => Promise<void>;
   onChangeResource: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onCloneRepository: (assetId: string, cloneMode: RepositoryCloneMode) => Promise<void>;
@@ -1679,8 +1656,8 @@ function WorkspaceResearchSurface({
   workspaceName: string;
 }): JSX.Element {
   const items = useMemo(
-    () => workspaceResearchSurfaceItems(activeScope?.assets ?? [], runs, appServerMemory),
-    [activeScope?.assets, appServerMemory, runs]
+    () => workspaceResearchSurfaceItems(activeScope?.assets ?? [], repositoryCheckouts),
+    [activeScope?.assets, repositoryCheckouts]
   );
   const resourceActivity = useMemo(
     () => workspaceCreationActivity(items.map((item) => item.asset), nowMs),
@@ -1890,9 +1867,6 @@ function WorkspaceResearchSurface({
                       {item.repositoryCloned !== null ? (
                         <span title={item.repositoryLocalPath ?? undefined}>{item.repositoryCloned ? 'Cloned' : 'Not cloned'}</span>
                       ) : null}
-                      <span>{item.sessionCount} {item.sessionCount === 1 ? 'session' : 'sessions'}</span>
-                      <span>{item.memoryCount} {item.memoryCount === 1 ? 'memory' : 'memories'}</span>
-                      <span>{item.lastResearchedAt ? `Last ${formatSurfaceRecency(item.lastResearchedAt, nowMs)}` : 'Never researched'}</span>
                     </div>
                   </div>
                 </button>
@@ -2302,15 +2276,4 @@ function clearRepositoryCheckoutAttributes(attributes: Record<string, unknown>):
   ]) {
     delete attributes[key];
   }
-}
-
-function formatSurfaceRecency(value: string, nowMs: number): string {
-  const elapsedMs = Math.max(0, nowMs - Date.parse(value));
-  const minutes = Math.floor(elapsedMs / 60_000);
-  if (minutes < 60) return `${Math.max(1, minutes)}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(Date.parse(value));
 }

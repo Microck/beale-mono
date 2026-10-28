@@ -2200,6 +2200,8 @@ export interface WorkspaceSnapshot {
   openAi: OpenAiAccountStatus;
   executor: ExecutorStatus;
   activeScope: WorkspaceScopeVersion;
+  /** Existing local Git checkouts, keyed by repository resource ID. */
+  repositoryCheckouts: Record<string, string>;
   workspaceRules: WorkspaceRule[];
   researchSubject: ResearchSubject;
   researchProfile: ResearchProfileSnapshot;

@@ -35,18 +35,13 @@ export interface SurfaceCoverageState {
 export function assessSurfaceCoverage(
   foundation: SurfaceFoundation | null,
   unblockedFindingIds: string[],
-  incompleteChildren: boolean,
+  _incompleteChildren: boolean,
   blocked = false,
 ): SurfaceCoverageState {
   const coverage = foundation?.coverage;
   const unmetRequirements: string[] = [];
   if (!foundation) unmetRequirements.push("foundation");
   if (!coverage?.mappingComplete) unmetRequirements.push("surface_map");
-  if (!coverage?.sinksInvestigated) unmetRequirements.push("sinks");
-  if (coverage?.openQuestions?.length) unmetRequirements.push("open_questions");
-  if (coverage?.unexploredConnections?.length) unmetRequirements.push("surface_connections");
-  if (unblockedFindingIds.length) unmetRequirements.push("unblocked_findings");
-  if (incompleteChildren) unmetRequirements.push("child_surfaces");
   if (blocked) unmetRequirements.push("blocked");
   return { covered: unmetRequirements.length === 0, unmetRequirements, unblockedFindingIds };
 }
@@ -99,20 +94,8 @@ export interface SurfaceModelContext {
 
 type SurfaceRow = Record<string, unknown>;
 
-/** Workspace-scoped surface structure. Root identity is the existing resource ID. */
-export class SurfaceStore {
-  readonly #database: DatabaseSync;
-  readonly #workspaceId: string;
-  readonly #sessionId: string;
-  readonly #resources: ResearchResourceCatalog;
-  #firstTouchHandler: ((surface: ResearchSurface, agentId: string) => SurfaceFoundationScout) | null = null;
-
-  public constructor(input: { databasePath: string; workspaceId: string; sessionId?: string; resources: ResearchResourceCatalog }) {
-    this.#database = openResearchDatabase(input.databasePath);
-    this.#workspaceId = nonempty(input.workspaceId, "workspaceId");
-    this.#sessionId = input.sessionId?.trim() || "external";
-    this.#resources = input.resources;
-    this.#database.exec(`
+export function ensureSurfaceSchema(database: DatabaseSync): void {
+  database.exec(`
       CREATE TABLE IF NOT EXISTS app_server_surfaces (
         id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, resource_id TEXT NOT NULL,
         parent_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
@@ -141,7 +124,33 @@ export class SurfaceStore {
       );
       CREATE INDEX IF NOT EXISTS app_server_surface_focus_events_session
         ON app_server_surface_focus_events(workspace_id, session_id, moved_at);
-    `);
+      CREATE INDEX IF NOT EXISTS app_server_surface_focus_events_surface
+        ON app_server_surface_focus_events(workspace_id, surface_id, moved_at DESC);
+      CREATE TABLE IF NOT EXISTS app_server_surface_update_events (
+        id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, surface_id TEXT NOT NULL,
+        session_id TEXT NOT NULL, actor_id TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('updated', 'blocked', 'unblocked')),
+        changed_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS app_server_surface_update_events_surface
+        ON app_server_surface_update_events(workspace_id, surface_id, changed_at DESC);
+  `);
+}
+
+/** Workspace-scoped surface structure. Root identity is the existing resource ID. */
+export class SurfaceStore {
+  readonly #database: DatabaseSync;
+  readonly #workspaceId: string;
+  readonly #sessionId: string;
+  readonly #resources: ResearchResourceCatalog;
+  #firstTouchHandler: ((surface: ResearchSurface, agentId: string) => SurfaceFoundationScout) | null = null;
+
+  public constructor(input: { databasePath: string; workspaceId: string; sessionId?: string; resources: ResearchResourceCatalog }) {
+    this.#database = openResearchDatabase(input.databasePath);
+    this.#workspaceId = nonempty(input.workspaceId, "workspaceId");
+    this.#sessionId = input.sessionId?.trim() || "external";
+    this.#resources = input.resources;
+    ensureSurfaceSchema(this.#database);
   }
 
   public close(): void { this.#database.close(); }
@@ -232,7 +241,7 @@ export class SurfaceStore {
     throw new Error("Surface hierarchy is too deep.");
   }
 
-  public create(parentId: string, name: string, description: string): ResearchSurface {
+  public create(parentId: string, name: string, description = ""): ResearchSurface {
     const parent = this.require(parentId, true);
     const at = nowIso();
     const id = `surface_${randomUUID().replaceAll("-", "")}`;
@@ -245,40 +254,50 @@ export class SurfaceStore {
     return this.require(id);
   }
 
-  public update(id: string, expectedRevision: number, foundation?: SurfaceFoundation, name?: string, description?: string,
+  public update(id: string, expectedRevision: number, foundation?: unknown, name?: string, description?: string,
     progressBlocker?: { reason: string } | null, actorId?: string): ResearchSurface {
     const surface = this.require(id, true);
     if (surface.root && (name !== undefined || description !== undefined)) throw new Error("Root surface name and description belong to the resource catalog.");
     if (surface.revision !== expectedRevision) throw new Error("Surface revision changed; read it again before updating.");
-    const normalized = foundation === undefined ? surface.foundation : parseFoundation(foundation);
-    if (!normalized) throw new Error("foundation is required before updating a surface without a foundation.");
+    const normalized = foundation === undefined ? surface.foundation ?? (progressBlocker ? parseFoundation({}) : null)
+      : parseFoundation(foundation, surface.foundation);
     const at = nowIso();
-    if (progressBlocker && !surface.firstTouchedAt) {
-      throw new Error("Focus and investigate the surface before recording a progress blocker.");
-    }
-    const stored: SurfaceFoundation & { progressBlocker: SurfaceProgressBlocker | null } = {
-      ...normalized,
+    const stored = {
+      ...(normalized ?? {}),
       progressBlocker: progressBlocker === undefined ? surface.progressBlocker
         : progressBlocker === null ? null
           : { reason: bounded(nonempty(progressBlocker.reason, "Progress blocker reason"), 2_000),
               actorId: bounded(nonempty(actorId ?? "host", "Progress blocker actor"), 200), setAt: at },
     };
-    if (stored.progressBlocker && !stored.coverage.gaps) {
-      throw new Error("Describe the work blocked by the dependency in foundation.coverage.gaps.");
+    const storedFoundation = normalized ? JSON.stringify(stored) : null;
+    this.#database.exec("BEGIN IMMEDIATE");
+    try {
+      const changed = surface.root
+        ? this.#database.prepare(`INSERT INTO app_server_surface_roots(resource_id, workspace_id, foundation_json, revision, updated_at)
+            VALUES (?, ?, ?, 2, ?)
+            ON CONFLICT(resource_id) DO UPDATE SET foundation_json = excluded.foundation_json,
+              revision = app_server_surface_roots.revision + 1, updated_at = excluded.updated_at
+            WHERE app_server_surface_roots.revision = ?`)
+          .run(id, this.#workspaceId, storedFoundation, at, expectedRevision).changes
+        : this.#database.prepare(`UPDATE app_server_surfaces SET name = ?, description = ?, foundation_json = ?,
+            revision = revision + 1, updated_at = ? WHERE workspace_id = ? AND id = ? AND revision = ?`)
+          .run(name === undefined ? surface.name : bounded(nonempty(name, "name"), 180),
+            description === undefined ? surface.description : bounded(description, 2_000),
+            storedFoundation, at, this.#workspaceId, id, expectedRevision).changes;
+      if (!changed) throw new Error("Surface revision changed; read it again before updating.");
+      const kind = progressBlocker && progressBlocker.reason ? "blocked"
+        : progressBlocker === null && surface.progressBlocker ? "unblocked" : "updated";
+      this.#database.prepare(`INSERT INTO app_server_surface_update_events
+        (id, workspace_id, surface_id, session_id, actor_id, kind, changed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+        `surface_update_${randomUUID().replaceAll("-", "")}`, this.#workspaceId, id, this.#sessionId,
+        bounded(nonempty(actorId ?? "host", "Surface update actor"), 200), kind, at,
+      );
+      this.#database.exec("COMMIT");
+    } catch (error) {
+      this.#database.exec("ROLLBACK");
+      throw error;
     }
-    const changed = surface.root
-      ? this.#database.prepare(`INSERT INTO app_server_surface_roots(resource_id, workspace_id, foundation_json, revision, updated_at)
-          VALUES (?, ?, ?, 2, ?)
-          ON CONFLICT(resource_id) DO UPDATE SET foundation_json = excluded.foundation_json,
-            revision = app_server_surface_roots.revision + 1, updated_at = excluded.updated_at
-          WHERE app_server_surface_roots.revision = ?`)
-        .run(id, this.#workspaceId, JSON.stringify(stored), at, expectedRevision).changes
-      : this.#database.prepare(`UPDATE app_server_surfaces SET name = ?, description = ?, foundation_json = ?,
-          revision = revision + 1, updated_at = ? WHERE workspace_id = ? AND id = ? AND revision = ?`)
-        .run(name === undefined ? surface.name : bounded(nonempty(name, "name"), 180),
-          description === undefined ? surface.description : bounded(description, 2_000),
-          JSON.stringify(stored), at, this.#workspaceId, id, expectedRevision).changes;
-    if (!changed) throw new Error("Surface revision changed; read it again before updating.");
     return this.require(id);
   }
 
@@ -420,22 +439,22 @@ export class SurfaceStore {
 
 export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[] {
   const foundationSchema = {
-    type: "object", required: ["bugHistory", "coverage", "threatModel"], additionalProperties: false,
+    type: "object", additionalProperties: false,
     properties: {
-      bugHistory: { type: "object", required: ["summary", "limits"], properties: {
+      bugHistory: { type: "object", properties: {
         summary: { type: "string", description: "What prior security bugs, advisories, or bounded searches establish for this surface; include dated no-match findings only within their searched bounds." },
         limits: { type: "string", description: "Unsearched sources, versions, aliases, or other limits; write Unknown when needed." },
       } },
-      coverage: { type: "object", required: ["summary", "gaps", "opportunities"], properties: {
-        summary: { type: "string", description: "Attacker paths, trust boundaries, privilege contexts, and security-relevant sinks actually inspected or tested; do not count general code browsing as security coverage." },
-        gaps: { type: "string", description: "Narrative of known missing, blocked, or stale areas. Record unresolved work in the structured coverage fields; a blocked finding may remain here after its progress blocker is recorded." },
-        opportunities: { type: "string", description: "Promising security-relevant paths, chains, or experiments that could distinguish a plausible unauthorized effect from harmless behavior." },
-        mappingComplete: { type: "boolean", description: "Whether all threat-model-defined attacker paths, boundaries, and plausible unauthorized effects in this surface are mapped. Unknown counts as false." },
-        sinksInvestigated: { type: "boolean", description: "Whether every known security-relevant sink and effect in this surface has been investigated. Unknown counts as false." },
+      coverage: { type: "object", properties: {
+        summary: { type: "string", description: "Brief account of what has been examined in this component." },
+        gaps: { type: "string", description: "Known limits or work worth revisiting." },
+        opportunities: { type: "string", description: "Promising leads, if any." },
+        mappingComplete: { type: "boolean", description: "Whether this component has received a bounded review sufficient to describe its structure and current state. Open leads may remain." },
+        sinksInvestigated: { type: "boolean", description: "Optional note about relevant sinks examined; this is not a completion gate." },
         openQuestions: { type: "array", items: { type: "string" }, description: "Unanswered attacker-control, reachability, boundary, or security-impact questions." },
         unexploredConnections: { type: "array", items: { type: "string" }, description: "Known security-relevant connections or possible chains to other surfaces that remain unexplored." },
       } },
-      threatModel: { type: "object", required: ["attackerControl", "trustBoundaries", "assetsAtRisk", "plausibleImpacts", "assumptions"], properties: {
+      threatModel: { type: "object", properties: {
         attackerControl: { type: "string", description: "Concrete attacker-controlled inputs, entry points, and preconditions." },
         trustBoundaries: { type: "string", description: "Where lower-trust control crosses into higher-trust parsing, identity, authority, or execution." },
         assetsAtRisk: { type: "string", description: "Assets or privileges an attacker could affect." },
@@ -448,20 +467,20 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
     { name: "surface.list", transportName: "surface_list", effect: "read", properties: { resourceId: { type: "string" }, resourceKind: { type: "string", enum: ["domain", "repository", "binary", "service", "tool", "documentation", "other"], description: "Filter roots and children by resource kind to compare research outside a dominant source index." }, parentId: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: [] },
     { name: "surface.get", transportName: "surface_get", effect: "read", properties: { surfaceId: { type: "string" } }, required: ["surfaceId"] },
     { name: "surface.query", transportName: "surface_query", effect: "read", properties: { query: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: ["query"] },
-    { name: "surface.create", transportName: "surface_create", effect: "write", properties: { parentId: { type: "string" }, name: { type: "string" }, description: { type: "string", description: "Security-relevant attacker path, trust boundary, privilege context, sink, or effect that distinguishes this child surface." } }, required: ["parentId", "name", "description"] },
-    { name: "surface.update", transportName: "surface_update", effect: "write", properties: { surfaceId: { type: "string" }, expectedRevision: { type: "integer", minimum: 1 }, name: { type: "string" }, description: { type: "string" }, foundation: { ...foundationSchema, description: "Required for a surface without a foundation; omit to preserve an existing foundation when only changing other fields." },
+    { name: "surface.create", transportName: "surface_create", effect: "write", properties: { parentId: { type: "string" }, name: { type: "string", description: "A stable noun naming a concrete component or subcomponent, never a question, theory, test, or checklist item." }, description: { type: "string", description: "Optional note on the component's role and boundary." } }, required: ["parentId", "name"] },
+    { name: "surface.update", transportName: "surface_update", effect: "write", properties: { surfaceId: { type: "string" }, expectedRevision: { type: "integer", minimum: 1 }, name: { type: "string" }, description: { type: "string" }, foundation: { ...foundationSchema, description: "Optional, partial context notes. Omitted fields preserve existing values." },
       progressBlocker: { anyOf: [{ type: "object", required: ["reason"], additionalProperties: false,
-        properties: { reason: { type: "string", description: "Name the blocked action, concrete external dependency, the authorized work already completed without it (such as pre-auth testing), and what would unblock the rest. Set only after reachable work is exhausted." } } }, { type: "null" }], description: "Set a concrete external blocker, or pass null to clear it. The existing foundation may be omitted." } }, required: ["surfaceId", "expectedRevision"] },
+        properties: { reason: { type: "string", description: "Briefly describe the concrete external dependency and what would unblock work." } } }, { type: "null" }], description: "Set a concrete external blocker, or pass null to clear it. The existing foundation may be omitted." } }, required: ["surfaceId", "expectedRevision"] },
     { name: "surface.focus", transportName: "surface_focus", effect: "write", properties: { surfaceId: { type: "string" }, reason: { type: "string" } }, required: ["surfaceId"] },
   ] as const;
   return specs.map((spec): ResearchExecutableTool => ({
     descriptor: {
       name: spec.name, transportName: spec.transportName,
       description: spec.name === "surface.focus"
-        ? "Declare a move to a security-relevant surface. The first focus ever in this workspace records its one-time touch and starts its security bug-history, coverage, and threat-model foundation. Focus neither authorizes target access nor restricts research tools."
+        ? "Associate current work with a component. First focus records its touch and starts a brief context scout. Focus does not restrict research tools."
         : spec.name === "surface.query"
           ? "Find surfaces by simple text across names, descriptions, paths, and foundation summaries."
-          : `Read or refine the resource-owned security surface tree (${spec.name}). Child surfaces distinguish attacker paths, trust boundaries, privilege contexts, or security-relevant sinks and effects. Foundations summarize relevant security bug history, threat model, and coverage without duplicating memory or evidence.`,
+          : `Read or refine the resource-owned component tree (${spec.name}). Children are concrete components or subcomponents with stable noun names. Keep questions and hypotheses in notes or research records, not as surfaces. Foundation fields are optional context reminders.`,
       actionClasses: [spec.effect === "read" ? "recall" : "synthesize"], sideEffects: spec.effect,
       requiredPermissions: ["research-resource:inventory"],
       inputSchema: { type: "object", required: spec.required, properties: spec.properties, additionalProperties: false },
@@ -480,8 +499,8 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
             break;
           }
           case "surface.query": output = store.query(nonempty(input.query, "query"), typeof input.limit === "number" ? input.limit : 20, typeof input.offset === "number" ? input.offset : 0); break;
-          case "surface.create": output = store.create(nonempty(input.parentId, "parentId"), nonempty(input.name, "name"), nonempty(input.description, "description")); break;
-          case "surface.update": output = store.update(nonempty(input.surfaceId, "surfaceId"), positive(input.expectedRevision, "expectedRevision"), input.foundation === undefined ? undefined : parseFoundation(input.foundation), typeof input.name === "string" ? input.name : undefined, typeof input.description === "string" ? input.description : undefined,
+          case "surface.create": output = store.create(nonempty(input.parentId, "parentId"), nonempty(input.name, "name"), typeof input.description === "string" ? input.description : ""); break;
+          case "surface.update": output = store.update(nonempty(input.surfaceId, "surfaceId"), positive(input.expectedRevision, "expectedRevision"), input.foundation, typeof input.name === "string" ? input.name : undefined, typeof input.description === "string" ? input.description : undefined,
             parseBlockerUpdate(input.progressBlocker),
             context?.agentId ?? "root"); break;
           case "surface.focus": output = store.focus(context?.agentId ?? "root", nonempty(input.surfaceId, "surfaceId"), typeof input.reason === "string" ? input.reason : "research"); break;
@@ -505,18 +524,22 @@ function positive(value: unknown, name: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw new Error(`${name} must be a positive integer.`);
   return value;
 }
-function section(value: unknown, keys: readonly string[], name: string): Record<string, string> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${name} must be an object.`);
-  const record = value as Record<string, unknown>;
-  return Object.fromEntries(keys.map((key) => [key, bounded(nonempty(record[key], `${name}.${key}`), 4_000)]));
+function section(value: unknown, keys: readonly string[], name: string, previous: Record<string, string> = {}): Record<string, string> {
+  if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value))) throw new Error(`${name} must be an object.`);
+  const record = (value ?? {}) as Record<string, unknown>;
+  return Object.fromEntries(keys.map((key) => {
+    const entry = record[key];
+    if (entry !== undefined && typeof entry !== "string") throw new Error(`${name}.${key} must be a string.`);
+    return [key, entry === undefined ? previous[key] ?? "" : bounded(entry, 4_000)];
+  }));
 }
-function parseFoundation(value: unknown): SurfaceFoundation {
+function parseFoundation(value: unknown, previous: SurfaceFoundation | null = null): SurfaceFoundation {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("foundation must be an object.");
   const record = value as Record<string, unknown>;
   return {
-    bugHistory: section(record.bugHistory, ["summary", "limits"], "foundation.bugHistory") as unknown as SurfaceFoundation["bugHistory"],
-    coverage: parseCoverage(record.coverage),
-    threatModel: section(record.threatModel, ["attackerControl", "trustBoundaries", "assetsAtRisk", "plausibleImpacts", "assumptions"], "foundation.threatModel") as unknown as SurfaceFoundation["threatModel"],
+    bugHistory: section(record.bugHistory, ["summary", "limits"], "foundation.bugHistory", previous?.bugHistory) as unknown as SurfaceFoundation["bugHistory"],
+    coverage: parseCoverage(record.coverage, previous?.coverage),
+    threatModel: section(record.threatModel, ["attackerControl", "trustBoundaries", "assetsAtRisk", "plausibleImpacts", "assumptions"], "foundation.threatModel", previous?.threatModel) as unknown as SurfaceFoundation["threatModel"],
   };
 }
 function parseProgressBlocker(value: unknown): SurfaceProgressBlocker | null {
@@ -533,17 +556,17 @@ function parseBlockerUpdate(value: unknown): { reason: string } | null | undefin
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("progressBlocker must be an object or null.");
   return { reason: nonempty((value as Record<string, unknown>).reason, "progressBlocker.reason") };
 }
-function parseCoverage(value: unknown): SurfaceFoundation["coverage"] {
-  const text = section(value, ["summary", "opportunities"], "foundation.coverage") as Pick<SurfaceFoundation["coverage"], "summary" | "opportunities">;
-  const record = value as Record<string, unknown>;
-  if (typeof record.gaps !== "string") throw new Error("foundation.coverage.gaps must be a string.");
+function parseCoverage(value: unknown, previous?: SurfaceFoundation["coverage"]): SurfaceFoundation["coverage"] {
+  const text = section(value, ["summary", "gaps", "opportunities"], "foundation.coverage", previous ? { summary: previous.summary, gaps: previous.gaps, opportunities: previous.opportunities } : undefined) as Pick<SurfaceFoundation["coverage"], "summary" | "gaps" | "opportunities">;
+  const record = (value ?? {}) as Record<string, unknown>;
+  if (record.mappingComplete !== undefined && typeof record.mappingComplete !== "boolean") throw new Error("foundation.coverage.mappingComplete must be a boolean.");
+  if (record.sinksInvestigated !== undefined && typeof record.sinksInvestigated !== "boolean") throw new Error("foundation.coverage.sinksInvestigated must be a boolean.");
   return {
     ...text,
-    gaps: bounded(record.gaps, 4_000),
-    mappingComplete: record.mappingComplete === true,
-    sinksInvestigated: record.sinksInvestigated === true,
-    openQuestions: coverageList(record.openQuestions, "foundation.coverage.openQuestions"),
-    unexploredConnections: coverageList(record.unexploredConnections, "foundation.coverage.unexploredConnections"),
+    mappingComplete: record.mappingComplete === undefined ? previous?.mappingComplete ?? false : record.mappingComplete === true,
+    sinksInvestigated: record.sinksInvestigated === undefined ? previous?.sinksInvestigated ?? false : record.sinksInvestigated === true,
+    openQuestions: record.openQuestions === undefined ? previous?.openQuestions ?? [] : coverageList(record.openQuestions, "foundation.coverage.openQuestions"),
+    unexploredConnections: record.unexploredConnections === undefined ? previous?.unexploredConnections ?? [] : coverageList(record.unexploredConnections, "foundation.coverage.unexploredConnections"),
   };
 }
 function coverageList(value: unknown, name: string): string[] {
