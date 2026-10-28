@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -52,6 +52,7 @@ import {
   type ResolvedAppServerSessionLaunch
 } from './sessionLaunch.js';
 import { longSessionRecoveryFallbackPrompt } from './sessionRecovery.js';
+import { reviewResearchTrackContext, type ResearchTrackContextDecision } from './researchTrackContextReview.js';
 import { AppServerWorkerDatabaseCoordinator } from './workerDatabaseBroker.js';
 import { FleetIncompleteResponseError, FleetService } from './fleet.js';
 import { FleetRemoteController } from './fleetRemote.js';
@@ -1053,6 +1054,7 @@ export class AppServerHostService {
         ...(promptTemplatePath ? { promptTemplatePath } : {}),
         ...(resumeCapturePath ? { resumeCapturePath } : {}),
         ...(resumeFallbackPromptPath ? { resumeFallbackPromptPath } : {}),
+        ...(request.launch.mode === 'research-track' ? { trackEpoch: true } : {}),
         ...(request.launch.workflowId ? { workflowId: request.launch.workflowId } : {}),
         researchProfileId: profileId,
         ...(request.launch.researchProfileHash
@@ -1509,11 +1511,15 @@ export class AppServerHostService {
         const assignment = store.reserveNext(sessionId, details.surfaceMap.surfaces);
         if (!assignment) continue;
         const work = assignment.track.surfaces.find((item) => item.surfaceId === assignment.surface.id)!;
+        const continuing = assignment.track.epochCount > 1;
+        const contextReview = continuing
+          ? await this.reviewResearchTrackEpochContext(workspace, storage, sessionId)
+          : null;
         const promptMarkdown = researchTrackEpochPrompt(assignment.track.id, assignment.track.pass,
-          assignment.surface, work, assignment.focus, details.surfaceMap.surfaces.length, assignment.track.targetIds,
+          assignment.track.epochCount, assignment.surface, work, assignment.focus,
+          details.surfaceMap.surfaces.length, assignment.track.targetIds, contextReview?.decision,
           assignment.track.collaboration?.mode !== undefined && assignment.track.collaboration.mode !== 'solo',
           workspace.researchKitId, recoveringPriorOrphan || assignment.track.lastError === ORPHANED_TRACK_EPOCH_DIAGNOSTIC);
-        const continuing = assignment.track.epochCount > 1;
         due.push({ dueAt: at.toISOString(), request: { launchVersion: APP_SERVER_SESSION_LAUNCH_VERSION,
           sessionId, launch: { workspaceId: workspace.workspaceId,
             mode: 'research-track',
@@ -1521,7 +1527,13 @@ export class AppServerHostService {
             targetIds: track.targetIds, promptMarkdown,
             provider: track.provider, ...(track.collaboration ? { collaboration: track.collaboration } : {}),
             shellSafetyMode: 'auto_review', guardianEnabled: track.guardianEnabled,
-            ...(continuing ? { continuation: { fallbackPrompt: promptMarkdown } } : {}),
+            ...(continuing ? { continuation: {
+              fallbackPrompt: promptMarkdown,
+              ...(contextReview?.resumeAttemptId ? {
+                resumeAttemptId: contextReview.resumeAttemptId,
+                resumeFromInitialAttempt: contextReview.resumeFromInitialAttempt,
+              } : {}),
+            } } : {}),
             generateTitle: true } } });
       } catch (error) {
         const track = store.get();
@@ -1530,6 +1542,61 @@ export class AppServerHostService {
       } finally { store.close(); }
     }
     return due;
+  }
+
+  private async reviewResearchTrackEpochContext(
+    workspace: AppServerHostWorkspace,
+    storage: AppServerHostStorage,
+    sessionId: string,
+  ): Promise<{ decision: ResearchTrackContextDecision; resumeAttemptId?: string; resumeFromInitialAttempt?: boolean }> {
+    let session: AppServerSessionSummaryProjection;
+    try {
+      session = await this.invokeProtocol<AppServerSessionSummaryProjection>('session.get', {
+        args: ['session', 'get', '--session-id', sessionId], storage,
+      });
+    } catch {
+      return { decision: { mode: 'reset', reason: 'capture_unavailable' } };
+    }
+    if (nonEmpty(session.workspaceId) !== workspace.workspaceId) {
+      return { decision: { mode: 'reset', reason: 'capture_unavailable' } };
+    }
+    const attempt = latestAttempt(session.attempts);
+    if (!attempt || !/^[A-Za-z0-9_-]{1,128}$/u.test(attempt.id)) {
+      return { decision: { mode: 'reset', reason: 'capture_unavailable' } };
+    }
+    const firstAttempt = Array.isArray(session.attempts) ? latestAttempt(session.attempts.slice(0, 1)) : null;
+    const fromInitialAttempt = firstAttempt?.id === attempt.id;
+    const workspacePath = nonEmpty(workspace.workspacePath);
+    if (!workspacePath) return { decision: { mode: 'reset', reason: 'capture_unavailable' } };
+    const runDirectory = readWorkspaceProject(workspacePath)
+      ? join(workspacePath, 'traces', sessionId, 'outputs')
+      : join(workspacePath, '.beale', 'app-server-runs');
+    const capturePath = join(runDirectory,
+      `${fromInitialAttempt ? sessionId : `${sessionId}.${attempt.id}`}.capture.json`);
+    let captureAvailable = false;
+    try {
+      const capture = await stat(capturePath);
+      if (capture.size > 256 * 1024 * 1024) {
+        return { decision: { mode: 'reset', reason: 'capture_oversized' } };
+      }
+      captureAvailable = capture.isFile() && capture.size > 0;
+    } catch { /* A missing capture starts a fresh model context. */ }
+    let events: unknown = [];
+    if (captureAvailable) {
+      try {
+        const page = await this.invokeProtocol<{ events?: unknown }>('session.events', {
+          args: ['session', 'events', '--session-id', sessionId, '--stream', 'trace',
+            '--tail', '--limit', '2000', '--max-bytes', '4000000'], storage,
+        });
+        events = page.events;
+      } catch { /* The capture can still be resumed without context metrics. */ }
+    }
+    const decision = reviewResearchTrackContext({ captureAvailable,
+      ...(attempt.startedAt ? { attemptStartedAt: attempt.startedAt } : {}),
+      events: Array.isArray(events) ? events : [] });
+    return decision.mode === 'resume'
+      ? { decision, resumeAttemptId: attempt.id, resumeFromInitialAttempt: fromInitialAttempt }
+      : { decision };
   }
 
   private async markOrphanedTrackSessionForReview(
@@ -2682,13 +2749,13 @@ function guardianEnabledForTrackSession(session: AppServerSessionSummaryProjecti
   return restart?.launch.mode === 'research-track' && restart.launch.guardianEnabled === true;
 }
 
-function latestAttempt(value: unknown): { id: string; parentAttemptId: string | null } | null {
+function latestAttempt(value: unknown): { id: string; parentAttemptId: string | null; startedAt: string | null } | null {
   if (!Array.isArray(value)) return null;
   for (let index = value.length - 1; index >= 0; index -= 1) {
     const attempt = value[index];
     if (!isRecord(attempt)) continue;
     const id = nonEmpty(attempt.id);
-    if (id) return { id, parentAttemptId: nonEmpty(attempt.parentAttemptId) };
+    if (id) return { id, parentAttemptId: nonEmpty(attempt.parentAttemptId), startedAt: nonEmpty(attempt.startedAt) };
   }
   return null;
 }
@@ -2770,11 +2837,13 @@ function stringArray(value: unknown): string[] {
 function researchTrackEpochPrompt(
   trackId: string,
   pass: number,
+  epoch: number,
   surface: ResearchTrackSurfaceProjection,
   work: ResearchTrackSurfaceState,
   focus: ResearchTrackEpochFocus,
   surfaceCount: number,
   targetIds: readonly string[],
+  contextReview: ResearchTrackContextDecision | undefined,
   collaborationEnabled: boolean,
   researchKitId?: string,
   reviewInterruptedEpoch = false
@@ -2782,10 +2851,13 @@ function researchTrackEpochPrompt(
   const linkedClaims = (ids: readonly string[] | undefined): string => !ids?.length ? 'none'
     : `${ids.slice(0, 6).join(', ')}${ids.length > 6 ? `, and ${ids.length - 6} more` : ''}`;
   return [
-    '# Continuous research track',
+    `# Continuous research track epoch ${epoch}`,
     `Track ${trackId}, pass ${pass}. The workspace currently contains ${surfaceCount} eligible security surfaces.`,
     `Assigned surface: ${surface.name} (${surface.id}).`,
     `Epoch focus: ${focus}.`,
+    ...(contextReview ? [contextReview.mode === 'resume'
+      ? 'Context transition: use retained model history when available. This epoch assignment supersedes earlier surface and work-direction instructions; use current canonical records when prior notes conflict.'
+      : `Context transition: start with fresh model context after ${contextReview.reason.replaceAll('_', ' ')}. Durable research state remains available; follow this assignment without repeating broad orientation.`] : []),
     `Work direction: ${focus === 'depth'
       ? 'advance a specific attacker path, lead, or finding toward a decisive result; use this component in its parent context when relevant'
       : 'explore an underexamined resource or component for distinct attacker-controlled paths and trust boundaries'}.`,
