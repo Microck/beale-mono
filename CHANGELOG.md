@@ -47,6 +47,7 @@
 
 #### Changed
 
+- Research Track epochs now distinguish breadth from depth, prioritize actionable open leads and findings during depth work, and prompt a complementary collaborator when collaboration is enabled. Periodic breadth rotation remains in place.
 - Research Track actionability gains require new source evidence on a cited finding or memory, or a completed runbook result from the active epoch. Record edits and report citations remain valid context but do not raise priority.
 - Child surfaces record their creating session. Existing surface rows migrate with no creation attribution, and session surface maps include creation, focus, and update activity.
 - Research track checkpoints now explain the required workspace record reference format, report invalid references clearly, and include attacker-path references without requiring duplicate checkpoint entries.

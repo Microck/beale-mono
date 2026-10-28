@@ -233,6 +233,61 @@ test('actionability promotes child proof work, decays without evidence, and retu
   } finally { state.close(); }
 });
 
+test('open claims receive depth epochs while periodic breadth still reaches new resources', () => {
+  const state = fixture();
+  try {
+    const map = [{ ...surfaces[0], coverageState: { ...open,
+      openLeadIds: ['claim-example-open'], unblockedFindingIds: ['finding-example-open'] } }, surfaces[1]];
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces: map });
+    const first = state.store.reserveNext('session-example-claim-depth', map);
+    assert.equal(first.surface.id, map[0].id);
+    assert.equal(first.focus, 'depth');
+    state.store.finishEpoch('session-example-claim-depth', true);
+    state.database.prepare(`UPDATE app_server_research_tracks SET epoch_count=3 WHERE workspace_id=?`)
+      .run(workspaceId);
+    state.database.prepare(`UPDATE app_server_research_track_surfaces
+      SET actionability_score=90, impact='high', no_progress_epochs=0
+      WHERE workspace_id=? AND surface_id=?`).run(workspaceId, map[0].id);
+    const breadth = state.store.reserveNext('session-example-claim-breadth', map);
+    assert.equal(breadth.surface.id, map[1].id);
+    assert.equal(breadth.focus, 'breadth');
+  } finally { state.close(); }
+});
+
+test('finding resolution outranks an equally actionable unmapped child', () => {
+  const state = fixture();
+  try {
+    const map = [surfaces[0],
+      { id: 'surface-example-a', parentId: surfaces[0].id, name: 'Example decoder',
+        coverageState: open, progressBlocker: null },
+      { id: 'surface-example-b', parentId: surfaces[0].id, name: 'Example broker',
+        coverageState: { ...open, unblockedFindingIds: ['finding-example-broker'] }, progressBlocker: null }];
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces: map });
+    const assigned = state.store.reserveNext('session-example-finding-depth', map);
+    assert.equal(assigned.surface.id, map[2].id);
+    assert.equal(assigned.focus, 'depth');
+  } finally { state.close(); }
+});
+
+test('unavailable target validation keeps an open claim from monopolizing depth work', () => {
+  const state = fixture();
+  try {
+    const map = [{ ...surfaces[0], coverageState: { ...open,
+      openLeadIds: [], unblockedFindingIds: ['finding-example-device'] } }, surfaces[1]];
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces: map });
+    state.database.prepare(`UPDATE app_server_research_track_surfaces
+      SET validation_json=? WHERE workspace_id=? AND surface_id=?`)
+      .run(JSON.stringify({ targetDependent: true, environment: 'none',
+        reason: 'The example device needed for the next proof is unavailable.' }), workspaceId, map[0].id);
+    const assigned = state.store.reserveNext('session-example-device-breadth', map);
+    assert.equal(assigned.surface.id, map[1].id);
+    assert.equal(assigned.focus, 'breadth');
+  } finally { state.close(); }
+});
+
 test('metadata edits and human notes do not raise priority; new source evidence does', async () => {
   const state = fixture();
   try {
@@ -687,6 +742,7 @@ test('track start stores the selected model, targets, and collaboration on the o
 test('track epochs share a session, wait for worker exit, and ignore an obsolete stop', async () => {
   const state = fixture();
   let stopTransition = null;
+  let currentSurfaces = surfaces;
   const service = new AppServerHostService({ registry: {
     registryDirectory: join(dirname(state.databasePath), 'registry'),
     listWorkspaces: () => [{ workspaceId }],
@@ -700,7 +756,7 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     return operation === 'session.get' ? { status: 'completed' } : {};
   } });
   service.workspaceResearchTrackContext = async () => ({ scope: { id: 'scope-example' },
-    targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
+    targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces: currentSurfaces } });
   try {
     const collaboration = { mode: 'adaptive', subagentMode: 'advanced', providers: [] };
     const started = state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex', model: 'example-model' },
@@ -710,6 +766,8 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     assert.equal(first.request.sessionId, started.id);
     assert.deepEqual(first.request.launch.collaboration, collaboration);
     assert.match(first.request.launch.promptMarkdown, /Selected execution targets: local/);
+    assert.match(first.request.launch.promptMarkdown, /Epoch focus: breadth/);
+    assert.match(first.request.launch.promptMarkdown, /complementary depth subagent/);
     assert.match(first.request.launch.promptMarkdown, /pursue the most promising authorized question/);
     assert.match(first.request.launch.promptMarkdown, /listed resources are an inventory/);
     assert.match(first.request.launch.promptMarkdown, /authorized physical iPhone/);
@@ -723,7 +781,13 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     assert.deepEqual(await service.dueResearchTracks(new Date(), new Set([started.id])), []);
     await service.recordSessionTerminalState({ request: first.request, sessionId: started.id,
       attemptId: 'attempt-example-first', state: 'completed' });
+    currentSurfaces = [{ ...surfaces[0], coverageState: { ...open,
+      openLeadIds: ['claim-example-open'], unblockedFindingIds: ['finding-example-open'] } }, surfaces[1]];
     const [second] = await service.dueResearchTracks();
+    assert.match(second.request.launch.promptMarkdown, /Epoch focus: depth/);
+    assert.match(second.request.launch.promptMarkdown, /Linked open leads: claim-example-open/);
+    assert.match(second.request.launch.promptMarkdown, /Findings needing resolution: finding-example-open/);
+    assert.match(second.request.launch.promptMarkdown, /complementary breadth subagent/);
     assert.equal(second.request.sessionId, started.id);
     assert.equal(second.request.launch.continuation.fallbackPrompt, second.request.launch.promptMarkdown);
     assert.equal(second.request.launch.continuation.resumeAttemptId, undefined);
@@ -809,6 +873,7 @@ test('track epochs retain a disabled Guardian setting across scheduling', async 
     assert.equal(track.guardianEnabled, false);
     const [due] = await service.dueResearchTracks();
     assert.equal(due.request.launch.guardianEnabled, false);
+    assert.doesNotMatch(due.request.launch.promptMarkdown, /Track collaboration:/);
   } finally { state.close(); }
 });
 
