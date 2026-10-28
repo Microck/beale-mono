@@ -18894,19 +18894,19 @@ button.research-goal-choice:focus-visible {
 .workspace-surface-map-empty, .workspace-surface-map-status { margin: 12px 24px; color: var(--muted); font-size: 13px; }
 .workspace-surface-map > .workspace-surface-map-status { margin-inline: 0; }
 .workspace-surface-details { background: var(--panel); }
-.workspace-surface-details-header { flex: none; padding: 12px 8px 4px 6px; }
+.workspace-surface-details-header { flex: none; padding: 12px 8px 0 6px; }
 .workspace-surface-details-header.research-side-nested-header.is-campaign-item .research-side-nested-name { -webkit-line-clamp: 3; }
 .workspace-surface-details-header .research-side-nested-primary .research-side-nested-name { flex: 0 1 auto; }
 .workspace-surface-details-status { flex: none; padding: 5px 8px; border-radius: 999px; background: var(--panel-raised); color: var(--muted-strong); font-size: .9rem; font-weight: 400; }
 .workspace-surface-details-status.covered { color: #238d71; background: color-mix(in srgb, #32a887 13%, var(--panel)); }
 .workspace-surface-details-status.blocked { color: #bf7741; background: color-mix(in srgb, #bf7741 13%, var(--panel)); }
-.workspace-surface-details-meta { flex: none; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; padding: 0 8px 8px 6px; color: var(--muted); font-size: .9rem; line-height: 1.4; }
+.workspace-surface-details-meta { flex: none; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; padding: 10px 8px 0 6px; color: var(--muted); font-size: .9rem; line-height: 1.4; }
 .workspace-surface-details-meta > span:last-child { margin-left: auto; text-align: right; font-variant-numeric: tabular-nums; }
-.workspace-surface-details-tabs { flex: none; display: flex; gap: 5px; overflow-x: auto; padding: 0 8px 14px 6px; scrollbar-width: none; }
+.workspace-surface-details-tabs { flex: none; display: flex; gap: 5px; overflow-x: auto; padding: 10px 8px 14px 6px; scrollbar-width: none; }
 .workspace-surface-details-tabs::-webkit-scrollbar { display: none; }
 .workspace-surface-details-tabs button { flex: none; height: 40px; border: 0; border-radius: 999px; padding: 0 16px; background: transparent; color: var(--muted); font: inherit; font-size: 1rem; cursor: pointer; }
 .workspace-surface-details-tabs button:is(:hover, :focus-visible), .workspace-surface-details-tabs button[aria-selected='true'] { background: var(--panel-raised); color: var(--text); }
-.workspace-surface-details-scroll { min-height: 0; flex: 1; overflow: auto; padding: 4px 8px 16px 6px; }
+.workspace-surface-details-scroll { min-height: 0; flex: 1; overflow: auto; padding: 0 8px 16px 6px; }
 .workspace-surface-details-section { margin: 0; padding: 12px 0; border-top: 1px solid var(--line); }
 .workspace-surface-details-section:last-child { border-bottom: 1px solid var(--line); }
 .workspace-surface-details-section h3 { margin: 0 0 10px; color: var(--muted); font-size: 1rem; font-weight: 400; line-height: 1.4; }
