@@ -183,7 +183,8 @@ export function RemoteWorkspaceDetails({ serverId, details, providerModelCatalog
     <div className="research-side-resize-handle" aria-hidden="true" />
     <div className="research-side-column">
       {selectedSurface ? <WorkspaceSurfaceDetails surface={selectedSurface} map={details.surfaceMap}
-        workspaceId={details.workspace.workspaceId} activeScope={scope} providerModelCatalog={providerModelCatalog} readOnly onClose={close} /> : <ResearchSidePanel
+        workspaceId={details.workspace.workspaceId} activeScope={scope} providerModelCatalog={providerModelCatalog}
+        leads={memory.leads} findings={memory.findings} onOpenClaim={(id) => open('claim', id)} readOnly onClose={close} /> : <ResearchSidePanel
         browserContextsEnabled={false}
         detail={null}
         events={[]}

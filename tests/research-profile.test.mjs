@@ -86,7 +86,7 @@ test("default prompt uses plain guidance lines and bullets only for feature and 
   assert.match(prompt, /Child surfaces are stable, concrete components or subcomponents/);
   assert.match(prompt, /Keep those in research notes and records/);
   assert.match(prompt, /Substantiated conclusions still need evidence/);
-  assert.match(prompt, /open questions, child work, and findings may remain/);
+  assert.match(prompt, /New research may change that state, and completion does not restrict further work/);
   assert.match(prompt, /A progressBlocker records a concrete external dependency/);
   assert.match(prompt, /Prefer core APIs, SDKs, and trust boundaries over low-impact examples/);
   assert.match(prompt, /third party's application or account does not become authorized merely because it uses an in-scope vendor product/);

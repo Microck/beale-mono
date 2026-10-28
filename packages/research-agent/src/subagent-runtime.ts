@@ -294,7 +294,7 @@ export class SubagentManager {
         task_name: `surface_foundation_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
         surface_id: surfaceId,
         ...(this.delegationRoles.has("discoverer") ? { role: "discoverer" } : {}),
-        message: "Give this component a concise research foundation. Identify its role, neighboring components, relevant trust boundaries, what is already known, and useful open leads. Use surface.update for brief notes; fields may be partial. Mark mappingComplete when a bounded review can describe the component and its current state, even if questions remain. Keep hypotheses and tests in research records rather than making them child surfaces. Create a child surface only for a concrete subcomponent with a stable noun name. Coordinate with the main agent and report useful observations and limits.",
+        message: "Give this component a concise research foundation. Identify its role, neighboring components, relevant trust boundaries, what is already known, and useful open leads. Use surface.update for partial notes and a Mermaid threatModel.diagram grounded in observed or explicitly assumed relationships. Record useful threat-model context; progress follows the current claims and can change later. Keep hypotheses and tests in research records rather than making them child surfaces. Create a child surface only for a concrete subcomponent with a stable noun name. Coordinate with the main agent and report useful observations and limits.",
       }, [], false, false, true);
       const agentPath = typeof result.task_name === "string" ? result.task_name : null;
       if (firstAgentId !== "root") {

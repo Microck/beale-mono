@@ -6,15 +6,18 @@
 
 #### Added
 
+- Surface Recon tracks general research assets with Untouched, In Progress, and Complete states. Existing surface foundations load with an empty asset list.
 - New memories and claims persist a nullable surface association in the global database. Model tools default it to the agent's current surface and allow an explicit surface ID. Existing records migrate with no association.
 
 #### Changed
 
+- Surface progress reaches 100% after a recorded threat-model review when no assigned leads remain active and no assigned findings await verification or a blocker. Refuted, verified, report-ready, and disclosed claims no longer block progress; new claims can lower it again. Existing threat-model notes count as prior review, while legacy mapping flags remain stored without controlling progress.
+- Surface threat models store Mermaid diagrams and separate Security Objectives, Risk Impact, Assumptions, Invariants, Sinks, and Mitigations notes. The sidebar renders diagrams and retains older threat-model notes as context.
 - Surface first-touch attribution shows the provider icon and model display name when available.
 - Workspace Resources now live under Surfaces. A resource-type row filters the map and adds resources; root surface details expose the resource form, checkout state, and saved prior art. Out-of-scope resources remain visible for management but are excluded from research tracks.
-- Surface details use Breakdown, Recon, Threat Model, and a conditional Resources tab. Recon holds a full discovery note, structured technology mapping, and individual advisory history with impact; existing Bug History notes remain readable. The History and Hierarchy views have been removed.
-- Surface Breakdown now shows Open Questions and Related Components as separate sections, with coverage notes in About.
-- Surface maps now describe concrete component hierarchies. Foundation notes can be partial, and bounded review can complete while questions, findings, or child work remain open. Research track checkpoints no longer require a fixed number of attacker paths or evidence updates for completion; cited claims and evidence still receive validation.
+- Surface details use Breakdown, Recon, Analysis, Threat Model, and a conditional Resources tab. Recon holds a full discovery note, structured technology mapping, and individual advisory history with impact; Analysis lists findings assigned to the surface or its child components. Existing Bug History notes remain readable. The History and Hierarchy views have been removed.
+- Surface Breakdown omits coverage prose and the Open Questions and Related Components lists. Recon shows saved proposal findings assigned to the surface as its Leads list; older coverage notes remain stored.
+- Surface maps now describe concrete component hierarchies. Foundation notes can be partial, and research track checkpoints no longer require a fixed number of attacker paths or evidence updates for completion; cited claims and evidence still receive validation.
 
 #### Fixed
 

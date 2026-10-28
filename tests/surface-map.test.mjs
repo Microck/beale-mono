@@ -32,17 +32,29 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
       discovery: 'Example service request parsing is reachable through its public API.',
       techStack: [{ technology: 'Example Parser', role: 'Request parsing', version: '2.x', environment: 'Example service',
         evidence: 'Synthetic package manifest', confidence: 'observed' }],
+      assets: [{ name: 'src/request_parser.ts', status: 'in_progress' }],
       bugHistory: { summary: 'Earlier search note.', limits: 'Search limited to public sources.', entries: [
         { identifier: 'EXAMPLE-ADVISORY-001', impact: 'Malformed requests may bypass validation.', affectedVersions: '1.x',
           reference: 'https://example.test/advisory', notes: 'Applicability to 2.x is unknown.' }
       ] },
       coverage: { summary: 'Mapped input to sink.', gaps: 'No remaining gaps.', opportunities: 'Review future parser modes.', mappingComplete: true,
         sinksInvestigated: true, openQuestions: [], unexploredConnections: [] },
-      threatModel: { attackerControl: 'Request bytes.', trustBoundaries: 'Network to parser.',
-        assetsAtRisk: 'Example state.', plausibleImpacts: 'Unauthorized change.', assumptions: 'Service enabled.' }
+      threatModel: { diagram: 'flowchart LR\n  input["Request"] --> parser["Parser"]',
+        securityObjectives: 'Protect example state.', riskImpact: 'Unauthorized change.', assumptions: 'Service enabled.',
+        invariants: 'Only validated requests reach dispatch.', sinks: 'State update.', mitigations: 'Validation before dispatch.',
+        attackerControl: 'Request bytes.', trustBoundaries: 'Network to parser.',
+        assetsAtRisk: 'Example state.', plausibleImpacts: 'Unauthorized change.' }
     };
     surfaces.update(child.id, child.revision, foundation);
     surfaces.update(root.id, 1, foundation);
+    const legacyDatabase = new DatabaseSync(databasePath);
+    try {
+      const row = legacyDatabase.prepare('SELECT foundation_json FROM app_server_surfaces WHERE id=?').get(child.id);
+      const stored = JSON.parse(row.foundation_json);
+      delete stored.threatModelReviewed;
+      legacyDatabase.prepare('UPDATE app_server_surfaces SET foundation_json=? WHERE id=?')
+        .run(JSON.stringify(stored), child.id);
+    } finally { legacyDatabase.close(); }
     surfaces.focus('root', root.id);
     surfaces.focus('root', child.id);
     const map = readWorkspaceSurfaceMap(databasePath, workspaceId);
@@ -66,9 +78,14 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     assert.ok(map.surfaces.find((surface) => surface.id === child.id).history.some((event) => event.kind === 'updated' && event.actorId === 'host'));
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.coverage.summary, 'Mapped input to sink.');
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.threatModel.attackerControl, 'Request bytes.');
+    assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.threatModel.diagram, foundation.threatModel.diagram);
+    assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.threatModelReviewed, true);
+    assert.deepEqual(map.surfaces.find((surface) => surface.id === child.id).coverageState.openLeadIds, []);
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.bugHistory.limits, 'Search limited to public sources.');
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.discovery, foundation.discovery);
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.techStack[0].technology, 'Example Parser');
+    assert.deepEqual(map.surfaces.find((surface) => surface.id === child.id).foundation.assets,
+      [{ name: 'src/request_parser.ts', status: 'in_progress' }]);
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.bugHistory.entries[0].identifier, 'EXAMPLE-ADVISORY-001');
     assert.ok(map.surfaces.filter((surface) => surface.resourceDirection !== 'out_of_scope').every((surface) => surface.firstTouchedAt));
     assert.equal(map.surfaces.filter((surface) => surface.resourceDirection !== 'out_of_scope').every((surface) => surface.coverageState.covered), true);
@@ -81,7 +98,7 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     assert.equal(blocked.surfaces.find((surface) => surface.id === child.id).progressBlocker.reason, reason);
     assert.ok(blocked.surfaces.find((surface) => surface.id === child.id).history.some((event) =>
       event.kind === 'blocked' && event.actorId === '/root/scout'));
-    assert.deepEqual(blocked.surfaces.find((surface) => surface.id === child.id).coverageState.unmetRequirements, ['blocked']);
+    assert.deepEqual(blocked.surfaces.find((surface) => surface.id === child.id).coverageState.unmetRequirements, []);
     assert.deepEqual(blocked.surfaces.find((surface) => surface.id === root.id).coverageState.unmetRequirements, []);
     assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
       surface.id === child.id ? { ...surface, progressBlocker: { reason } } : surface) }), /invalid workspace surface map/);
@@ -102,7 +119,16 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
       surface.id === child.id ? { ...surface, foundation: { ...surface.foundation, threatModel: { attackerControl: 7 } } } : surface) }), /invalid workspace surface map/);
     assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, foundation: { ...surface.foundation,
+        threatModel: { ...surface.foundation.threatModel, diagram: 7 } } } : surface) }), /invalid workspace surface map/);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
       surface.id === child.id ? { ...surface, foundation: { ...surface.foundation, techStack: [{ technology: 7 }] } } : surface) }), /invalid workspace surface map/);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, foundation: { ...surface.foundation, assets: [{ name: 'example.ts', status: 'queued' }] } } : surface) }), /invalid workspace surface map/);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, foundation: { ...surface.foundation, threatModelReviewed: 'yes' } } : surface) }), /invalid workspace surface map/);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, coverageState: { ...surface.coverageState, openLeadIds: [7] } } : surface) }), /invalid workspace surface map/);
     assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...blocked, surfaces: blocked.surfaces.map((surface) =>
       surface.id === child.id ? { ...surface, foundation: { ...surface.foundation,
         bugHistory: { ...surface.foundation.bugHistory, entries: [{ identifier: 'EXAMPLE-ADVISORY-002', impact: 7 }] } } } : surface) }), /invalid workspace surface map/);
@@ -115,6 +141,21 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     assert.equal(approved.resourceSource, 'runtime_discovery');
     assert.deepEqual(new Set(map.agents.map((agent) => agent.agentId)), new Set(['root', '/root/scout']));
     assert.equal(map.agents[0].sessionTitle, 'Map service');
+    const claimDb = new DatabaseSync(databasePath);
+    try {
+      claimDb.exec(`CREATE TABLE app_server_research_claims (
+        id TEXT, workspace_id TEXT, status TEXT, stale_from_status TEXT, surface_id TEXT,
+        duplicate_of_claim_id TEXT, security_tracking_json TEXT
+      )`);
+      claimDb.prepare(`INSERT INTO app_server_research_claims VALUES (?, ?, ?, NULL, ?, NULL, ?)`)
+        .run('lead-example', workspaceId, 'hypothesis', child.id, '{}');
+      const active = decodeBealeWorkspaceSurfaceMap(readWorkspaceSurfaceMap(databasePath, workspaceId));
+      assert.deepEqual(active.surfaces.find((surface) => surface.id === child.id).coverageState.openLeadIds, ['lead-example']);
+      assert.equal(active.surfaces.find((surface) => surface.id === child.id).coverageState.covered, false);
+      assert.equal(active.surfaces.find((surface) => surface.id === root.id).coverageState.covered, true);
+      claimDb.prepare("UPDATE app_server_research_claims SET status='rejected' WHERE id='lead-example'").run();
+      assert.equal(readWorkspaceSurfaceMap(databasePath, workspaceId).surfaces.find((surface) => surface.id === child.id).coverageState.covered, true);
+    } finally { claimDb.close(); }
     const database = new DatabaseSync(databasePath, { readOnly: true });
     try {
       assert.equal(database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='trigger' AND name LIKE 'app_server_session_activity_%'").get().count, 0);

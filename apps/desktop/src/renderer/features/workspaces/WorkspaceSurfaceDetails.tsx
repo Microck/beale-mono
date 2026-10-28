@@ -1,51 +1,76 @@
 import { useId, useState, type JSX } from 'react';
 import { ArrowLeft, Download } from 'lucide-react';
 import type { BealeWorkspaceSurfaceMap } from '@beale/app-server-runtime/protocol';
-import type { RepositoryCloneMode, ResearchProviderModelCatalog, ScopeAssetInput, WorkspaceScopeVersion } from '@shared/types';
+import type { AppServerFindingSummary, RepositoryCloneMode, ResearchProviderModelCatalog, ScopeAssetInput, WorkspaceScopeVersion } from '@shared/types';
 import type { MapSurface } from '../../view-models/surfaceMap';
 import { errorMessage } from '../../lib/errors';
-import { researchModelDisplayName } from '../../lib/formatting';
+import { researchModelDisplayName, traceLabel } from '../../lib/formatting';
+import { campaignClaimRatingPresentation } from '../../view-models/campaignClaims';
 import { Modal } from '../../app/Modal';
 import { ProviderIcon } from '../../app/ProviderIcon';
 import { ResourcePriorArtView } from './ResourcePriorArtView';
+import { SurfaceThreatDiagram } from './SurfaceThreatDiagram';
 import { WorkspaceResourceEditor, workspaceResearchSurfaceItems } from './WorkspaceUnderstandingView';
 
-const DETAIL_VIEWS = ['Breakdown', 'Recon', 'Threat Model', 'Resources'] as const;
+const DETAIL_VIEWS = ['Breakdown', 'Recon', 'Threat Model', 'Analysis', 'Resources'] as const;
 type DetailView = typeof DETAIL_VIEWS[number];
 
 function DetailText({ label, value }: { label: string; value: string | undefined }): JSX.Element | null {
   return value?.trim() ? <div className="workspace-surface-detail-text"><h4>{label}</h4><p>{value}</p></div> : null;
 }
 
-function SurfaceListSection({ title, values, emptyMessage }: {
-  title: string;
-  values: readonly string[];
-  emptyMessage: string;
-}): JSX.Element {
-  return <section className="workspace-surface-details-section workspace-surface-details-list">
+function ThreatSection({ title, value }: { title: string; value: string | undefined }): JSX.Element {
+  return <section className="workspace-surface-details-section">
     <h3>{title}</h3>
-    {values.length ? <ul>{values.map((value, index) => <li key={`${value}:${index}`}>{value}</li>)}</ul>
-      : <p className="workspace-surface-details-muted">{emptyMessage}</p>}
+    <p className={value?.trim() ? 'workspace-surface-details-description' : 'workspace-surface-details-description workspace-surface-details-muted'}>
+      {value?.trim() || `No ${title.toLocaleLowerCase()} recorded.`}
+    </p>
   </section>;
 }
 
 export function WorkspaceSurfaceDetails({ surface, map, workspaceId = '', activeScope = null, repositoryCheckouts,
-  providerModelCatalog = [],
-  readOnly = false, initialView = 'Breakdown', onChangeResource, onCloneRepository, onClose }: {
+  providerModelCatalog = [], leads = [], findings = [],
+  readOnly = false, initialView = 'Breakdown', onChangeResource, onCloneRepository, onOpenClaim, onClose }: {
   surface: MapSurface;
   map: BealeWorkspaceSurfaceMap;
   workspaceId?: string;
   activeScope?: WorkspaceScopeVersion | null;
   repositoryCheckouts?: Readonly<Record<string, string>>;
   providerModelCatalog?: readonly ResearchProviderModelCatalog[];
+  leads?: readonly AppServerFindingSummary[];
+  findings?: readonly AppServerFindingSummary[];
   readOnly?: boolean;
   initialView?: DetailView;
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onCloneRepository?: (assetId: string, mode: RepositoryCloneMode) => Promise<void>;
+  onOpenClaim?: (claimId: string) => void;
   onClose: () => void;
 }): JSX.Element {
-  const coverage = surface.foundation?.coverage;
   const agents = map.agents.filter((agent) => agent.surfaceId === surface.id);
+  const surfaceLeads = leads.filter((lead) => lead.workspaceId === map.workspaceId && lead.projection === 'lead'
+    && lead.status !== 'rejected'
+    && !lead.duplicateOfClaimId && (lead.surfaceId === surface.id
+      || lead.securityTracking?.surfaceIds.includes(surface.id)));
+  const childrenByParent = new Map<string, string[]>();
+  const surfaceNames = new Map(map.surfaces.map((item) => [item.id, item.name]));
+  for (const item of map.surfaces) if (item.parentId) {
+    childrenByParent.set(item.parentId, [...(childrenByParent.get(item.parentId) ?? []), item.id]);
+  }
+  const descendantIds = new Set<string>();
+  const pending = [surface.id];
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (descendantIds.has(id)) continue;
+    descendantIds.add(id);
+    pending.push(...(childrenByParent.get(id) ?? []));
+  }
+  const surfaceFindings = findings.flatMap((finding) => {
+    if (finding.workspaceId !== map.workspaceId || finding.projection !== 'finding' || finding.duplicateOfClaimId) return [];
+    const assignedSurfaceId = finding.surfaceId && descendantIds.has(finding.surfaceId)
+      ? finding.surfaceId : finding.securityTracking?.surfaceIds.find((id) => descendantIds.has(id));
+    return assignedSurfaceId && descendantIds.has(assignedSurfaceId)
+      ? [{ finding, assignedSurfaceId }] : [];
+  });
   const status = surface.resourceDirection === 'out_of_scope' ? 'Out of scope'
     : surface.progressBlocker ? 'Blocked' : surface.coverageState.covered ? 'Covered'
     : surface.firstTouchedAt ? 'In progress' : 'Untouched';
@@ -118,28 +143,18 @@ export function WorkspaceSurfaceDetails({ surface, map, workspaceId = '', active
       <section className="workspace-surface-details-section">
         <h3>About</h3>
         <p className="workspace-surface-details-description">{surface.description.trim() || 'No description recorded.'}</p>
-        {coverage ? <>
-          <DetailText label="What we know" value={coverage.summary} />
-          <DetailText label="Gaps" value={coverage.gaps} />
-          <DetailText label="Possible leads" value={coverage.opportunities} />
-        </> : null}
       </section>
 
-      <SurfaceListSection title="Open Questions" values={coverage?.openQuestions ?? []}
-        emptyMessage="No open questions recorded." />
-      <SurfaceListSection title="Related Components" values={coverage?.unexploredConnections ?? []}
-        emptyMessage="No related components recorded." />
-
       {surface.progressBlocker ? <section className="workspace-surface-details-section workspace-surface-details-blocker">
-        <h3>Progress blocker</h3><p>{surface.progressBlocker.reason}</p>
+        <h3>Progress Blocker</h3><p>{surface.progressBlocker.reason}</p>
         <small>Recorded by {surface.progressBlocker.actorId} on {new Date(surface.progressBlocker.setAt).toLocaleString()}</small>
       </section> : null}
 
       {surface.coverageState.unblockedFindingIds.length ? <section className="workspace-surface-details-section">
-        <h3>Findings needing resolution</h3><p>{surface.coverageState.unblockedFindingIds.length} recorded</p>
+        <h3>Findings Needing Resolution</h3><p>{surface.coverageState.unblockedFindingIds.length} recorded</p>
       </section> : null}
       {agents.length ? <section className="workspace-surface-details-section">
-        <h3>Active agents</h3>
+        <h3>Active Agents</h3>
         <ul className="workspace-surface-details-agents">{agents.map((agent) => <li key={`${agent.sessionId}:${agent.agentId}`}>
           <strong>{agent.agentId === 'root' ? 'Lead' : agent.agentId}</strong><span>{agent.sessionTitle}</span>
         </li>)}</ul>
@@ -164,29 +179,66 @@ export function WorkspaceSurfaceDetails({ surface, map, workspaceId = '', active
           </li>)}</ul> : <p className="workspace-surface-details-muted">No technologies mapped.</p>}
         </section>
         <section className="workspace-surface-details-section workspace-surface-recon-list">
+          <h3>Assets</h3>
+          {surface.foundation?.assets?.length ? <ul className="workspace-surface-assets">{surface.foundation.assets.map((asset, index) => <li key={`${asset.name}:${index}`}>
+            <div className="workspace-surface-asset-row">
+              <span>{asset.name}</span>
+              <span className="workspace-surface-asset-status" data-status={asset.status}>{asset.status === 'in_progress' ? 'In Progress' : asset.status === 'complete' ? 'Complete' : 'Untouched'}</span>
+            </div>
+          </li>)}</ul> : <p className="workspace-surface-details-muted">No research assets recorded.</p>}
+        </section>
+        <section className="workspace-surface-details-section workspace-surface-recon-list">
           <h3>Bug History</h3>
           {surface.foundation?.bugHistory?.entries?.length ? <ul>{surface.foundation.bugHistory.entries.map((entry, index) => <li key={`${entry.identifier}:${index}`}>
             <strong>{entry.identifier}</strong>
             <p>{entry.impact}</p>
             <dl>
-              {entry.affectedVersions ? <><dt>Affected versions</dt><dd>{entry.affectedVersions}</dd></> : null}
+              {entry.affectedVersions ? <><dt>Affected Versions</dt><dd>{entry.affectedVersions}</dd></> : null}
               {entry.reference ? <><dt>Reference</dt><dd>{entry.reference}</dd></> : null}
               {entry.notes ? <><dt>Notes</dt><dd>{entry.notes}</dd></> : null}
             </dl>
           </li>)}</ul> : <p className="workspace-surface-details-muted">No individual advisories recorded.</p>}
-          <DetailText label="Earlier notes" value={surface.foundation?.bugHistory?.summary} />
-          <DetailText label="Search limits" value={surface.foundation?.bugHistory?.limits} />
+          <DetailText label="Earlier Notes" value={surface.foundation?.bugHistory?.summary} />
+          <DetailText label="Search Limits" value={surface.foundation?.bugHistory?.limits} />
         </section>
-      </> : activeView === 'Threat Model' ? <section className="workspace-surface-details-section">
-        <h3>Threat Model</h3>
-        {surface.foundation?.threatModel ? <>
-          <DetailText label="Attacker control" value={surface.foundation.threatModel.attackerControl} />
-          <DetailText label="Trust boundaries" value={surface.foundation.threatModel.trustBoundaries} />
-          <DetailText label="Assets at risk" value={surface.foundation.threatModel.assetsAtRisk} />
-          <DetailText label="Plausible impacts" value={surface.foundation.threatModel.plausibleImpacts} />
-          <DetailText label="Assumptions" value={surface.foundation.threatModel.assumptions} />
-        </> : <p className="workspace-surface-details-muted">No threat model recorded.</p>}
-      </section> : <div className="workspace-surface-resource">
+        <section className="workspace-surface-details-section workspace-surface-recon-list">
+          <h3>Leads</h3>
+          {surfaceLeads.length ? <ul>{surfaceLeads.map((lead) => <li key={lead.id}>
+            {onOpenClaim ? <button className="workspace-surface-claim-link" type="button" onClick={() => onOpenClaim(lead.id)}>{lead.title}</button>
+              : <span>{lead.title}</span>}
+          </li>)}</ul> : <p className="workspace-surface-details-muted">No leads assigned to this surface.</p>}
+        </section>
+      </> : activeView === 'Analysis' ? <section className="workspace-surface-details-section">
+        <h3>Findings</h3>
+        {surfaceFindings.length ? <ul className="workspace-surface-analysis-list">{surfaceFindings.map(({ finding, assignedSurfaceId }) => {
+          const rating = campaignClaimRatingPresentation(finding);
+          return <li key={finding.id}>
+            {onOpenClaim ? <button className="workspace-surface-claim-link" type="button" onClick={() => onOpenClaim(finding.id)}>{finding.title}</button>
+              : <span>{finding.title}</span>}
+            <small title={rating.title}>{rating.label} · {traceLabel(finding.maturity)}{assignedSurfaceId !== surface.id
+              ? ` · ${surfaceNames.get(assignedSurfaceId) ?? 'Component'}` : ''}</small>
+          </li>;
+        })}</ul> : <p className="workspace-surface-details-muted">No findings recorded for this surface or its components.</p>}
+      </section> : activeView === 'Threat Model' ? <>
+        <section className="workspace-surface-details-section">
+          <h3>Diagram</h3>
+          <SurfaceThreatDiagram source={surface.foundation?.threatModel?.diagram ?? ''} surfaceName={surface.name} />
+        </section>
+        <ThreatSection title="Security Objectives" value={surface.foundation?.threatModel?.securityObjectives} />
+        <ThreatSection title="Risk Impact" value={surface.foundation?.threatModel?.riskImpact || surface.foundation?.threatModel?.plausibleImpacts} />
+        <ThreatSection title="Assumptions" value={surface.foundation?.threatModel?.assumptions} />
+        <ThreatSection title="Invariants" value={surface.foundation?.threatModel?.invariants} />
+        <ThreatSection title="Sinks" value={surface.foundation?.threatModel?.sinks} />
+        <ThreatSection title="Mitigations" value={surface.foundation?.threatModel?.mitigations} />
+        {surface.foundation?.threatModel && (surface.foundation.threatModel.attackerControl
+          || surface.foundation.threatModel.trustBoundaries || surface.foundation.threatModel.assetsAtRisk)
+          ? <section className="workspace-surface-details-section">
+            <h3>Earlier Context</h3>
+            <DetailText label="Attacker Control" value={surface.foundation.threatModel.attackerControl} />
+            <DetailText label="Trust Boundaries" value={surface.foundation.threatModel.trustBoundaries} />
+            <DetailText label="Assets At Risk" value={surface.foundation.threatModel.assetsAtRisk} />
+          </section> : null}
+      </> : <div className="workspace-surface-resource">
         {resourceItem && !readOnly && onChangeResource ? <WorkspaceResourceEditor
           key={resourceItem.asset.id}
           presentation="sidebar"
@@ -198,14 +250,14 @@ export function WorkspaceSurfaceDetails({ surface, map, workspaceId = '', active
           onRemove={() => onChangeResource(resourceItem.assetIds, null)}
           onSubmit={(asset) => onChangeResource(resourceItem.assetIds, asset)}
         /> : <section className="workspace-surface-details-section">
-          <h3>Resource details</h3>
+          <h3>Resource Details</h3>
           {surface.resourceKind ? <p><strong>Type</strong><span>{surface.resourceKind}</span></p> : null}
           {surface.resourceLocator ? <p><strong>Reference</strong><span>{surface.resourceLocator}</span></p> : null}
           {surface.resourceSource ? <p><strong>Source</strong><span>{surface.resourceSource.replaceAll('_', ' ')}</span></p> : null}
           {surface.resourceDirection ? <p><strong>Scope</strong><span>{surface.resourceDirection === 'in_scope' ? 'In scope' : surface.resourceDirection === 'out_of_scope' ? 'Out of scope' : 'Discovered'}</span></p> : null}
         </section>}
         {resourceItem?.repositoryCloned !== null && resourceItem?.repositoryCloned !== undefined ? <section className="workspace-surface-details-section">
-          <h3>Repository checkout</h3>
+          <h3>Repository Checkout</h3>
           <p>{resourceItem.repositoryCloned ? 'Cloned' : 'Not cloned'}</p>
           {resourceItem.repositoryLocalPath ? <p className="workspace-surface-details-description">{resourceItem.repositoryLocalPath}</p> : null}
           {!readOnly && onCloneRepository && resourceItem.asset.direction === 'in_scope' && !resourceItem.repositoryCloned && resourceItem.repositoryCloneAssetId

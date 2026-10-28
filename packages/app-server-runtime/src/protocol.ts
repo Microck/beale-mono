@@ -421,13 +421,19 @@ export interface BealeWorkspaceSurfaceMap {
     firstTouchedAt: string | null; firstTouchedBy?: string | null; firstTouchedModel?: string | null; firstTouchedProvider?: string | null;
     updatedAt?: string; foundation: {
       discovery?: string;
+      threatModelReviewed?: boolean;
       techStack?: Array<{ technology: string; role: string; version: string; environment: string; evidence: string; confidence: 'observed' | 'inferred' | 'unknown' }>;
+      assets?: Array<{ name: string; status: 'untouched' | 'in_progress' | 'complete' }>;
       bugHistory?: { entries?: Array<{ identifier: string; impact: string; affectedVersions: string; reference: string; notes: string }>; summary: string; limits: string };
-      threatModel?: { attackerControl: string; trustBoundaries: string; assetsAtRisk: string; plausibleImpacts: string; assumptions: string };
+      threatModel?: {
+        diagram?: string; securityObjectives?: string; riskImpact?: string; assumptions: string;
+        invariants?: string; sinks?: string; mitigations?: string;
+        attackerControl?: string; trustBoundaries?: string; assetsAtRisk?: string; plausibleImpacts?: string;
+      };
       coverage: { summary?: string; gaps?: string; opportunities?: string; mappingComplete: boolean; sinksInvestigated: boolean; openQuestions: string[]; unexploredConnections: string[] };
     } | null;
     progressBlocker: { reason: string; actorId: string; setAt: string } | null;
-    coverageState: { covered: boolean; unmetRequirements: string[]; unblockedFindingIds: string[] };
+    coverageState: { covered: boolean; unmetRequirements: string[]; openLeadIds?: string[]; unblockedFindingIds: string[] };
     history?: Array<{
       kind: 'created' | 'first_touch' | 'focused' | 'updated' | 'blocked' | 'unblocked' | 'snapshot_update';
       at: string; actorId: string | null; detail?: string | null;
@@ -596,22 +602,28 @@ export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSu
     const coverage = foundation.coverage;
     const threatModel = foundation.threatModel;
     const techStack = foundation.techStack;
+    const assets = foundation.assets;
     const bugHistory = foundation.bugHistory;
     return typeof coverage.mappingComplete === 'boolean'
       && typeof coverage.sinksInvestigated === 'boolean'
       && strings(coverage.openQuestions) && strings(coverage.unexploredConnections)
       && ['summary', 'gaps', 'opportunities'].every((key) => coverage[key] === undefined || typeof coverage[key] === 'string')
       && (foundation.discovery === undefined || typeof foundation.discovery === 'string')
+      && (foundation.threatModelReviewed === undefined || typeof foundation.threatModelReviewed === 'boolean')
       && (techStack === undefined || Array.isArray(techStack) && techStack.every((entry) => isRecord(entry)
         && ['technology', 'role', 'version', 'environment', 'evidence'].every((key) => typeof entry[key] === 'string')
         && ['observed', 'inferred', 'unknown'].includes(String(entry.confidence))))
+      && (assets === undefined || Array.isArray(assets) && assets.every((entry) => isRecord(entry)
+        && typeof entry.name === 'string' && ['untouched', 'in_progress', 'complete'].includes(String(entry.status))))
       && (bugHistory === undefined || isRecord(bugHistory)
         && typeof bugHistory.summary === 'string' && typeof bugHistory.limits === 'string'
         && (bugHistory.entries === undefined || Array.isArray(bugHistory.entries) && bugHistory.entries.every((entry) => isRecord(entry)
           && ['identifier', 'impact', 'affectedVersions', 'reference', 'notes'].every((key) => typeof entry[key] === 'string'))))
       && (threatModel === undefined || isRecord(threatModel)
-        && ['attackerControl', 'trustBoundaries', 'assetsAtRisk', 'plausibleImpacts', 'assumptions']
-          .every((key) => typeof threatModel[key] === 'string'));
+        && typeof threatModel.assumptions === 'string'
+        && ['diagram', 'securityObjectives', 'riskImpact', 'invariants', 'sinks', 'mitigations',
+          'attackerControl', 'trustBoundaries', 'assetsAtRisk', 'plausibleImpacts']
+          .every((key) => threatModel[key] === undefined || typeof threatModel[key] === 'string'));
   };
   if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.workspaceId !== 'string'
     || !Array.isArray(value.surfaces) || !value.surfaces.every((surface) => isRecord(surface)
@@ -633,7 +645,9 @@ export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSu
         && typeof surface.progressBlocker.reason === 'string' && typeof surface.progressBlocker.actorId === 'string'
         && typeof surface.progressBlocker.setAt === 'string')
       && isRecord(surface.coverageState) && typeof surface.coverageState.covered === 'boolean'
-      && strings(surface.coverageState.unmetRequirements) && strings(surface.coverageState.unblockedFindingIds)
+      && strings(surface.coverageState.unmetRequirements)
+      && (surface.coverageState.openLeadIds === undefined || strings(surface.coverageState.openLeadIds))
+      && strings(surface.coverageState.unblockedFindingIds)
       && (surface.history === undefined || Array.isArray(surface.history) && surface.history.every((event) =>
         isRecord(event) && ['created', 'first_touch', 'focused', 'updated', 'blocked', 'unblocked', 'snapshot_update'].includes(String(event.kind))
         && typeof event.at === 'string' && (event.actorId === null || typeof event.actorId === 'string')

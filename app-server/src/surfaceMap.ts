@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { assessSurfaceCoverage, type SurfaceFoundation, type SurfaceProgressBlocker } from '@beale/research-agent';
+import { assessSurfaceClaims, assessSurfaceCoverage, hasThreatModelReview,
+  type SurfaceFoundation, type SurfaceProgressBlocker } from '@beale/research-agent';
 import type { BealeWorkspaceSurfaceMap } from '@beale/app-server-runtime/protocol';
 
 type Row = Record<string, unknown>;
@@ -41,8 +42,9 @@ function displayFoundation(value: SurfaceFoundation | null): Surface['foundation
     sinksInvestigated: coverage.sinksInvestigated === true,
     openQuestions: Array.isArray(coverage.openQuestions) ? coverage.openQuestions : [],
     unexploredConnections: Array.isArray(coverage.unexploredConnections) ? coverage.unexploredConnections : []
-  }, discovery: typeof value.discovery === 'string' ? value.discovery : '',
+  }, threatModelReviewed: hasThreatModelReview(value), discovery: typeof value.discovery === 'string' ? value.discovery : '',
   techStack: Array.isArray(value.techStack) ? value.techStack : [],
+  assets: Array.isArray(value.assets) ? value.assets : [],
   bugHistory: { summary: value.bugHistory?.summary ?? '', limits: value.bugHistory?.limits ?? '',
     entries: Array.isArray(value.bugHistory?.entries) ? value.bugHistory.entries : [] },
   threatModel: value.threatModel } : null;
@@ -162,38 +164,20 @@ export function readWorkspaceSurfaceMap(databasePath: string, workspaceId: strin
         foundation: foundation(row.foundation_json) }))
     ];
     const claims = tableExists(database, 'app_server_research_claims')
-      ? database.prepare(`SELECT id, status, ${tableHasColumn(database, 'app_server_research_claims', 'surface_id')
+      ? (database.prepare(`SELECT id, status, ${tableHasColumn(database, 'app_server_research_claims', 'stale_from_status')
+        ? 'stale_from_status' : 'NULL AS stale_from_status'}, ${tableHasColumn(database, 'app_server_research_claims', 'surface_id')
         ? 'surface_id' : 'NULL AS surface_id'}, security_tracking_json
-          FROM app_server_research_claims WHERE workspace_id=? AND duplicate_of_claim_id IS NULL
-            AND (classification='security' OR classification LIKE 'security.%')
-            AND status IN ('observed','reproduced','verified','report_ready')`).all(workspaceId) as Row[] : [];
-    const byParent = new Map<string, string[]>();
-    for (const surface of raw) if (surface.parentId) byParent.set(surface.parentId, [...(byParent.get(surface.parentId) ?? []), surface.id]);
-    const byId = new Map(raw.map((surface) => [surface.id, surface]));
-    const coverageCache = new Map<string, Surface['coverageState']>();
-    const coverage = (id: string, trail = new Set<string>()): Surface['coverageState'] => {
-      const cached = coverageCache.get(id);
-      if (cached) return cached;
-      const surface = byId.get(id);
-      if (!surface || trail.has(id)) return { covered: false, unmetRequirements: ['surface_map'], unblockedFindingIds: [] };
-      const nextTrail = new Set(trail).add(id);
-      const findingIds = claims.flatMap((claim) => {
-        const tracking = parsed(claim.security_tracking_json);
-        const surfaceIds = Array.isArray(tracking?.surfaceIds) ? tracking.surfaceIds : [];
-        const assignedSurfaceId = string(claim.surface_id);
-        const blocked = (claim.status === 'observed' || claim.status === 'reproduced') && Boolean(tracking?.progressBlocker);
-        const affected = Array.isArray(tracking?.affectedAssetIds) ? tracking.affectedAssetIds : [];
-        const unassignedRoot = surface.parentId === null && surfaceIds.length === 0 && !assignedSurfaceId
-          && (affected.length === 0 || affected.includes(surface.resourceId));
-        return !blocked && (assignedSurfaceId === id || surfaceIds.includes(id) || unassignedRoot) ? [string(claim.id)] : [];
-      });
-      const state = assessSurfaceCoverage(surface.foundation, findingIds,
-        (byParent.get(id) ?? []).some((child) => !coverage(child, nextTrail).covered), Boolean(surface.foundation?.progressBlocker));
-      coverageCache.set(id, state);
-      return state;
-    };
-    const surfaces = raw.map((surface) => ({ ...surface, progressBlocker: surface.foundation?.progressBlocker ?? null,
-      foundation: displayFoundation(surface.foundation), coverageState: coverage(surface.id) }));
+        FROM app_server_research_claims WHERE workspace_id=? AND duplicate_of_claim_id IS NULL ORDER BY id`).all(workspaceId) as Row[])
+        .map((claim) => ({ id: string(claim.id), status: string(claim.status),
+          staleFromStatus: claim.stale_from_status === null ? null : string(claim.stale_from_status),
+          surfaceId: claim.surface_id === null ? null : string(claim.surface_id),
+          securityTracking: parsed(claim.security_tracking_json) })) : [];
+    const surfaces = raw.map((surface) => {
+      const { openLeadIds, unblockedFindingIds } = assessSurfaceClaims(surface.id, claims);
+      return { ...surface, progressBlocker: surface.foundation?.progressBlocker ?? null,
+        foundation: displayFoundation(surface.foundation),
+        coverageState: assessSurfaceCoverage(surface.foundation, openLeadIds, unblockedFindingIds) };
+    });
     const visibleSurfaceIds = new Set(surfaces.map((surface) => surface.id));
     const agents = tableExists(database, 'app_server_surface_focus') && tableExists(database, 'app_server_sessions')
       ? (database.prepare(`SELECT focus.session_id, sessions.title AS session_title, focus.agent_id, focus.surface_id

@@ -49,10 +49,12 @@ export function filterSurfaceHierarchy(
 
 export function surfaceCoveragePercent(surface: MapSurface): number {
   if (surface.coverageState.covered) return 100;
-  if (surface.foundation?.coverage?.mappingComplete) return 85;
-  if (surface.foundation?.coverage?.summary?.trim()) return 50;
-  if (surface.foundation) return 30;
-  return 0;
+  const modeled = surface.foundation?.threatModelReviewed === true
+    || Object.values(surface.foundation?.threatModel ?? {}).some((value) => typeof value === 'string' && value.trim());
+  if (!modeled) return surface.firstTouchedAt || surface.foundation ? 25 : 0;
+  const unmet = surface.coverageState.unmetRequirements;
+  return Math.min(99, 50 + (unmet.includes('open_leads') ? 0 : 25)
+    + (unmet.includes('unblocked_findings') ? 0 : 25));
 }
 
 export interface SurfaceLayoutNode { surface: MapSurface; x: number; y: number; depth: number }

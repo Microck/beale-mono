@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, test } from 'vitest';
 import type { BealeWorkspaceSurfaceMap } from '@beale/app-server-runtime/protocol';
+import type { AppServerFindingSummary } from '../src/shared/types';
 import { WorkspaceSurfaceMap } from '../src/renderer/features/workspaces/WorkspaceSurfaceMap';
 import { WorkspaceSurfaceDetails } from '../src/renderer/features/workspaces/WorkspaceSurfaceDetails';
 import { filterSurfaceHierarchy, layoutSurfaceHierarchy, surfaceCoveragePercent } from '../src/renderer/view-models/surfaceMap';
@@ -11,7 +12,7 @@ const surface = (id: string, parentId: string | null, firstTouchedAt: string | n
   id, parentId, resourceId: 'asset-example', name: id, description: `${id} boundary`, firstTouchedAt,
   foundation: hasCoverage ? { coverage: { mappingComplete: false, sinksInvestigated: false, openQuestions: [], unexploredConnections: [] } } : null,
   progressBlocker: null,
-  coverageState: { covered: complete, unmetRequirements: complete ? [] : hasCoverage ? ['mapping'] : ['foundation'], unblockedFindingIds: [] }
+  coverageState: { covered: complete, unmetRequirements: complete ? [] : ['threat_model'], openLeadIds: [], unblockedFindingIds: [] }
 });
 const surfaces: Surface[] = [
   surface('asset-example', null, null),
@@ -21,9 +22,9 @@ const surfaces: Surface[] = [
   surface('other-root', null, '2026-01-01T00:02:00.000Z')
 ];
 
-test('zero-coverage ancestors stay visible, while unrelated zero-coverage surfaces stay hidden', () => {
+test('ancestors stay visible, while untouched branches stay hidden', () => {
   expect(filterSurfaceHierarchy(surfaces, '', false).map((item) => item.id))
-    .toEqual(['asset-example', 'parser', 'sink']);
+    .toEqual(['asset-example', 'parser', 'sink', 'other-root']);
   expect(filterSurfaceHierarchy(surfaces, '', true)).toEqual(surfaces);
   expect(layoutSurfaceHierarchy(filterSurfaceHierarchy(surfaces, '', false)).nodes
     .find((node) => node.surface.id === 'sink')?.depth).toBe(2);
@@ -40,6 +41,20 @@ test('filter preserves the full ancestor path and descendant branch', () => {
   expect(layoutSurfaceHierarchy(filterSurfaceHierarchy(surfaces, 'parser', false)).nodes.find((node) => node.surface.id === 'sink')?.depth).toBe(2);
 });
 
+test('surface progress reaches 100 only after threat modeling and claim resolution', () => {
+  expect(surfaceCoveragePercent(surfaces[0]!)).toBe(0);
+  expect(surfaceCoveragePercent(surfaces[1]!)).toBe(25);
+  const modeled: Surface = { ...surfaces[1]!,
+    foundation: { ...surfaces[1]!.foundation!, threatModelReviewed: true },
+    coverageState: { covered: false, unmetRequirements: ['open_leads', 'unblocked_findings'],
+      openLeadIds: ['lead-example'], unblockedFindingIds: ['finding-example'] } };
+  expect(surfaceCoveragePercent(modeled)).toBe(50);
+  expect(surfaceCoveragePercent({ ...modeled, coverageState: { ...modeled.coverageState,
+    unmetRequirements: ['unblocked_findings'], openLeadIds: [] } })).toBe(75);
+  expect(surfaceCoveragePercent({ ...modeled, coverageState: { ...modeled.coverageState,
+    covered: true, unmetRequirements: [], openLeadIds: [], unblockedFindingIds: [] } })).toBe(100);
+});
+
 test('live map shows search and untouched controls without replay', () => {
   const map: BealeWorkspaceSurfaceMap = { schemaVersion: 1, workspaceId: 'workspace-example', surfaces, agents: [] };
   const html = renderToStaticMarkup(createElement(WorkspaceSurfaceMap, { map, workspaceName: 'Example Workspace' }));
@@ -48,7 +63,7 @@ test('live map shows search and untouched controls without replay', () => {
   expect(html).toContain('aria-label="Search surfaces"');
   expect(html).not.toContain('workspace-surface-map-search');
   expect(html).toContain('Show untouched surfaces');
-  expect(html).toContain('2 of 5 touched · 1 complete · 0 blocked');
+  expect(html).toContain('3 of 5 touched · 1 complete · 0 blocked');
   expect(html).not.toContain('Replay');
   expect(html).toContain('title="asset-example"');
   expect(html).toContain('aria-label="sink, 100% coverage"');
@@ -75,7 +90,7 @@ test('resource type filter keeps each root with its descendants', () => {
   expect(html).toContain('0 of 2 touched');
 });
 
-test('selected surface details show coverage, blockers, and foundation state', () => {
+test('selected surface details show blockers, foundation state, and assigned claims', () => {
   const selected: Surface = {
     ...surfaces[1]!,
     firstTouchedBy: 'root',
@@ -86,10 +101,16 @@ test('selected surface details show coverage, blockers, and foundation state', (
       discovery: 'The example service exposes a request parser behind the public API.',
       techStack: [{ technology: 'Example Parser', role: 'Parses requests', version: '2.x', environment: 'Example service',
         evidence: 'Synthetic package manifest', confidence: 'observed' }],
+      assets: [{ name: 'src/request_parser.ts', status: 'untouched' },
+        { name: 'parseExampleRequest()', status: 'in_progress' },
+        { name: 'https://example.test/parser', status: 'complete' }],
       bugHistory: { summary: 'Older search note.', limits: 'Public sources only.', entries: [{ identifier: 'EXAMPLE-ADVISORY-001',
         impact: 'Malformed requests may bypass validation.', affectedVersions: '1.x', reference: 'https://example.test/advisory', notes: 'Applicability to 2.x is unknown.' }] },
-      threatModel: { attackerControl: 'Request bytes.', trustBoundaries: 'Network to parser.',
-        assetsAtRisk: 'Example state.', plausibleImpacts: 'Unauthorized change.', assumptions: 'Service enabled.' },
+      threatModel: { diagram: 'flowchart LR\n  request["Request"] --> parser["Parser"]',
+        securityObjectives: 'Protect example state.', riskImpact: 'Unauthorized change.', assumptions: 'Service enabled.',
+        invariants: 'Only valid requests reach dispatch.', sinks: 'State update.', mitigations: 'Validation before dispatch.',
+        attackerControl: 'Request bytes.', trustBoundaries: 'Network to parser.',
+        assetsAtRisk: 'Example state.', plausibleImpacts: 'Unauthorized change.' },
       coverage: { summary: 'Mapped input to sink.', gaps: 'Authenticated path remains.', opportunities: 'Review parser modes.',
         mappingComplete: true, sinksInvestigated: false, openQuestions: ['Which modes are enabled?'],
         unexploredConnections: ['Parser to storage'] }
@@ -120,46 +141,116 @@ test('selected surface details show coverage, blockers, and foundation state', (
   expect(html).toContain('role="tab" aria-selected="true"');
   expect(html).toContain('>Breakdown</button>');
   expect(html).toContain('>Recon</button>');
+  expect(html).toContain('>Analysis</button>');
   expect(html).toContain('>Threat Model</button>');
   expect(html).not.toContain('>Bug History</button>');
   expect(html).not.toContain('>History</button>');
   expect(html).not.toContain('>Hierarchy</button>');
   expect(html).toContain('About');
   expect(html).not.toContain('>Path</h3>');
-  expect(html).toContain('<h3>Open Questions</h3>');
-  expect(html).toContain('<h3>Related Components</h3>');
+  expect(html).not.toContain('<h3>Open Questions</h3>');
+  expect(html).not.toContain('<h3>Related Components</h3>');
   expect(html).not.toContain('Research context');
   expect(html).not.toContain('Remaining requirements');
-  expect(html).toContain('Mapped input to sink.');
-  expect(html).toContain('Authenticated path remains.');
-  expect(html).toContain('Review parser modes.');
-  expect(html).toContain('Which modes are enabled?');
-  expect(html).toContain('Parser to storage');
+  expect(html).not.toContain('What We Know');
+  expect(html).not.toContain('Gaps');
+  expect(html).not.toContain('Possible Leads');
+  expect(html).not.toContain('Mapped input to sink.');
+  expect(html).not.toContain('Authenticated path remains.');
+  expect(html).not.toContain('Review parser modes.');
+  expect(html).not.toContain('Which modes are enabled?');
+  expect(html).not.toContain('Parser to storage');
   expect(html).toContain('Test account required.');
-  expect(html).not.toContain('Attacker control');
+  expect(html).not.toContain('Attacker Control');
   expect(html).not.toContain('Request bytes.');
   expect(html).not.toContain('EXAMPLE-ADVISORY-001');
   expect(html).toContain('Example session');
   const threatModel = renderToStaticMarkup(createElement(WorkspaceSurfaceDetails, {
     surface: selected, map, initialView: 'Threat Model', onClose: () => undefined
   }));
-  expect(threatModel).toContain('<h3>Threat Model</h3>');
-  expect(threatModel).toContain('Attacker control');
+  expect(threatModel).toContain('<h3>Diagram</h3>');
+  expect(threatModel).toContain('Rendering diagram…');
+  for (const title of ['Security Objectives', 'Risk Impact', 'Assumptions', 'Invariants', 'Sinks', 'Mitigations']) {
+    expect(threatModel).toContain(`<h3>${title}</h3>`);
+  }
+  expect(threatModel.indexOf('<h3>Diagram</h3>')).toBeLessThan(threatModel.indexOf('<h3>Security Objectives</h3>'));
+  expect(threatModel.indexOf('<h3>Security Objectives</h3>')).toBeLessThan(threatModel.indexOf('<h3>Risk Impact</h3>'));
+  expect(threatModel).toContain('Protect example state.');
+  expect(threatModel).toContain('Only valid requests reach dispatch.');
+  expect(threatModel).toContain('<h3>Earlier Context</h3>');
+  expect(threatModel).toContain('Attacker Control');
   expect(threatModel).toContain('Request bytes.');
   expect(threatModel).not.toContain('EXAMPLE-ADVISORY-001');
+  const proposal = (id: string, surfaceId: string | null, workspaceId = map.workspaceId) => ({
+    id, title: id, surfaceId, workspaceId, projection: 'lead', duplicateOfClaimId: null, securityTracking: null
+  }) as AppServerFindingSummary;
+  const linkedTracking: NonNullable<AppServerFindingSummary['securityTracking']> = {
+    reachability: { state: 'not_assessed', conditions: '', evidenceIds: [], assessorId: null,
+      assessedAt: null, sourceRevision: null, environmentFingerprint: null },
+    cvssAssessments: [], affectedAssetIds: [], surfaceIds: ['sink'], progressBlocker: null, externalReferences: []
+  };
   const recon = renderToStaticMarkup(createElement(WorkspaceSurfaceDetails, {
-    surface: selected, map, initialView: 'Recon', onClose: () => undefined
+    surface: selected, map, initialView: 'Recon', onClose: () => undefined,
+    onOpenClaim: () => undefined,
+    leads: [proposal('Assigned proposal', selected.id),
+      { ...proposal('Refuted proposal', selected.id), status: 'rejected' },
+      { ...proposal('Legacy linked proposal', null), securityTracking: { ...linkedTracking, surfaceIds: [selected.id] } },
+      { ...proposal('Cross linked proposal', 'other-root'), securityTracking: { ...linkedTracking, surfaceIds: [selected.id] } },
+      { ...proposal('Duplicate proposal', selected.id), duplicateOfClaimId: 'primary-claim' },
+      proposal('Unrelated proposal', 'sink'),
+      proposal('Other workspace proposal', selected.id, 'another-workspace')]
   }));
   expect(recon).toContain('<h3>Discovery</h3>');
   expect(recon).toContain('The example service exposes a request parser');
   expect(recon).toContain('<h3>Tech Stack</h3>');
   expect(recon).toContain('Example Parser');
   expect(recon).toContain('Synthetic package manifest');
+  expect(recon).toContain('<h3>Assets</h3>');
+  expect(recon.indexOf('<h3>Tech Stack</h3>')).toBeLessThan(recon.indexOf('<h3>Assets</h3>'));
+  expect(recon.indexOf('<h3>Assets</h3>')).toBeLessThan(recon.indexOf('<h3>Bug History</h3>'));
+  expect(recon).toContain('src/request_parser.ts');
+  expect(recon).toContain('parseExampleRequest()');
+  expect(recon).toContain('https://example.test/parser');
+  for (const [status, label] of [['untouched', 'Untouched'], ['in_progress', 'In Progress'], ['complete', 'Complete']]) {
+    expect(recon).toContain(`data-status="${status}">${label}</span>`);
+  }
   expect(recon).toContain('<h3>Bug History</h3>');
   expect(recon).toContain('EXAMPLE-ADVISORY-001');
   expect(recon).toContain('Malformed requests may bypass validation.');
   expect(recon).toContain('Older search note.');
+  expect(recon).toContain('<h3>Leads</h3>');
+  expect(recon.indexOf('<h3>Bug History</h3>')).toBeLessThan(recon.indexOf('<h3>Leads</h3>'));
+  expect(recon).toContain('Assigned proposal</button>');
+  expect(recon).not.toContain('Refuted proposal');
+  expect(recon).toContain('Legacy linked proposal</button>');
+  expect(recon).toContain('Cross linked proposal</button>');
+  expect(recon).not.toContain('Duplicate proposal');
+  expect(recon).not.toContain('Unrelated proposal');
+  expect(recon).not.toContain('Other workspace proposal');
+  expect(recon).not.toContain('Review parser modes.');
   expect(recon).not.toContain('Request bytes.');
+  const finding = (title: string, surfaceId: string | null, workspaceId = map.workspaceId) => ({
+    id: title, title, surfaceId, workspaceId, projection: 'finding', duplicateOfClaimId: null,
+    securityTracking: null, rating: 'high', maturity: 'observed'
+  }) as AppServerFindingSummary;
+  const analysis = renderToStaticMarkup(createElement(WorkspaceSurfaceDetails, {
+    surface: selected, map, initialView: 'Analysis', onOpenClaim: () => undefined, onClose: () => undefined,
+    findings: [finding('Direct finding', selected.id), finding('Child finding', 'sink'),
+      { ...finding('Legacy linked finding', null), securityTracking: linkedTracking },
+      { ...finding('Cross linked finding', 'other-root'), securityTracking: linkedTracking },
+      { ...finding('Duplicate finding', selected.id), duplicateOfClaimId: 'primary-claim' },
+      finding('Unrelated finding', 'other-root'), finding('Other workspace finding', selected.id, 'another-workspace'),
+      { ...finding('Proposal only', selected.id), projection: 'lead' }]
+  }));
+  expect(analysis).toContain('<h3>Findings</h3>');
+  expect(analysis).toContain('Direct finding</button>');
+  expect(analysis).toContain('Child finding</button>');
+  expect(analysis).toContain('Legacy linked finding</button>');
+  expect(analysis).toContain('Cross linked finding</button>');
+  expect(analysis).toContain('High · Observed · sink');
+  for (const omitted of ['Duplicate finding', 'Unrelated finding', 'Other workspace finding', 'Proposal only']) {
+    expect(analysis).not.toContain(omitted);
+  }
 });
 
 test('surface details keep a recorded first touch when an older server omits its author', () => {
@@ -176,14 +267,17 @@ test('surface details keep a recorded first touch when an older server omits its
     surface: surfaces[0]!, map, onClose: () => undefined
   }));
   expect(untouched).toContain('No first touch recorded');
-  expect(untouched).toContain('No open questions recorded.');
-  expect(untouched).toContain('No related components recorded.');
+  expect(untouched).not.toContain('Open Questions');
+  expect(untouched).not.toContain('Related Components');
   expect(renderToStaticMarkup(createElement(WorkspaceSurfaceDetails, {
     surface: surfaces[0]!, map, initialView: 'Threat Model', onClose: () => undefined
-  }))).toContain('No threat model recorded.');
+  }))).toContain('No threat model diagram recorded.');
   expect(renderToStaticMarkup(createElement(WorkspaceSurfaceDetails, {
     surface: surfaces[0]!, map, initialView: 'Recon', onClose: () => undefined
-  }))).toContain('No individual advisories recorded.');
+  }))).toContain('No research assets recorded.');
+  expect(renderToStaticMarkup(createElement(WorkspaceSurfaceDetails, {
+    surface: surfaces[0]!, map, initialView: 'Analysis', onClose: () => undefined
+  }))).toContain('No findings recorded for this surface or its components.');
 });
 
 test('root surface Resources view exposes the linked resource form and checkout state', () => {
