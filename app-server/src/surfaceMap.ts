@@ -51,8 +51,9 @@ function displayFoundation(value: SurfaceFoundation | null): Surface['foundation
 }
 
 /** App-server-owned, path-free projection of the durable workspace surface map. */
-export function readWorkspaceSurfaceMap(databasePath: string, workspaceId: string): BealeWorkspaceSurfaceMap {
-  const empty = (): BealeWorkspaceSurfaceMap => ({ schemaVersion: 1, workspaceId, surfaces: [], agents: [] });
+export function readWorkspaceSurfaceMap(databasePath: string, workspaceId: string, sessionId?: string): BealeWorkspaceSurfaceMap {
+  const empty = (): BealeWorkspaceSurfaceMap => ({ schemaVersion: 1, workspaceId, surfaces: [], agents: [],
+    ...(sessionId ? { sessionSurfaceIds: [] } : {}) });
   if (!existsSync(databasePath)) return empty();
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
@@ -187,7 +188,27 @@ export function readWorkspaceSurfaceMap(databasePath: string, workspaceId: strin
         .filter((row) => visibleSurfaceIds.has(string(row.surface_id)))
         .map((row) => ({ sessionId: string(row.session_id), sessionTitle: string(row.session_title),
           agentId: string(row.agent_id), surfaceId: string(row.surface_id) })) : [];
-    return { schemaVersion: 1, workspaceId, surfaces, agents };
+    const sessionSurfaceIds = new Set<string>();
+    if (sessionId) {
+      if (tableExists(database, 'app_server_surface_touches')) {
+        for (const row of database.prepare('SELECT surface_id FROM app_server_surface_touches WHERE workspace_id=? AND first_session_id=?')
+          .all(workspaceId, sessionId) as Row[]) sessionSurfaceIds.add(string(row.surface_id));
+      }
+      if (tableExists(database, 'app_server_surface_focus_events')) {
+        for (const row of database.prepare('SELECT surface_id FROM app_server_surface_focus_events WHERE workspace_id=? AND session_id=?')
+          .all(workspaceId, sessionId) as Row[]) sessionSurfaceIds.add(string(row.surface_id));
+      }
+      if (tableExists(database, 'app_server_surface_update_events')) {
+        for (const row of database.prepare('SELECT surface_id FROM app_server_surface_update_events WHERE workspace_id=? AND session_id=?')
+          .all(workspaceId, sessionId) as Row[]) sessionSurfaceIds.add(string(row.surface_id));
+      }
+      if (tableExists(database, 'app_server_surfaces') && tableHasColumn(database, 'app_server_surfaces', 'created_session_id')) {
+        for (const row of database.prepare('SELECT id FROM app_server_surfaces WHERE workspace_id=? AND created_session_id=?')
+          .all(workspaceId, sessionId) as Row[]) sessionSurfaceIds.add(string(row.id));
+      }
+    }
+    return { schemaVersion: 1, workspaceId, surfaces, agents,
+      ...(sessionId ? { sessionSurfaceIds: surfaces.filter((surface) => sessionSurfaceIds.has(surface.id)).map((surface) => surface.id) } : {}) };
   } finally {
     database.close();
   }

@@ -414,6 +414,8 @@ export interface BealeAppServerWorkspaceDetails {
 export interface BealeWorkspaceSurfaceMap {
   schemaVersion: 1;
   workspaceId: string;
+  /** Unique surfaces created, focused, or updated by the requested session. */
+  sessionSurfaceIds?: string[];
   surfaces: Array<{
     id: string; resourceId: string; resourceKind?: string; resourceSource?: string;
     resourceLocator?: string; resourceDirection?: string; scopeAssetId?: string | null;
@@ -426,7 +428,9 @@ export interface BealeWorkspaceSurfaceMap {
       assets?: Array<{ name: string; status: 'untouched' | 'in_progress' | 'complete' }>;
       bugHistory?: { entries?: Array<{ identifier: string; impact: string; affectedVersions: string; reference: string; notes: string }>; summary: string; limits: string };
       threatModel?: {
-        diagram?: string; securityObjectives?: string; riskImpact?: string; assumptions: string;
+        diagram?: string; securityObjectives?: string[] | string; risks?: string[]; assumptions?: string[] | string;
+        /** Legacy freeform notes retained for compatibility. */
+        riskImpact?: string;
         invariants?: string; sinks?: string; mitigations?: string;
         attackerControl?: string; trustBoundaries?: string; assetsAtRisk?: string; plausibleImpacts?: string;
       };
@@ -440,6 +444,16 @@ export interface BealeWorkspaceSurfaceMap {
     }>;
   }>;
   agents: Array<{ sessionId: string; sessionTitle: string; agentId: string; surfaceId: string }>;
+}
+
+export interface BealeWorkspaceSurfaceMapRequest { workspaceId: string; sessionId?: string }
+
+export function decodeBealeWorkspaceSurfaceMapRequest(value: unknown): BealeWorkspaceSurfaceMapRequest {
+  if (!isRecord(value) || typeof value.workspaceId !== 'string' || !value.workspaceId.trim()
+    || (value.sessionId !== undefined && (typeof value.sessionId !== 'string' || !value.sessionId.trim() || value.sessionId.length > 200))) {
+    throw new Error('Invalid workspace surface map request.');
+  }
+  return value as unknown as BealeWorkspaceSurfaceMapRequest;
 }
 
 export interface BealeWorkspaceResearchTrack {
@@ -481,6 +495,15 @@ export interface BealeWorkspaceResearchTrack {
       nextAction: string;
     }>;
     actionabilityScore: number;
+    /** Deterministic base scheduler score; resource breadth and rotation are applied during selection. */
+    priority?: {
+      baseScore: number;
+      actionability: number;
+      impactAdjustment: number;
+      testableAngleBonus: number;
+      targetValidationPenalty: number;
+      noProgressPenalty: number;
+    };
     validation: { targetDependent: boolean; environment: "device" | "vm" | "web" | "localhost" | "none"; reason: string } | null;
     epochs: number;
     noProgressEpochs: number;
@@ -579,6 +602,7 @@ export function decodeBealeWorkspaceResearchTrack(value: unknown): BealeWorkspac
         && typeof angle.nextAction === "string" && angle.nextAction.trim().length > 0 && angle.nextAction.length <= 500)
       && Number.isSafeInteger(work.actionabilityScore) && Number(work.actionabilityScore) >= 0
       && Number(work.actionabilityScore) <= 100
+      && (work.priority === undefined || validResearchTrackPriority(work.priority, Number(work.actionabilityScore)))
       && (work.validation === null || isRecord(work.validation)
         && typeof work.validation.targetDependent === "boolean"
         && ["device", "vm", "web", "localhost", "none"].includes(String(work.validation.environment))
@@ -592,6 +616,17 @@ export function decodeBealeWorkspaceResearchTrack(value: unknown): BealeWorkspac
     throw new Error("The app-server returned an invalid workspace research track.");
   }
   return value as unknown as BealeWorkspaceResearchTrack;
+}
+
+function validResearchTrackPriority(value: unknown, actionability: number): boolean {
+  if (!isRecord(value)) return false;
+  const keys = ["baseScore", "actionability", "impactAdjustment", "testableAngleBonus",
+    "targetValidationPenalty", "noProgressPenalty"] as const;
+  if (!keys.every((key) => typeof value[key] === "number" && Number.isSafeInteger(value[key]))) return false;
+  return value.actionability === actionability
+    && Number(value.targetValidationPenalty) >= 0 && Number(value.noProgressPenalty) >= 0
+    && value.baseScore === Number(value.actionability) + Number(value.impactAdjustment)
+      + Number(value.testableAngleBonus) - Number(value.targetValidationPenalty) - Number(value.noProgressPenalty);
 }
 
 export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSurfaceMap {
@@ -620,8 +655,10 @@ export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSu
         && (bugHistory.entries === undefined || Array.isArray(bugHistory.entries) && bugHistory.entries.every((entry) => isRecord(entry)
           && ['identifier', 'impact', 'affectedVersions', 'reference', 'notes'].every((key) => typeof entry[key] === 'string'))))
       && (threatModel === undefined || isRecord(threatModel)
-        && typeof threatModel.assumptions === 'string'
-        && ['diagram', 'securityObjectives', 'riskImpact', 'invariants', 'sinks', 'mitigations',
+        && (threatModel.securityObjectives === undefined || typeof threatModel.securityObjectives === 'string' || strings(threatModel.securityObjectives))
+        && (threatModel.risks === undefined || strings(threatModel.risks))
+        && (threatModel.assumptions === undefined || typeof threatModel.assumptions === 'string' || strings(threatModel.assumptions))
+        && ['diagram', 'riskImpact', 'invariants', 'sinks', 'mitigations',
           'attackerControl', 'trustBoundaries', 'assetsAtRisk', 'plausibleImpacts']
           .every((key) => threatModel[key] === undefined || typeof threatModel[key] === 'string'));
   };
@@ -652,6 +689,7 @@ export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSu
         isRecord(event) && ['created', 'first_touch', 'focused', 'updated', 'blocked', 'unblocked', 'snapshot_update'].includes(String(event.kind))
         && typeof event.at === 'string' && (event.actorId === null || typeof event.actorId === 'string')
         && (event.detail === undefined || event.detail === null || typeof event.detail === 'string'))))
+    || (value.sessionSurfaceIds !== undefined && !strings(value.sessionSurfaceIds))
     || !Array.isArray(value.agents) || !value.agents.every((event) => isRecord(event)
       && typeof event.sessionId === 'string' && typeof event.sessionTitle === 'string'
       && typeof event.agentId === 'string' && typeof event.surfaceId === 'string')) {

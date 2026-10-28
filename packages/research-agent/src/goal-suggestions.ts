@@ -430,12 +430,17 @@ function readSuggestionSurfaces(database: DatabaseSync, workspaceId: string): Ar
       description: boundedText(String(row.description ?? ""), 180),
       ...(threatModel ? { attackerControl: boundedText(String(threatModel.attackerControl ?? ""), 180),
         trustBoundaries: boundedText(String(threatModel.trustBoundaries ?? ""), 180),
-        securityObjectives: boundedText(String(threatModel.securityObjectives ?? ""), 180),
+        securityObjectives: boundedText(threatModelSummary(threatModel.securityObjectives), 180),
         invariants: boundedText(String(threatModel.invariants ?? ""), 180),
         sinks: boundedText(String(threatModel.sinks ?? ""), 180),
-        plausibleImpacts: boundedText(String(threatModel.riskImpact || threatModel.plausibleImpacts || ""), 180) } : {}),
+        plausibleImpacts: boundedText(threatModelSummary(threatModel.risks ?? threatModel.riskImpact ?? threatModel.plausibleImpacts), 180) } : {}),
     };
   });
+}
+
+function threatModelSummary(value: unknown): string {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").join("; ")
+    : typeof value === "string" ? value : "";
 }
 
 function readSuggestionFindings(database: DatabaseSync, workspaceId: string): Array<Record<string, string>> {

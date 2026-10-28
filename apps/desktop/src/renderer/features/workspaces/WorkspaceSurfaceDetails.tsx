@@ -1,7 +1,7 @@
 import { useId, useState, type JSX } from 'react';
-import { ArrowLeft, Download } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Download } from 'lucide-react';
 import type { BealeWorkspaceSurfaceMap } from '@beale/app-server-runtime/protocol';
-import type { AppServerFindingSummary, RepositoryCloneMode, ResearchProviderModelCatalog, ScopeAssetInput, WorkspaceScopeVersion } from '@shared/types';
+import type { AppServerFindingSummary, AppServerMemoryNodeSummary, RepositoryCloneMode, ResearchProviderModelCatalog, ScopeAssetInput, WorkspaceScopeVersion } from '@shared/types';
 import type { MapSurface } from '../../view-models/surfaceMap';
 import { errorMessage } from '../../lib/errors';
 import { researchModelDisplayName, traceLabel } from '../../lib/formatting';
@@ -19,18 +19,36 @@ function DetailText({ label, value }: { label: string; value: string | undefined
   return value?.trim() ? <div className="workspace-surface-detail-text"><h4>{label}</h4><p>{value}</p></div> : null;
 }
 
-function ThreatSection({ title, value }: { title: string; value: string | undefined }): JSX.Element {
+function ThreatTextList({ title, value }: { title: string; value: readonly string[] | string | undefined }): JSX.Element {
+  const items = typeof value === 'string' ? value.trim() ? [value.trim()] : []
+    : (value ?? []).map((item) => item.trim()).filter(Boolean);
   return <section className="workspace-surface-details-section">
     <h3>{title}</h3>
-    <p className={value?.trim() ? 'workspace-surface-details-description' : 'workspace-surface-details-description workspace-surface-details-muted'}>
-      {value?.trim() || `No ${title.toLocaleLowerCase()} recorded.`}
-    </p>
+    {items.length ? <ul className="workspace-surface-threat-list">{items.map((item, index) => <li key={`${index}:${item}`}>{item}</li>)}</ul>
+      : <p className="workspace-surface-details-muted">No {title.toLocaleLowerCase()} recorded.</p>}
+  </section>;
+}
+
+function ThreatMemoryList({ title, nodes, onOpenMemory }: { title: string; nodes: readonly AppServerMemoryNodeSummary[];
+  onOpenMemory?: (nodeId: string) => void }): JSX.Element {
+  return <section className="workspace-surface-details-section">
+    <h3>{title}</h3>
+    {nodes.length ? <ul className="workspace-surface-threat-list">{nodes.map((node) => <li key={node.id} className="workspace-surface-threat-memory-item">
+      <span className="workspace-surface-threat-memory-content">
+        <span>{node.title}</span>
+        <small>{traceLabel(node.status)}</small>
+      </span>
+      {onOpenMemory ? <button className="workspace-surface-threat-open" type="button"
+        aria-label={`Open ${node.type} ${node.title}`} title={`Open ${node.title}`} onClick={() => onOpenMemory(node.id)}>
+        <ArrowRight aria-hidden="true" size={16} />
+      </button> : null}
+    </li>)}</ul> : <p className="workspace-surface-details-muted">No {title.toLocaleLowerCase()} recorded.</p>}
   </section>;
 }
 
 export function WorkspaceSurfaceDetails({ surface, map, workspaceId = '', activeScope = null, repositoryCheckouts,
-  providerModelCatalog = [], leads = [], findings = [],
-  readOnly = false, initialView = 'Breakdown', onChangeResource, onCloneRepository, onOpenClaim, onClose }: {
+  providerModelCatalog = [], leads = [], findings = [], memories = [],
+  readOnly = false, initialView = 'Breakdown', onChangeResource, onCloneRepository, onOpenClaim, onOpenMemory, onClose }: {
   surface: MapSurface;
   map: BealeWorkspaceSurfaceMap;
   workspaceId?: string;
@@ -39,11 +57,13 @@ export function WorkspaceSurfaceDetails({ surface, map, workspaceId = '', active
   providerModelCatalog?: readonly ResearchProviderModelCatalog[];
   leads?: readonly AppServerFindingSummary[];
   findings?: readonly AppServerFindingSummary[];
+  memories?: readonly AppServerMemoryNodeSummary[];
   readOnly?: boolean;
   initialView?: DetailView;
   onChangeResource?: (assetIds: string[], asset: ScopeAssetInput | null) => Promise<void>;
   onCloneRepository?: (assetId: string, mode: RepositoryCloneMode) => Promise<void>;
   onOpenClaim?: (claimId: string) => void;
+  onOpenMemory?: (nodeId: string) => void;
   onClose: () => void;
 }): JSX.Element {
   const agents = map.agents.filter((agent) => agent.surfaceId === surface.id);
@@ -71,6 +91,11 @@ export function WorkspaceSurfaceDetails({ surface, map, workspaceId = '', active
     return assignedSurfaceId && descendantIds.has(assignedSurfaceId)
       ? [{ finding, assignedSurfaceId }] : [];
   });
+  const workspaceMemories = memories.filter((node) => node.workspaces.some((workspace) => workspace.id === map.workspaceId)
+    && node.status !== 'rejected' && !node.duplicateOfMemoryId);
+  const surfaceMemories = workspaceMemories.filter((node) => node.surfaceId === surface.id);
+  const surfaceTrajectories = workspaceMemories.filter((node) => node.type === 'trajectory'
+    && node.surfaceId && descendantIds.has(node.surfaceId));
   const status = surface.resourceDirection === 'out_of_scope' ? 'Out of scope'
     : surface.progressBlocker ? 'Blocked' : surface.coverageState.covered ? 'Covered'
     : surface.firstTouchedAt ? 'In progress' : 'Untouched';
@@ -150,9 +175,6 @@ export function WorkspaceSurfaceDetails({ surface, map, workspaceId = '', active
         <small>Recorded by {surface.progressBlocker.actorId} on {new Date(surface.progressBlocker.setAt).toLocaleString()}</small>
       </section> : null}
 
-      {surface.coverageState.unblockedFindingIds.length ? <section className="workspace-surface-details-section">
-        <h3>Findings Needing Resolution</h3><p>{surface.coverageState.unblockedFindingIds.length} recorded</p>
-      </section> : null}
       {agents.length ? <section className="workspace-surface-details-section">
         <h3>Active Agents</h3>
         <ul className="workspace-surface-details-agents">{agents.map((agent) => <li key={`${agent.sessionId}:${agent.agentId}`}>
@@ -208,35 +230,53 @@ export function WorkspaceSurfaceDetails({ surface, map, workspaceId = '', active
               : <span>{lead.title}</span>}
           </li>)}</ul> : <p className="workspace-surface-details-muted">No leads assigned to this surface.</p>}
         </section>
-      </> : activeView === 'Analysis' ? <section className="workspace-surface-details-section">
-        <h3>Findings</h3>
-        {surfaceFindings.length ? <ul className="workspace-surface-analysis-list">{surfaceFindings.map(({ finding, assignedSurfaceId }) => {
-          const rating = campaignClaimRatingPresentation(finding);
-          return <li key={finding.id}>
-            {onOpenClaim ? <button className="workspace-surface-claim-link" type="button" onClick={() => onOpenClaim(finding.id)}>{finding.title}</button>
-              : <span>{finding.title}</span>}
-            <small title={rating.title}>{rating.label} · {traceLabel(finding.maturity)}{assignedSurfaceId !== surface.id
-              ? ` · ${surfaceNames.get(assignedSurfaceId) ?? 'Component'}` : ''}</small>
-          </li>;
-        })}</ul> : <p className="workspace-surface-details-muted">No findings recorded for this surface or its components.</p>}
-      </section> : activeView === 'Threat Model' ? <>
+      </> : activeView === 'Analysis' ? <>
         <section className="workspace-surface-details-section">
-          <h3>Diagram</h3>
+          <h3>Findings</h3>
+          {surfaceFindings.length ? <ul className="workspace-surface-analysis-list">{surfaceFindings.map(({ finding, assignedSurfaceId }) => {
+            const rating = campaignClaimRatingPresentation(finding);
+            return <li key={finding.id}>
+              {onOpenClaim ? <button className="workspace-surface-claim-link" type="button" onClick={() => onOpenClaim(finding.id)}>{finding.title}</button>
+                : <span>{finding.title}</span>}
+              <small title={rating.title}>{rating.label} · {traceLabel(finding.maturity)}{assignedSurfaceId !== surface.id
+                ? ` · ${surfaceNames.get(assignedSurfaceId) ?? 'Component'}` : ''}</small>
+            </li>;
+          })}</ul> : <p className="workspace-surface-details-muted">No findings recorded for this surface or its components.</p>}
+        </section>
+        {surface.coverageState.unblockedFindingIds.length ? <section className="workspace-surface-details-section">
+          <h3>Findings Needing Resolution</h3><p>{surface.coverageState.unblockedFindingIds.length} recorded</p>
+        </section> : null}
+        <section className="workspace-surface-details-section">
+          <h3>Trajectories</h3>
+          {surfaceTrajectories.length ? <ul className="workspace-surface-analysis-list">{surfaceTrajectories.map((node) => <li key={node.id}>
+            {onOpenMemory ? <button className="workspace-surface-claim-link" type="button" onClick={() => onOpenMemory(node.id)}>{node.title}</button>
+              : <span>{node.title}</span>}
+            <small>{traceLabel(node.status)}{node.surfaceId && node.surfaceId !== surface.id
+              ? ` · ${surfaceNames.get(node.surfaceId) ?? 'Component'}` : ''}</small>
+          </li>)}</ul> : <p className="workspace-surface-details-muted">No trajectories recorded for this surface or its components.</p>}
+        </section>
+      </> : activeView === 'Threat Model' ? <>
+        <section className="workspace-surface-details-section" aria-label="Threat model diagram">
           <SurfaceThreatDiagram source={surface.foundation?.threatModel?.diagram ?? ''} surfaceName={surface.name} />
         </section>
-        <ThreatSection title="Security Objectives" value={surface.foundation?.threatModel?.securityObjectives} />
-        <ThreatSection title="Risk Impact" value={surface.foundation?.threatModel?.riskImpact || surface.foundation?.threatModel?.plausibleImpacts} />
-        <ThreatSection title="Assumptions" value={surface.foundation?.threatModel?.assumptions} />
-        <ThreatSection title="Invariants" value={surface.foundation?.threatModel?.invariants} />
-        <ThreatSection title="Sinks" value={surface.foundation?.threatModel?.sinks} />
-        <ThreatSection title="Mitigations" value={surface.foundation?.threatModel?.mitigations} />
+        <ThreatTextList title="Security Objectives" value={surface.foundation?.threatModel?.securityObjectives} />
+        <ThreatTextList title="Risks" value={surface.foundation?.threatModel?.risks
+          ?? surface.foundation?.threatModel?.riskImpact ?? surface.foundation?.threatModel?.plausibleImpacts} />
+        <ThreatTextList title="Assumptions" value={surface.foundation?.threatModel?.assumptions} />
+        <ThreatMemoryList title="Invariants" nodes={surfaceMemories.filter((node) => node.type === 'invariant')} onOpenMemory={onOpenMemory} />
+        <ThreatMemoryList title="Sinks" nodes={surfaceMemories.filter((node) => node.type === 'sink')} onOpenMemory={onOpenMemory} />
+        <ThreatMemoryList title="Mitigations" nodes={surfaceMemories.filter((node) => node.type === 'mitigation')} onOpenMemory={onOpenMemory} />
         {surface.foundation?.threatModel && (surface.foundation.threatModel.attackerControl
-          || surface.foundation.threatModel.trustBoundaries || surface.foundation.threatModel.assetsAtRisk)
+          || surface.foundation.threatModel.trustBoundaries || surface.foundation.threatModel.assetsAtRisk
+          || surface.foundation.threatModel.invariants || surface.foundation.threatModel.sinks || surface.foundation.threatModel.mitigations)
           ? <section className="workspace-surface-details-section">
             <h3>Earlier Context</h3>
             <DetailText label="Attacker Control" value={surface.foundation.threatModel.attackerControl} />
             <DetailText label="Trust Boundaries" value={surface.foundation.threatModel.trustBoundaries} />
             <DetailText label="Assets At Risk" value={surface.foundation.threatModel.assetsAtRisk} />
+            <DetailText label="Earlier Invariants" value={surface.foundation.threatModel.invariants} />
+            <DetailText label="Earlier Sinks" value={surface.foundation.threatModel.sinks} />
+            <DetailText label="Earlier Mitigations" value={surface.foundation.threatModel.mitigations} />
           </section> : null}
       </> : <div className="workspace-surface-resource">
         {resourceItem && !readOnly && onChangeResource ? <WorkspaceResourceEditor

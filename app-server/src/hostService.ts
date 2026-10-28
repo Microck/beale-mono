@@ -26,6 +26,7 @@ import {
   decodeFleetRemoteResearchInput,
   decodeFleetRemotePromptExpansionInput,
   decodeWorkspaceProjectRequest,
+  decodeBealeWorkspaceSurfaceMapRequest,
   decodeBealeWorkspaceResearchTrackRequest,
   type AppServerProtocolOperation,
   type AppServerSessionLaunchRequest,
@@ -559,7 +560,9 @@ export class AppServerHostService {
     }
     if (request.operation === 'workspace.surface_map') {
       if (!workspace) throw new Error('A registered workspace is required.');
-      return this.workspaceSurfaceMap(workspace.workspaceId);
+      const surfaceRequest = decodeBealeWorkspaceSurfaceMapRequest(request.input);
+      if (surfaceRequest.workspaceId !== workspace.workspaceId) throw new Error('The surface map workspace does not match the registered workspace.');
+      return this.workspaceSurfaceMap(workspace.workspaceId, surfaceRequest.sessionId);
     }
     if (request.operation === 'workspace.research_track') {
       if (!workspace) throw new Error('A registered workspace is required.');
@@ -1764,7 +1767,7 @@ export class AppServerHostService {
       availableTargets.filter((target) => allowed.has(target.id)), await this.workspaceSurfaceMap(workspace.workspaceId));
   }
 
-  public async workspaceSurfaceMap(workspaceIdentifier: string): Promise<BealeWorkspaceSurfaceMap> {
+  public async workspaceSurfaceMap(workspaceIdentifier: string, sessionId?: string): Promise<BealeWorkspaceSurfaceMap> {
     const workspace = this.requireWorkspace(workspaceIdentifier);
     const storage = this.registry.storageForProfile(workspace.researchProfileId);
     return this.databaseCoordinator.runWhenAvailable(storage.databasePath, () => {
@@ -1785,7 +1788,7 @@ export class AppServerHostService {
         });
         resources.close();
       }
-      return readWorkspaceSurfaceMap(storage.databasePath, workspace.workspaceId);
+      return readWorkspaceSurfaceMap(storage.databasePath, workspace.workspaceId, sessionId);
     });
   }
 
@@ -2801,7 +2804,7 @@ function researchTrackEpochPrompt(
     ...(researchKitId === 'apple-security-bounty' ? [
       'For iOS-specific behavior, inspect the Apple security device capability and use an authorized physical iPhone when one is available. Listing or describing a device is availability checking, not testing: when the theory can be exercised through an operator-built app, use the physical-iPhone install and launch tools and capture the observed result. The iOS Simulator is not a supported substitute. If device testing cannot be performed, state why in surface.update and the checkpoint next action; do not infer a negative on-device result from host tests.'
     ] : []),
-    'Checkpoint at a useful stopping point, including when a proof reaches a result or needs an external prerequisite. Record a short assessment, any canonical evidence references that support it, and a useful next action with track.checkpoint. Add structured attacker-path updates or validation details when they clarify the work; they are not required for every checkpoint. A bounded review can complete with open leads or unfinished child components. Use blocked only for a concrete external dependency; otherwise defer with a useful next step. Then give a concise final response so the host can select subsequent work.',
+    'Checkpoint at a useful stopping point, including when a proof reaches a result or needs an external prerequisite. Record a short assessment and a useful next action with track.checkpoint. For evidenceRefs, cite a parent workspace record as finding:<claim ID>, memory:<memory ID>, runbook:<runbook ID>, or report:<report ID>; do not use an evidence entry ID, trace ID, artifact ID, or file path. Use an empty list when no canonical record exists. Attacker-path evidenceRefs are included in the checkpoint automatically. Add structured attacker-path updates or validation details when they clarify the work; they are not required for every checkpoint. A bounded review can complete with open leads or unfinished child components. Use blocked only for a concrete external dependency; otherwise defer with a useful next step. Then give a concise final response so the host can select subsequent work.',
   ].join('\n');
 }
 

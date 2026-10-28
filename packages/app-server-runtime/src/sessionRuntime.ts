@@ -3985,9 +3985,6 @@ async function createRuntimeConfig(args: {
   const resourceTool = createResearchResourceTool(resourceToolOptions);
   executableTools.push(resourceTool);
   toolDescriptors.push(resourceTool.descriptor);
-  const surfaceTools = createSurfaceTools(surfaceStore);
-  executableTools.push(...surfaceTools);
-  toolDescriptors.push(...surfaceTools.map((tool) => tool.descriptor));
   if (args.sessionId) {
     const trackStore = new ResearchTrackStore({ databasePath: memoryGraph.databasePath,
       workspaceId: workspaceContext.memoryContext?.workspaceId ?? `workspace:${workspaceRoot}`,
@@ -4032,6 +4029,9 @@ async function createRuntimeConfig(args: {
   executableTools.push(...memoryTools);
   toolDescriptors.push(...memoryTools.map((tool) => tool.descriptor));
   const findingStore = new FindingStore(memoryGraph);
+  const surfaceTools = createSurfaceTools(surfaceStore, memoryActive ? { claims: findingStore, memories: memoryGraph } : {});
+  executableTools.push(...surfaceTools);
+  toolDescriptors.push(...surfaceTools.map((tool) => tool.descriptor));
   const getFindingProgress = (): ResearchGoalFindingProgress[] => findingStore.list()
     .filter((finding) => (
       finding.status === "observed" || finding.status === "reproduced"

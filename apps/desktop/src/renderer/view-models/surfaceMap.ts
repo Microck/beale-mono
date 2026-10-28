@@ -2,6 +2,31 @@ import type { BealeWorkspaceSurfaceMap } from '@beale/app-server-runtime/protoco
 
 export type MapSurface = BealeWorkspaceSurfaceMap['surfaces'][number];
 
+/** Keep hierarchy context without counting unrelated ancestors as session activity. */
+export function sessionSurfaceHierarchy(map: BealeWorkspaceSurfaceMap, sessionId: string): BealeWorkspaceSurfaceMap {
+  const byId = new Map(map.surfaces.map((surface) => [surface.id, surface]));
+  const visible = new Set<string>();
+  for (const id of map.sessionSurfaceIds ?? []) {
+    let current = byId.get(id);
+    const seen = new Set<string>();
+    while (current && !seen.has(current.id)) {
+      visible.add(current.id);
+      seen.add(current.id);
+      current = current.parentId ? byId.get(current.parentId) : undefined;
+    }
+  }
+  return { ...map, surfaces: map.surfaces.filter((surface) => visible.has(surface.id)),
+    agents: map.agents.filter((agent) => agent.sessionId === sessionId && visible.has(agent.surfaceId)) };
+}
+
+export function sessionSurfaceCounts(map: BealeWorkspaceSurfaceMap | null): { total: number; touched: number; completed: number } {
+  if (!map) return { total: 0, touched: 0, completed: 0 };
+  const byId = new Map(map.surfaces.map((surface) => [surface.id, surface]));
+  const tracked = [...new Set(map.sessionSurfaceIds ?? [])].map((id) => byId.get(id)).filter((surface) => surface !== undefined);
+  const completed = tracked.filter((surface) => surface.coverageState.covered).length;
+  return { total: tracked.length, touched: tracked.length - completed, completed };
+}
+
 /** Keep each selected surface's path and descendant branch visible. */
 export function filterSurfaceHierarchy(
   surfaces: readonly MapSurface[], query: string, showUntouched: boolean
@@ -50,7 +75,8 @@ export function filterSurfaceHierarchy(
 export function surfaceCoveragePercent(surface: MapSurface): number {
   if (surface.coverageState.covered) return 100;
   const modeled = surface.foundation?.threatModelReviewed === true
-    || Object.values(surface.foundation?.threatModel ?? {}).some((value) => typeof value === 'string' && value.trim());
+    || Object.values(surface.foundation?.threatModel ?? {}).some((value) => typeof value === 'string' && value.trim()
+      || Array.isArray(value) && value.some((item) => typeof item === 'string' && item.trim()));
   if (!modeled) return surface.firstTouchedAt || surface.foundation ? 25 : 0;
   const unmet = surface.coverageState.unmetRequirements;
   return Math.min(99, 50 + (unmet.includes('open_leads') ? 0 : 25)

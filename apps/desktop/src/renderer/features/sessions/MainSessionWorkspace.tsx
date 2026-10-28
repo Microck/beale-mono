@@ -281,6 +281,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
   const openWorkspaceMemory = (nodeId: string): void => {
     onBackToRunbooks();
     setSelectedWorkspaceClaimId(null);
+    setSelectedWorkspaceSurfaceId(null);
     setSelectedWorkspaceMemoryId(nodeId);
     onResearchDetailsOpenChange(true);
   };
@@ -473,9 +474,11 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           providerModelCatalog={providerModelCatalog}
           leads={appServerMemory?.leads ?? []}
           findings={appServerMemory?.findings ?? []}
+          memories={appServerMemory?.nodes ?? []}
           onChangeResource={onChangeWorkspaceResource}
           onCloneRepository={onCloneWorkspaceRepository}
           onOpenClaim={openWorkspaceClaim}
+          onOpenMemory={openWorkspaceMemory}
           onClose={closeWorkspaceSurface}
         /> : <ResearchSidePanel
           detail={researchSideData.detail}
@@ -485,6 +488,7 @@ export const MainSessionWorkspace = memo(function MainSessionWorkspace({
           sessionHeatPreferences={sessionHeatPreferences}
           providerModelCatalog={providerModelCatalog}
           runId={researchSidePanelKey}
+          surfaceWorkspaceId={workspaceId}
           runStatus={researchSideData.detail?.run.status ?? null}
           expanded={expandedResearchSidePanel}
           selectedRunbook={selectedRunbook}

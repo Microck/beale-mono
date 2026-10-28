@@ -2369,7 +2369,7 @@ export interface BealeApi {
   getFleetRemoteMachines(): Promise<import('@beale/app-server-runtime/protocol').FleetMachine[]>;
   getFleetRemoteCatalog(serverId: string): Promise<import('@beale/app-server-runtime/protocol').FleetRemoteCatalog>;
   getFleetRemoteWorkspaceDetails(serverId: string, workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeAppServerWorkspaceDetails>;
-  getWorkspaceSurfaceMap(workspaceId: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceSurfaceMap>;
+  getWorkspaceSurfaceMap(workspaceId: string, sessionId?: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceSurfaceMap>;
   getResearchTrack(workspaceId: string, serverId?: string): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrack | null>;
   controlResearchTrack(workspaceId: string, action: 'start' | 'pause' | 'resume' | 'stop', serverId?: string,
     configuration?: import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrackRequest['configuration']): Promise<import('@beale/app-server-runtime/protocol').BealeWorkspaceResearchTrack>;

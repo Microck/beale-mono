@@ -3,6 +3,9 @@ import type { DatabaseSync } from "node:sqlite";
 import { openResearchDatabase } from "./database.js";
 import { nowIso } from "./ids.js";
 import type { ResearchResourceCatalog, TrackedResearchResource } from "./research-resources.js";
+import type { ResearchClaimStore } from "./findings.js";
+import type { FindingSummary } from "./knowledge-types.js";
+import type { MemoryGraphStore, MemoryNode } from "./memory-graph.js";
 import type { ResearchExecutableTool, ResearchToolExecutionContext } from "./tool-registry.js";
 import type { ResearchResourceKind, ResearchToolAction } from "./types.js";
 
@@ -23,9 +26,11 @@ export interface SurfaceFoundation {
   };
   threatModel: {
     diagram: string;
-    securityObjectives: string;
+    securityObjectives: string[];
+    risks: string[];
+    assumptions: string[];
+    /** Retained for foundations written before threat-model lists. */
     riskImpact: string;
-    assumptions: string;
     invariants: string;
     sinks: string;
     mitigations: string;
@@ -55,7 +60,8 @@ export function hasThreatModelReview(foundation: SurfaceFoundation | null): bool
 }
 
 function threatModelHasContent(threatModel: SurfaceFoundation["threatModel"] | undefined): boolean {
-  return Object.values(threatModel ?? {}).some((value) => typeof value === "string" && value.trim().length > 0);
+  return Object.values(threatModel ?? {}).some((value) => typeof value === "string" && value.trim().length > 0
+    || Array.isArray(value) && value.some((item) => typeof item === "string" && item.trim().length > 0));
 }
 
 export function assessSurfaceCoverage(
@@ -148,7 +154,8 @@ export function ensureSurfaceSchema(database: DatabaseSync): void {
       CREATE TABLE IF NOT EXISTS app_server_surfaces (
         id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, resource_id TEXT NOT NULL,
         parent_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
-        foundation_json TEXT, revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        foundation_json TEXT, revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        created_session_id TEXT
       );
       CREATE INDEX IF NOT EXISTS app_server_surfaces_resource ON app_server_surfaces(workspace_id, resource_id, parent_id);
       CREATE UNIQUE INDEX IF NOT EXISTS app_server_surfaces_sibling_name
@@ -184,6 +191,8 @@ export function ensureSurfaceSchema(database: DatabaseSync): void {
       CREATE INDEX IF NOT EXISTS app_server_surface_update_events_surface
         ON app_server_surface_update_events(workspace_id, surface_id, changed_at DESC);
   `);
+  const hasCreatedSession = database.prepare("SELECT 1 FROM pragma_table_info('app_server_surfaces') WHERE name = 'created_session_id'").get();
+  if (!hasCreatedSession) database.exec('ALTER TABLE app_server_surfaces ADD COLUMN created_session_id TEXT');
 }
 
 /** Workspace-scoped surface structure. Root identity is the existing resource ID. */
@@ -223,6 +232,34 @@ export class SurfaceStore {
     return surface;
   }
 
+  public resourceFor(id: string): TrackedResearchResource | null {
+    const surface = this.require(id);
+    const resource = this.#resources.get(surface.resourceId);
+    return resource?.workspaceId === this.#workspaceId ? resource : null;
+  }
+
+  public priorArtFor(id: string, before?: number) {
+    const resource = this.resourceFor(id);
+    return resource ? this.#resources.priorArt.list([resource.id], before) : { entries: [], nextBefore: null };
+  }
+
+  public descendantIds(id: string): string[] {
+    this.require(id);
+    const children = new Map<string, string[]>();
+    for (const surface of this.#all()) {
+      if (surface.parentId) children.set(surface.parentId, [...(children.get(surface.parentId) ?? []), surface.id]);
+    }
+    const found = new Set<string>();
+    const pending = [id];
+    while (pending.length) {
+      const current = pending.pop()!;
+      if (found.has(current)) continue;
+      found.add(current);
+      pending.push(...(children.get(current) ?? []));
+    }
+    return [...found];
+  }
+
   public list(input: { resourceId?: string; resourceKind?: string; parentId?: string; limit?: number; offset?: number } = {}): { surfaces: SurfaceCard[]; nextOffset: number | null; total: number } {
     const offset = Math.max(0, Math.floor(input.offset ?? 0));
     const limit = bound(input.limit, 50);
@@ -241,22 +278,28 @@ export class SurfaceStore {
   }
 
   public query(text: string, limit = 20, offset = 0): { surfaces: SurfaceCard[]; nextOffset: number | null; total: number } {
-    const words = nonempty(text, "query").toLowerCase().split(/\s+/u).slice(0, 12);
-    const matches = this.#all().filter((surface) => {
+    const phrase = nonempty(text, "query").toLowerCase();
+    const words = phrase.split(/\s+/u).slice(0, 12);
+    const matches = this.#all().flatMap((surface) => {
       const path = this.path(surface.id);
+      const resource = this.#resources.get(surface.resourceId);
       const haystack = [surface.name, surface.description, path,
+        resource?.name, resource?.locator, resource?.kind,
         surface.foundation?.discovery,
         ...(surface.foundation?.techStack ?? []).flatMap((item) => [item.technology, item.role, item.version, item.environment, item.evidence]),
         ...(surface.foundation?.assets ?? []).map((item) => item.name),
         ...(surface.foundation?.bugHistory.entries ?? []).flatMap((item) => [item.identifier, item.impact, item.affectedVersions, item.reference, item.notes]),
         surface.foundation?.bugHistory.summary, surface.foundation?.bugHistory.limits, surface.foundation?.coverage.summary,
         surface.foundation?.coverage.gaps, surface.foundation?.coverage.opportunities, surface.progressBlocker?.reason,
-        ...Object.values(surface.foundation?.threatModel ?? {})].join(" ").toLowerCase();
-      return words.every((word) => haystack.includes(word));
-    });
+        ...Object.values(surface.foundation?.threatModel ?? {}).flatMap((value) => Array.isArray(value) ? value : [value])].join(" ").toLowerCase();
+      if (!words.every((word) => haystack.includes(word))) return [];
+      const name = surface.name.toLowerCase();
+      const score = name === phrase ? 100 : name.includes(phrase) ? 70 : path.toLowerCase().includes(phrase) ? 40 : 0;
+      return [{ surface, score }];
+    }).sort((left, right) => right.score - left.score || left.surface.name.localeCompare(right.surface.name));
     const start = Math.max(0, Math.floor(offset));
     const pageLimit = bound(limit, 20);
-    return { surfaces: matches.slice(start, start + pageLimit).map((surface) => this.#card(surface)), nextOffset: start + pageLimit < matches.length ? start + pageLimit : null, total: matches.length };
+    return { surfaces: matches.slice(start, start + pageLimit).map(({ surface }) => this.#card(surface)), nextOffset: start + pageLimit < matches.length ? start + pageLimit : null, total: matches.length };
   }
 
   public modelContext(): SurfaceModelContext {
@@ -299,10 +342,10 @@ export class SurfaceStore {
     const at = nowIso();
     const id = `surface_${randomUUID().replaceAll("-", "")}`;
     this.#database.prepare(`INSERT INTO app_server_surfaces
-      (id, workspace_id, resource_id, parent_id, name, description, foundation_json, revision, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, NULL, 1, ?, ?)`).run(
+      (id, workspace_id, resource_id, parent_id, name, description, foundation_json, revision, created_at, updated_at, created_session_id)
+      VALUES (?, ?, ?, ?, ?, ?, NULL, 1, ?, ?, ?)`).run(
       id, this.#workspaceId, parent.resourceId, parent.id,
-      bounded(nonempty(name, "name"), 180), bounded(description, 2_000), at, at,
+      bounded(nonempty(name, "name"), 180), bounded(description, 2_000), at, at, this.#sessionId,
     );
     return this.require(id);
   }
@@ -485,7 +528,91 @@ export class SurfaceStore {
   }
 }
 
-export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[] {
+const SURFACE_RELATED_ITEM_LIMIT = 50;
+
+interface SurfaceRelatedStores {
+  claims?: ResearchClaimStore;
+  memories?: MemoryGraphStore;
+}
+
+function claimOnSurface(claim: FindingSummary, ids: ReadonlySet<string>): boolean {
+  return Boolean(claim.surfaceId && ids.has(claim.surfaceId)
+    || claim.securityTracking?.surfaceIds.some((id) => ids.has(id)));
+}
+
+function relatedClaims(claims: readonly FindingSummary[], ids: ReadonlySet<string>, projection: "lead" | "finding") {
+  const matched = claims.filter((claim) => claim.projection === projection && claimOnSurface(claim, ids)
+    && claim.duplicateOfClaimId === null && (projection !== "lead" || claim.status !== "rejected"));
+  return {
+    items: matched.slice(0, SURFACE_RELATED_ITEM_LIMIT).map((claim) => ({
+      id: claim.id, title: claim.title, status: claim.status,
+      rating: claim.rating, surfaceId: claim.surfaceId,
+    })),
+    total: matched.length,
+    truncated: matched.length > SURFACE_RELATED_ITEM_LIMIT,
+  };
+}
+
+function relatedMemories(memories: MemoryGraphStore | undefined, surfaceIds: readonly string[], type: MemoryNode["type"]) {
+  const matched = memories?.search({ scope: "workspace", surfaceIds, types: [type], excludeStatuses: ["rejected"], limit: SURFACE_RELATED_ITEM_LIMIT + 1 }) ?? [];
+  return {
+    items: matched.slice(0, SURFACE_RELATED_ITEM_LIMIT).map((node) => ({
+      id: node.id, type: node.type, title: node.title, status: node.status, surfaceId: node.surfaceId,
+    })),
+    truncated: matched.length > SURFACE_RELATED_ITEM_LIMIT,
+  };
+}
+
+type SurfaceViewName = "breakdown" | "recon" | "analysis" | "threat_model" | "resources";
+const SURFACE_VIEW_NAMES: readonly SurfaceViewName[] = ["breakdown", "recon", "analysis", "threat_model", "resources"];
+
+function requestedSurfaceViews(value: unknown): SurfaceViewName[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > SURFACE_VIEW_NAMES.length
+    || value.some((item) => typeof item !== "string" || !SURFACE_VIEW_NAMES.includes(item as SurfaceViewName))
+    || new Set(value).size !== value.length) {
+    throw new Error(`views must contain 1 to ${SURFACE_VIEW_NAMES.length} distinct names: ${SURFACE_VIEW_NAMES.join(", ")}.`);
+  }
+  return value as SurfaceViewName[];
+}
+
+function readSurfaceView(store: SurfaceStore, related: SurfaceRelatedStores, surface: ResearchSurface,
+  view: SurfaceViewName, input: Record<string, unknown>): unknown {
+  switch (view) {
+    case "breakdown": return { surfaceId: surface.id, name: surface.name, description: surface.description,
+      path: store.path(surface.id), revision: surface.revision, firstTouchedAt: surface.firstTouchedAt,
+      updatedAt: surface.updatedAt, progressBlocker: surface.progressBlocker, coverageState: store.coverageState(surface.id),
+      children: store.list({ parentId: surface.id, limit: typeof input.limit === "number" ? input.limit : 20,
+        ...(typeof input.offset === "number" ? { offset: input.offset } : {}) }) };
+    case "recon": return { surfaceId: surface.id, name: surface.name, revision: surface.revision,
+      discovery: surface.foundation?.discovery ?? "", techStack: surface.foundation?.techStack ?? [],
+      assets: surface.foundation?.assets ?? [], bugHistory: surface.foundation?.bugHistory ?? null,
+      leads: { available: Boolean(related.claims), ...relatedClaims(related.claims?.list() ?? [], new Set([surface.id]), "lead") } };
+    case "analysis": {
+      const descendantIds = store.descendantIds(surface.id);
+      return { surfaceId: surface.id, name: surface.name, revision: surface.revision,
+        findings: { available: Boolean(related.claims), ...relatedClaims(related.claims?.list() ?? [], new Set(descendantIds), "finding") },
+        findingsNeedingResolutionIds: store.coverageState(surface.id).unblockedFindingIds,
+        trajectories: { available: Boolean(related.memories), ...relatedMemories(related.memories, descendantIds, "trajectory") } };
+    }
+    case "threat_model": {
+      const threatModel = surface.foundation?.threatModel;
+      return { surfaceId: surface.id, name: surface.name, revision: surface.revision,
+        diagram: threatModel?.diagram ?? "", securityObjectives: threatModel?.securityObjectives ?? [],
+        risks: threatModel?.risks ?? [], assumptions: threatModel?.assumptions ?? [],
+        invariants: { available: Boolean(related.memories), ...relatedMemories(related.memories, [surface.id], "invariant") },
+        sinks: { available: Boolean(related.memories), ...relatedMemories(related.memories, [surface.id], "sink") },
+        mitigations: { available: Boolean(related.memories), ...relatedMemories(related.memories, [surface.id], "mitigation") },
+        legacyNotes: threatModel ? { riskImpact: threatModel.riskImpact, invariants: threatModel.invariants,
+          sinks: threatModel.sinks, mitigations: threatModel.mitigations, attackerControl: threatModel.attackerControl,
+          trustBoundaries: threatModel.trustBoundaries, assetsAtRisk: threatModel.assetsAtRisk,
+          plausibleImpacts: threatModel.plausibleImpacts } : null };
+    }
+    case "resources": return { surfaceId: surface.id, name: surface.name, resource: store.resourceFor(surface.id),
+      priorArt: store.priorArtFor(surface.id, typeof input.before === "number" ? input.before : undefined) };
+  }
+}
+
+export function createSurfaceTools(store: SurfaceStore, related: SurfaceRelatedStores = {}): ResearchExecutableTool[] {
   const foundationSchema = {
     type: "object", additionalProperties: false,
     properties: {
@@ -521,19 +648,26 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
       } },
       threatModel: { type: "object", properties: {
         diagram: { type: "string", description: "Raw Mermaid diagram source (no code fence) showing the component, relevant actors, data flows, trust boundaries, and security-relevant sinks. Keep it grounded in observed or explicitly assumed relationships; update it as the model changes." },
-        securityObjectives: { type: "string", description: "Protected operations, assets, and security outcomes for this surface." },
-        riskImpact: { type: "string", description: "Plausible unauthorized effects, with reachability and evidence limits; ordinary malfunction alone is not security impact." },
-        assumptions: { type: "string", description: "Unknowns and assumptions required for the attacker path or impact." },
-        invariants: { type: "string", description: "Properties that must hold across relevant inputs, states, and trust boundaries." },
-        sinks: { type: "string", description: "Security-relevant operations or destinations reached by attacker-influenced data." },
-        mitigations: { type: "string", description: "Known controls or safeguards and their observed limits; do not infer effectiveness without evidence." },
+        securityObjectives: { type: "array", maxItems: 100, items: { type: "string" }, description: "Distinct protected operations, assets, or security outcomes. Replace the list when supplied; omit it to preserve existing items." },
+        risks: { type: "array", maxItems: 100, items: { type: "string" }, description: "Distinct plausible unauthorized effects, each with reachability and evidence limits; ordinary malfunction alone is not security impact. Replace the list when supplied." },
+        assumptions: { type: "array", maxItems: 100, items: { type: "string" }, description: "Distinct unknowns or assumptions required for attacker paths or impacts. Replace the list when supplied." },
       } },
     },
   };
   const specs = [
     { name: "surface.list", transportName: "surface_list", effect: "read", properties: { resourceId: { type: "string" }, resourceKind: { type: "string", enum: ["domain", "repository", "binary", "service", "tool", "documentation", "other"], description: "Filter roots and children by resource kind to compare research outside a dominant source index." }, parentId: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: [] },
     { name: "surface.get", transportName: "surface_get", effect: "read", properties: { surfaceId: { type: "string" } }, required: ["surfaceId"] },
+    { name: "surface.views", transportName: "surface_views", effect: "read", properties: { surfaceId: { type: "string" },
+      views: { type: "array", minItems: 1, maxItems: SURFACE_VIEW_NAMES.length, uniqueItems: true,
+        description: "Read several views for one surface in one call. Use the individual view tools for later pages of Breakdown or Resources.",
+        items: { type: "string", enum: SURFACE_VIEW_NAMES } } }, required: ["surfaceId", "views"] },
+    { name: "surface.search", transportName: "surface_search", effect: "read", properties: { query: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: ["query"] },
     { name: "surface.query", transportName: "surface_query", effect: "read", properties: { query: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: ["query"] },
+    { name: "surface.breakdown", transportName: "surface_breakdown", effect: "read", properties: { surfaceId: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 }, offset: { type: "integer", minimum: 0 } }, required: ["surfaceId"] },
+    { name: "surface.recon", transportName: "surface_recon", effect: "read", properties: { surfaceId: { type: "string" } }, required: ["surfaceId"] },
+    { name: "surface.analysis", transportName: "surface_analysis", effect: "read", properties: { surfaceId: { type: "string" } }, required: ["surfaceId"] },
+    { name: "surface.threat_model", transportName: "surface_threat_model", effect: "read", properties: { surfaceId: { type: "string" } }, required: ["surfaceId"] },
+    { name: "surface.resources", transportName: "surface_resources", effect: "read", properties: { surfaceId: { type: "string" }, before: { type: "integer", minimum: 1, description: "Use priorArt.nextBefore to read the next page of saved prior art." } }, required: ["surfaceId"] },
     { name: "surface.create", transportName: "surface_create", effect: "write", properties: { parentId: { type: "string" }, name: { type: "string", description: "A stable noun naming a concrete component or subcomponent, never a question, theory, test, or checklist item." }, description: { type: "string", description: "Optional note on the component's role and boundary." } }, required: ["parentId", "name"] },
     { name: "surface.update", transportName: "surface_update", effect: "write", properties: { surfaceId: { type: "string" }, expectedRevision: { type: "integer", minimum: 1 }, name: { type: "string" }, description: { type: "string" }, foundation: { ...foundationSchema, description: "Optional, partial context notes. Omitted fields preserve existing values." },
       progressBlocker: { anyOf: [{ type: "object", required: ["reason"], additionalProperties: false,
@@ -545,9 +679,29 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
       name: spec.name, transportName: spec.transportName,
       description: spec.name === "surface.focus"
         ? "Associate current work with a component. First focus records its touch and starts a brief context scout. Focus does not restrict research tools."
-        : spec.name === "surface.query"
-          ? "Find surfaces by simple text across names, descriptions, paths, and foundation summaries."
-          : `Read or refine the resource-owned component tree (${spec.name}). Children are concrete components or subcomponents with stable noun names. Keep questions and hypotheses in notes or research records, not as surfaces. Foundation fields are optional context reminders.`,
+        : spec.name === "surface.search"
+          ? "Search every surface across names, paths, resource locators, and view content. Use this first to find a known component or concept; surface.list only browses a page of the inventory."
+          : spec.name === "surface.query"
+            ? "Compatibility alias for surface.search. Prefer surface.search for targeted discovery."
+            : spec.name === "surface.get"
+              ? "Get a compact surface overview, coverage state, and available view lookups. Use surface.views to inspect several views together."
+              : spec.name === "surface.views"
+                ? "Read 1 to 5 selected views of one surface in a single call, including linked leads, findings, and typed memories. Use individual view tools to page Breakdown or Resources."
+              : spec.name === "surface.list"
+                ? "Browse a paged surface inventory. Use surface.search when looking for a specific component or concept that may be outside this page."
+                : spec.name === "surface.breakdown"
+                  ? "Read the Breakdown view: description, progress blocker, coverage, and paged child surfaces."
+                  : spec.name === "surface.recon"
+                    ? "Read the Recon view: discovery, tech stack, assets, bug history, and a compact directly linked lead list. Fetch individual claims for details."
+                    : spec.name === "surface.analysis"
+                      ? "Read the Analysis view: compact findings and trajectory memory lists linked to this surface or descendants, including findings needing resolution. Fetch individual records for details."
+                      : spec.name === "surface.threat_model"
+                        ? "Read the Threat Model view: Mermaid diagram, objectives, risks, assumptions, and compact directly linked invariant, sink, and mitigation memory lists. Fetch individual memories for details."
+                        : spec.name === "surface.resources"
+                          ? "Read the Resources view: the owning resource's scope, locator, source, review metadata, and paged saved prior-art list."
+                          : spec.name === "surface.update"
+                            ? "Update surface context with an expected revision. Omitted foundation fields are preserved. The result is a compact acknowledgement; use surface.views or a specific view lookup to inspect saved details."
+                          : `Refine the resource-owned component tree (${spec.name}). Children are concrete components or subcomponents with stable noun names.`,
       actionClasses: [spec.effect === "read" ? "recall" : "synthesize"], sideEffects: spec.effect,
       requiredPermissions: ["research-resource:inventory"],
       inputSchema: { type: "object", required: spec.required, properties: spec.properties, additionalProperties: false },
@@ -562,14 +716,51 @@ export function createSurfaceTools(store: SurfaceStore): ResearchExecutableTool[
           case "surface.list": output = store.list({ ...(typeof input.resourceId === "string" ? { resourceId: input.resourceId } : {}), ...(typeof input.resourceKind === "string" ? { resourceKind: input.resourceKind } : {}), ...(typeof input.parentId === "string" ? { parentId: input.parentId } : {}), ...(typeof input.limit === "number" ? { limit: input.limit } : {}), ...(typeof input.offset === "number" ? { offset: input.offset } : {}) }); break;
           case "surface.get": {
             const surface = store.require(nonempty(input.surfaceId, "surfaceId"));
-            output = { ...surface, coverageState: store.coverageState(surface.id) };
+            const { foundation: _foundation, ...overview } = surface;
+            output = { ...overview, path: store.path(surface.id), coverageState: store.coverageState(surface.id),
+              foundationReady: surface.foundation !== null, threatModelReviewed: hasThreatModelReview(surface.foundation),
+              views: ["surface.breakdown", "surface.recon", "surface.analysis", "surface.threat_model",
+                ...(surface.root ? ["surface.resources"] : [])] };
             break;
           }
-          case "surface.query": output = store.query(nonempty(input.query, "query"), typeof input.limit === "number" ? input.limit : 20, typeof input.offset === "number" ? input.offset : 0); break;
+          case "surface.query":
+          case "surface.search": output = store.query(nonempty(input.query, "query"), typeof input.limit === "number" ? input.limit : 20, typeof input.offset === "number" ? input.offset : 0); break;
+          case "surface.views": {
+            const surface = store.require(nonempty(input.surfaceId, "surfaceId"));
+            const views = requestedSurfaceViews(input.views);
+            output = { surfaceId: surface.id, name: surface.name,
+              views: Object.fromEntries(views.map((view) => [view, readSurfaceView(store, related, surface, view, {})])) };
+            break;
+          }
+          case "surface.breakdown":
+          case "surface.recon":
+          case "surface.analysis":
+          case "surface.threat_model":
+          case "surface.resources": {
+            const surface = store.require(nonempty(input.surfaceId, "surfaceId"));
+            output = readSurfaceView(store, related, surface, spec.name.slice("surface.".length) as SurfaceViewName, input);
+            break;
+          }
           case "surface.create": output = store.create(nonempty(input.parentId, "parentId"), nonempty(input.name, "name"), typeof input.description === "string" ? input.description : ""); break;
-          case "surface.update": output = store.update(nonempty(input.surfaceId, "surfaceId"), positive(input.expectedRevision, "expectedRevision"), input.foundation, typeof input.name === "string" ? input.name : undefined, typeof input.description === "string" ? input.description : undefined,
-            parseBlockerUpdate(input.progressBlocker),
-            context?.agentId ?? "root"); break;
+          case "surface.update": {
+            const surfaceId = nonempty(input.surfaceId, "surfaceId");
+            const previousDiagram = store.require(surfaceId).foundation?.threatModel.diagram ?? "";
+            const requestedFoundation = input.foundation && typeof input.foundation === "object" && !Array.isArray(input.foundation)
+              ? input.foundation as Record<string, unknown> : null;
+            const requestedThreatModel = requestedFoundation?.threatModel && typeof requestedFoundation.threatModel === "object"
+              && !Array.isArray(requestedFoundation.threatModel)
+              ? requestedFoundation.threatModel as Record<string, unknown> : null;
+            const submittedDiagram = requestedThreatModel?.diagram;
+            const surface = store.update(surfaceId, positive(input.expectedRevision, "expectedRevision"), input.foundation,
+              typeof input.name === "string" ? input.name : undefined, typeof input.description === "string" ? input.description : undefined,
+              parseBlockerUpdate(input.progressBlocker), context?.agentId ?? "root");
+            output = { id: surface.id, name: surface.name, revision: surface.revision,
+              updatedAt: surface.updatedAt, progressBlocker: surface.progressBlocker,
+              coverageState: store.coverageState(surface.id),
+              ...(typeof submittedDiagram === "string" && submittedDiagram.trim()
+                ? { diagramChange: previousDiagram.trim() ? "updated" : "created" } : {}) };
+            break;
+          }
           case "surface.focus": output = store.focus(context?.agentId ?? "root", nonempty(input.surfaceId, "surfaceId"), typeof input.reason === "string" ? input.reason : "research"); break;
         }
         return { action, status: "complete", startedAt, completedAt: nowIso(), summary: `${spec.name} completed.`, output, followUpActions: spec.name === "surface.focus" && typeof output === "object" && output !== null && "foundationScout" in output && output.foundationScout
@@ -617,20 +808,36 @@ function parseFoundation(value: unknown, previous: SurfaceFoundation | null = nu
   };
 }
 function parseThreatModel(value: unknown, previous?: SurfaceFoundation["threatModel"]): SurfaceFoundation["threatModel"] {
-  const fields = section(value, ["securityObjectives", "riskImpact", "assumptions", "invariants", "sinks", "mitigations",
-    "attackerControl", "trustBoundaries", "assetsAtRisk", "plausibleImpacts"], "foundation.threatModel", previous);
+  const fields = section(value, ["riskImpact", "invariants", "sinks", "mitigations",
+    "attackerControl", "trustBoundaries", "assetsAtRisk", "plausibleImpacts"], "foundation.threatModel",
+    previous ? { riskImpact: previous.riskImpact, invariants: previous.invariants, sinks: previous.sinks,
+      mitigations: previous.mitigations, attackerControl: previous.attackerControl,
+      trustBoundaries: previous.trustBoundaries, assetsAtRisk: previous.assetsAtRisk,
+      plausibleImpacts: previous.plausibleImpacts } : undefined);
   const record = (value ?? {}) as Record<string, unknown>;
   if (record.diagram !== undefined && typeof record.diagram !== "string") throw new Error("foundation.threatModel.diagram must be a string.");
+  const legacyRisks = record.riskImpact !== undefined ? fields.riskImpact
+    : record.plausibleImpacts !== undefined ? fields.plausibleImpacts : undefined;
   const riskImpact = record.riskImpact === undefined
     ? record.plausibleImpacts !== undefined ? fields.plausibleImpacts : previous?.riskImpact || fields.plausibleImpacts
     : fields.riskImpact;
   return {
     diagram: record.diagram === undefined ? previous?.diagram ?? "" : bounded(record.diagram, 50_000),
-    securityObjectives: fields.securityObjectives ?? "", riskImpact: riskImpact ?? "", assumptions: fields.assumptions ?? "",
+    securityObjectives: threatModelItems(record.securityObjectives, previous?.securityObjectives, "securityObjectives"),
+    risks: threatModelItems(record.risks === undefined ? legacyRisks : record.risks,
+      previous?.risks ?? (fields.riskImpact ? [fields.riskImpact] : fields.plausibleImpacts ? [fields.plausibleImpacts] : []), "risks"),
+    assumptions: threatModelItems(record.assumptions, previous?.assumptions, "assumptions"),
+    riskImpact: riskImpact ?? "",
     invariants: fields.invariants ?? "", sinks: fields.sinks ?? "", mitigations: fields.mitigations ?? "",
     attackerControl: fields.attackerControl ?? "", trustBoundaries: fields.trustBoundaries ?? "",
     assetsAtRisk: fields.assetsAtRisk ?? "", plausibleImpacts: fields.plausibleImpacts ?? "",
   };
+}
+function threatModelItems(value: unknown, previous: readonly string[] | undefined, name: string): string[] {
+  if (value === undefined) return [...(previous ?? [])];
+  if (typeof value === "string") return value.trim() ? [bounded(value, 4_000)] : [];
+  if (!Array.isArray(value) || value.length > 100) throw new Error(`foundation.threatModel.${name} must be an array with at most 100 entries.`);
+  return value.map((item, index) => bounded(nonempty(item, `foundation.threatModel.${name}[${index}]`), 4_000));
 }
 function parseTechStack(value: unknown): SurfaceFoundation["techStack"] {
   if (!Array.isArray(value) || value.length > 200) throw new Error("foundation.techStack must be an array with at most 200 entries.");

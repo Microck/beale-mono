@@ -238,7 +238,7 @@ async function createResearchToolBridgeRuntime(
     }
 
 
-    tools.push(...createSurfaceTools(surfaces));
+    tools.push(...createSurfaceTools(surfaces, memoryActive ? { claims: findingStore, memories: memoryGraph } : {}));
     const scopeAuthorizer = createResearchResourceScopeAuthorizer({
       researchProfileName: resolvedProfile.profile.name,
       workspaceRoot: input.workspaceRoot,

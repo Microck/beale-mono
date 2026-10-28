@@ -140,7 +140,7 @@ describe('run detail commentary projection', () => {
     const messages = commentaryMessagesForSession(projected,
       buildTraceDisplayEventsForAgentPath(projected, null), { includeInitialPrompt: false });
     expect(messages.map(({ kind, contentMarkdown }) => [kind, contentMarkdown])).toEqual([
-      ['marker', 'Context compacted'], ['marker', 'Context compacted']
+      ['marker', 'Context Compacted'], ['marker', 'Context Compacted']
     ]);
   });
 
@@ -571,6 +571,38 @@ describe('run detail commentary projection', () => {
     });
   });
 
+  it('shows a successful surface diagram update in the live Lead transcript, including subagent work', () => {
+    const source = 'flowchart LR\n  request["Example request"] --> parser["Parser"]';
+    const requested = toolEvent('diagram-request', 'tool.requested', {
+      toolActionId: 'surface-update-example', toolName: 'surface.update',
+      normalizedInputs: { surfaceId: 'surface-example', foundation: { threatModel: { diagram: source, risks: ['Example risk'] } } }
+    });
+    const observed = toolEvent('diagram-observed', 'tool.observed', {
+      toolActionId: 'surface-update-example', toolName: 'surface.update', status: 'complete',
+      normalizedInputs: { surfaceId: 'surface-example', foundation: { threatModel: { diagram: source, risks: ['Example risk'] } } },
+      result: { id: 'surface-example', name: 'Example parser', diagramChange: 'updated', foundation: { hidden: 'not rendered' } }
+    });
+    const childEvents: TraceEventRecord[] = [requested, observed].map((event, index) => ({ ...event, sequence: index + 1,
+      payload: { ...event.payload, agentPath: '/root/scout' } }));
+    const pending = projectRunDetailForRenderer(runDetail({ traceEvents: [childEvents[0]!] }), { mode: 'commentary', agentPath: null });
+    expect(commentaryMessagesForSession(pending, buildTraceDisplayEventsForAgentPath(pending, null))
+      .some((message) => message.kind === 'diagram')).toBe(false);
+    const projected = projectRunDetailForRenderer(runDetail({ traceEvents: childEvents }), { mode: 'commentary', agentPath: null });
+    expect(projected.traceEvents).toHaveLength(1);
+    expect(projected.traceEvents[0]?.payload.payload).toMatchObject({
+      surfaceDiagram: { source, surfaceId: 'surface-example', surfaceName: 'Example parser', changeKind: 'updated' }
+    });
+    expect(JSON.stringify(projected.traceEvents)).not.toContain('Example risk');
+    expect(JSON.stringify(projected.traceEvents)).not.toContain('not rendered');
+    expect(commentaryMessagesForSession(projected, buildTraceDisplayEventsForAgentPath(projected, null))
+      .find((message) => message.kind === 'diagram')?.surfaceDiagram?.source).toBe(source);
+    const failed = { ...childEvents[1]!, payload: { ...childEvents[1]!.payload,
+      payload: { ...childEvents[1]!.payload.payload as Record<string, unknown>, status: 'error' } } };
+    const failedProjection = projectRunDetailForRenderer(runDetail({ traceEvents: [childEvents[0]!, failed] }), { mode: 'commentary', agentPath: null });
+    expect(commentaryMessagesForSession(failedProjection, buildTraceDisplayEventsForAgentPath(failedProjection, null))
+      .some((message) => message.kind === 'diagram')).toBe(false);
+  });
+
   it('keeps the memory name in the compact transcript before and after save completes', () => {
     const requested = toolEvent('request', 'tool.requested', {
       toolActionId: 'memory-save-one',
@@ -678,6 +710,8 @@ describe('run detail commentary projection', () => {
     ['finding.list', { query: 'memory safety', hidden: 'not rendered' }, { query: 'memory safety' }],
     ['resource.catalog', { operation: 'discover', name: 'Example parser', hidden: 'not rendered' }, { operation: 'discover', name: 'Example parser' }],
     ['surface.get', { surfaceId: 'surface_example', hidden: 'not rendered' }, { surfaceId: 'surface_example' }],
+    ['surface.views', { surfaceId: 'surface_example', views: ['recon', 'analysis'], hidden: 'not rendered' },
+      { surfaceId: 'surface_example', views: ['recon', 'analysis'] }],
     ['surface.list', { parentId: 'surface_example', hidden: 'not rendered' }, { parentId: 'surface_example' }],
     ['file.edit', { path: 'src/parser.ts', oldText: 'not rendered', newText: 'not rendered' }, { path: 'src/parser.ts' }],
     ['features.load', { features: ['code-navigation'], hidden: 'not rendered' }, { features: ['code-navigation'] }],

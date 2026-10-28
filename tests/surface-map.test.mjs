@@ -7,9 +7,12 @@ import test from 'node:test';
 import { AppServerSessionStore, ResearchResourceCatalog, ResearchTrackStore, SurfaceStore } from '../packages/research-agent/dist/index.js';
 import { AppServerHostService } from '../app-server/dist/hostService.js';
 import { readWorkspaceSurfaceMap } from '../app-server/dist/surfaceMap.js';
-import { decodeBealeWorkspaceSurfaceMap } from '../packages/app-server-runtime/dist/protocol.js';
+import { decodeBealeWorkspaceSurfaceMap, decodeBealeWorkspaceSurfaceMapRequest } from '../packages/app-server-runtime/dist/protocol.js';
 
 test('surface map projects eligible hierarchy, touch state, coverage, and active agent focus', () => {
+  assert.deepEqual(decodeBealeWorkspaceSurfaceMapRequest({ workspaceId: 'workspace-example', sessionId: 'session-example-one' }),
+    { workspaceId: 'workspace-example', sessionId: 'session-example-one' });
+  assert.throws(() => decodeBealeWorkspaceSurfaceMapRequest({ workspaceId: 'workspace-example', sessionId: '' }), /Invalid workspace surface map request/);
   const directory = mkdtempSync(join(tmpdir(), 'beale-surface-map-example-'));
   const databasePath = join(directory, 'memory.sqlite');
   const workspaceId = 'workspace-example';
@@ -25,6 +28,7 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
       reasoningEffort: 'high' });
     const root = resources.list().find((resource) => resource.direction === 'in_scope');
     const child = surfaces.create(root.id, 'Request parser', 'Untrusted request boundary.');
+    assert.deepEqual(readWorkspaceSurfaceMap(databasePath, workspaceId, 'session-example-one').sessionSurfaceIds, [child.id]);
     assert.equal(readWorkspaceSurfaceMap(databasePath, workspaceId).surfaces.find((surface) => surface.id === child.id).firstTouchedAt, null);
     surfaces.focus('root', child.id);
     surfaces.focus('/root/scout', root.id);
@@ -58,6 +62,8 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     surfaces.focus('root', root.id);
     surfaces.focus('root', child.id);
     const map = readWorkspaceSurfaceMap(databasePath, workspaceId);
+    assert.deepEqual(new Set(readWorkspaceSurfaceMap(databasePath, workspaceId, 'session-example-one').sessionSurfaceIds),
+      new Set([root.id, child.id]));
     assert.equal(map.surfaces.length, 3);
     assert.equal(map.surfaces.find((surface) => surface.scopeAssetId === 'asset-example').resourceLocator, 'service.example.test');
     assert.equal(map.surfaces.find((surface) => surface.scopeAssetId === 'asset-excluded').resourceDirection, 'out_of_scope');
@@ -79,6 +85,14 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.coverage.summary, 'Mapped input to sink.');
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.threatModel.attackerControl, 'Request bytes.');
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.threatModel.diagram, foundation.threatModel.diagram);
+    const canonical = decodeBealeWorkspaceSurfaceMap({ ...map, surfaces: map.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, foundation: { ...surface.foundation, threatModel: {
+        ...surface.foundation.threatModel, securityObjectives: ['Protect example state.'],
+        risks: ['Unauthorized change.'], assumptions: ['Service enabled.'] } } } : surface) });
+    assert.deepEqual(canonical.surfaces.find((surface) => surface.id === child.id).foundation.threatModel.risks, ['Unauthorized change.']);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...map, surfaces: map.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, foundation: { ...surface.foundation, threatModel: {
+        ...surface.foundation.threatModel, risks: [7] } } } : surface) }), /invalid workspace surface map/);
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.threatModelReviewed, true);
     assert.deepEqual(map.surfaces.find((surface) => surface.id === child.id).coverageState.openLeadIds, []);
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.bugHistory.limits, 'Search limited to public sources.');
@@ -141,6 +155,19 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     assert.equal(approved.resourceSource, 'runtime_discovery');
     assert.deepEqual(new Set(map.agents.map((agent) => agent.agentId)), new Set(['root', '/root/scout']));
     assert.equal(map.agents[0].sessionTitle, 'Map service');
+    const otherSessionSurfaces = new SurfaceStore({ databasePath, workspaceId, sessionId: 'session-example-two', resources });
+    try {
+      const otherChild = otherSessionSurfaces.create(root.id, 'Response serializer', 'Example response boundary.');
+      otherSessionSurfaces.focus('root', root.id);
+      assert.deepEqual(new Set(readWorkspaceSurfaceMap(databasePath, workspaceId, 'session-example-two').sessionSurfaceIds),
+        new Set([root.id, otherChild.id]));
+      assert.deepEqual(new Set(readWorkspaceSurfaceMap(databasePath, workspaceId, 'session-example-one').sessionSurfaceIds),
+        new Set([root.id, child.id]));
+      otherSessionSurfaces.update(child.id, otherSessionSurfaces.get(child.id).revision);
+      assert.deepEqual(new Set(readWorkspaceSurfaceMap(databasePath, workspaceId, 'session-example-two').sessionSurfaceIds),
+        new Set([root.id, otherChild.id, child.id]));
+    } finally { otherSessionSurfaces.close(); }
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...map, sessionSurfaceIds: [7] }), /invalid workspace surface map/);
     const claimDb = new DatabaseSync(databasePath);
     try {
       claimDb.exec(`CREATE TABLE app_server_research_claims (
@@ -167,6 +194,31 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
   } finally {
     surfaces.close(); resources.close(); sessions.close(); rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('existing surface tables migrate to record the creating session', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'beale-surface-session-migration-example-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  const workspaceId = 'workspace-example';
+  const resources = new ResearchResourceCatalog({ databasePath, workspaceId, explicitResources: [
+    { id: 'asset-example', direction: 'in_scope', kind: 'service', locator: 'service.example.test',
+      name: 'Example service', source: 'explicit_scope' }
+  ] });
+  try {
+    const database = new DatabaseSync(databasePath);
+    try {
+      database.exec(`CREATE TABLE app_server_surfaces (
+        id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, resource_id TEXT NOT NULL,
+        parent_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
+        foundation_json TEXT, revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      )`);
+    } finally { database.close(); }
+    const surfaces = new SurfaceStore({ databasePath, workspaceId, sessionId: 'session-example', resources });
+    try {
+      const child = surfaces.create(resources.list()[0].id, 'Parser', 'Example parser boundary.');
+      assert.deepEqual(readWorkspaceSurfaceMap(databasePath, workspaceId, 'session-example').sessionSurfaceIds, [child.id]);
+    } finally { surfaces.close(); }
+  } finally { resources.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('new workspace scope resources seed root surfaces before the first research session', async () => {
