@@ -4027,7 +4027,7 @@ async function createRuntimeConfig(args: {
     },
   });
   const memoryTools = memoryActive
-    ? createMemoryGraphTools(memoryGraph)
+    ? createMemoryGraphTools(memoryGraph, surfaceStore)
     : [];
   executableTools.push(...memoryTools);
   toolDescriptors.push(...memoryTools.map((tool) => tool.descriptor));

@@ -139,6 +139,7 @@ export type MemoryNodeProvenance =
 
 export interface MemoryNode {
   id: string;
+  surfaceId: string | null;
   sessionIds: string[];
   workspaces: MemoryWorkspaceMembership[];
   subjectId: string;
@@ -181,6 +182,7 @@ export interface MemoryNodeDuplicateSummary {
 
 export interface SaveMemoryNodeInput {
   id?: string;
+  surfaceId?: string | null;
   type: MemoryNodeType;
   title: string;
   summary?: string;
@@ -375,6 +377,7 @@ export class MemoryGraphStore {
     const next: MemoryNode = existing
       ? {
           ...existing,
+          surfaceId: existing.surfaceId ?? canonicalInput.surfaceId ?? null,
           sessionIds: mergeSessionMemberships(existing.sessionIds, this.local.context.sessionId),
           workspaces: mergeWorkspaceMemberships(existing.workspaces, this.local.context),
           summary: canonicalInput.summary?.trim() || existing.summary,
@@ -390,6 +393,7 @@ export class MemoryGraphStore {
         }
       : {
           id,
+          surfaceId: canonicalInput.surfaceId ?? null,
           sessionIds: this.local.context.sessionId ? [this.local.context.sessionId] : [],
           workspaces: [{ id: this.local.context.workspaceId, name: this.local.context.workspaceName }],
           subjectId: this.local.context.subjectId,
@@ -487,6 +491,7 @@ export class MemoryGraphStore {
     const next: MemoryNode = {
       ...existing,
       id: nextId,
+      ...(patch.surfaceId !== undefined ? { surfaceId: patch.surfaceId } : {}),
       sessionIds: mergeSessionMemberships(existing.sessionIds, this.local.context.sessionId),
       workspaces: mergeWorkspaceMemberships(existing.workspaces, this.local.context),
       type,
@@ -707,6 +712,7 @@ export class MemoryGraphStore {
       if (!row) return [];
       const node: Omit<MemoryNode, "provenance"> = {
         id,
+        surfaceId: nullableText(row.surface_id),
         sessionIds: sessionIds.get(id) ?? [],
         workspaces: (workspaces.get(id) ?? []).map((membership) => ({
           id: text(membership.workspace_id),
@@ -1633,6 +1639,16 @@ export class MemoryGraphStore {
           );`);
         },
       },
+      {
+        version: 19,
+        name: "memory_surface_association",
+        up(database) {
+          if (!tableHasColumn(database, "memory_nodes", "surface_id")) {
+            database.exec("ALTER TABLE memory_nodes ADD COLUMN surface_id TEXT;");
+          }
+          database.exec("CREATE INDEX IF NOT EXISTS memory_nodes_surface_idx ON memory_nodes(surface_id) WHERE surface_id IS NOT NULL;");
+        },
+      },
     ]);
   }
 
@@ -1655,15 +1671,17 @@ export class MemoryGraphStore {
       }
       database
         .prepare(
-          `INSERT INTO memory_nodes(id, subject_id, subject_name, type, title, title_norm, summary, body, status, confidence, attributes_json, created_at, updated_at, revision, catalog_hash)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO memory_nodes(id, surface_id, subject_id, subject_name, type, title, title_norm, summary, body, status, confidence, attributes_json, created_at, updated_at, revision, catalog_hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET subject_id = excluded.subject_id, subject_name = excluded.subject_name,
              type = excluded.type, title = excluded.title, title_norm = excluded.title_norm, summary = excluded.summary,
              body = excluded.body, status = excluded.status, confidence = excluded.confidence, attributes_json = excluded.attributes_json,
+             surface_id = excluded.surface_id,
              updated_at = excluded.updated_at, revision = excluded.revision, catalog_hash = excluded.catalog_hash`,
         )
         .run(
           node.id,
+          node.surfaceId,
           node.subjectId,
           node.subjectName,
           node.type,
@@ -1726,12 +1744,13 @@ export class MemoryGraphStore {
       database
         .prepare(
           `UPDATE memory_nodes
-           SET id = ?, type = ?, title = ?, title_norm = ?, summary = ?, body = ?, status = ?, confidence = ?,
+           SET id = ?, surface_id = ?, type = ?, title = ?, title_norm = ?, summary = ?, body = ?, status = ?, confidence = ?,
                attributes_json = ?, updated_at = ?, revision = ?, catalog_hash = ?
            WHERE id = ?`,
         )
         .run(
           node.id,
+          node.surfaceId,
           node.type,
           node.title,
           titleNorm,
@@ -2381,6 +2400,7 @@ function memorySearchScore(node: MemoryNode, query: string): number {
 function validateNodeShape(input: {
   type: unknown;
   title: unknown;
+  surfaceId?: unknown;
   status?: unknown;
   confidence?: unknown;
   attributes?: unknown;
@@ -2388,6 +2408,7 @@ function validateNodeShape(input: {
 }): void {
   if (typeof input.type !== "string" || !input.type.trim()) throw new Error("Memory node type is required.");
   if (typeof input.title !== "string" || !input.title.trim()) throw new Error("Memory node title is required.");
+  if (input.surfaceId !== undefined && input.surfaceId !== null && (typeof input.surfaceId !== "string" || !input.surfaceId.trim())) throw new Error("Memory surface id must be a non-empty string or null.");
   if (input.status !== undefined && (typeof input.status !== "string" || !input.status.trim())) throw new Error("Memory node status must be a non-empty string.");
   if (input.confidence !== undefined && (typeof input.confidence !== "number" || input.confidence < 0 || input.confidence > 1)) throw new Error("Memory confidence must be between 0 and 1.");
   if (input.attributes !== undefined && !isRecord(input.attributes)) throw new Error("Memory node attributes must be an object.");

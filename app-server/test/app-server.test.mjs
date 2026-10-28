@@ -1924,7 +1924,10 @@ test("workspace details use the owning app-server state and configured targets",
         researchSubject: { name: "ExampleCo" },
         workspaceRules: [{ id: "rule-example", text: "Stay in scope." }],
       };
-      if (operation === "memory.summary") return { status: "empty", nodeCount: 0, nodes: [], leads: [], findings: [],
+      if (operation === "memory.summary") return { status: "ready", nodeCount: 1,
+        nodes: [{ id: "memory-example", type: "invariant", title: "Example memory", surfaceId: "surface-example" }],
+        leads: [{ id: "claim-example", projection: "lead", classification: "security.vulnerability",
+          title: "Example lead", surfaceId: "surface-example" }], findings: [],
         runbooks: [{ id: "runbook-example", title: "Example runbook", purpose: "Synthetic check", updatedAt: "2026-01-01T00:00:00.000Z" }], reports: [] };
       throw new Error(`Unexpected operation ${operation}`);
     },
@@ -1934,6 +1937,8 @@ test("workspace details use the owning app-server state and configured targets",
   assert.equal(details.scope.resources[0].value, "example.test");
   assert.equal(details.rules[0].text, "Stay in scope.");
   assert.equal(details.runbooks[0].title, "Example runbook");
+  assert.equal(details.memory.nodes[0].surfaceId, "surface-example");
+  assert.equal(details.memory.leads[0].surfaceId, "surface-example");
   assert.deepEqual(details.targets, [{ id: "local", name: "Local", ready: true }]);
   assert.equal(calls[0].operation, "workspace.state");
   assert.equal(calls[0].options.input.workspacePath, directory);

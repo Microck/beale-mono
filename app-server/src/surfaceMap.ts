@@ -11,6 +11,9 @@ type StoredFoundation = SurfaceFoundation & { progressBlocker: SurfaceProgressBl
 function tableExists(database: DatabaseSync, name: string): boolean {
   return Boolean(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
 }
+function tableHasColumn(database: DatabaseSync, table: string, column: string): boolean {
+  return Boolean(database.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name=?`).get(column));
+}
 
 function string(value: unknown): string { return typeof value === 'string' ? value : ''; }
 function object(value: unknown): Record<string, unknown> | null {
@@ -38,7 +41,11 @@ function displayFoundation(value: SurfaceFoundation | null): Surface['foundation
     sinksInvestigated: coverage.sinksInvestigated === true,
     openQuestions: Array.isArray(coverage.openQuestions) ? coverage.openQuestions : [],
     unexploredConnections: Array.isArray(coverage.unexploredConnections) ? coverage.unexploredConnections : []
-  }, bugHistory: value.bugHistory, threatModel: value.threatModel } : null;
+  }, discovery: typeof value.discovery === 'string' ? value.discovery : '',
+  techStack: Array.isArray(value.techStack) ? value.techStack : [],
+  bugHistory: { summary: value.bugHistory?.summary ?? '', limits: value.bugHistory?.limits ?? '',
+    entries: Array.isArray(value.bugHistory?.entries) ? value.bugHistory.entries : [] },
+  threatModel: value.threatModel } : null;
 }
 
 /** App-server-owned, path-free projection of the durable workspace surface map. */
@@ -48,14 +55,14 @@ export function readWorkspaceSurfaceMap(databasePath: string, workspaceId: strin
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
     if (!tableExists(database, 'app_server_research_resources')) return empty();
-    const roots = (database.prepare(`SELECT id, name, rationale, kind, direction, review_status, source, discovered_at, updated_at
+    const roots = (database.prepare(`SELECT id, name, locator, scope_asset_id, rationale, kind, direction, review_status, source, discovered_at, updated_at
       FROM app_server_research_resources WHERE workspace_id=? ORDER BY discovered_at, id`).all(workspaceId) as Row[])
-      .filter((row) => row.direction !== 'out_of_scope' && row.review_status !== 'not_relevant'
-        && row.review_status !== 'explicit_out_of_scope'
-        && (row.source !== 'runtime_discovery' || row.review_status === 'relevant'));
+      .filter((row) => row.source === 'explicit_scope'
+        || row.direction !== 'out_of_scope' && row.review_status === 'relevant');
     const eligibleRootIds = new Set(roots.map((row) => string(row.id)));
     const resourceKinds = new Map(roots.map((row) => [string(row.id), string(row.kind)]));
     const resourceSources = new Map(roots.map((row) => [string(row.id), string(row.source)]));
+    const resourceDirections = new Map(roots.map((row) => [string(row.id), string(row.direction)]));
     const children = tableExists(database, 'app_server_surfaces')
       ? (database.prepare(`SELECT id, resource_id, parent_id, name, description, foundation_json, created_at, updated_at
           FROM app_server_surfaces WHERE workspace_id=? ORDER BY created_at, id`).all(workspaceId) as Row[])
@@ -74,13 +81,14 @@ export function readWorkspaceSurfaceMap(databasePath: string, workspaceId: strin
       ? database.prepare('SELECT surface_id, first_touched_at, first_agent_id, first_session_id FROM app_server_surface_touches WHERE workspace_id=?').all(workspaceId) as Row[] : [])
       .map((row) => [string(row.surface_id), { at: string(row.first_touched_at), agentId: string(row.first_agent_id),
         sessionId: string(row.first_session_id) }]));
-    const sessionModels = new Map<string, string>((tableExists(database, 'app_server_sessions')
-      ? database.prepare("SELECT id, json_extract(document_json, '$.model') AS model FROM app_server_sessions WHERE workspace_id=?")
+    const sessionModels = new Map<string, { provider: string | null; model: string }>((tableExists(database, 'app_server_sessions')
+      ? database.prepare("SELECT id, json_extract(document_json, '$.provider') AS provider, json_extract(document_json, '$.model') AS model FROM app_server_sessions WHERE workspace_id=?")
         .all(workspaceId) as Row[] : [])
-      .map((row): [string, string] => [string(row.id), string(row.model)]));
-    const firstTouchedModel = (id: string): string | null => {
+      .map((row): [string, { provider: string | null; model: string }] => [string(row.id), {
+        provider: string(row.provider) || null, model: string(row.model) }]));
+    const firstTouchedAuthor = (id: string): { provider: string | null; model: string } | null => {
       const touch = firstTouches.get(id);
-      return touch?.agentId === 'root' ? sessionModels.get(touch.sessionId) || null : null;
+      return touch?.agentId === 'root' ? sessionModels.get(touch.sessionId) ?? null : null;
     };
     const focusHistory = new Map<string, SurfaceHistoryEvent[]>();
     if (tableExists(database, 'app_server_surface_focus_events')) {
@@ -131,25 +139,31 @@ export function readWorkspaceSurfaceMap(databasePath: string, workspaceId: strin
     };
     const raw = [
       ...roots.map((row) => ({ id: string(row.id), resourceId: string(row.id),
-        resourceKind: string(row.kind), resourceSource: string(row.source), parentId: null, name: string(row.name),
+        resourceKind: string(row.kind), resourceSource: string(row.source), resourceDirection: string(row.direction),
+        resourceLocator: string(row.locator), scopeAssetId: row.scope_asset_id === null ? null : string(row.scope_asset_id),
+        parentId: null, name: string(row.name),
         description: string(row.rationale), updatedAt: rootUpdatedAt(row),
         firstTouchedAt: firstTouches.get(string(row.id))?.at ?? null,
         firstTouchedBy: firstTouches.get(string(row.id))?.agentId ?? null,
-        firstTouchedModel: firstTouchedModel(string(row.id)),
+        firstTouchedModel: firstTouchedAuthor(string(row.id))?.model || null,
+        firstTouchedProvider: firstTouchedAuthor(string(row.id))?.provider ?? null,
         history: history(string(row.id), string(row.discovered_at), rootUpdatedAt(row)),
         foundation: rootFoundations.get(string(row.id)) ?? null })),
       ...children.map((row) => ({ id: string(row.id), resourceId: string(row.resource_id),
         resourceKind: resourceKinds.get(string(row.resource_id)) ?? '',
-        resourceSource: resourceSources.get(string(row.resource_id)) ?? '', parentId: string(row.parent_id),
+        resourceSource: resourceSources.get(string(row.resource_id)) ?? '',
+        resourceDirection: resourceDirections.get(string(row.resource_id)) ?? '', parentId: string(row.parent_id),
         name: string(row.name), description: string(row.description), updatedAt: string(row.updated_at),
         firstTouchedAt: firstTouches.get(string(row.id))?.at ?? null,
         firstTouchedBy: firstTouches.get(string(row.id))?.agentId ?? null,
-        firstTouchedModel: firstTouchedModel(string(row.id)),
+        firstTouchedModel: firstTouchedAuthor(string(row.id))?.model || null,
+        firstTouchedProvider: firstTouchedAuthor(string(row.id))?.provider ?? null,
         history: history(string(row.id), string(row.created_at), string(row.updated_at)),
         foundation: foundation(row.foundation_json) }))
     ];
     const claims = tableExists(database, 'app_server_research_claims')
-      ? database.prepare(`SELECT id, status, security_tracking_json
+      ? database.prepare(`SELECT id, status, ${tableHasColumn(database, 'app_server_research_claims', 'surface_id')
+        ? 'surface_id' : 'NULL AS surface_id'}, security_tracking_json
           FROM app_server_research_claims WHERE workspace_id=? AND duplicate_of_claim_id IS NULL
             AND (classification='security' OR classification LIKE 'security.%')
             AND status IN ('observed','reproduced','verified','report_ready')`).all(workspaceId) as Row[] : [];
@@ -166,11 +180,12 @@ export function readWorkspaceSurfaceMap(databasePath: string, workspaceId: strin
       const findingIds = claims.flatMap((claim) => {
         const tracking = parsed(claim.security_tracking_json);
         const surfaceIds = Array.isArray(tracking?.surfaceIds) ? tracking.surfaceIds : [];
+        const assignedSurfaceId = string(claim.surface_id);
         const blocked = (claim.status === 'observed' || claim.status === 'reproduced') && Boolean(tracking?.progressBlocker);
         const affected = Array.isArray(tracking?.affectedAssetIds) ? tracking.affectedAssetIds : [];
-        const unassignedRoot = surface.parentId === null && surfaceIds.length === 0
+        const unassignedRoot = surface.parentId === null && surfaceIds.length === 0 && !assignedSurfaceId
           && (affected.length === 0 || affected.includes(surface.resourceId));
-        return !blocked && (surfaceIds.includes(id) || unassignedRoot) ? [string(claim.id)] : [];
+        return !blocked && (assignedSurfaceId === id || surfaceIds.includes(id) || unassignedRoot) ? [string(claim.id)] : [];
       });
       const state = assessSurfaceCoverage(surface.foundation, findingIds,
         (byParent.get(id) ?? []).some((child) => !coverage(child, nextTrail).covered), Boolean(surface.foundation?.progressBlocker));

@@ -416,10 +416,13 @@ export interface BealeWorkspaceSurfaceMap {
   workspaceId: string;
   surfaces: Array<{
     id: string; resourceId: string; resourceKind?: string; resourceSource?: string;
+    resourceLocator?: string; resourceDirection?: string; scopeAssetId?: string | null;
     parentId: string | null; name: string; description: string;
-    firstTouchedAt: string | null; firstTouchedBy?: string | null; firstTouchedModel?: string | null;
+    firstTouchedAt: string | null; firstTouchedBy?: string | null; firstTouchedModel?: string | null; firstTouchedProvider?: string | null;
     updatedAt?: string; foundation: {
-      bugHistory?: { summary: string; limits: string };
+      discovery?: string;
+      techStack?: Array<{ technology: string; role: string; version: string; environment: string; evidence: string; confidence: 'observed' | 'inferred' | 'unknown' }>;
+      bugHistory?: { entries?: Array<{ identifier: string; impact: string; affectedVersions: string; reference: string; notes: string }>; summary: string; limits: string };
       threatModel?: { attackerControl: string; trustBoundaries: string; assetsAtRisk: string; plausibleImpacts: string; assumptions: string };
       coverage: { summary?: string; gaps?: string; opportunities?: string; mappingComplete: boolean; sinksInvestigated: boolean; openQuestions: string[]; unexploredConnections: string[] };
     } | null;
@@ -592,12 +595,20 @@ export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSu
     if (!isRecord(foundation) || !isRecord(foundation.coverage)) return false;
     const coverage = foundation.coverage;
     const threatModel = foundation.threatModel;
+    const techStack = foundation.techStack;
+    const bugHistory = foundation.bugHistory;
     return typeof coverage.mappingComplete === 'boolean'
       && typeof coverage.sinksInvestigated === 'boolean'
       && strings(coverage.openQuestions) && strings(coverage.unexploredConnections)
       && ['summary', 'gaps', 'opportunities'].every((key) => coverage[key] === undefined || typeof coverage[key] === 'string')
-      && (foundation.bugHistory === undefined || isRecord(foundation.bugHistory)
-        && typeof foundation.bugHistory.summary === 'string' && typeof foundation.bugHistory.limits === 'string')
+      && (foundation.discovery === undefined || typeof foundation.discovery === 'string')
+      && (techStack === undefined || Array.isArray(techStack) && techStack.every((entry) => isRecord(entry)
+        && ['technology', 'role', 'version', 'environment', 'evidence'].every((key) => typeof entry[key] === 'string')
+        && ['observed', 'inferred', 'unknown'].includes(String(entry.confidence))))
+      && (bugHistory === undefined || isRecord(bugHistory)
+        && typeof bugHistory.summary === 'string' && typeof bugHistory.limits === 'string'
+        && (bugHistory.entries === undefined || Array.isArray(bugHistory.entries) && bugHistory.entries.every((entry) => isRecord(entry)
+          && ['identifier', 'impact', 'affectedVersions', 'reference', 'notes'].every((key) => typeof entry[key] === 'string'))))
       && (threatModel === undefined || isRecord(threatModel)
         && ['attackerControl', 'trustBoundaries', 'assetsAtRisk', 'plausibleImpacts', 'assumptions']
           .every((key) => typeof threatModel[key] === 'string'));
@@ -607,11 +618,15 @@ export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSu
       && typeof surface.id === 'string' && typeof surface.resourceId === 'string'
       && (surface.resourceKind === undefined || typeof surface.resourceKind === 'string')
       && (surface.resourceSource === undefined || typeof surface.resourceSource === 'string')
+      && (surface.resourceLocator === undefined || typeof surface.resourceLocator === 'string')
+      && (surface.resourceDirection === undefined || typeof surface.resourceDirection === 'string')
+      && (surface.scopeAssetId === undefined || surface.scopeAssetId === null || typeof surface.scopeAssetId === 'string')
       && (surface.parentId === null || typeof surface.parentId === 'string')
       && typeof surface.name === 'string' && typeof surface.description === 'string'
       && (surface.firstTouchedAt === null || typeof surface.firstTouchedAt === 'string')
       && (surface.firstTouchedBy === undefined || surface.firstTouchedBy === null || typeof surface.firstTouchedBy === 'string')
       && (surface.firstTouchedModel === undefined || surface.firstTouchedModel === null || typeof surface.firstTouchedModel === 'string')
+      && (surface.firstTouchedProvider === undefined || surface.firstTouchedProvider === null || typeof surface.firstTouchedProvider === 'string')
       && (surface.updatedAt === undefined || typeof surface.updatedAt === 'string')
       && validFoundation(surface.foundation)
       && (surface.progressBlocker === null || isRecord(surface.progressBlocker)
@@ -746,6 +761,7 @@ export interface BealeMemoryNotificationFeed {
 
 export interface BealeWorkspaceMemoryNode {
   id: string;
+  surfaceId?: string | null;
   sessionIds: string[];
   type: string;
   title: string;
@@ -781,6 +797,7 @@ export interface BealeWorkspaceMemoryCatalog {
 
 export interface BealeWorkspaceResearchClaim {
   id: string;
+  surfaceId?: string | null;
   sessionIds: string[];
   projection: "lead" | "finding";
   maturity: string;

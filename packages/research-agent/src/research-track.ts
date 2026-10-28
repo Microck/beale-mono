@@ -75,6 +75,7 @@ export interface ResearchTrackSurfaceProjection {
   resourceId?: string;
   resourceKind?: string;
   resourceSource?: string;
+  resourceDirection?: string;
   parentId: string | null;
   name: string;
   coverageState: { covered: boolean; unmetRequirements: string[]; unblockedFindingIds?: string[] };
@@ -221,7 +222,8 @@ export class ResearchTrackStore {
     surfaces: readonly ResearchTrackSurfaceProjection[];
     replaceUnfinished?: boolean;
   }): ResearchTrackSnapshot {
-    if (input.surfaces.length === 0) throw new Error("A research track requires an eligible scope surface.");
+    const eligibleSurfaces = input.surfaces.filter((surface) => surface.resourceDirection !== "out_of_scope");
+    if (eligibleSurfaces.length === 0) throw new Error("A research track requires an eligible scope surface.");
     if (input.targetIds.length === 0 || input.targetIds.length > 16
       || new Set(input.targetIds).size !== input.targetIds.length) {
       throw new Error("A research track requires 1 to 16 distinct research targets.");
@@ -254,7 +256,7 @@ export class ResearchTrackStore {
           JSON.stringify(input.provider), JSON.stringify(input.targetIds),
           input.collaboration ? JSON.stringify(input.collaboration) : null, input.guardianEnabled === false ? 0 : 1, now, now);
       if (existing) this.#database.prepare("DELETE FROM app_server_research_track_surfaces WHERE workspace_id = ?").run(this.#workspaceId);
-      this.#insertSurfaces(input.surfaces, now);
+      this.#insertSurfaces(eligibleSurfaces, now);
       this.#database.exec("COMMIT");
     } catch (error) { this.#database.exec("ROLLBACK"); throw error; }
     return this.get()!;
@@ -263,6 +265,7 @@ export class ResearchTrackStore {
   public syncSurfaces(surfaces: readonly ResearchTrackSurfaceProjection[]): ResearchTrackSnapshot | null {
     const track = this.get();
     if (!track) return null;
+    surfaces = surfaces.filter((surface) => surface.resourceDirection !== "out_of_scope");
     const now = new Date().toISOString();
     const visibleIds = new Set(surfaces.map((surface) => surface.id));
     const newSurface = surfaces.some((surface) => !track.surfaces.some((work) => work.surfaceId === surface.id));

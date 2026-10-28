@@ -1,21 +1,26 @@
 import { useMemo, useState, type JSX } from 'react';
 import { TriangleAlert } from 'lucide-react';
 import type { BealeWorkspaceSurfaceMap } from '@beale/app-server-runtime/protocol';
+import type { ScopeAssetKind } from '@shared/types';
 import { filterSurfaceHierarchy, layoutSurfaceHierarchy, surfaceCoveragePercent, type MapSurface } from '../../view-models/surfaceMap';
+import { surfaceAssetKind } from './WorkspaceResourceKinds';
 import { WorkspaceTitleSearch } from './WorkspaceTitleSearch';
 
-export function WorkspaceSurfaceMap({ map, workspaceName, loading = false, error = null, selectedSurfaceId = null, onSelectSurface }: {
+export function WorkspaceSurfaceMap({ map, workspaceName, resourceKind = null, loading = false, error = null, selectedSurfaceId = null, onSelectSurface }: {
   map: BealeWorkspaceSurfaceMap | null;
   workspaceName: string;
+  resourceKind?: ScopeAssetKind | null;
   loading?: boolean;
   error?: string | null;
   selectedSurfaceId?: string | null;
   onSelectSurface?: (surface: MapSurface) => void;
 }): JSX.Element {
   const [query, setQuery] = useState('');
-  const [showUntouched, setShowUntouched] = useState(false);
-  const visibleSurfaces = useMemo(() => map ? filterSurfaceHierarchy(map.surfaces, query, showUntouched) : [],
-    [map, query, showUntouched]);
+  const [showUntouched, setShowUntouched] = useState(true);
+  const kindSurfaces = useMemo(() => map?.surfaces.filter((surface) =>
+    resourceKind === null || surfaceAssetKind(surface.resourceKind) === resourceKind) ?? [], [map, resourceKind]);
+  const visibleSurfaces = useMemo(() => filterSurfaceHierarchy(kindSurfaces, query, showUntouched),
+    [kindSurfaces, query, showUntouched]);
   const layout = useMemo(() => layoutSurfaceHierarchy(visibleSurfaces), [visibleSurfaces]);
   const nodes = new Map(layout.nodes.map((node) => [node.surface.id, node]));
   const agents = map?.agents.filter((agent) => nodes.has(agent.surfaceId)) ?? [];
@@ -26,7 +31,7 @@ export function WorkspaceSurfaceMap({ map, workspaceName, loading = false, error
         <div className="workspace-catalog-title-row"><h2>{workspaceName.trim() || 'Workspace'} Surfaces</h2><WorkspaceTitleSearch label="surfaces" query={query} onChange={setQuery} /></div>
         <p>System components and their current research context.</p>
       </div>
-      {map ? <div className="workspace-surface-map-count">{map.surfaces.filter((surface) => surfaceCoveragePercent(surface) > 0).length} of {map.surfaces.length} touched · {map.surfaces.filter((surface) => surface.coverageState.covered).length} complete · {map.surfaces.filter((surface) => surface.progressBlocker).length} blocked</div> : null}
+      {map ? <div className="workspace-surface-map-count">{kindSurfaces.filter((surface) => surfaceCoveragePercent(surface) > 0).length} of {kindSurfaces.length} touched · {kindSurfaces.filter((surface) => surface.coverageState.covered).length} complete · {kindSurfaces.filter((surface) => surface.progressBlocker).length} blocked</div> : null}
     </header>
     {error ? <p className="workspace-surface-map-status" role="alert">{error}</p> : !map
       ? <p className="workspace-surface-map-status" role="status">{loading ? 'Loading surfaces…' : 'Surface map unavailable.'}</p>
@@ -39,7 +44,7 @@ export function WorkspaceSurfaceMap({ map, workspaceName, loading = false, error
     </div>
     {layout.nodes.length === 0 ? <p className="workspace-surface-map-empty">{query.trim()
       ? 'No surfaces match this filter.'
-      : map.surfaces.length && !showUntouched
+      : kindSurfaces.length && !showUntouched
         ? 'No surfaces have coverage yet. Show untouched surfaces to see the full map.'
         : 'No surfaces have been mapped in this workspace yet.'}</p> : <div className="workspace-surface-map-scroll">
       <div className="workspace-surface-map-canvas" style={{ width: layout.width, height: layout.height }}>

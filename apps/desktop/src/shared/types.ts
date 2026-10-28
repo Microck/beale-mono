@@ -526,6 +526,7 @@ export type AppServerMemoryNodeProvenanceSummary =
 
 export interface AppServerMemoryNodeSummary {
   id: string;
+  surfaceId?: string | null;
   sessionIds: string[];
   workspaces: Array<{ id: string; name: string }>;
   subjectId: string;
@@ -703,6 +704,7 @@ export interface AppServerResearchClaimDuplicateSummary {
 
 export interface AppServerFindingSummary {
   id: string;
+  surfaceId?: string | null;
   workspaceId: string;
   subjectId: string;
   memoryNodeId: string | null;

@@ -1768,24 +1768,22 @@ export class AppServerHostService {
     const workspace = this.requireWorkspace(workspaceIdentifier);
     const storage = this.registry.storageForProfile(workspace.researchProfileId);
     return this.databaseCoordinator.runWhenAvailable(storage.databasePath, () => {
-      if (workspace.memoryBackend !== 'disabled') {
-        const binding = resolveStoredResearchWorkspaceBinding({
-          workspaceRoot: workspace.workspacePath,
-          databasePath: storage.databasePath,
-          researchProfileId: workspace.researchProfileId
-        });
-        if (binding.source === 'beale') {
-          if (binding.memoryContext.workspaceId !== workspace.workspaceId) {
-            throw new Error('The recorded workspace scope does not match this workspace.');
-          }
-          const resources = new ResearchResourceCatalog({
-            databasePath: storage.databasePath,
-            workspaceId: workspace.workspaceId,
-            explicitResources: binding.resources,
-            ...(binding.authorization ? { authorization: binding.authorization } : {})
-          });
-          resources.close();
+      const binding = resolveStoredResearchWorkspaceBinding({
+        workspaceRoot: workspace.workspacePath,
+        databasePath: storage.databasePath,
+        researchProfileId: workspace.researchProfileId
+      });
+      if (binding.source === 'beale') {
+        if (binding.memoryContext.workspaceId !== workspace.workspaceId) {
+          throw new Error('The recorded workspace scope does not match this workspace.');
         }
+        const resources = new ResearchResourceCatalog({
+          databasePath: storage.databasePath,
+          workspaceId: workspace.workspaceId,
+          explicitResources: binding.resources,
+          ...(binding.authorization ? { authorization: binding.authorization } : {})
+        });
+        resources.close();
       }
       return readWorkspaceSurfaceMap(storage.databasePath, workspace.workspaceId);
     });
@@ -2233,6 +2231,7 @@ function pathFreeWorkspaceClaim(value: unknown): BealeWorkspaceMemoryCatalog['fi
   const evidence = Array.isArray(claim.evidence) ? claim.evidence : [];
   return [{
     id,
+    ...(nonEmpty(claim.surfaceId) ? { surfaceId: nonEmpty(claim.surfaceId) } : {}),
     sessionIds: stringArray([claim.originSessionId, ...evidence.flatMap((entry) => (
       entry && typeof entry === 'object' && !Array.isArray(entry) ? [(entry as Record<string, unknown>).sessionId] : []
     ))]),
@@ -2348,6 +2347,7 @@ function pathFreeWorkspaceMemoryNode(value: unknown): BealeWorkspaceMemoryNode[]
   if (!id || !type || !title) return [];
   return [{
     id,
+    ...(nonEmpty(node.surfaceId) ? { surfaceId: nonEmpty(node.surfaceId) } : {}),
     sessionIds: stringArray(node.sessionIds),
     type,
     title,

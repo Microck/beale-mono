@@ -3,7 +3,7 @@ import type { JSX } from 'react';
 import type { BealeAppServerWorkspaceDetails, BealeAppServerWorkspaceDocument, BealeWorkspaceResearchClaim, BealeWorkspaceResearchTrack } from '@beale/app-server-runtime/protocol';
 import type {
   AppServerFindingSummary, AppServerMemorySummary, AppServerMemoryNodeSummary,
-  AppServerReportSummary, AppServerRunbookSummary, ScopeAssetKind, WorkspaceScopeVersion
+  AppServerReportSummary, AppServerRunbookSummary, ResearchProviderModelCatalog, ScopeAssetKind, WorkspaceScopeVersion
 } from '../../../shared/types';
 import { isResearchKitId } from '../../../shared/researchKits';
 import { ResearchSidePanel } from '../research/MemorySidePanel';
@@ -38,7 +38,7 @@ function remoteClaim(claim: BealeWorkspaceResearchClaim, workspaceId: string): A
   const status = ['hypothesis', 'observed', 'reproduced', 'verified', 'report_ready', 'disclosed', 'stale', 'rejected'].includes(claim.status)
     ? claim.status as AppServerFindingSummary['status'] : 'hypothesis';
   return {
-    id: claim.id, workspaceId, subjectId: '', memoryNodeId: null, originSessionId: null,
+    id: claim.id, surfaceId: claim.surfaceId ?? null, workspaceId, subjectId: '', memoryNodeId: null, originSessionId: null,
     projection: claim.projection, maturity,
     rating: claim.rating, classification: claim.classification,
     title: claim.title, summary: claim.summary, impact: claim.impact,
@@ -68,7 +68,7 @@ function remoteMemory(details: BealeAppServerWorkspaceDetails): AppServerMemoryS
   const { workspaceId } = details.workspace;
   const name = details.scope?.name ?? details.workspace.name;
   const nodes: AppServerMemoryNodeSummary[] = details.memory.nodes.map((node) => ({
-    id: node.id, sessionIds: node.sessionIds, workspaces: [{ id: workspaceId, name }],
+    id: node.id, surfaceId: node.surfaceId ?? null, sessionIds: node.sessionIds, workspaces: [{ id: workspaceId, name }],
     subjectId: '', subjectName: details.researchSubject, type: node.type, title: node.title,
     summary: node.summary, body: '', status: node.status, confidence: node.confidence,
     assetIds: [], tags: node.tags, attributes: {}, evidenceRefs: [],
@@ -110,8 +110,9 @@ function remoteMemory(details: BealeAppServerWorkspaceDetails): AppServerMemoryS
   };
 }
 
-export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board', onViewChange, onOpenSession, onStartTrack, onTrackResumed }: {
+export function RemoteWorkspaceDetails({ serverId, details, providerModelCatalog = [], initialView = 'board', onViewChange, onOpenSession, onStartTrack, onTrackResumed }: {
   serverId: string; details: BealeAppServerWorkspaceDetails; initialView?: WorkspaceDashboardView;
+  providerModelCatalog?: readonly ResearchProviderModelCatalog[];
   onViewChange?: (viewName: string) => void;
   onOpenSession?: (sessionId: string) => void;
   onStartTrack?: () => void;
@@ -181,7 +182,8 @@ export function RemoteWorkspaceDetails({ serverId, details, initialView = 'board
     />
     <div className="research-side-resize-handle" aria-hidden="true" />
     <div className="research-side-column">
-      {selectedSurface ? <WorkspaceSurfaceDetails surface={selectedSurface} map={details.surfaceMap} onClose={close} /> : <ResearchSidePanel
+      {selectedSurface ? <WorkspaceSurfaceDetails surface={selectedSurface} map={details.surfaceMap}
+        workspaceId={details.workspace.workspaceId} activeScope={scope} providerModelCatalog={providerModelCatalog} readOnly onClose={close} /> : <ResearchSidePanel
         browserContextsEnabled={false}
         detail={null}
         events={[]}

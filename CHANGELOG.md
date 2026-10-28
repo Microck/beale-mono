@@ -6,10 +6,13 @@
 
 #### Added
 
-- Surface details now have Breakdown, History, and Hierarchy tabs. History shows recorded creation, first touch, focus moves, and durable update and blocker events; older updates appear from their last saved timestamp when individual events are unavailable. Update events survive workspace publication and rebuild.
+- New memories and claims persist a nullable surface association in the global database. Model tools default it to the agent's current surface and allow an explicit surface ID. Existing records migrate with no association.
 
 #### Changed
 
+- Surface first-touch attribution shows the provider icon and model display name when available.
+- Workspace Resources now live under Surfaces. A resource-type row filters the map and adds resources; root surface details expose the resource form, checkout state, and saved prior art. Out-of-scope resources remain visible for management but are excluded from research tracks.
+- Surface details use Breakdown, Recon, Threat Model, and a conditional Resources tab. Recon holds a full discovery note, structured technology mapping, and individual advisory history with impact; existing Bug History notes remain readable. The History and Hierarchy views have been removed.
 - Surface Breakdown now shows Open Questions and Related Components as separate sections, with coverage notes in About.
 - Surface maps now describe concrete component hierarchies. Foundation notes can be partial, and bounded review can complete while questions, findings, or child work remain open. Research track checkpoints no longer require a fixed number of attacker paths or evidence updates for completion; cited claims and evidence still receive validation.
 
