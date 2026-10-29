@@ -65,7 +65,8 @@ export class FleetRemoteController {
     const connection = await this.fleet.connection(machineId);
     if (connection.machine.base) throw new Error('A Fleet base VM must not be started or restarted.');
     const sshArgs = sshConnectionArgs(connection.sshHost, connection.sshUser,
-      connection.sshIdentityFile, connection.sshKnownHostsFile, connection.machine.backend);
+      connection.sshIdentityFile, connection.sshKnownHostsFile, connection.machine.backend,
+      connection.sshHostKeyAlias);
     const readCommand = platform() === 'win32'
       ? `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${Buffer.from("$discovery=Join-Path $HOME '.beale/app-server.json'; if (Test-Path $discovery) { (Get-Content -Raw $discovery | ConvertFrom-Json).operatorToken } else { Get-Content -Raw (Join-Path $HOME '.beale/app-server.token') }", 'utf16le').toString('base64')}`
       : 'if test -f .beale/app-server.json; then cat .beale/app-server.json; else cat .beale/app-server.token; fi';
@@ -272,7 +273,8 @@ export class FleetRemoteController {
     }
     const connection = await this.fleet.connection(machineId);
     if (!attemptedInstall) await this.guestInstaller.ensure(connection);
-    const sshArgs = sshConnectionArgs(connection.sshHost, connection.sshUser, connection.sshIdentityFile, connection.sshKnownHostsFile, connection.machine.backend);
+    const sshArgs = sshConnectionArgs(connection.sshHost, connection.sshUser, connection.sshIdentityFile,
+      connection.sshKnownHostsFile, connection.machine.backend, connection.sshHostKeyAlias);
     const readCommand = platform() === 'win32'
       ? `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${Buffer.from("Get-Content -Raw (Join-Path $HOME '.beale/app-server.json')", 'utf16le').toString('base64')}`
       : 'cat "$HOME/.beale/app-server.json"';

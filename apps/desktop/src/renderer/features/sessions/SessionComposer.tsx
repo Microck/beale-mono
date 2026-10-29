@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, ChevronDown, LockKeyhole, Plus, Square, Users, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, LockKeyhole, Pause, Plus, Square, Users, X } from 'lucide-react';
 import type {
   ApprovalRecord,
   PolicyReviewDecision,
@@ -481,12 +481,12 @@ export const MainSteerArea = memo(function MainSteerArea({
           <button
             type="button"
             className="main-steer-send main-steer-stop"
-            title="Stop session"
-            aria-label="Stop session"
+            title={runId?.startsWith('track_') ? 'Pause Track' : 'Stop session'}
+            aria-label={runId?.startsWith('track_') ? 'Pause Track' : 'Stop session'}
             disabled={sessionControlsDisabled}
             onClick={() => runId && onSessionAction({ type: 'stop', runId, note: 'Stop requested from session composer.' })}
           >
-            <Square size={11} fill="currentColor" />
+            {runId?.startsWith('track_') ? <Pause size={13} fill="currentColor" /> : <Square size={11} fill="currentColor" />}
           </button>
         ) : (
           <button type="button" className="main-steer-send" title="Send steering instruction" aria-label="Send steering instruction" disabled={disabled} onClick={submit}>

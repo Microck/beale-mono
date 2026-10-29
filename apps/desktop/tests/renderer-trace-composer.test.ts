@@ -28,6 +28,20 @@ describe('renderer session composer', () => {
     expect(html).toContain('placeholder="Steer the research"');
   });
 
+  it('labels the active track session control as Pause Track', () => {
+    const html = renderToStaticMarkup(createElement(MainSteerArea, {
+      busy: false,
+      detail: composerDetail('active'),
+      providerModelCatalog: providerModelCatalog(),
+      runId: 'track_example',
+      onSessionAction: () => undefined,
+      onSteerInstruction: () => undefined
+    }));
+
+    expect(html).toContain('aria-label="Pause Track"');
+    expect(html).not.toContain('aria-label="Stop session"');
+  });
+
   it('shows Send after the session is no longer active', () => {
     const html = renderTraceComposer('stopped');
 

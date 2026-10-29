@@ -232,6 +232,10 @@ test('selected surface details show blockers, foundation state, and assigned cla
   }));
   expect(threatModel).toContain('aria-label="Threat model diagram"');
   expect(threatModel).not.toContain('<h3>Diagram</h3>');
+  expect(threatModel).not.toContain('workspace-surface-threat-diagram-card is-session');
+  expect(threatModel).toMatch(/workspace-surface-threat-diagram-card[\s\S]*workspace-surface-threat-diagram-header[\s\S]*Parser[\s\S]*lucide-network[\s\S]*Threat Model[\s\S]*workspace-surface-threat-diagram-divider[\s\S]*workspace-surface-threat-diagram/);
+  expect(threatModel).toContain('title="Parser">Parser</span>');
+  expect(threatModel).toMatch(/workspace-surface-threat-diagram-type[\s\S]*lucide-network[\s\S]*Threat Model/);
   expect(threatModel).toContain('Rendering diagram…');
   expect(threatModel).toContain('aria-label="Expand threat model diagram for parser"');
   for (const title of ['Security Objectives', 'Risks', 'Assumptions', 'Invariants', 'Sinks', 'Mitigations']) {

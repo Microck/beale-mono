@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Beale
+
+#### Changed
+
+- The app-server selector sits beside the sidebar title with a muted computer icon and text; its menu opens below the selector.
+- Research Track cancellation uses a trash icon and confirmation dialog. The session control pauses an active track for later resumption.
+- Cyber safeguard recovery markers use the same regular-weight text size as context compaction and epoch markers and read “Recovering from Cyber Safeguard.”
+- Inter-agent session message headers use the “Collaboration” label.
+- Inter-agent session messages have a divider between the header and message body.
+- Follow-up tasks use the same session message layout as inter-agent messages, with a “Follow-Up” header label.
+- Threat model diagrams show the diagram name, Threat Model label, and an inset divider. Surface details keep a bordered card; session diagrams use an open layout with the graph icon on the left.
+- Session threat model diagrams appear immediately without a synthetic tool line above the card.
+- Diagram card titles capitalize each word while preserving existing uppercase letters.
+- Session diagrams and inter-agent messages have no outer border and align their icons, headers, and bodies with the session icon gutter.
+- Starting or resuming a Research Track opens its session immediately while the app server prepares the session. Track startup scans prioritize the selected workspace.
+- Finding revision and research track checkpoint tool activity use descriptive labels.
+- Fleet now groups app servers, browser targets, and VM targets, with tabs for each workspace and all workspaces. App-server, browser, and VM settings open in dialogs; workspaces no longer show a Targets tab.
+
+#### Fixed
+
+- Research Tracks tolerate VM address reuse by pinning managed clone host keys to clone identity, including on hosts without an existing Tart known-hosts file. Changed host keys pause promptly and show a pause marker after a failed epoch launch.
+- Manual resizing of the session summary sidebar no longer fights automatic width expansion; its minimum width remains enforced.
+
 ## 0.9.5
 
 ### Beale

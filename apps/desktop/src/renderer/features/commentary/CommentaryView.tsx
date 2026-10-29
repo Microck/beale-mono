@@ -24,7 +24,6 @@ import {
   commentaryMessagesForSession,
   commentaryRepositoryMetadataForScope,
   hydrateCommentaryToolCall,
-  surfaceDiagramToolLine,
   type CommentaryToolCall,
   type CommentaryMessage
 } from '../../view-models/commentary';
@@ -685,7 +684,7 @@ export const CommentaryView = memo(function CommentaryView({
           <span>Back to Lead</span>
         </button>
       ) : null}
-      {loading ? <SessionLoadingState label="Loading session" /> : null}
+      {loading ? <SessionLoadingState label={sessionSetupPending ? 'Preparing track session' : 'Loading session'} /> : null}
       {!detail && onInitialInstruction ? (
         <div className="main-commentary-scroll" aria-label={newResearch ? 'New research commentary' : 'No report review started yet'}>
           <div className="main-commentary-list">{emptyContent}</div>
@@ -969,7 +968,9 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   const label = commentaryMessageLabel(message.kind, message.taskAction);
   const icon = commentaryMessageIcon(message.kind, message.toolName);
   const hasAgentHeader = message.kind === 'task' && message.taskAction !== 'spawn';
-  const isAgentMessage = message.kind === 'task' && (message.taskAction === 'message' || message.taskAction === 'room_message');
+  const isFlatAgentMessage = message.kind === 'task'
+    && (message.taskAction === 'message' || message.taskAction === 'followup');
+  const isAgentMessage = isFlatAgentMessage || message.kind === 'task' && message.taskAction === 'room_message';
   const originIsCurrentAgent = message.taskAuthorAgentPath === viewedAgentPath
     || !message.taskAuthorAgentPath && viewedAgentPath === '/root' && message.taskOrigin === 'Lead';
   const destinationIsCurrentAgent = message.taskRecipientAgentPath === viewedAgentPath;
@@ -986,16 +987,8 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   const messageContent = message.kind === 'marker' || message.kind === 'progress' ? null : (
     <div className="main-commentary-message-content">
       {message.kind === 'diagram' && message.surfaceDiagram ? (
-        <>
-          <div className="main-commentary-diagram-tool-line">
-            <Wrench size={16} aria-hidden="true" />
-            <span>{message.contentMarkdown}</span>
-          </div>
-          {message.contentMarkdown === surfaceDiagramToolLine(message.surfaceDiagram) ? (
-            <SurfaceThreatDiagram source={message.surfaceDiagram.source}
-              surfaceName={message.surfaceDiagram.surfaceName} />
-          ) : null}
-        </>
+        <SurfaceThreatDiagram source={message.surfaceDiagram.source}
+          surfaceName={message.surfaceDiagram.surfaceName} presentation="session" />
       ) : message.kind === 'tool' ? (
         <CommentaryToolMessageContent
           message={message}
@@ -1041,10 +1034,12 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
           ))}
         </div>
       ) : hasAgentHeader ? (
-        <div className="main-commentary-agent-card">
+        <div className={`main-commentary-agent-card${isFlatAgentMessage ? ' is-communication' : ''}`}>
           <div className="main-commentary-agent-header">
             <div className="main-commentary-agent-route">
-              <Mail size={14} aria-hidden="true" />
+              {isFlatAgentMessage
+                ? <span className="main-commentary-agent-mail-icon"><Mail size={16} aria-hidden="true" /></span>
+                : <Mail size={14} aria-hidden="true" />}
               <span className={`main-commentary-agent-name${originIsCurrentAgent ? ' is-current-agent' : ''}`}
                 title={message.taskOrigin}>{message.taskOrigin ?? 'Lead'}</span>
               <ArrowRight size={14} aria-hidden="true" />
@@ -1053,6 +1048,7 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
             </div>
             <span className="main-commentary-agent-type">{label}</span>
           </div>
+          {isFlatAgentMessage ? <hr className="main-commentary-agent-divider" aria-hidden="true" /> : null}
           {messageContent}
         </div>
       ) : (
@@ -1513,9 +1509,9 @@ export function commentaryMessageLabel(
 ): string | null {
   if (kind === 'task') {
     if (taskAction === 'spawn') return 'New subagent task';
-    if (taskAction === 'followup') return 'Follow-up task';
+    if (taskAction === 'followup') return 'Follow-Up';
     if (taskAction === 'room_message') return 'Room message';
-    return 'Inter-Agent Message';
+    return 'Collaboration';
   }
   return null;
 }
