@@ -62,6 +62,7 @@
 
 #### Fixed
 
+- Stored research-profile resolution retries brief SQLite read contention when a session starts.
 - Recovered host shell utilities retain standard POSIX paths during login-shell startup, preventing profile errors from appearing in otherwise successful tool results.
 - Host shell calls to `ipsw` recover through a pinned, checksum-verified local binary when the utility is absent. Packaged Desktop runtimes include the installer architecture's binary and its license; source checkouts provision it on first use.
 - Missing host `jq` and `fd` commands recover through pinned, checksum-verified binaries. Desktop packages include matching executables and licenses; source checkouts provision them on first use.
