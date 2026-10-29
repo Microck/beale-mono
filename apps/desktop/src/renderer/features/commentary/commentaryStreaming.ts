@@ -114,7 +114,7 @@ export function reconcileCommentaryStreaming(
     pending.push({
       id: message.id,
       units,
-      shown: message.kind === 'user' || message.kind === 'marker' || message.kind === 'diagram' ? units.length : 0
+      shown: message.kind === 'user' || message.kind === 'marker' ? units.length : 0
     });
     animatedIds.add(message.id);
   }

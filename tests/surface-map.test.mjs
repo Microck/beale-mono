@@ -34,6 +34,8 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     surfaces.focus('/root/scout', root.id);
     const foundation = {
       discovery: 'Example service request parsing is reachable through its public API.',
+      ranking: Object.fromEntries(['impact', 'reachability', 'relevance', 'exposure', 'precedence']
+        .map((factor) => [factor, { score: 7, basis: `Synthetic ${factor} basis.` }])),
       techStack: [{ technology: 'Example Parser', role: 'Request parsing', version: '2.x', environment: 'Example service',
         evidence: 'Synthetic package manifest', confidence: 'observed' }],
       assets: [{ name: 'src/request_parser.ts', status: 'in_progress' }],
@@ -83,6 +85,7 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).history.filter((event) => event.kind === 'first_touch').length, 1);
     assert.ok(map.surfaces.find((surface) => surface.id === child.id).history.some((event) => event.kind === 'updated' && event.actorId === 'host'));
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.coverage.summary, 'Mapped input to sink.');
+    assert.deepEqual(map.surfaces.find((surface) => surface.id === child.id).foundation.ranking, foundation.ranking);
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.threatModel.attackerControl, 'Request bytes.');
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.threatModel.diagram, foundation.threatModel.diagram);
     const canonical = decodeBealeWorkspaceSurfaceMap({ ...map, surfaces: map.surfaces.map((surface) =>
@@ -93,6 +96,10 @@ test('surface map projects eligible hierarchy, touch state, coverage, and active
     assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...map, surfaces: map.surfaces.map((surface) =>
       surface.id === child.id ? { ...surface, foundation: { ...surface.foundation, threatModel: {
         ...surface.foundation.threatModel, risks: [7] } } } : surface) }), /invalid workspace surface map/);
+    assert.throws(() => decodeBealeWorkspaceSurfaceMap({ ...map, surfaces: map.surfaces.map((surface) =>
+      surface.id === child.id ? { ...surface, foundation: { ...surface.foundation, ranking: {
+        ...surface.foundation.ranking, exposure: { score: 11, basis: 'Synthetic exposure basis.' } } } } : surface) }),
+    /invalid workspace surface map/);
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.threatModelReviewed, true);
     assert.deepEqual(map.surfaces.find((surface) => surface.id === child.id).coverageState.openLeadIds, []);
     assert.equal(map.surfaces.find((surface) => surface.id === child.id).foundation.bugHistory.limits, 'Search limited to public sources.');

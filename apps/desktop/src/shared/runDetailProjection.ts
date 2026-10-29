@@ -28,6 +28,7 @@ const COMMENTARY_EVENT_PAYLOAD_KEYS = [
   'action',
   'authorAgentPath',
   'recipientAgentPath',
+  'participantAgentPaths',
   'roomName',
   'roomTitle',
   'packetKind',
@@ -82,6 +83,7 @@ const COMMENTARY_SUBAGENT_PAYLOAD_KEYS = [
   'action',
   'authorAgentPath',
   'recipientAgentPath',
+  'participantAgentPaths',
   'roomName',
   'roomTitle',
   'packetKind',
@@ -285,6 +287,8 @@ export function projectCommentaryTraceEvent(
         ? pickRecordValues(nestedPayload, COMMENTARY_SUBAGENT_PAYLOAD_KEYS)
         : nestedPayload.type === 'model_retry'
           ? pickRecordValues(nestedPayload, COMMENTARY_MODEL_RETRY_PAYLOAD_KEYS)
+        : nestedPayload.type === 'track_epoch_resolving'
+          ? pickRecordValues(nestedPayload, ['type', 'agentPath'] as const)
         : pickRecordValues(nestedPayload, ['agentPath', 'contextUsageEligible'] as const)
       : {};
     if (Object.keys(contextScaffold).length > 0) payload.payload = contextScaffold;

@@ -1248,6 +1248,7 @@ export const ResearchSidePanel = memo(function ResearchSidePanel({
               showBackToMain
               showBackButton={false}
               scrollScopeKey={visibleSelectedSubagentPath}
+              viewedAgentPath={visibleSelectedSubagentPath}
               searchHighlightQuery={searchHighlightQuery}
               onBackToMain={closeSubagentDetail}
               onSessionAction={() => undefined}
@@ -1779,6 +1780,7 @@ export function SubagentDetailPanel({
             showBackToMain
             showBackButton={false}
             scrollScopeKey={subagent.path}
+            viewedAgentPath={subagent.path}
             searchHighlightQuery=""
             onBackToMain={onBack}
             onSessionAction={() => undefined}

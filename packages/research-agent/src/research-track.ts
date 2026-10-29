@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { openResearchDatabase } from "./database.js";
 import type { ResearchExecutableTool, ResearchToolExecutionContext } from "./tool-registry.js";
 import type { ResearchToolAction } from "./types.js";
+import type { SurfaceRanking } from "./surfaces.js";
 
 export type ResearchTrackStatus = "running" | "paused" | "waiting" | "complete" | "stopped";
 export type ResearchTrackWorkStatus = "unexamined" | "active" | "deferred" | "blocked" | "complete" | "excluded";
@@ -35,6 +36,7 @@ export interface ResearchTrackPriorityBreakdown {
   baseScore: number;
   actionability: number;
   impactAdjustment: number;
+  surfaceRankingAdjustment: number;
   testableAngleBonus: number;
   targetValidationPenalty: number;
   noProgressPenalty: number;
@@ -91,6 +93,7 @@ export interface ResearchTrackSurfaceProjection {
   resourceDirection?: string;
   parentId: string | null;
   name: string;
+  foundation?: { ranking?: SurfaceRanking | null } | null;
   coverageState: { covered: boolean; unmetRequirements: string[]; openLeadIds?: string[]; unblockedFindingIds?: string[] };
   progressBlocker: { reason: string } | null;
 }
@@ -103,17 +106,22 @@ const INITIAL_CHILD_ACTIONABILITY = 55;
 const ACTIONABILITY_DECAY_INTERVAL_MS = 6 * 60 * 60_000;
 
 function priorityBreakdown(work: Pick<ResearchTrackSurfaceState,
-  "actionabilityScore" | "angles" | "impact" | "validation" | "noProgressEpochs">): ResearchTrackPriorityBreakdown {
+  "actionabilityScore" | "angles" | "impact" | "validation" | "noProgressEpochs">,
+  ranking: SurfaceRanking | null): ResearchTrackPriorityBreakdown {
   const testableAngle = work.angles.some((angle) => angle.status === "open" || angle.status === "supported");
-  const impactAdjustment = { unknown: 0, low: -25, medium: 0,
+  const impactAdjustment = ranking ? 0 : { unknown: 0, low: -25, medium: 0,
     high: testableAngle ? 30 : 10, critical: testableAngle ? 40 : 20 }[work.impact];
+  // Each factor contributes equally; a score of five is neutral. The scored impact
+  // replaces the legacy qualitative impact adjustment so impact is counted once.
+  const surfaceRankingAdjustment = ranking
+    ? 2 * (Object.values(ranking).reduce((sum, factor) => sum + factor.score, 0) - 25) : 0;
   const targetValidationPenalty = work.validation?.targetDependent
     && (work.validation.environment === "none" || work.validation.environment === "localhost") ? 50 : 0;
   const testableAngleBonus = testableAngle && targetValidationPenalty === 0 ? 15 : 0;
   const noProgressPenalty = work.noProgressEpochs * 10;
-  return { baseScore: work.actionabilityScore + impactAdjustment + testableAngleBonus
+  return { baseScore: work.actionabilityScore + impactAdjustment + surfaceRankingAdjustment + testableAngleBonus
       - targetValidationPenalty - noProgressPenalty,
-    actionability: work.actionabilityScore, impactAdjustment, testableAngleBonus,
+    actionability: work.actionabilityScore, impactAdjustment, surfaceRankingAdjustment, testableAngleBonus,
     targetValidationPenalty, noProgressPenalty };
 }
 
@@ -161,7 +169,7 @@ export class ResearchTrackStore {
         evidence_refs_json TEXT NOT NULL, epochs INTEGER NOT NULL, no_progress_epochs INTEGER NOT NULL,
         revisits INTEGER NOT NULL, revisit_after TEXT, last_worked_at TEXT, updated_at TEXT NOT NULL,
         actionability_score INTEGER NOT NULL DEFAULT 35, score_updated_at TEXT, validation_json TEXT,
-        angles_json TEXT NOT NULL DEFAULT '[]',
+        angles_json TEXT NOT NULL DEFAULT '[]', ranking_json TEXT,
         PRIMARY KEY(workspace_id, surface_id)
       );
       CREATE TABLE IF NOT EXISTS app_server_research_track_history (
@@ -198,6 +206,9 @@ export class ResearchTrackStore {
     if (!surfaceColumns.some((column) => column.name === "angles_json")) {
       this.#database.exec("ALTER TABLE app_server_research_track_surfaces ADD COLUMN angles_json TEXT NOT NULL DEFAULT '[]'");
     }
+    if (!surfaceColumns.some((column) => column.name === "ranking_json")) {
+      this.#database.exec("ALTER TABLE app_server_research_track_surfaces ADD COLUMN ranking_json TEXT");
+    }
   }
 
   public close(): void { this.#database.close(); }
@@ -231,7 +242,8 @@ export class ResearchTrackStore {
           revisits: Number(surface.revisits), revisitAfter: nullable(surface.revisit_after),
           lastWorkedAt: nullable(surface.last_worked_at), updatedAt: String(surface.updated_at),
         };
-        return { ...work, priority: priorityBreakdown(work) };
+        const ranking = surface.ranking_json ? JSON.parse(String(surface.ranking_json)) as SurfaceRanking : null;
+        return { ...work, priority: priorityBreakdown(work, ranking) };
       }),
     };
   }
@@ -300,8 +312,9 @@ export class ResearchTrackStore {
       }
     }
     for (const surface of surfaces) {
-      this.#database.prepare(`UPDATE app_server_research_track_surfaces SET name=?
-        WHERE workspace_id=? AND surface_id=?`).run(surface.name, this.#workspaceId, surface.id);
+      this.#database.prepare(`UPDATE app_server_research_track_surfaces SET name=?, ranking_json=?
+        WHERE workspace_id=? AND surface_id=?`).run(surface.name,
+          surface.foundation?.ranking ? JSON.stringify(surface.foundation.ranking) : null, this.#workspaceId, surface.id);
       const work = track.surfaces.find((item) => item.surfaceId === surface.id);
       if (!work) continue;
       if (work.status === "excluded") {
@@ -627,10 +640,11 @@ export class ResearchTrackStore {
     const insert = this.#database.prepare(`INSERT OR IGNORE INTO app_server_research_track_surfaces
       (workspace_id, surface_id, name, status, impact, theory, next_action, evidence_refs_json,
        epochs, no_progress_epochs, revisits, revisit_after, last_worked_at, updated_at,
-       actionability_score, score_updated_at)
-      VALUES (?, ?, ?, 'unexamined', 'unknown', '', 'Inspect the component and choose a promising research question.', '[]', 0, 0, 0, NULL, NULL, ?, ?, ?)`);
+       actionability_score, score_updated_at, ranking_json)
+      VALUES (?, ?, ?, 'unexamined', 'unknown', '', 'Inspect the component and choose a promising research question.', '[]', 0, 0, 0, NULL, NULL, ?, ?, ?, ?)`);
     for (const surface of surfaces) insert.run(this.#workspaceId, surface.id, surface.name, now,
-      surface.parentId ? INITIAL_CHILD_ACTIONABILITY : INITIAL_ROOT_ACTIONABILITY, now);
+      surface.parentId ? INITIAL_CHILD_ACTIONABILITY : INITIAL_ROOT_ACTIONABILITY, now,
+      surface.foundation?.ranking ? JSON.stringify(surface.foundation.ranking) : null);
   }
 
   #assertEvidenceRef(ref: string): void {
@@ -743,9 +757,12 @@ export function createResearchTrackTool(store: ResearchTrackStore, surface: (id:
   return { descriptor: { name: "track.checkpoint", transportName: "track_checkpoint",
     description: `Record a bounded assessment and useful next step on the assigned component. Structured leads and validation details are optional. ${TRACK_EVIDENCE_REF_GUIDANCE} Use blocked for a concrete external dependency.`,
     actionClasses: ["synthesize"], sideEffects: "write", requiredPermissions: ["research-resource:inventory"], inputSchema: parameters },
-    parameters, async execute(action: ResearchToolAction, _context?: ResearchToolExecutionContext) {
+    parameters, async execute(action: ResearchToolAction, context?: ResearchToolExecutionContext) {
       const startedAt = new Date().toISOString();
       try {
+        if (context?.agentId && context.agentId !== "root") {
+          throw new Error("Only the lead agent can checkpoint the assigned research track surface. Record durable research and send the result to the lead.");
+        }
         const input = action.input;
         const surfaceId = required(input.surfaceId, "surfaceId");
         const outcome = input.outcome;

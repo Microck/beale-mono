@@ -23,6 +23,26 @@ const surfaces: Surface[] = [
   surface('other-root', null, '2026-01-01T00:02:00.000Z')
 ];
 
+test('surface breakdown shows a scored pentagon with accessible factor values and assessment bases', () => {
+  const selected: Surface = { ...surfaces[1]!, foundation: { ...surfaces[1]!.foundation!, ranking: {
+    impact: { score: 9, basis: 'Synthetic state integrity consequence.' },
+    reachability: { score: 8, basis: 'Synthetic public request path.' },
+    relevance: { score: 7, basis: 'Synthetic scope match.' },
+    exposure: { score: 6, basis: 'Synthetic pre-auth path.' },
+    precedence: { score: 4, basis: 'Synthetic related prior advisory.' }
+  } } };
+  const map: BealeWorkspaceSurfaceMap = { schemaVersion: 1, workspaceId: 'workspace-example',
+    surfaces: surfaces.map((item) => item.id === selected.id ? selected : item), agents: [] };
+  const html = renderToStaticMarkup(createElement(WorkspaceSurfaceDetails, {
+    surface: selected, map, onClose: () => undefined
+  }));
+  expect(html).toContain('workspace-surface-ranking-area');
+  expect(html).toContain('aria-label="Surface ranking: Impact 9 of 10, Reachability 8 of 10, Relevance 7 of 10, Exposure 6 of 10, Precedence 4 of 10"');
+  expect(html).toContain('Average 6.8/10');
+  expect(html).toContain('Assessment basis');
+  expect(html).toContain('Synthetic related prior advisory.');
+});
+
 test('ancestors stay visible, while untouched branches stay hidden', () => {
   expect(filterSurfaceHierarchy(surfaces, '', false).map((item) => item.id))
     .toEqual(['asset-example', 'parser', 'sink', 'other-root']);

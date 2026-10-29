@@ -109,6 +109,7 @@ interface AppServerSessionSummaryProjection {
   attempts?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
+  lastMessageAt?: unknown;
 }
 
 interface AppServerSessionUpdateProjection {
@@ -1486,7 +1487,7 @@ export class AppServerHostService {
               store.finishEpoch(track.activeSessionId, session.status === 'completed' || session.status === 'blocked',
                 failed ? 'The research worker failed. Open the failed session for details.' : undefined);
               if (failed) store.pauseWithError('The research worker failed. Open the failed session for details.');
-            } else if (at.getTime() - Date.parse(track.updatedAt) > 120_000) {
+            } else if (!hasRecentTrackSessionActivity(track.updatedAt, session, at)) {
               if (track.guardianEnabled && guardianEnabledForTrackSession(session)) {
                 guardianRecoveryPending = true;
                 await this.markOrphanedTrackSessionForReview(track.activeSessionId, session, storage);
@@ -1718,6 +1719,8 @@ export class AppServerHostService {
       });
     }
     const trackStore = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId: workspace.workspaceId });
+    const recordTrackEpochMarker = input.request.launch.mode === 'research-track'
+      && input.request.sessionId === input.sessionId;
     try {
       const track = trackStore.get();
       const assigned = input.request.launch.mode === 'research-track'
@@ -1736,6 +1739,26 @@ export class AppServerHostService {
       }
     }
     finally { trackStore.close(); }
+    if (recordTrackEpochMarker) {
+      const eventId = `track_epoch_resolving_${input.attemptId}`;
+      const timestamp = new Date().toISOString();
+      try {
+        await this.invokeProtocol('session.append_event', {
+          args: ['session', 'append-event', '--session-id', input.sessionId],
+          storage,
+          input: {
+            id: eventId,
+            kind: 'agent.event',
+            timestamp,
+            summary: 'Research track epoch resolved.',
+            payload: { type: 'track_epoch_resolving', attemptId: input.attemptId, agentPath: '/root' },
+            agentPath: '/root'
+          }
+        });
+      } catch (error) {
+        console.warn('Could not record research track epoch marker:', error);
+      }
+    }
   }
 
   public async workspaceMemory(
@@ -2760,6 +2783,20 @@ function latestAttempt(value: unknown): { id: string; parentAttemptId: string | 
   return null;
 }
 
+function hasRecentTrackSessionActivity(
+  trackUpdatedAt: string,
+  session: AppServerSessionSummaryProjection,
+  at: Date,
+): boolean {
+  const recentAfter = at.getTime() - 120_000;
+  return [trackUpdatedAt, nonEmpty(session.updatedAt), nonEmpty(session.lastMessageAt),
+    latestAttempt(session.attempts)?.startedAt].some((value) => {
+    if (!value) return false;
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) && timestamp > recentAfter;
+  });
+}
+
 function manualContinuationFallbackPrompt(
   session: AppServerSessionSummaryProjection,
   value: unknown,
@@ -2850,6 +2887,7 @@ function researchTrackEpochPrompt(
 ): string {
   const linkedClaims = (ids: readonly string[] | undefined): string => !ids?.length ? 'none'
     : `${ids.slice(0, 6).join(', ')}${ids.length > 6 ? `, and ${ids.length - 6} more` : ''}`;
+  const ranking = surface.foundation?.ranking;
   return [
     `# Continuous research track epoch ${epoch}`,
     `Track ${trackId}, pass ${pass}. The workspace currently contains ${surfaceCount} eligible security surfaces.`,
@@ -2864,6 +2902,11 @@ function researchTrackEpochPrompt(
     `Linked open leads: ${linkedClaims(surface.coverageState.openLeadIds)}. Findings needing resolution: ${linkedClaims(surface.coverageState.unblockedFindingIds)}.`,
     `Prior impact estimate: ${work.impact}. Prior theory: ${work.theory || 'Unexamined.'}`,
     `Current actionability: ${work.actionabilityScore}/100.`,
+    `Current surface factors: ${ranking
+      ? (['impact', 'reachability', 'relevance', 'exposure', 'precedence'] as const)
+        .map((factor) => `${factor} ${ranking[factor].score}/10`).join(', ')
+      : 'unscored'}.`,
+    'When the surface is understood well enough, record all five 1–10 ranking factors (impact, reachability, relevance, exposure, precedence) with a concrete basis in surface.update foundation.ranking. Leave it unscored while important inputs are unknown; revise scores when evidence changes.',
     `Prior validation: ${work.validation ? `${work.validation.environment}; target-dependent=${work.validation.targetDependent}; ${work.validation.reason}` : 'No target-validation result recorded.'}`,
     `Next action: ${work.nextAction}`,
     ...(work.angles.length ? [
@@ -2886,7 +2929,7 @@ function researchTrackEpochPrompt(
     ...(collaborationEnabled ? [
       `Track collaboration: keep one complementary ${focus === 'breadth' ? 'depth' : 'breadth'} subagent active while useful work and capacity permit. Check active agents first and continue a suitable assignment rather than duplicating it. ${focus === 'breadth'
         ? 'Give a distinct collaborator one existing lead, finding, or recorded attacker path to advance with a bounded proof or review question; in advanced mode, use a Prover for reproduction or a Reviewer only when independent verification is due.'
-        : 'Give a breadth scout a distinct underexamined in-scope surface to search for new attacker paths and leads; use the Discoverer role in advanced mode.'} Include the surface ID and canonical claim IDs when relevant. Continue the primary epoch while it runs, reconcile its durable results, and resolve active delegates before the final response. If no concrete complementary task or capacity exists, proceed with the primary work.`
+        : 'Give a breadth scout a distinct underexamined in-scope surface to search for new attacker paths and leads; use the Discoverer role in advanced mode.'} Include the surface ID and canonical claim IDs when relevant. The lead alone records the track checkpoint for its assigned surface; collaborators record durable research and report results to the lead. Continue the primary epoch while they run, reconcile their durable results, and resolve active delegates before the final response. If no concrete complementary task or capacity exists, proceed with the primary work.`
     ] : []),
     'The listed resources are an inventory, not the whole authorization boundary. When source research reveals a distinct covered daemon, service, executable, API, or SDK, record it with resource.catalog discover and request Auto-Reviewed touch before substantive research. Do not leave a separate in-scope target only as a note beneath the current repository surface: an approved discovered resource becomes eligible for a later track epoch. Record the scope link; explicit exclusions still control. Official vendor APIs and SDKs may be covered even when their source was not attached. Third-party applications, customers, and accounts are not authorized just because they integrate with an in-scope vendor. Treat sample implementations as context unless independently included; prioritize the vendor-owned API or SDK behavior and impacts.',
     'For a web-facing theory, use available browser tools to inspect the actual application behavior and test discriminating requests within the recorded authorization. Browser tools are exposed when the Browser feature is enabled; if no usable browser target exists, record that limit in the surface checkpoint. Do not substitute a broad crawl for threat-model reasoning.',
@@ -2895,7 +2938,7 @@ function researchTrackEpochPrompt(
     ...(researchKitId === 'apple-security-bounty' ? [
       'For iOS-specific behavior, inspect the Apple security device capability and use an authorized physical iPhone when one is available. Listing or describing a device is availability checking, not testing: when the theory can be exercised through an operator-built app, use the physical-iPhone install and launch tools and capture the observed result. The iOS Simulator is not a supported substitute. If device testing cannot be performed, state why in surface.update and the checkpoint next action; do not infer a negative on-device result from host tests.'
     ] : []),
-    'Checkpoint at a useful stopping point, including when a proof reaches a result or needs an external prerequisite. Record a short assessment and a useful next action with track.checkpoint. For evidenceRefs, cite a parent workspace record as finding:<claim ID>, memory:<memory ID>, runbook:<runbook ID>, or report:<report ID>; do not use an evidence entry ID, trace ID, artifact ID, or file path. Use an empty list when no canonical record exists. Attacker-path evidenceRefs are included in the checkpoint automatically. Add structured attacker-path updates or validation details when they clarify the work; they are not required for every checkpoint. A bounded review can complete with open leads or unfinished child components. Use blocked only for a concrete external dependency; otherwise defer with a useful next step. Then give a concise final response so the host can select subsequent work.',
+    'Checkpoint at a useful stopping point, including when a proof reaches a result or needs an external prerequisite. Record a short assessment and a useful next action with track.checkpoint. For evidenceRefs, cite a parent workspace record as finding:<claim ID>, memory:<memory ID>, runbook:<runbook ID>, or report:<report ID>; do not use an evidence entry ID, trace ID, artifact ID, or file path. Use an empty list when no canonical record exists. Attacker-path evidenceRefs are included in the checkpoint automatically. Add structured attacker-path updates or validation details when they clarify the work; they are not required for every checkpoint. A bounded review can complete with open leads or unfinished child components. Use blocked only for a concrete external dependency; otherwise defer with a useful next step. After a successful checkpoint, end the epoch with only this neutral final sentence: "Epoch checkpoint recorded." Do not recap findings, evidence, IDs, or next steps in that final response; the durable records carry those details. If the checkpoint cannot be recorded, state the failure briefly instead.',
   ].join('\n');
 }
 

@@ -646,7 +646,8 @@ export function createPiAgentExecutor(
         ];
         const collaborationToolNames = new Set(collaborationTools.map((tool) => tool.name));
         const tools = [
-          ...researchTools.filter((tool) => request.root || tool.name !== "session_disposition"),
+          ...researchTools.filter((tool) => request.root
+            || (tool.name !== "session_disposition" && tool.name !== "track_checkpoint")),
           ...collaborationTools,
         ];
         const visibleTools = () => tools.filter((tool) => !pluginSession || pluginSession.visible(agentToolRegistry?.find(tool.name)?.descriptor.name ?? tool.name));

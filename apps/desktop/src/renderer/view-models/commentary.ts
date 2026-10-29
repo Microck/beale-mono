@@ -17,7 +17,7 @@ export interface CommentaryMessage {
   id: string;
   traceEventId: string | null;
   kind: CommentaryMessageKind;
-  markerType?: 'compaction' | 'safeguard_recovery';
+  markerType?: 'compaction' | 'safeguard_recovery' | 'epoch';
   taskAction?: 'spawn' | 'followup' | 'message' | 'room_message';
   taskAuthorAgentPath?: string;
   taskRecipientAgentPath?: string;
@@ -32,6 +32,10 @@ export interface CommentaryMessage {
   contentMarkdown: string;
   abortNotice?: string;
   createdAt: string;
+}
+
+export function surfaceDiagramToolLine(diagram: NonNullable<CommentaryMessage['surfaceDiagram']>): string {
+  return `${diagram.changeKind === 'created' ? 'Creating' : 'Updating'} threat model diagram for "${diagram.surfaceName}"`;
 }
 
 export interface CommentaryToolCall {
@@ -135,13 +139,14 @@ function surfaceDiagramMessage(event: TraceDisplayEvent): CommentaryMessage | nu
   const surfaceName = stringValue(diagram?.surfaceName);
   const changeKind = stringValue(diagram?.changeKind);
   if (!source?.trim() || !surfaceId || !surfaceName) return null;
+  const surfaceDiagram: NonNullable<CommentaryMessage['surfaceDiagram']> = { source, surfaceId, surfaceName,
+    ...(changeKind === 'created' || changeKind === 'updated' ? { changeKind } : {}) };
   return {
     id: `surface-diagram:${event.id}`,
     traceEventId: event.id,
     kind: 'diagram',
-    surfaceDiagram: { source, surfaceId, surfaceName,
-      ...(changeKind === 'created' || changeKind === 'updated' ? { changeKind } : {}) },
-    contentMarkdown: `${surfaceName} threat model diagram`,
+    surfaceDiagram,
+    contentMarkdown: surfaceDiagramToolLine(surfaceDiagram),
     createdAt: event.createdAt
   };
 }
@@ -159,7 +164,8 @@ function sessionEventMarker(event: TraceDisplayEvent): CommentaryMessage | null 
     ? 'compaction'
     : type === 'model_retry' && stringValue(payload.recoveryKind) === 'safety_guardrail'
       && payload.awaitingSteering !== true
-      ? 'safeguard_recovery' : null;
+      ? 'safeguard_recovery'
+      : type === 'track_epoch_resolving' ? 'epoch' : null;
   if (!markerType) return null;
   return {
     id: `session-marker:${event.id}`,
@@ -168,7 +174,9 @@ function sessionEventMarker(event: TraceDisplayEvent): CommentaryMessage | null 
     markerType,
     contentMarkdown: markerType === 'compaction'
       ? 'Context Compacted'
-      : 'Cybersecurity safeguard encountered · Beale recovering',
+      : markerType === 'epoch'
+        ? 'Resolving Epoch'
+        : 'Cybersecurity safeguard encountered · Beale recovering',
     createdAt: event.createdAt
   };
 }
