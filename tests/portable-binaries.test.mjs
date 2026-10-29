@@ -79,6 +79,7 @@ test('portable binary staging selects the installer architecture and copies lice
     for (const [name, version, licenses] of [
       ['jq', '1.8.2', ['COPYING']],
       ['fd', '10.5.0', ['LICENSE-MIT', 'LICENSE-APACHE']],
+      ['opengrep', '1.33.0', ['LICENSE']],
     ]) {
       const cache = join(root, '.beale', 'tools', name, `v${version}`, key);
       await mkdir(cache, { recursive: true });
@@ -86,7 +87,7 @@ test('portable binary staging selects the installer architecture and copies lice
       for (const license of licenses) await writeFile(join(cache, license), `synthetic ${license}`);
     }
     process.env.HOME = root;
-    for (const name of ['jq', 'fd']) {
+    for (const name of ['jq', 'fd', 'opengrep']) {
       const staged = await stagePortableBinary(name, join(root, 'staged', name), target);
       assert.equal(staged, join(root, 'staged', name, key, name));
       assert.equal(await readFile(staged, 'utf8'), `synthetic ${name} executable`);
@@ -94,6 +95,7 @@ test('portable binary staging selects the installer architecture and copies lice
     assert.equal(await readFile(join(root, 'staged', 'jq', key, 'COPYING'), 'utf8'), 'synthetic COPYING');
     assert.equal((await stat(join(root, 'staged', 'jq', key, 'COPYING'))).mode & 0o777, 0o644);
     assert.equal(await readFile(join(root, 'staged', 'fd', key, 'LICENSE-MIT'), 'utf8'), 'synthetic LICENSE-MIT');
+    assert.equal(await readFile(join(root, 'staged', 'opengrep', key, 'LICENSE'), 'utf8'), 'synthetic LICENSE');
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;

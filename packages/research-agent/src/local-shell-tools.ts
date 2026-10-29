@@ -35,6 +35,8 @@ const LOCAL_SHELL_TOOLS: readonly LocalShellToolSpec[] = [
     executable: async (options) => (await import("./portable-binaries.js")).ensurePortableBinary("jq", options) },
   { name: "fd", commandNames: ["fd", "fd.exe"],
     executable: async (options) => (await import("./portable-binaries.js")).ensurePortableBinary("fd", options) },
+  { name: "opengrep", commandNames: ["opengrep", "opengrep.exe"],
+    executable: async (options) => (await import("./portable-binaries.js")).ensurePortableBinary("opengrep", options) },
 ];
 
 function specFor(name: string): LocalShellToolSpec | undefined {
@@ -118,5 +120,8 @@ function missingCommandMessage(stderr: string, spec: LocalShellToolSpec): boolea
 
 export function environmentWithBundledTool(environment: NodeJS.ProcessEnv, tool: LocalShellTool): NodeJS.ProcessEnv {
   const pathKey = Object.keys(environment).find((name) => name.toLowerCase() === "path") ?? "PATH";
-  return { ...environment, [pathKey]: `${dirname(tool.executable)}${delimiter}${pathValue(environment)}` };
+  // POSIX login profiles can invoke standard host utilities before the tool
+  // command runs. Keep those directories available with a narrow host PATH.
+  const systemPath = process.platform === "win32" ? "" : `${delimiter}/usr/bin${delimiter}/bin`;
+  return { ...environment, [pathKey]: `${dirname(tool.executable)}${delimiter}${pathValue(environment)}${systemPath}` };
 }

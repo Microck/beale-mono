@@ -196,7 +196,7 @@ test('shell recovers a missing host ipsw from the verified local cache before re
   }
 });
 
-test('shell recovers missing host jq and fd without exposing the initial missing-command result', {
+test('shell recovers missing host jq, fd, and opengrep without exposing the initial missing-command result', {
   skip: process.platform === 'win32',
 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'beale-local-portable-tools-example-'));
@@ -206,6 +206,7 @@ test('shell recovers missing host jq and fd without exposing the initial missing
     for (const [name, version, licenses] of [
       ['jq', '1.8.2', ['COPYING']],
       ['fd', '10.5.0', ['LICENSE-MIT', 'LICENSE-APACHE']],
+      ['opengrep', '1.33.0', ['LICENSE']],
     ]) {
       const directory = join(root, '.beale', 'tools', name, `v${version}`, `${process.platform}-${process.arch}`);
       await mkdir(directory, { recursive: true });
@@ -215,7 +216,7 @@ test('shell recovers missing host jq and fd without exposing the initial missing
     process.env.HOME = root;
     process.env.PATH = root;
     const registry = createResearchToolRegistry([createShellTool({ workspaceRoot: root, authorize: allowShell })]);
-    for (const name of ['jq', 'fd']) {
+    for (const name of ['jq', 'fd', 'opengrep']) {
       const direct = await registry.execute({ id: `shell_${name}_direct`, actionClass: 'inspect', toolName: 'shell.run',
         input: { utility: name, args: ['--version'] } });
       assert.equal(direct.result.status, 'complete');

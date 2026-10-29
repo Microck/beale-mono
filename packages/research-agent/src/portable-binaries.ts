@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { unzipSync } from "fflate";
 import { x as extractTar } from "tar";
 
-export type PortableBinaryName = "jq" | "fd";
+export type PortableBinaryName = "jq" | "fd" | "opengrep";
 export interface PortableBinaryTarget { platform: NodeJS.Platform; arch: string; }
 
 interface ReleaseAsset { filename: string; sha256: string; }
@@ -18,6 +18,7 @@ interface ReleaseSpec {
   assets: Record<string, ReleaseAsset>;
   licenses: readonly string[];
   separateLicense?: { url: string; sha256: string; filename: string };
+  maxDownloadBytes?: number;
 }
 
 // Asset digests are from the respective projects' GitHub release manifests.
@@ -53,10 +54,29 @@ const RELEASES: Record<PortableBinaryName, ReleaseSpec> = {
       "win32-x64": { filename: "fd-v10.5.0-x86_64-pc-windows-msvc.zip", sha256: "a227701b8551c35a9931d9f6da75503cf86d88e182d71fb849a70864c5d57cd7" },
     },
   },
+  opengrep: {
+    version: "1.33.0",
+    releaseUrl: "https://github.com/opengrep/opengrep/releases/download/v1.33.0",
+    licenses: ["LICENSE"],
+    separateLicense: {
+      url: "https://raw.githubusercontent.com/opengrep/opengrep/v1.33.0/LICENSE",
+      sha256: "20c17d8b8c48a600800dfd14f95d5cb9ff47066a9641ddeab48dc54aec96e331",
+      filename: "LICENSE",
+    },
+    maxDownloadBytes: 64 * 1024 * 1024,
+    assets: {
+      "darwin-arm64": { filename: "opengrep_osx_arm64", sha256: "87d38a3ca198694a651e723b503e3ff8b0547429b4b9dfa2946f75fc43bb1962" },
+      "darwin-x64": { filename: "opengrep_osx_x86", sha256: "838b74a056be35adfd1067ed7567e0d946b73066ba1b6be8fe5fe966b2142a7e" },
+      "linux-arm64": { filename: "opengrep_manylinux_aarch64", sha256: "d58d332649c347678431647661d83f151aa81a0871648228e16a5767117dff92" },
+      "linux-x64": { filename: "opengrep_manylinux_x86", sha256: "2545812755572e1355ea60f96288f82a26eebed7fc8b512430d49d5667214c24" },
+      "win32-arm64": { filename: "opengrep_windows_x86.exe", sha256: "9a9e90f187f73149f4d141f78241d18282538ce94d555d7515ca9cd70e8f22e9" },
+      "win32-x64": { filename: "opengrep_windows_x86.exe", sha256: "9a9e90f187f73149f4d141f78241d18282538ce94d555d7515ca9cd70e8f22e9" },
+    },
+  },
 };
 
 const MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024;
-const DOWNLOAD_TIMEOUT_MS = 60_000;
+const DOWNLOAD_TIMEOUT_MS = 120_000;
 const LOCK_STALE_MS = 3 * 60_000;
 
 function hostTarget(): PortableBinaryTarget { return { platform: process.platform, arch: process.arch }; }
@@ -78,7 +98,7 @@ async function sha256(path: string): Promise<string> {
 }
 
 async function verifiedDownload(url: string, destination: string, digest: string,
-  signal?: AbortSignal, deadline?: number): Promise<void> {
+  signal?: AbortSignal, deadline?: number, maxBytes = MAX_DOWNLOAD_BYTES): Promise<void> {
   const remaining = deadline === undefined ? DOWNLOAD_TIMEOUT_MS : Math.min(DOWNLOAD_TIMEOUT_MS, deadline - Date.now());
   if (remaining <= 0 || signal?.aborted) throw new Error("Portable tool provisioning was aborted or timed out.");
   const timeout = AbortSignal.timeout(remaining);
@@ -93,7 +113,7 @@ async function verifiedDownload(url: string, destination: string, digest: string
       const { value, done } = await reader.read();
       if (done) break;
       bytes += value.byteLength;
-      if (bytes > MAX_DOWNLOAD_BYTES) throw new Error("Portable tool download exceeds the size limit.");
+      if (bytes > maxBytes) throw new Error("Portable tool download exceeds the size limit.");
       await handle.writeFile(value);
     }
   } finally { reader.releaseLock(); await handle.close(); }
@@ -171,7 +191,8 @@ async function provision(name: PortableBinaryName, target: PortableBinaryTarget,
     await mkdir(temporary, { mode: 0o700 });
     const release = RELEASES[name];
     const artifactPath = join(temporary, asset.filename);
-    await verifiedDownload(`${release.releaseUrl}/${asset.filename}`, artifactPath, asset.sha256, signal, stopAt);
+    await verifiedDownload(`${release.releaseUrl}/${asset.filename}`, artifactPath, asset.sha256, signal, stopAt,
+      release.maxDownloadBytes);
     const extracted = join(temporary, "extracted");
     const executable = executableName(name, target);
     const prefix = asset.filename.replace(/(?:\.tar\.gz|\.zip)$/u, "");

@@ -59,7 +59,7 @@ const packagedArch = process.platform === 'darwin' ? 'arm64'
   : process.platform === 'win32' ? 'x64' : process.arch;
 await stageIpswBinary(join(runtimeRoot, 'node_modules', '@beale', 'research-agent', 'tools', 'ipsw'),
   { platform: process.platform, arch: packagedArch });
-for (const name of ['jq', 'fd']) {
+for (const name of ['jq', 'fd', 'opengrep']) {
   await stagePortableBinary(name, join(runtimeRoot, 'node_modules', '@beale', 'research-agent', 'tools', name),
     { platform: process.platform, arch: packagedArch });
 }
