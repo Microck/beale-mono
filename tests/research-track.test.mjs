@@ -774,6 +774,27 @@ test('track start stores the selected model, targets, and collaboration on the o
   } finally { state.close(); }
 });
 
+test('urgent track scan only inspects its workspace', async () => {
+  const state = fixture();
+  const service = new AppServerHostService({ registry: {
+    registryDirectory: join(dirname(state.databasePath), 'registry'),
+    listWorkspaces: () => [{ workspaceId: 'workspace-other-example' }, { workspaceId }],
+    resolveWorkspace: (id) => {
+      assert.equal(id, workspaceId);
+      return { workspaceId, researchProfileId: 'security-research', researchKitId: 'example-kit', memoryBackend: 'app-server' };
+    },
+    storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
+  }, invokeProtocol: async () => ({}) });
+  service.workspaceResearchTrackContext = async () => ({ scope: { id: 'scope-example' },
+    targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
+  try {
+    const started = state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex', model: 'example-model' },
+      targetIds: ['local'], surfaces });
+    const [due] = await service.dueResearchTracks(new Date(), new Set(), new Set(), workspaceId);
+    assert.equal(due.request.sessionId, started.id);
+  } finally { state.close(); }
+});
+
 test('track epochs share a session, wait for worker exit, and ignore an obsolete stop', async () => {
   const state = fixture();
   let stopTransition = null;

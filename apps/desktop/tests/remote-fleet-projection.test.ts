@@ -77,7 +77,7 @@ test('remote workspace details render the workspace dashboard from the shared de
   expect(html).not.toContain('<span>Resources</span>');
   expect(html).toContain('Surfaces');
   expect(html).toContain('Rules');
-  expect(html).toContain('Targets');
+  expect(html).not.toContain('<span>Targets</span>');
   expect(html).toContain('Settings');
   expect(html).toContain('Runbooks');
   expect(html).toContain('Reports');
@@ -100,11 +100,6 @@ test('remote workspace details render the workspace dashboard from the shared de
 
   const surfaces = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details, initialView: 'surfaces' }));
   expect(surfaces).toContain('aria-label="Workspace surfaces"');
-
-  const targets = renderToStaticMarkup(createElement(RemoteWorkspaceDetails, { serverId: 'server-example', details, initialView: 'targets' }));
-  expect(targets).toContain('workspace-targets-panel');
-  expect(targets).toContain('<h2>ExampleCo Research Targets</h2>');
-  expect(targets).toContain('Selected on this app server');
 
   const populated: BealeAppServerWorkspaceDetails = { ...details, memory: { ...details.memory,
     nodeCount: 1, nodeTypeCounts: { observation: 1 },

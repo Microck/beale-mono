@@ -9,7 +9,7 @@ import { FleetBrowserSideView } from '../research/FleetBrowserSideView';
 import { SubagentDetailPanel } from '../research/MemorySidePanel';
 import { useResearchTrackSessionRunning } from '../../hooks/useResearchTrackSessionRunning';
 import { buildTraceDisplayEventsForAgentPath } from '../../view-models/traceDisplay';
-import { pausesResearchTrackFromSessionAction, runningResearchTrackDetail } from '../../view-models/researchTrackSession';
+import { pauseResearchTrackSessionAction, runningResearchTrackDetail } from '../../view-models/researchTrackSession';
 import { subagentSummaries } from '../../view-models/subagents';
 import { surfaceFocusSummary, type SurfaceFocusSummary } from '../../view-models/surfaceFocus';
 import { mergeRemoteSessionHistory, remoteRunDetail, remoteRunStatus, remoteSessionHistoryPage, remoteWorkspaceRegistry } from './remoteFleetProjection';
@@ -101,6 +101,8 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   const [controlError, setControlError] = useState<string | null>(null);
   const [browserSelection, setBrowserSelection] = useState<string | null>(null);
   const browserOpen = browserSelection === `${serverId}:${sessionId ?? ''}`;
+  const session = catalog?.sessions.find((item) => item.id === sessionId && item.workspaceId === workspaceId);
+  const sessionReady = Boolean(session);
   const showingWorkspaceDetails = Boolean(workspaceId && !sessionId && !newResearchOpen && !automations);
   useEffect(() => { setBrowserSelection(null); }, [serverId, sessionId]);
   useEffect(() => { if (selectedSubagentPath) setBrowserSelection(null); }, [selectedSubagentPath]);
@@ -121,7 +123,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
   useEffect(() => {
     setDetail(null);
     setOlderPages([]);
-    if (!workspaceId || !sessionId) return;
+    if (!workspaceId || !sessionId || !sessionReady) return;
     let active = true;
     const refresh = (): void => {
       void window.beale.getFleetRemoteSession(serverId, workspaceId, sessionId)
@@ -131,9 +133,8 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
     refresh();
     const interval = window.setInterval(refresh, 3_000);
     return () => { active = false; window.clearInterval(interval); };
-  }, [serverId, workspaceId, sessionId]);
+  }, [serverId, workspaceId, sessionId, sessionReady]);
   const workspace = catalog?.workspaces.find((item) => item.workspaceId === workspaceId);
-  const session = catalog?.sessions.find((item) => item.id === sessionId && item.workspaceId === workspaceId);
   const researchTrackRunning = useResearchTrackSessionRunning(workspaceId, sessionId, serverId);
   const browserAvailable = Boolean(session && (researchTrackRunning || !['completed', 'failed', 'stopped'].includes(session.status)));
   const allowedTargets = new Set((workspaceId ? catalog?.workspaceTargets[workspaceId] ?? ['local'] : []).map((targetId) => (
@@ -273,9 +274,10 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
     setControlBusy(true);
     setControlError(null);
     try {
-      if (workspaceId && pausesResearchTrackFromSessionAction(type, researchTrackRunning)) {
-        await window.beale.controlResearchTrack(workspaceId, 'pause', serverId);
-        return;
+      if (workspaceId && (type === 'pause' || type === 'stop')) {
+        const handled = await pauseResearchTrackSessionAction({ action: type, workspaceId, sessionId,
+          serverId, api: window.beale });
+        if (handled) return;
       }
       if (type === 'resume' && instruction?.trim()) {
         await window.beale.controlFleetRemoteSession(serverId, sessionId, 'steer', instruction);
@@ -284,9 +286,9 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
     } catch (caught) { setControlError(message(caught)); }
     finally { setControlBusy(false); }
   };
-  return <section className={`remote-fleet-workspace${session ? ' remote-fleet-session' : ''}${showingWorkspaceDetails ? ' remote-fleet-details' : ''}${newResearchOpen ? ' remote-fleet-new-research' : ''}`} aria-label={`${serverName} research`}>
+  return <section className={`remote-fleet-workspace${sessionId ? ' remote-fleet-session' : ''}${showingWorkspaceDetails ? ' remote-fleet-details' : ''}${newResearchOpen ? ' remote-fleet-new-research' : ''}`} aria-label={`${serverName} research`}>
     <div className="remote-fleet-content">
-      {!session && !showingWorkspaceDetails && !newResearchOpen ? <><p className="remote-fleet-eyebrow">{serverName}</p>
+      {!sessionId && !showingWorkspaceDetails && !newResearchOpen ? <><p className="remote-fleet-eyebrow">{serverName}</p>
         <h1>{workspace?.name ?? (automations ? 'Automations' : 'Research')}</h1></> : null}
       {error ? <p className="settings-form-error" role="alert">{error}</p> : null}
       {showingWorkspaceDetails ? workspaceDetails?.workspace.workspaceId === workspaceId
@@ -296,6 +298,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
           onStartTrack={onStartTrack} onTrackResumed={onTrackResumed} />
         : <p className="remote-fleet-details-status" role={workspaceDetailsError ? 'alert' : 'status'}>{workspaceDetailsError ?? 'Loading workspace details…'}</p>
       : null}
+      {sessionId && !session ? <p className="remote-fleet-details-status" role="status">Preparing track session…</p> : null}
       {session ? <>{detailError ? <p className="settings-form-error" role="alert">{detailError}</p> : null}
         {controlError ? <p className="settings-form-error" role="alert">{controlError}</p> : null}
         {browserAvailable ? <div className="remote-fleet-view-switch" aria-label="Remote session view">

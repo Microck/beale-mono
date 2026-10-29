@@ -152,7 +152,6 @@ export function RemoteWorkspaceDetails({ serverId, details, providerModelCatalog
       initialView={initialView}
       rightAreaExpanded={selected !== null}
       readOnly
-      remoteTargets={details.targets}
       trackServerId={serverId}
       surfaceMap={details.surfaceMap}
       appServerMemory={memory}

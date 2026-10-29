@@ -1430,9 +1430,10 @@ export class AppServerHostService {
   }
 
   public async dueResearchTracks(at = new Date(), activeSessionIds: ReadonlySet<string> = new Set(),
-    busyWorkspaceIds: ReadonlySet<string> = new Set()): Promise<DueAppServerAutomation[]> {
+    busyWorkspaceIds: ReadonlySet<string> = new Set(), workspaceId?: string): Promise<DueAppServerAutomation[]> {
     const due: DueAppServerAutomation[] = [];
     for (const summary of this.registry.listWorkspaces()) {
+      if (workspaceId && summary.workspaceId !== workspaceId) continue;
       const workspace = this.registry.resolveWorkspace(summary.workspaceId);
       if (!workspace) continue;
       const storage = this.registry.storageForProfile(workspace.researchProfileId);
@@ -1625,16 +1626,38 @@ export class AppServerHostService {
     } finally { store.close(); }
   }
 
-  public recordResearchTrackEpochLaunchFailure(workspaceId: string, sessionId: string, reason: string): void {
+  public async recordResearchTrackEpochLaunchFailure(workspaceId: string, sessionId: string, reason: string): Promise<void> {
     const workspace = this.requireWorkspace(workspaceId);
     const storage = this.registry.storageForProfile(workspace.researchProfileId);
     const store = new ResearchTrackStore({ databasePath: storage.databasePath, workspaceId });
+    let paused = false;
     try {
       if (store.get()?.activeSessionId === sessionId) {
         store.finishEpoch(sessionId, false, reason);
         store.pauseWithError(reason);
+        paused = true;
       }
     } finally { store.close(); }
+    if (!paused) return;
+    try {
+      await this.invokeProtocol('session.append_event', {
+        args: ['session', 'append-event', '--session-id', sessionId], storage,
+        input: {
+          id: `track_epoch_paused_${randomUUID()}`,
+          kind: 'agent.event',
+          timestamp: new Date().toISOString(),
+          summary: 'Research track paused while preparing the next epoch.',
+          payload: { type: 'track_epoch_paused',
+            ...(reason.includes('SSH host key verification failed') ? { cause: 'ssh_host_key' } : {}),
+            agentPath: '/root' },
+          agentPath: '/root'
+        }
+      });
+    } catch (error) {
+      if (!(error instanceof Error && error.message.startsWith('Session not found:'))) {
+        console.warn('Could not record research track pause marker:', error);
+      }
+    }
   }
 
   public async recordSessionControlState(input: {
