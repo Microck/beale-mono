@@ -60,6 +60,9 @@
 
 #### Fixed
 
+- Host shell calls to `ipsw` recover through a pinned, checksum-verified local binary when the utility is absent. Packaged Desktop runtimes include the installer architecture's binary and its license; source checkouts provision it on first use.
+- Missing host `jq` and `fd` commands recover through pinned, checksum-verified binaries. Desktop packages include matching executables and licenses; source checkouts provision them on first use.
+- Shell commands that need `rg` use the bundled local ripgrep when the host lacks it. Direct calls retry internally, and compound shell commands receive the bundled tool before execution.
 - Complementary subagents no longer receive or mutate the lead-only Research Track checkpoint tool. Recent canonical session activity prevents startup recovery from falsely orphaning a long-running epoch.
 
 ## 0.9.4
