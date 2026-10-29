@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { JSX, ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, Bot, Brain, ChevronRight, CircleAlert, Database, FileText, Terminal, Wrench } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Bot, Brain, ChevronRight, CircleAlert, Database, FileText, Mail, Terminal, Wrench } from 'lucide-react';
 import type {
   ApprovalRecord,
   PolicyReviewDecision,
@@ -24,6 +24,7 @@ import {
   commentaryMessagesForSession,
   commentaryRepositoryMetadataForScope,
   hydrateCommentaryToolCall,
+  surfaceDiagramToolLine,
   type CommentaryToolCall,
   type CommentaryMessage
 } from '../../view-models/commentary';
@@ -72,6 +73,7 @@ export const CommentaryView = memo(function CommentaryView({
   providerModelDefaults,
   selectedRunId,
   showBackToMain,
+  viewedAgentPath = '/root',
   showBackButton = showBackToMain,
   scrollScopeKey = selectedRunId,
   searchHighlightQuery,
@@ -109,6 +111,7 @@ export const CommentaryView = memo(function CommentaryView({
   providerModelDefaults?: Partial<Record<ResearchModelProviderId, ProviderModelDefaults>>;
   selectedRunId: string | null;
   showBackToMain: boolean;
+  viewedAgentPath?: string;
   showBackButton?: boolean;
   scrollScopeKey?: string | null;
   searchHighlightQuery: string;
@@ -727,6 +730,7 @@ export const CommentaryView = memo(function CommentaryView({
               <CommentaryMessageRow
                 key={message.id}
                 message={message}
+                viewedAgentPath={viewedAgentPath}
                 animateIcon={streamingState.animatedIds.has(message.id)}
                 searchHighlightQuery={searchHighlightQuery}
                 selected={false}
@@ -754,6 +758,7 @@ export const CommentaryView = memo(function CommentaryView({
                       <CommentaryMessageRow
                         key={message.id}
                         message={message}
+                        viewedAgentPath={viewedAgentPath}
                         animateIcon={streamingState.animatedIds.has(message.id)}
                         windowed
                         searchHighlightQuery={searchHighlightQuery}
@@ -772,6 +777,7 @@ export const CommentaryView = memo(function CommentaryView({
                   <CommentaryMessageRow
                     key={message.id}
                     message={message}
+                    viewedAgentPath={viewedAgentPath}
                     animateIcon={streamingState.animatedIds.has(message.id)}
                     windowed
                     searchHighlightQuery={searchHighlightQuery}
@@ -786,6 +792,7 @@ export const CommentaryView = memo(function CommentaryView({
               <CommentaryMessageRow
                 key={message.id}
                 message={message}
+                viewedAgentPath={viewedAgentPath}
                 animateIcon={streamingState.animatedIds.has(message.id)}
                 searchHighlightQuery={searchHighlightQuery}
                 selected={false}
@@ -943,6 +950,7 @@ export function isRunWorkingStatus(status: RunDetail['run']['status']): boolean 
 
 export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   message,
+  viewedAgentPath = '/root',
   animateIcon = false,
   windowed = false,
   searchHighlightQuery,
@@ -950,6 +958,7 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   onRequestToolCallDetail = returnToolCallWithoutLoading
 }: {
   message: CommentaryMessage;
+  viewedAgentPath?: string;
   animateIcon?: boolean;
   windowed?: boolean;
   searchHighlightQuery: string;
@@ -961,10 +970,15 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
   const icon = commentaryMessageIcon(message.kind, message.toolName);
   const hasAgentHeader = message.kind === 'task' && message.taskAction !== 'spawn';
   const isAgentMessage = message.kind === 'task' && (message.taskAction === 'message' || message.taskAction === 'room_message');
+  const originIsCurrentAgent = message.taskAuthorAgentPath === viewedAgentPath
+    || !message.taskAuthorAgentPath && viewedAgentPath === '/root' && message.taskOrigin === 'Lead';
+  const destinationIsCurrentAgent = message.taskRecipientAgentPath === viewedAgentPath;
   const communicationClass = message.kind === 'task'
-    ? (message.taskAuthorAgentPath && message.taskAuthorAgentPath !== '/root') || message.taskRecipientAgentPath === '/root'
-      ? 'agent-communication-inbound'
-      : 'agent-communication-outbound'
+    ? hasAgentHeader
+      ? originIsCurrentAgent ? 'agent-communication-outbound' : 'agent-communication-inbound'
+      : (message.taskAuthorAgentPath && message.taskAuthorAgentPath !== '/root') || message.taskRecipientAgentPath === '/root'
+        ? 'agent-communication-inbound'
+        : 'agent-communication-outbound'
     : '';
   const reasoningTraceLines = message.kind === 'progress'
     ? message.reasoningTraceLines?.length ? message.reasoningTraceLines : [message.contentMarkdown]
@@ -975,10 +989,12 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
         <>
           <div className="main-commentary-diagram-tool-line">
             <Wrench size={16} aria-hidden="true" />
-            <span>{message.surfaceDiagram.changeKind === 'created' ? 'Creating' : 'Updating'} threat model diagram for &quot;{message.surfaceDiagram.surfaceName}&quot;</span>
+            <span>{message.contentMarkdown}</span>
           </div>
-          <SurfaceThreatDiagram source={message.surfaceDiagram.source}
-            surfaceName={message.surfaceDiagram.surfaceName} />
+          {message.contentMarkdown === surfaceDiagramToolLine(message.surfaceDiagram) ? (
+            <SurfaceThreatDiagram source={message.surfaceDiagram.source}
+              surfaceName={message.surfaceDiagram.surfaceName} />
+          ) : null}
         </>
       ) : message.kind === 'tool' ? (
         <CommentaryToolMessageContent
@@ -1028,9 +1044,12 @@ export const CommentaryMessageRow = memo(function CommentaryMessageRow({
         <div className="main-commentary-agent-card">
           <div className="main-commentary-agent-header">
             <div className="main-commentary-agent-route">
-              <span className="main-commentary-agent-name" title={message.taskOrigin}>{message.taskOrigin ?? 'Lead'}</span>
+              <Mail size={14} aria-hidden="true" />
+              <span className={`main-commentary-agent-name${originIsCurrentAgent ? ' is-current-agent' : ''}`}
+                title={message.taskOrigin}>{message.taskOrigin ?? 'Lead'}</span>
               <ArrowRight size={14} aria-hidden="true" />
-              <span className="main-commentary-agent-name" title={message.taskDestination}>{message.taskDestination ?? 'Unknown recipient'}</span>
+              <span className={`main-commentary-agent-name${destinationIsCurrentAgent ? ' is-current-agent' : ''}`}
+                title={message.taskDestination}>{message.taskDestination ?? 'Unknown recipient'}</span>
             </div>
             <span className="main-commentary-agent-type">{label}</span>
           </div>
@@ -1314,10 +1333,11 @@ function captureCommentaryScrollAnchor(
 }
 
 function commentaryMessageRowPropsEqual(
-  left: { message: CommentaryMessage; animateIcon?: boolean; windowed?: boolean; searchHighlightQuery: string; selected: boolean; onRequestToolCallDetail?: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall> },
-  right: { message: CommentaryMessage; animateIcon?: boolean; windowed?: boolean; searchHighlightQuery: string; selected: boolean; onRequestToolCallDetail?: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall> }
+  left: { message: CommentaryMessage; viewedAgentPath?: string; animateIcon?: boolean; windowed?: boolean; searchHighlightQuery: string; selected: boolean; onRequestToolCallDetail?: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall> },
+  right: { message: CommentaryMessage; viewedAgentPath?: string; animateIcon?: boolean; windowed?: boolean; searchHighlightQuery: string; selected: boolean; onRequestToolCallDetail?: (toolCall: CommentaryToolCall) => Promise<CommentaryToolCall> }
 ): boolean {
   if (
+    left.viewedAgentPath !== right.viewedAgentPath ||
     left.animateIcon !== right.animateIcon ||
     left.windowed !== right.windowed ||
     left.searchHighlightQuery !== right.searchHighlightQuery ||
@@ -1495,7 +1515,7 @@ export function commentaryMessageLabel(
     if (taskAction === 'spawn') return 'New subagent task';
     if (taskAction === 'followup') return 'Follow-up task';
     if (taskAction === 'room_message') return 'Room message';
-    return 'Message';
+    return 'Inter-Agent Message';
   }
   return null;
 }

@@ -14,8 +14,11 @@
 
 #### Changed
 
+- Surface Breakdown now plots five grounded 1–10 priority factors in a pentagon. Research Track scheduling uses scored factors when available; existing track rows migrate without scores and retain the prior impact heuristic until assessed.
+- Inter-agent messages in session transcripts use a flat style with a mail icon and appear only for the lead or subagent participating in the exchange. Broadcast room messages remain visible to room members.
 - Research Track progress shows each surface's base priority score and its actionability, impact, testable path, validation, and stalled-work adjustments.
 - Session threat model diagrams show a tool line identifying whether the agent created or updated the diagram for its surface.
+- Research track epochs end with a brief handoff and show a Resolving Epoch marker in the session transcript.
 - Surface model tools now use compact get and update results plus Breakdown, Recon, Analysis, Threat Model, and Resources lookups. The view lookups include linked leads, findings, typed memories, and saved resource prior art; `surface.search` searches the full surface map and is preferred over paged listing for targeted discovery.
 - Surface tools can read up to five selected views of one surface in a single `surface.views` call, with the same linked records as the individual lookups.
 - Agent Feedback sits inside the session input controls beside context usage instead of taking a separate row.
@@ -35,6 +38,7 @@
 
 #### Fixed
 
+- Session threat model tool lines type into the transcript before their diagrams appear.
 - Threat model diagrams with Mermaid-generated HTML line breaks now load as SVG images in session and surface views; image decode failures show the diagram source instead of a broken image icon.
 - The workspace Surfaces hierarchy now fills the main content area, fades at its top and bottom edges, and reveals its scrollbar on hover or scroll. Selecting a surface opens a right sidebar with a circular back control, component title, inline status, first-touch model attribution, last-update time, and sections for its recorded context and state. Older app-server responses without a model show Unknown for recorded touches.
 - Surface cards have a transparent unfilled background, progress shading, and 1px outlines matching the hierarchy links. They show up to three regular-weight name lines and mark blockers with an orange warning icon. Cards and the detail sidebar omit visible percentage labels and inferred type labels.
@@ -53,6 +57,10 @@
 - Child surfaces record their creating session. Existing surface rows migrate with no creation attribution, and session surface maps include creation, focus, and update activity.
 - Research track checkpoints now explain the required workspace record reference format, report invalid references clearly, and include attacker-path references without requiring duplicate checkpoint entries.
 - Successful surface diagram updates now carry an explicit session event marker so the live transcript can render the diagram from the recorded tool observation.
+
+#### Fixed
+
+- Complementary subagents no longer receive or mutate the lead-only Research Track checkpoint tool. Recent canonical session activity prevents startup recovery from falsely orphaning a long-running epoch.
 
 ## 0.9.4
 

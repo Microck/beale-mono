@@ -349,7 +349,7 @@ describe('run detail commentary projection', () => {
     expect(subagentSummaries([projected])[0]?.status).toBe('completed');
   });
 
-  it('retains routed inter-agent messages in the compact root transcript', () => {
+  it('retains routed inter-agent messages only in participant transcripts', () => {
     const message = 'Synthetic peer update. '.repeat(24);
     const activity = traceEvent('peer-message', {
       source: 'system',
@@ -372,6 +372,7 @@ describe('run detail commentary projection', () => {
         action: 'room_packet',
         agentPath: '/root/reviewer',
         authorAgentPath: '/root/reviewer',
+        participantAgentPaths: ['/root/reviewer', '/root/builder'],
         roomName: 'example-review',
         roomTitle: 'Example review room',
         packetKind: 'observation',
@@ -405,6 +406,7 @@ describe('run detail commentary projection', () => {
     expect(projected.traceEvents[1]?.payload).toMatchObject({
       action: 'room_packet',
       authorAgentPath: '/root/reviewer',
+      participantAgentPaths: ['/root/reviewer', '/root/builder'],
       roomTitle: 'Example review room',
       packetKind: 'observation'
     });
@@ -419,11 +421,24 @@ describe('run detail commentary projection', () => {
       taskRoute: 'Lead → Reviewer',
       contentMarkdown: message.trim()
     });
-    expect(messages.find((item) => item.taskAction === 'room_message')).toMatchObject({
+    expect(messages.find((item) => item.taskAction === 'room_message')).toBeUndefined();
+    const reviewerMessages = commentaryMessagesForSession(
+      projected,
+      buildTraceDisplayEventsForAgentPath(projected, '/root/reviewer'),
+      { includeInitialPrompt: false }
+    );
+    expect(reviewerMessages.find((item) => item.taskAction === 'room_message')).toMatchObject({
       taskAction: 'room_message',
       taskRoute: 'Reviewer → room "Example review room"',
       contentMarkdown: 'Synthetic room packet.'
     });
+    const builderMessages = commentaryMessagesForSession(
+      projected,
+      buildTraceDisplayEventsForAgentPath(projected, '/root/builder'),
+      { includeInitialPrompt: false }
+    );
+    expect(builderMessages.find((item) => item.taskAction === 'room_message')?.contentMarkdown)
+      .toBe('Synthetic room packet.');
     expect(messages.find((item) => item.taskAction === 'followup')).toMatchObject({
       taskAction: 'followup',
       taskRoute: 'Lead → Reviewer',

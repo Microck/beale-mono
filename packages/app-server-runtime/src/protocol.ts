@@ -423,6 +423,7 @@ export interface BealeWorkspaceSurfaceMap {
     firstTouchedAt: string | null; firstTouchedBy?: string | null; firstTouchedModel?: string | null; firstTouchedProvider?: string | null;
     updatedAt?: string; foundation: {
       discovery?: string;
+      ranking?: Record<'impact' | 'reachability' | 'relevance' | 'exposure' | 'precedence', { score: number; basis: string }> | null;
       threatModelReviewed?: boolean;
       techStack?: Array<{ technology: string; role: string; version: string; environment: string; evidence: string; confidence: 'observed' | 'inferred' | 'unknown' }>;
       assets?: Array<{ name: string; status: 'untouched' | 'in_progress' | 'complete' }>;
@@ -500,6 +501,7 @@ export interface BealeWorkspaceResearchTrack {
       baseScore: number;
       actionability: number;
       impactAdjustment: number;
+      surfaceRankingAdjustment?: number;
       testableAngleBonus: number;
       targetValidationPenalty: number;
       noProgressPenalty: number;
@@ -623,10 +625,12 @@ function validResearchTrackPriority(value: unknown, actionability: number): bool
   const keys = ["baseScore", "actionability", "impactAdjustment", "testableAngleBonus",
     "targetValidationPenalty", "noProgressPenalty"] as const;
   if (!keys.every((key) => typeof value[key] === "number" && Number.isSafeInteger(value[key]))) return false;
+  if (value.surfaceRankingAdjustment !== undefined && !Number.isSafeInteger(value.surfaceRankingAdjustment)) return false;
   return value.actionability === actionability
     && Number(value.targetValidationPenalty) >= 0 && Number(value.noProgressPenalty) >= 0
     && value.baseScore === Number(value.actionability) + Number(value.impactAdjustment)
-      + Number(value.testableAngleBonus) - Number(value.targetValidationPenalty) - Number(value.noProgressPenalty);
+      + Number(value.surfaceRankingAdjustment ?? 0) + Number(value.testableAngleBonus)
+      - Number(value.targetValidationPenalty) - Number(value.noProgressPenalty);
 }
 
 export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSurfaceMap {
@@ -639,11 +643,20 @@ export function decodeBealeWorkspaceSurfaceMap(value: unknown): BealeWorkspaceSu
     const techStack = foundation.techStack;
     const assets = foundation.assets;
     const bugHistory = foundation.bugHistory;
+    const ranking = foundation.ranking;
+    const rankingFactors = ['impact', 'reachability', 'relevance', 'exposure', 'precedence'];
     return typeof coverage.mappingComplete === 'boolean'
       && typeof coverage.sinksInvestigated === 'boolean'
       && strings(coverage.openQuestions) && strings(coverage.unexploredConnections)
       && ['summary', 'gaps', 'opportunities'].every((key) => coverage[key] === undefined || typeof coverage[key] === 'string')
       && (foundation.discovery === undefined || typeof foundation.discovery === 'string')
+      && (ranking === undefined || ranking === null || isRecord(ranking)
+        && Object.keys(ranking).length === rankingFactors.length
+        && rankingFactors.every((factor) => isRecord(ranking[factor])
+          && Number.isSafeInteger(ranking[factor].score) && Number(ranking[factor].score) >= 1
+          && Number(ranking[factor].score) <= 10
+          && typeof ranking[factor].basis === 'string'
+          && String(ranking[factor].basis).trim().length > 0 && String(ranking[factor].basis).length <= 500))
       && (foundation.threatModelReviewed === undefined || typeof foundation.threatModelReviewed === 'boolean')
       && (techStack === undefined || Array.isArray(techStack) && techStack.every((entry) => isRecord(entry)
         && ['technology', 'role', 'version', 'environment', 'evidence'].every((key) => typeof entry[key] === 'string')

@@ -9,8 +9,13 @@ import type { MemoryGraphStore, MemoryNode } from "./memory-graph.js";
 import type { ResearchExecutableTool, ResearchToolExecutionContext } from "./tool-registry.js";
 import type { ResearchResourceKind, ResearchToolAction } from "./types.js";
 
+export const SURFACE_RANKING_FACTORS = ["impact", "reachability", "relevance", "exposure", "precedence"] as const;
+export type SurfaceRankingFactor = typeof SURFACE_RANKING_FACTORS[number];
+export type SurfaceRanking = Record<SurfaceRankingFactor, { score: number; basis: string }>;
+
 export interface SurfaceFoundation {
   discovery: string;
+  ranking?: SurfaceRanking | null;
   techStack: Array<{ technology: string; role: string; version: string; environment: string; evidence: string; confidence: "observed" | "inferred" | "unknown" }>;
   assets: Array<{ name: string; status: "untouched" | "in_progress" | "complete" }>;
   threatModelReviewed: boolean;
@@ -580,7 +585,8 @@ function readSurfaceView(store: SurfaceStore, related: SurfaceRelatedStores, sur
   switch (view) {
     case "breakdown": return { surfaceId: surface.id, name: surface.name, description: surface.description,
       path: store.path(surface.id), revision: surface.revision, firstTouchedAt: surface.firstTouchedAt,
-      updatedAt: surface.updatedAt, progressBlocker: surface.progressBlocker, coverageState: store.coverageState(surface.id),
+      updatedAt: surface.updatedAt, ranking: surface.foundation?.ranking ?? null,
+      progressBlocker: surface.progressBlocker, coverageState: store.coverageState(surface.id),
       children: store.list({ parentId: surface.id, limit: typeof input.limit === "number" ? input.limit : 20,
         ...(typeof input.offset === "number" ? { offset: input.offset } : {}) }) };
     case "recon": return { surfaceId: surface.id, name: surface.name, revision: surface.revision,
@@ -612,11 +618,28 @@ function readSurfaceView(store: SurfaceStore, related: SurfaceRelatedStores, sur
   }
 }
 
+function rankingFactorSchema(description: string) {
+  return { type: "object", additionalProperties: false, required: ["score", "basis"], properties: {
+    score: { type: "integer", minimum: 1, maximum: 10, description },
+    basis: { type: "string", maxLength: 500,
+      description: "Short basis from scope, observed reachability, threat model, or relevant prior art. State uncertainty explicitly." },
+  } };
+}
+
 export function createSurfaceTools(store: SurfaceStore, related: SurfaceRelatedStores = {}): ResearchExecutableTool[] {
   const foundationSchema = {
     type: "object", additionalProperties: false,
     properties: {
       discovery: { type: "string", description: "General reconnaissance note for this component. May be as detailed as useful; preserve uncertainty and source bounds." },
+      ranking: { type: "object", additionalProperties: false, required: [...SURFACE_RANKING_FACTORS],
+        description: "Assess all five equally weighted priority factors on a 1–10 scale, with a concise evidence-based basis for each. One is low, five is moderate, and ten is high priority. Omit until there is enough context; do not assign neutral scores merely because a factor is unknown.",
+        properties: {
+          impact: rankingFactorSchema("Potential vendor and user security consequence: 1 for minor local effect, 5 for bounded security impact, 10 for broad or severe compromise."),
+          reachability: rankingFactorSchema("Practical attacker path into sensitive code: 1 for difficult privileged prerequisites, 5 for conditional access, 10 for direct attacker-controlled reachability."),
+          relevance: rankingFactorSchema("Match to authorized scope and research objective: 1 for peripheral in-scope work, 5 for adjacent work, 10 for a core target boundary."),
+          exposure: rankingFactorSchema("Who can exercise the entry point: 1 for narrow privileged/internal access, 5 for authenticated or limited access, 10 for public pre-auth exposure."),
+          precedence: rankingFactorSchema("Applicable vulnerability history: 1 when a bounded search found no close analogue, 5 for a related bug class with uncertain applicability, 10 for repeated directly relevant issues. Prior issues are leads, not proof of a current flaw."),
+        } },
       techStack: { type: "array", maxItems: 200, description: "Structured technologies and software environments relevant to this surface. Replace the list when supplied; omit it to preserve existing entries.", items: {
         type: "object", required: ["technology"], additionalProperties: false, properties: {
           technology: { type: "string", description: "Product, framework, library, runtime, or platform name." },
@@ -690,7 +713,7 @@ export function createSurfaceTools(store: SurfaceStore, related: SurfaceRelatedS
               : spec.name === "surface.list"
                 ? "Browse a paged surface inventory. Use surface.search when looking for a specific component or concept that may be outside this page."
                 : spec.name === "surface.breakdown"
-                  ? "Read the Breakdown view: description, progress blocker, coverage, and paged child surfaces."
+                  ? "Read the Breakdown view: description, five-factor priority ranking, progress blocker, coverage, and paged child surfaces."
                   : spec.name === "surface.recon"
                     ? "Read the Recon view: discovery, tech stack, assets, bug history, and a compact directly linked lead list. Fetch individual claims for details."
                     : spec.name === "surface.analysis"
@@ -791,14 +814,41 @@ function section(value: unknown, keys: readonly string[], name: string, previous
     return [key, entry === undefined ? previous[key] ?? "" : bounded(entry, 4_000)];
   }));
 }
+function parseSurfaceRanking(value: unknown): SurfaceRanking | null {
+  if (value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("foundation.ranking must be an object.");
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).some((key) => !SURFACE_RANKING_FACTORS.includes(key as SurfaceRankingFactor))) {
+    throw new Error("foundation.ranking contains an unknown factor.");
+  }
+  return Object.fromEntries(SURFACE_RANKING_FACTORS.map((factor) => {
+    const assessment = record[factor];
+    if (!assessment || typeof assessment !== "object" || Array.isArray(assessment)) {
+      throw new Error(`foundation.ranking.${factor} must include score and basis.`);
+    }
+    const item = assessment as Record<string, unknown>;
+    if (Object.keys(item).some((key) => key !== "score" && key !== "basis")) {
+      throw new Error(`foundation.ranking.${factor} contains an unknown field.`);
+    }
+    if (!Number.isSafeInteger(item.score) || Number(item.score) < 1 || Number(item.score) > 10) {
+      throw new Error(`foundation.ranking.${factor}.score must be an integer from 1 to 10.`);
+    }
+    const basis = nonempty(item.basis, `foundation.ranking.${factor}.basis`);
+    if (basis.length > 500) throw new Error(`foundation.ranking.${factor}.basis must be at most 500 characters.`);
+    return [factor, { score: item.score as number, basis }];
+  })) as SurfaceRanking;
+}
+
 function parseFoundation(value: unknown, previous: SurfaceFoundation | null = null): SurfaceFoundation {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("foundation must be an object.");
   const record = value as Record<string, unknown>;
   if (record.discovery !== undefined && typeof record.discovery !== "string") throw new Error("foundation.discovery must be a string.");
   if (record.threatModelReviewed !== undefined && typeof record.threatModelReviewed !== "boolean") throw new Error("foundation.threatModelReviewed must be a boolean.");
   const threatModel = parseThreatModel(record.threatModel, previous?.threatModel);
+  const ranking = record.ranking === undefined ? previous?.ranking : parseSurfaceRanking(record.ranking);
   return {
     discovery: record.discovery === undefined ? previous?.discovery ?? "" : record.discovery.trim(),
+    ...(ranking === undefined ? {} : { ranking }),
     techStack: record.techStack === undefined ? previous?.techStack ?? [] : parseTechStack(record.techStack),
     assets: record.assets === undefined ? previous?.assets ?? [] : parseAssets(record.assets),
     bugHistory: parseBugHistory(record.bugHistory, previous?.bugHistory),

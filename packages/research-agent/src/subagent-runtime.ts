@@ -105,6 +105,7 @@ export interface SubagentActivity {
   surfaceTrail?: readonly { id: string; name: string }[];
   authorAgentPath?: string;
   recipientAgentPath?: string;
+  participantAgentPaths?: readonly string[];
   message?: string;
   roomPhase?: RoomPhase;
   challengeRound?: number;
@@ -294,7 +295,7 @@ export class SubagentManager {
         task_name: `surface_foundation_${randomUUID().replaceAll("-", "").slice(0, 12)}`,
         surface_id: surfaceId,
         ...(this.delegationRoles.has("discoverer") ? { role: "discoverer" } : {}),
-        message: "Give this component a concise research foundation. Identify its role, neighboring components, relevant trust boundaries, what is already known, and useful open leads. Use surface.update for partial notes and a Mermaid threatModel.diagram grounded in observed or explicitly assumed relationships. Record useful threat-model context; progress follows the current claims and can change later. Keep hypotheses and tests in research records rather than making them child surfaces. Create a child surface only for a concrete subcomponent with a stable noun name. Coordinate with the main agent and report useful observations and limits.",
+        message: "Give this component a concise research foundation. Identify its role, neighboring components, relevant trust boundaries, what is already known, and useful open leads. Use surface.update for partial notes and a Mermaid threatModel.diagram grounded in observed or explicitly assumed relationships. When scope and reconnaissance support an assessment, score impact, reachability, relevance, exposure, and precedence from 1 to 10 with a basis for each in foundation.ranking; leave it unscored otherwise. Record useful threat-model context; progress follows the current claims and can change later. Keep hypotheses and tests in research records rather than making them child surfaces. Create a child surface only for a concrete subcomponent with a stable noun name. Coordinate with the main agent and report useful observations and limits.",
       }, [], false, false, true);
       const agentPath = typeof result.task_name === "string" ? result.task_name : null;
       if (firstAgentId !== "root") {
@@ -1358,7 +1359,7 @@ export class SubagentManager {
   private emitRoomActivity(
     room: CollaborationRoom,
     session: SubagentSession,
-    activity: Pick<SubagentActivity, "type" | "message" | "authorAgentPath" | "recipientAgentPath" | "roomPhase" | "challengeRound" | "packetKind" | "evidenceRefs" | "confidence" | "uncertainty" | "nextExperiment">,
+    activity: Pick<SubagentActivity, "type" | "message" | "authorAgentPath" | "recipientAgentPath" | "participantAgentPaths" | "roomPhase" | "challengeRound" | "packetKind" | "evidenceRefs" | "confidence" | "uncertainty" | "nextExperiment">,
   ): Promise<void> {
     return this.emitActivity({
       ...activity, activityId: `activity_${randomUUID().replaceAll("-", "")}`, timestamp: new Date().toISOString(),
@@ -1373,6 +1374,7 @@ export class SubagentManager {
     const author = this.ensureSession(packet.authorId);
     return this.emitRoomActivity(room, author, {
       type: "room_packet", authorAgentPath: packet.authorPath, ...(packet.recipientAgentPath ? { recipientAgentPath: packet.recipientAgentPath } : {}),
+      ...(!packet.recipientAgentPath ? { participantAgentPaths: room.memberIds.map((id) => this.ensureSession(id).path) } : {}),
       message: packet.content, packetKind: packet.kind, evidenceRefs: packet.evidenceRefs, confidence: packet.confidence,
       ...(packet.uncertainty ? { uncertainty: packet.uncertainty } : {}), ...(packet.nextExperiment ? { nextExperiment: packet.nextExperiment } : {}),
       roomPhase: room.phase, challengeRound: packet.challengeRound,

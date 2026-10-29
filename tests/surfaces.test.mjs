@@ -62,6 +62,34 @@ function fixture() {
     close() { surface.close(); resources.close(); rmSync(directory, { recursive: true, force: true }); } };
 }
 
+test("surface rankings require grounded 1–10 factors and survive partial updates", async () => {
+  const state = fixture();
+  const ranking = {
+    impact: { score: 8, basis: "Example service state could be modified." },
+    reachability: { score: 7, basis: "The synthetic API accepts untrusted requests." },
+    relevance: { score: 9, basis: "The service is in the example authorized scope." },
+    exposure: { score: 8, basis: "The parser runs before example authentication." },
+    precedence: { score: 4, basis: "One older advisory concerns a related parser version." },
+  };
+  try {
+    assert.throws(() => state.surface.update(state.rootId, 1,
+      { ranking: { ...ranking, impact: { ...ranking.impact, score: 0 } } }), /1 to 10/);
+    assert.throws(() => state.surface.update(state.rootId, 1,
+      { ranking: { ...ranking, precedence: { ...ranking.precedence, basis: " " } } }), /basis/);
+    const scored = state.surface.update(state.rootId, 1, { ranking });
+    const revised = state.surface.update(state.rootId, scored.revision, { discovery: "Synthetic follow-up." });
+    assert.deepEqual(revised.foundation.ranking, ranking);
+    const breakdownTool = createSurfaceTools(state.surface).find((tool) => tool.descriptor.name === "surface.breakdown");
+    const result = await breakdownTool.execute({ id: "action-example-ranking", toolName: "surface.breakdown",
+      actionClass: "observe", input: { surfaceId: state.rootId } });
+    assert.equal(result.status, "complete");
+    assert.deepEqual(result.output.ranking, ranking);
+    const restored = new SurfaceStore({ databasePath: state.databasePath, workspaceId, resources: state.resources });
+    try { assert.deepEqual(restored.get(state.rootId).foundation.ranking, ranking); }
+    finally { restored.close(); }
+  } finally { state.close(); }
+});
+
 test("successful surface diagram updates emit a session-visible diagram marker", async () => {
   const state = fixture();
   try {
@@ -286,6 +314,9 @@ test("surface tools expose simple query and track focus without duplicate touch"
     assert.deepEqual(tools["surface.update"].parameters.properties.foundation.properties.assets.items.required, ["name"]);
     assert.deepEqual(tools["surface.update"].parameters.properties.foundation.properties.assets.items.properties.status.enum,
       ["untouched", "in_progress", "complete"]);
+    assert.deepEqual(tools["surface.update"].parameters.properties.foundation.properties.ranking.required,
+      ["impact", "reachability", "relevance", "exposure", "precedence"]);
+    assert.equal(tools["surface.update"].parameters.properties.foundation.properties.ranking.properties.impact.properties.score.maximum, 10);
     assert.match(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.risks.description,
       /ordinary malfunction alone is not security impact/);
     assert.equal(tools["surface.update"].parameters.properties.foundation.properties.threatModel.properties.securityObjectives.type, "array");

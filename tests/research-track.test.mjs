@@ -99,6 +99,7 @@ test('existing track tables gain optional launch configuration columns', () => {
       assert.ok(surfaceColumns.includes('score_updated_at'));
       assert.ok(surfaceColumns.includes('validation_json'));
       assert.ok(surfaceColumns.includes('angles_json'));
+      assert.ok(surfaceColumns.includes('ranking_json'));
       const migrated = database.prepare(`SELECT surface_id, actionability_score, score_updated_at
         FROM app_server_research_track_surfaces ORDER BY surface_id`).all();
       assert.deepEqual(migrated.map((row) => [row.surface_id, row.actionability_score]),
@@ -310,6 +311,7 @@ test('metadata edits and human notes do not raise priority; new source evidence 
         assert.equal(work.actionabilityScore, 33);
         assert.equal(work.noProgressEpochs, 0);
         assert.deepEqual(work.priority, { baseScore: 78, actionability: 33, impactAdjustment: 30,
+          surfaceRankingAdjustment: 0,
           testableAngleBonus: 15, targetValidationPenalty: 0, noProgressPenalty: 0 });
       } else {
         assert.equal(work.noProgressEpochs, kind === null ? 1 : 2);
@@ -317,6 +319,35 @@ test('metadata edits and human notes do not raise priority; new source evidence 
       }
       state.store.finishEpoch(sessionId, true);
     }
+  } finally { state.close(); }
+});
+
+test('five scored surface factors affect selection and replace qualitative impact adjustment', () => {
+  const state = fixture();
+  const ranking = (score) => Object.fromEntries(['impact', 'reachability', 'relevance', 'exposure', 'precedence']
+    .map((factor) => [factor, { score, basis: `Synthetic ${factor} assessment.` }]));
+  const ranked = [
+    { ...surfaces[0], foundation: { ranking: ranking(1) } },
+    { ...surfaces[1], foundation: { ranking: ranking(10) } },
+  ];
+  try {
+    state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      targetIds: ['local'], surfaces: ranked });
+    state.database.prepare(`UPDATE app_server_research_track_surfaces SET impact='critical'
+      WHERE workspace_id=? AND surface_id=?`).run(workspaceId, ranked[1].id);
+    const work = state.store.get().surfaces;
+    assert.equal(work[0].priority.surfaceRankingAdjustment, -40);
+    assert.equal(work[1].priority.surfaceRankingAdjustment, 50);
+    assert.equal(work[1].priority.impactAdjustment, 0);
+    assert.equal(work[1].priority.baseScore, 85);
+    assert.equal(state.store.reserveNext('session-example-ranked', ranked).surface.id, ranked[1].id);
+    const reversed = [
+      { ...ranked[0], foundation: { ranking: ranking(10) } },
+      { ...ranked[1], foundation: { ranking: ranking(1) } },
+    ];
+    const refreshed = state.store.syncSurfaces(reversed).surfaces;
+    assert.equal(refreshed.find((surface) => surface.surfaceId === ranked[0].id).priority.surfaceRankingAdjustment, 50);
+    assert.equal(refreshed.find((surface) => surface.surfaceId === ranked[1].id).priority.surfaceRankingAdjustment, -40);
   } finally { state.close(); }
 });
 
@@ -574,7 +605,11 @@ test('target-dependent localhost evidence records a gap and raises actionability
       const base = { surfaceId: surfaces[0].id, outcome: 'defer', impact: 'medium',
         theory: 'Synthetic input may cross the example trust boundary.', nextAction: 'Test on an example device.',
         evidenceRefs: ['memory:memory-example-a'] };
-      assert.equal((await tool.execute({ input: base })).status, 'complete');
+      const childCheckpoint = await tool.execute({ input: base }, { agentId: 'example-child' });
+      assert.equal(childCheckpoint.status, 'error');
+      assert.match(childCheckpoint.error.message, /Only the lead agent can checkpoint/);
+      assert.equal(state.store.get().activeSurfaceId, surfaces[0].id);
+      assert.equal((await tool.execute({ input: base }, { agentId: 'root' })).status, 'complete');
       const invalidEvidence = await tool.execute({ input: { ...base, evidenceRefs: ['evidence-example-a'] } });
       assert.equal(invalidEvidence.status, 'error');
       assert.match(invalidEvidence.error.message, /parent record, not an evidence entry ID/);
@@ -742,6 +777,7 @@ test('track start stores the selected model, targets, and collaboration on the o
 test('track epochs share a session, wait for worker exit, and ignore an obsolete stop', async () => {
   const state = fixture();
   let stopTransition = null;
+  const epochMarkers = [];
   let currentSurfaces = surfaces;
   const service = new AppServerHostService({ registry: {
     registryDirectory: join(dirname(state.databasePath), 'registry'),
@@ -753,6 +789,7 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     storageForProfile: () => ({ databasePath: state.databasePath, artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
   }, invokeProtocol: async (operation, options) => {
     if (operation === 'session.transition') stopTransition = options.input;
+    if (operation === 'session.append_event') epochMarkers.push(options.input);
     return operation === 'session.get' ? { status: 'completed' } : {};
   } });
   service.workspaceResearchTrackContext = async () => ({ scope: { id: 'scope-example' },
@@ -769,6 +806,7 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     assert.match(first.request.launch.promptMarkdown, /^# Continuous research track epoch 1/m);
     assert.match(first.request.launch.promptMarkdown, /Epoch focus: breadth/);
     assert.match(first.request.launch.promptMarkdown, /complementary depth subagent/);
+    assert.match(first.request.launch.promptMarkdown, /lead alone records the track checkpoint/);
     assert.match(first.request.launch.promptMarkdown, /pursue the most promising authorized question/);
     assert.match(first.request.launch.promptMarkdown, /listed resources are an inventory/);
     assert.match(first.request.launch.promptMarkdown, /authorized physical iPhone/);
@@ -777,11 +815,17 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     assert.match(first.request.launch.promptMarkdown, /Third-party applications, customers, and accounts are not authorized/);
     assert.match(first.request.launch.promptMarkdown, /Map concrete subcomponents with stable noun names/);
     assert.match(first.request.launch.promptMarkdown, /Checkpoint at a useful stopping point/);
+    assert.match(first.request.launch.promptMarkdown, /Epoch checkpoint recorded\./);
+    assert.doesNotMatch(first.request.launch.promptMarkdown, /final response so the host can select/);
     assert.equal(first.request.launch.generateTitle, true);
     assert.equal(first.request.launch.continuation, undefined);
     assert.deepEqual(await service.dueResearchTracks(new Date(), new Set([started.id])), []);
     await service.recordSessionTerminalState({ request: first.request, sessionId: started.id,
       attemptId: 'attempt-example-first', state: 'completed' });
+    assert.deepEqual(epochMarkers.map((event) => ({ id: event.id, kind: event.kind, payload: event.payload })), [{
+      id: 'track_epoch_resolving_attempt-example-first', kind: 'agent.event',
+      payload: { type: 'track_epoch_resolving', attemptId: 'attempt-example-first', agentPath: '/root' }
+    }]);
     currentSurfaces = [{ ...surfaces[0], coverageState: { ...open,
       openLeadIds: ['claim-example-open'], unblockedFindingIds: ['finding-example-open'] } }, surfaces[1]];
     const [second] = await service.dueResearchTracks();
@@ -796,12 +840,19 @@ test('track epochs share a session, wait for worker exit, and ignore an obsolete
     assert.equal(second.request.launch.generateTitle, true);
     await service.recordSessionTerminalState({ request: first.request, sessionId: 'session-example-obsolete',
       attemptId: 'attempt-example-obsolete', state: 'stopped' });
+    assert.equal(epochMarkers.length, 1);
     assert.equal(state.store.get().status, 'running');
     assert.equal(state.store.get().activeSessionId, started.id);
     await service.recordSessionControlState({ request: first.request, sessionId: started.id,
       attemptId: 'attempt-example-first', state: 'stopped', stopCause: 'track_state' });
     assert.equal(stopTransition.metadata.appServerStopCause, 'track_state');
     assert.equal(stopTransition.metadata.manualControlState, undefined);
+    state.store.finishEpoch(started.id, true);
+    await service.recordSessionTerminalState({ request: second.request, sessionId: started.id,
+      attemptId: 'attempt-example-second', state: 'completed' });
+    assert.deepEqual(epochMarkers.map((event) => event.id), [
+      'track_epoch_resolving_attempt-example-first', 'track_epoch_resolving_attempt-example-second'
+    ]);
   } finally { state.close(); }
 });
 
@@ -930,6 +981,36 @@ test('an orphaned track epoch pauses when Guardian is disabled', async () => {
     assert.equal(state.store.get().status, 'paused');
     assert.equal(state.store.get().activeSessionId, null);
     assert.match(state.store.get().lastError, /without a terminal session record/);
+  } finally { state.close(); }
+});
+
+test('a recently recovered session keeps its assigned track surface during startup', async () => {
+  const state = fixture();
+  let sessionUpdatedAt = new Date().toISOString();
+  const service = new AppServerHostService({ registry: {
+    registryDirectory: join(dirname(state.databasePath), 'registry'),
+    listWorkspaces: () => [{ workspaceId }],
+    resolveWorkspace: (id) => id === workspaceId ? {
+      workspaceId, researchProfileId: 'security-research', memoryBackend: 'app-server'
+    } : null,
+    storageForProfile: () => ({ databasePath: state.databasePath,
+      artifactDirectoryPath: join(dirname(state.databasePath), 'artifacts') })
+  }, invokeProtocol: async (operation) => operation === 'session.get'
+    ? { ...interruptedTrackSession(false), updatedAt: sessionUpdatedAt } : {} });
+  service.workspaceResearchTrackContext = async () => ({ scope: { id: 'scope-example' },
+    targets: [{ id: 'local', ready: true }], surfaceMap: { surfaces } });
+  try {
+    const track = state.store.start({ scopeId: 'scope-example', provider: { id: 'openai-codex' },
+      guardianEnabled: false, targetIds: ['local'], surfaces });
+    const assigned = state.store.reserveNext(track.id, surfaces);
+    state.database.prepare('UPDATE app_server_research_tracks SET updated_at=? WHERE workspace_id=?')
+      .run('2000-01-01T00:00:00.000Z', workspaceId);
+    assert.deepEqual(await service.dueResearchTracks(new Date(), new Set()), []);
+    assert.equal(state.store.get().status, 'running');
+    assert.equal(state.store.get().activeSurfaceId, assigned.surface.id);
+    sessionUpdatedAt = '2000-01-01T00:00:00.000Z';
+    assert.deepEqual(await service.dueResearchTracks(new Date(), new Set()), []);
+    assert.equal(state.store.get().status, 'paused');
   } finally { state.close(); }
 });
 

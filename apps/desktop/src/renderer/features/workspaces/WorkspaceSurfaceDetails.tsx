@@ -15,6 +15,58 @@ import { WorkspaceResourceEditor, workspaceResearchSurfaceItems } from './Worksp
 const DETAIL_VIEWS = ['Breakdown', 'Recon', 'Threat Model', 'Analysis', 'Resources'] as const;
 type DetailView = typeof DETAIL_VIEWS[number];
 
+const RANKING_FACTORS = [
+  { key: 'impact', label: 'Impact', x: 180, y: 16 },
+  { key: 'reachability', label: 'Reachability', x: 304, y: 105 },
+  { key: 'relevance', label: 'Relevance', x: 262, y: 266 },
+  { key: 'exposure', label: 'Exposure', x: 98, y: 266 },
+  { key: 'precedence', label: 'Precedence', x: 56, y: 105 },
+] as const;
+type SurfaceRanking = NonNullable<NonNullable<MapSurface['foundation']>['ranking']>;
+
+function rankingPoint(index: number, radius: number): [number, number] {
+  const angle = (-90 + index * 72) * Math.PI / 180;
+  return [Number((180 + Math.cos(angle) * radius).toFixed(2)),
+    Number((153 + Math.sin(angle) * radius).toFixed(2))];
+}
+
+function SurfaceRankingChart({ ranking }: { ranking: SurfaceRanking | null | undefined }): JSX.Element {
+  if (!ranking) return <section className="workspace-surface-details-section">
+    <h3>Surface Ranking</h3><p className="workspace-surface-details-muted">No priority scores recorded.</p>
+  </section>;
+  const average = RANKING_FACTORS.reduce((sum, factor) => sum + ranking[factor.key].score, 0) / RANKING_FACTORS.length;
+  const description = RANKING_FACTORS.map((factor) => `${factor.label} ${ranking[factor.key].score} of 10`).join(', ');
+  return <section className="workspace-surface-details-section workspace-surface-ranking">
+    <h3>Surface Ranking</h3>
+    <figure>
+      <svg viewBox="0 0 360 300" role="img" aria-label={`Surface ranking: ${description}`}>
+        {[2, 4, 6, 8, 10].map((level) => <polygon key={level} className="workspace-surface-ranking-grid"
+          points={RANKING_FACTORS.map((_, index) => rankingPoint(index, 10.4 * level).join(',')).join(' ')} />)}
+        {RANKING_FACTORS.map((_, index) => {
+          const [x, y] = rankingPoint(index, 104);
+          return <line key={index} className="workspace-surface-ranking-axis" x1="180" y1="153" x2={x} y2={y} />;
+        })}
+        <polygon className="workspace-surface-ranking-area"
+          points={RANKING_FACTORS.map((factor, index) => rankingPoint(index, ranking[factor.key].score * 10.4).join(',')).join(' ')} />
+        {RANKING_FACTORS.map((factor, index) => {
+          const [x, y] = rankingPoint(index, ranking[factor.key].score * 10.4);
+          return <g key={factor.key}>
+          <title>{factor.label}: {ranking[factor.key].score}/10. {ranking[factor.key].basis}</title>
+          <circle className="workspace-surface-ranking-point" cx={x} cy={y} r="3" />
+          <text className="workspace-surface-ranking-label" x={factor.x} y={factor.y} textAnchor="middle">{factor.label}</text>
+          <text className="workspace-surface-ranking-score" x={factor.x} y={factor.y + 17} textAnchor="middle">{ranking[factor.key].score}/10</text>
+        </g>})}
+      </svg>
+      <figcaption>Average {average.toFixed(1)}/10 · Higher means more priority</figcaption>
+    </figure>
+    <details className="workspace-surface-ranking-basis"><summary>Assessment basis</summary>
+      <dl>{RANKING_FACTORS.map((factor) => <div key={factor.key}>
+        <dt>{factor.label} · {ranking[factor.key].score}/10</dt><dd>{ranking[factor.key].basis}</dd>
+      </div>)}</dl>
+    </details>
+  </section>;
+}
+
 function DetailText({ label, value }: { label: string; value: string | undefined }): JSX.Element | null {
   return value?.trim() ? <div className="workspace-surface-detail-text"><h4>{label}</h4><p>{value}</p></div> : null;
 }
@@ -169,6 +221,8 @@ export function WorkspaceSurfaceDetails({ surface, map, workspaceId = '', active
         <h3>About</h3>
         <p className="workspace-surface-details-description">{surface.description.trim() || 'No description recorded.'}</p>
       </section>
+
+      <SurfaceRankingChart ranking={surface.foundation?.ranking} />
 
       {surface.progressBlocker ? <section className="workspace-surface-details-section workspace-surface-details-blocker">
         <h3>Progress Blocker</h3><p>{surface.progressBlocker.reason}</p>
