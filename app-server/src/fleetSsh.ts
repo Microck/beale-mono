@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { FleetBackend } from '@beale/app-server-runtime/protocol';
@@ -12,7 +11,7 @@ export function sshConnectionArgs(host: string, user: string, identity: string |
     throw new Error('Invalid Fleet SSH host-key alias.');
   }
   const tartKnownHosts = join(homedir(), '.ssh', 'tart_known_hosts');
-  const knownHostsFile = knownHosts ? expandHome(knownHosts) : backend === 'tart' && existsSync(tartKnownHosts) ? tartKnownHosts : null;
+  const knownHostsFile = knownHosts ? expandHome(knownHosts) : backend === 'tart' ? tartKnownHosts : null;
   const hostKeyChecking = backend === 'tart' && knownHostsFile ? 'accept-new' : 'yes';
   return [
     '-o', 'BatchMode=yes', '-o', `StrictHostKeyChecking=${hostKeyChecking}`, '-o', 'ConnectTimeout=10',

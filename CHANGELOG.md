@@ -22,7 +22,7 @@
 
 #### Fixed
 
-- Research Tracks tolerate VM address reuse by pinning managed clone host keys to clone identity. Changed host keys pause promptly and show a pause marker after a failed epoch launch.
+- Research Tracks tolerate VM address reuse by pinning managed clone host keys to clone identity, including on hosts without an existing Tart known-hosts file. Changed host keys pause promptly and show a pause marker after a failed epoch launch.
 - Manual resizing of the session summary sidebar no longer fights automatic width expansion; its minimum width remains enforced.
 
 ## 0.9.5

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { APP_SERVER_PROTOCOL_VERSION, APP_SERVER_SESSION_LAUNCH_VERSION, BEALE_APP_SERVER_CAPABILITIES, BEALE_APP_SERVER_CONTRACT_TIMESTAMP, BEALE_APP_SERVER_CONTROL_VERSION } from '@beale/app-server-runtime/protocol';
@@ -464,6 +464,7 @@ test('Fleet resumes a clone target by replacing an unbootable session VM', async
     assert.match(alias, /^HostKeyAlias=beale-vm-[a-f0-9]{24}$/);
     assert.ok(prepared.sshArgs.includes('CheckHostIP=no'));
     assert.ok(prepared.sshArgs.includes('StrictHostKeyChecking=accept-new'));
+    assert.ok(prepared.sshArgs.includes(`UserKnownHostsFile=${join(homedir(), '.ssh', 'tart_known_hosts')}`));
     const state = await fleet.state();
     assert.equal(state.machines.find((machine) => machine.id === `tart:${clones[0]}`)?.canRun, false);
     assert.equal(state.machines.find((machine) => machine.id === `tart:${clones[0]}`)?.owner, null);

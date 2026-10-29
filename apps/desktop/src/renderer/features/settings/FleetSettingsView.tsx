@@ -404,7 +404,7 @@ function FleetMachineDetails({ machine, busy, error, onChange }: {
             </label>
           ) : null}
           <label className="settings-form-control-row fleet-text-field">
-            <span className="settings-form-control-copy"><strong>SSH known-hosts file</strong><small>For Tart, Beale uses ~/.ssh/tart_known_hosts when it exists. A first connection to a clone records its host key there.</small></span>
+            <span className="settings-form-control-copy"><strong>SSH known-hosts file</strong><small>For Tart, Beale uses ~/.ssh/tart_known_hosts. A first connection records the VM host key there.</small></span>
             <input value={sshKnownHostsFile} disabled={locked || Boolean(machine.owner) || clearKnownHosts} placeholder={machine.sshKnownHostsConfigured ? 'Configured; enter a new path to replace' : 'Optional host path'} onChange={(event) => { setSshKnownHostsFile(event.currentTarget.value); setTestResult(null); }} />
           </label>
           {machine.sshKnownHostsConfigured ? (
