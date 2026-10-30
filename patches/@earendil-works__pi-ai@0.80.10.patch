@@ -1,5 +1,5 @@
 diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
-index 7a990ddd2ecb6a349ff21e6797d357fac9f09518..f6c2bd94b7575532057921672d57ac7991b1b812 100644
+index 7a990ddd2ecb6a349ff21e6797d357fac9f09518..19ae6bd63490a14cbe46fa2becca1a8dccdc1d34 100644
 --- a/dist/api/openai-completions.js
 +++ b/dist/api/openai-completions.js
 @@ -277,7 +277,43 @@ export const stream = (model, context, options) => {
@@ -21,7 +21,7 @@ index 7a990ddd2ecb6a349ff21e6797d357fac9f09518..f6c2bd94b7575532057921672d57ac79
 +                                    .map((entry) => entry.text)
 +                                    .join("");
 +                                if (delta.length > 0) {
-+                                    const block = ensureThinkingBlock("reasoning_content");
++                                    const block = ensureThinkingBlock("content_parts");
 +                                    block.thinking += delta;
 +                                    stream.push({
 +                                        type: "thinking_delta",
@@ -47,6 +47,30 @@ index 7a990ddd2ecb6a349ff21e6797d357fac9f09518..f6c2bd94b7575532057921672d57ac79
                          choice.delta.content !== undefined &&
                          choice.delta.content.length > 0) {
                          const block = ensureTextBlock();
+@@ -775,7 +811,22 @@ export function convertMessages(model, context, compat) {
+                 .filter(isThinkingContentBlock)
+                 .filter((block) => block.thinking.trim().length > 0);
+             if (nonEmptyThinkingBlocks.length > 0) {
+-                if (compat.requiresThinkingAsText) {
++                const typedContentBlocks = nonEmptyThinkingBlocks
++                    .filter((block) => block.thinkingSignature === "content_parts");
++                if (typedContentBlocks.length > 0) {
++                    // Endpoints such as Mistral take their own typed content arrays back and
++                    // reject reasoning_content as an unknown field, so echo the thinking parts
++                    // in the shape they were received.
++                    assistantMsg.content = [
++                        ...typedContentBlocks.map((block) => ({
++                            type: "thinking",
++                            thinking: [{ type: "text", text: sanitizeSurrogates(block.thinking) }],
++                            closed: true,
++                        })),
++                        ...assistantTextParts,
++                    ];
++                }
++                else if (compat.requiresThinkingAsText) {
+                     // Convert thinking blocks to plain text (no tags to avoid model mimicking them)
+                     const thinkingText = nonEmptyThinkingBlocks
+                         .map((block) => sanitizeSurrogates(block.thinking))
 diff --git a/dist/api/openai-responses-shared.js b/dist/api/openai-responses-shared.js
 index 0216ce205ce7abf800b190bc7e63d526191dc8e7..2d7ab205b8a9576a4b2fd45d8ab7722685c5dc4c 100644
 --- a/dist/api/openai-responses-shared.js

@@ -323,7 +323,22 @@ test('typed content array deltas keep thinking separate from text', async () => 
     assert.notEqual(result.stopReason, 'error', result.errorMessage);
     assert.equal(requests[0].body.reasoning_effort, 'low');
     assert.deepEqual(result.content, [
-      { type: 'thinking', thinking: 'Plan more', thinkingSignature: 'reasoning_content' },
+      { type: 'thinking', thinking: 'Plan more', thinkingSignature: 'content_parts' },
+      { type: 'text', text: 'Map the flow' },
+    ]);
+    const replay = await models.completeSimple(model, {
+      messages: [
+        { role: 'user', content: 'hi', timestamp: Date.now() },
+        { role: 'assistant', content: result.content, api: model.api, provider: model.provider, model: model.id,
+          usage: result.usage, stopReason: 'stop', timestamp: Date.now() },
+        { role: 'user', content: 'continue', timestamp: Date.now() },
+      ],
+    }, { reasoning: 'off' });
+    assert.notEqual(replay.stopReason, 'error', replay.errorMessage);
+    const replayed = requests[1].body.messages[1];
+    assert.equal('reasoning_content' in replayed, false);
+    assert.deepEqual(replayed.content, [
+      { type: 'thinking', thinking: [{ type: 'text', text: 'Plan more' }], closed: true },
       { type: 'text', text: 'Map the flow' },
     ]);
   } finally {
