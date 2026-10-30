@@ -23,7 +23,11 @@ function fixture() {
     const graph = new MemoryGraphStore({ workspaceRoot: root, databasePath: join(root, 'memory.sqlite'), context });
     close.push(graph);
     const claims = new ResearchClaimStore(graph); close.unshift(claims);
-    const layout = ensureResearchStorageLayout(createResearchStorageLayout({ workspaceRoot: root }));
+    const layout = ensureResearchStorageLayout(createResearchStorageLayout({
+      workspaceRoot: root,
+      databasePath: graph.databasePath,
+      artifactDirectoryPath: join(root, 'artifacts'),
+    }));
     const runbooks = new RunbookStore(graph.databasePath, layout, graph.getContext()); close.unshift(runbooks);
     const reports = new ReportStore(graph.databasePath, layout, graph.getContext(), { packetCandidateRoots: [root] }); close.unshift(reports);
     const funnel = new TrackFunnelStore({ databasePath: graph.databasePath, workspaceId: context.workspaceId }); close.unshift(funnel);
@@ -208,10 +212,14 @@ test('the host runs eligible finding workers while discovery components cool', a
     assert.equal(due.length, 1);
     assert.match(due[0].request.launch.promptMarkdown, /No discovery component is ready/);
     assert.equal(track.get().activeSurfaceId, null);
-    assert.deepEqual(state.funnel.activeForSession(track.get().id).map((item) => item.role), ['investigator']);
+    const [assignment] = state.funnel.activeForSession(track.get().id);
+    assert.equal(assignment?.role, 'investigator');
     const status = await host.workspaceResearchTrack(workspaceId, 'status');
-    assert.deepEqual(status.workers.map((worker) => worker.role), ['investigator']);
-    assert.equal(status.workers[0].title, 'Example queued parser finding');
+    assert.deepEqual(status.workers, [], 'a reservation does not represent a started worker');
+    recordWorkerActivity(state.graph.databasePath, track.get().id, assignment, 'spawned', 1);
+    const runningStatus = await host.workspaceResearchTrack(workspaceId, 'status');
+    assert.deepEqual(runningStatus.workers.map((worker) => worker.role), ['investigator']);
+    assert.equal(runningStatus.workers[0].title, 'Example queued parser finding');
     await host.recordResearchTrackEpochLaunchFailure(workspaceId, track.get().id, 'Synthetic launch failure.');
     assert.deepEqual(state.funnel.activeForSession(track.get().id), []);
   } finally { track.close(); await state.close(); }
