@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.6
+
 ### Beale
 
 #### Added
