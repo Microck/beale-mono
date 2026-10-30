@@ -451,6 +451,25 @@ describe('renderer session composer', () => {
     expect(renderTraceComposer('stopped')).toContain('aria-label="Collaboration settings"');
   });
 
+  it('shows the cow steering control only while removable steering remains active', () => {
+    const detail = composerDetail('active');
+    const steering = {
+      id: 'transcript_steering_example', runId: detail.run.id, attemptId: null,
+      traceEventId: null, role: 'user' as const, contentMarkdown: 'Review the example parser.',
+      source: 'user_steering', metadata: { controlRequestId: 'steer_example' },
+      createdAt: '2026-08-01T00:00:00.000Z'
+    };
+    const render = (steeringRemoved: boolean): string => renderToStaticMarkup(createElement(MainSteerArea, {
+      busy: false,
+      detail: { ...detail, transcriptMessages: [{ ...steering, metadata: { ...steering.metadata, steeringRemoved } }] },
+      providerModelCatalog: providerModelCatalog(), runId: detail.run.id,
+      onSessionAction: () => undefined, onSteerInstruction: () => undefined
+    }));
+    expect(render(false)).toContain('aria-label="Active steering messages (1)"');
+    expect(render(false)).toContain('has-steering');
+    expect(render(true)).not.toContain('aria-label="Active steering messages (1)"');
+  });
+
   it('can omit collaboration without leaving an empty action-row slot', () => {
     const html = renderToStaticMarkup(createElement(MainSteerArea, {
       busy: false,

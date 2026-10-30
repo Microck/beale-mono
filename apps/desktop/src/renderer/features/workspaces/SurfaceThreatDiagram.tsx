@@ -184,7 +184,6 @@ export function SurfaceThreatDiagram({ source, surfaceName, presentation = 'surf
           Threat Model
         </span>
       </div>
-      <hr className="workspace-surface-threat-diagram-divider" aria-hidden="true" />
       <div className="workspace-surface-threat-diagram">
         {diagram}
         <button ref={expandButtonRef} className="workspace-surface-threat-diagram-expand" type="button"

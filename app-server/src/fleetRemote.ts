@@ -21,6 +21,7 @@ import { resolveAppServerCodexAuthFile } from './sessionLaunch.js';
 
 const execFileAsync = promisify(execFile);
 const CONNECT_TIMEOUT_MS = 30_000;
+const PRIMARY_BROKER_COMPLETION_TIMEOUT_MS = 20 * 60_000;
 
 export interface FleetRemoteEndpoint {
   machineId: string;
@@ -495,8 +496,24 @@ export class FleetRemoteController {
         if (!['openai-codex', 'xai', 'zai', 'openrouter'].includes(provider)) {
           throw new Error('This provider cannot use the Fleet model broker.');
         }
-        result = { state: 'done', message: await completeBrokerModelRequest(request, this.authenticationPreferences(),
-          resolveAppServerCodexAuthFile(), this.daybreakMode()) };
+        const modelAbort = new AbortController();
+        let modelTimeout: NodeJS.Timeout | null = null;
+        try {
+          const deadline = new Promise<never>((_resolve, reject) => {
+            modelTimeout = setTimeout(() => {
+              modelAbort.abort();
+              reject(new Error('The workspace primary model request exceeded its time limit.'));
+            }, PRIMARY_BROKER_COMPLETION_TIMEOUT_MS);
+            modelTimeout.unref();
+          });
+          result = { state: 'done', message: await Promise.race([
+            completeBrokerModelRequest(request, this.authenticationPreferences(),
+              resolveAppServerCodexAuthFile(), this.daybreakMode(), modelAbort.signal),
+            deadline
+          ]) };
+        } finally {
+          if (modelTimeout) clearTimeout(modelTimeout);
+        }
       } catch {
         result = { state: 'error', error: 'The model request failed on the workspace primary app-server.' };
       }

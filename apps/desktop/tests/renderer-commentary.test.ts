@@ -14,6 +14,7 @@ import {
   commentaryMessageSections,
   commentaryScrollFadeClasses,
   commentarySpacerHeight,
+  commentaryStreamingScopeKey,
   commentaryToolValueText,
   commentaryWindowStartForIndex,
   commentaryWindowStartForOffset,
@@ -40,6 +41,24 @@ import { deferredResearchTrackDetail, runningResearchTrackDetail } from '../src/
 describe('commentary streaming', () => {
   const message = (id: string, contentMarkdown: string, kind: CommentaryMessage['kind'] = 'commentary'): CommentaryMessage => ({
     id, traceEventId: id, kind, contentMarkdown, createdAt: '2026-01-01T00:00:00.000Z'
+  });
+
+  it('shows another subagent’s stored transcript immediately and animates only later messages', () => {
+    const detail = runDetail('Inspect a synthetic parser.');
+    const firstScope = commentaryStreamingScopeKey(detail, detail.run.id, true, '/root/example_reviewer_one');
+    const secondScope = commentaryStreamingScopeKey(detail, detail.run.id, true, '/root/example_reviewer_two');
+    const firstHistory = message('first-history', 'Earlier reviewer history.');
+    const secondHistory = message('second-history', 'Another reviewer’s stored history.');
+    const next = message('new-message', 'A new observation.');
+    expect(secondScope).not.toBe(firstScope);
+    let state = initialCommentaryStreamingState(firstScope, [firstHistory]);
+    state = reconcileCommentaryStreaming(state, secondScope, [secondHistory], true);
+    expect(state.pending).toHaveLength(0);
+    expect(visibleCommentaryMessages(state, [secondHistory])).toEqual([secondHistory]);
+    state = reconcileCommentaryStreaming(state, secondScope, [secondHistory, next], true);
+    expect(state.pending.map((entry) => entry.id)).toEqual(['new-message']);
+    expect(visibleCommentaryMessages(state, [secondHistory, next]).map((entry) => entry.contentMarkdown))
+      .toEqual(['Another reviewer’s stored history.', '']);
   });
 
   it('shows existing history immediately, then reveals new messages in order by character', () => {
@@ -87,7 +106,8 @@ describe('commentary streaming', () => {
     const html = renderToStaticMarkup(createElement(CommentaryMessageRow, {
       message: diagram, searchHighlightQuery: '', selected: false
     }));
-    expect(html).toMatch(/workspace-surface-threat-diagram-card is-session[\s\S]*workspace-surface-threat-diagram-header[\s\S]*workspace-surface-threat-diagram-icon[\s\S]*lucide-network[\s\S]*Example Parser[\s\S]*Threat Model[\s\S]*workspace-surface-threat-diagram-divider[\s\S]*workspace-surface-threat-diagram/);
+    expect(html).toMatch(/workspace-surface-threat-diagram-card is-session[\s\S]*workspace-surface-threat-diagram-header[\s\S]*workspace-surface-threat-diagram-icon[\s\S]*lucide-network[\s\S]*Example Parser[\s\S]*Threat Model[\s\S]*workspace-surface-threat-diagram/);
+    expect(html).not.toContain('workspace-surface-threat-diagram-divider');
     expect((html.match(/lucide-network/gu) ?? []).length).toBe(1);
     expect(html).toContain('title="Example Parser">Example Parser</span>');
     expect(html).toContain('aria-label="Expand threat model diagram for Example parser"');
@@ -1710,7 +1730,8 @@ describe('renderer commentary projection', () => {
     expect(html).toContain('class="main-commentary-agent-card is-communication"');
     expect(html).toMatch(/main-commentary-agent-header[\s\S]*main-commentary-agent-mail-icon[\s\S]*lucide-mail[\s\S]*Reviewer[\s\S]*lucide-arrow-right[\s\S]*Builder[\s\S]*main-commentary-agent-type[\s\S]*Collaboration/);
     expect((html.match(/lucide-mail/gu) ?? []).length).toBe(1);
-    expect(html).toMatch(/main-commentary-agent-type[\s\S]*Collaboration[\s\S]*main-commentary-agent-divider[\s\S]*main-commentary-message-content[\s\S]*Check the synthetic parser fixture/);
+    expect(html).toMatch(/main-commentary-agent-type[\s\S]*Collaboration[\s\S]*main-commentary-message-content[\s\S]*Check the synthetic parser fixture/);
+    expect(html).not.toContain('main-commentary-agent-divider');
     expect(html).not.toContain('is-current-agent');
 
     const senderView = renderToStaticMarkup(createElement(CommentaryMessageRow, {
@@ -1721,10 +1742,12 @@ describe('renderer commentary projection', () => {
     }));
     expect(senderView).toContain('agent-communication-outbound');
     expect(recipientView).toContain('agent-communication-inbound');
-    expect(senderView).toContain('class="main-commentary-agent-name is-current-agent" title="Reviewer"');
-    expect(senderView).not.toContain('class="main-commentary-agent-name is-current-agent" title="Builder"');
-    expect(recipientView).toContain('class="main-commentary-agent-name is-current-agent" title="Builder"');
-    expect(recipientView).not.toContain('class="main-commentary-agent-name is-current-agent" title="Reviewer"');
+    expect(senderView).toContain('class="main-commentary-agent-name" title="Reviewer"');
+    expect(senderView).toContain('class="main-commentary-agent-name" title="Builder"');
+    expect(recipientView).toContain('class="main-commentary-agent-name" title="Reviewer"');
+    expect(recipientView).toContain('class="main-commentary-agent-name" title="Builder"');
+    expect(senderView).not.toContain('is-current-agent');
+    expect(recipientView).not.toContain('is-current-agent');
   });
 
   it('renders a follow-up task with its sender and recipient', () => {
@@ -1745,8 +1768,10 @@ describe('renderer commentary projection', () => {
     expect(html).toContain('class="main-commentary-agent-card is-communication"');
     expect(html).toMatch(/main-commentary-agent-header[\s\S]*main-commentary-agent-mail-icon[\s\S]*lucide-mail[\s\S]*Lead[\s\S]*lucide-arrow-right[\s\S]*Reviewer[\s\S]*main-commentary-agent-type[\s\S]*Follow-Up/);
     expect(html).toContain('Recheck the synthetic fixture.');
-    expect(html).toMatch(/main-commentary-agent-type[\s\S]*Follow-Up[\s\S]*main-commentary-agent-divider[\s\S]*main-commentary-agent-message-body[\s\S]*Recheck the synthetic fixture/);
-    expect(html).toContain('class="main-commentary-agent-name is-current-agent" title="Lead"');
+    expect(html).toMatch(/main-commentary-agent-type[\s\S]*Follow-Up[\s\S]*main-commentary-agent-message-body[\s\S]*Recheck the synthetic fixture/);
+    expect(html).not.toContain('main-commentary-agent-divider');
+    expect(html).toContain('class="main-commentary-agent-name" title="Lead"');
+    expect(html).not.toContain('is-current-agent');
     expect(html).toContain('agent-communication-outbound');
     const recipientView = renderToStaticMarkup(createElement(CommentaryMessageRow, {
       message: messages[0]!, viewedAgentPath: '/root/reviewer', searchHighlightQuery: '', selected: false

@@ -206,12 +206,11 @@ test('the app-server reserves a safe research-track epoch and marks a failed nex
   assert.equal(due[0].request.launch.guardianEnabled, true);
   assert.deepEqual(due[0].request.launch.targetIds, ['local']);
   assert.deepEqual(due[0].request.launch.collaboration, collaboration);
-  assert.match(due[0].request.launch.promptMarkdown, /Assigned surface: Example service/u);
-  assert.match(due[0].request.launch.promptMarkdown, /Map concrete subcomponents with stable noun names/u);
+  assert.match(due[0].request.launch.promptMarkdown, /Assigned component: Example service/u);
+  assert.match(due[0].request.launch.promptMarkdown, /pre-auth boundaries, sensitive memory/u);
   assert.match(due[0].request.launch.promptMarkdown, /Compare alternative explanations/u);
-  assert.match(due[0].request.launch.promptMarkdown, /Add structured attacker-path updates or validation details when they clarify the work/u);
-  assert.match(due[0].request.launch.promptMarkdown, /A bounded review can complete with open leads/u);
-  assert.match(due[0].request.launch.promptMarkdown, /use available browser tools/u);
+  assert.match(due[0].request.launch.promptMarkdown, /Dedicated track workers handle the existing finding/u);
+  assert.match(due[0].request.launch.promptMarkdown, /call track\.checkpoint/u);
   assert.equal((await hostService.workspaceResearchTrack('workspace-test', 'status')).activeSessionId,
     due[0].request.sessionId);
   await hostService.recordResearchTrackEpochLaunchFailure('workspace-test', due[0].request.sessionId,
@@ -2376,6 +2375,7 @@ test("projects workspace memory into a path-free mobile catalog", async () => {
       status: "verified",
       staleFromStatus: null,
       classification: "security.vulnerability",
+      componentClaimIds: [],
       duplicateClaims: [{
         id: "claim-duplicate",
         projection: "lead",
@@ -2398,6 +2398,8 @@ test("projects workspace memory into a path-free mobile catalog", async () => {
         affectedAssetIds: ["asset-parser"],
         surfaceIds: [],
         progressBlocker: null,
+        reportability: null,
+        triage: { blocker: null, packet: null },
         externalReferences: [{ kind: "cwe", identifier: "CWE-362", url: "https://cwe.mitre.org/data/definitions/362.html" }],
       },
       confidence: 0.9,

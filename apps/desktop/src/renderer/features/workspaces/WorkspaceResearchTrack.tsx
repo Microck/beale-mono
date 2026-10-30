@@ -132,15 +132,10 @@ export function WorkspaceResearchTrack({ workspaceId, serverId, enabled, onOpenS
         {status === 'paused' && !track?.lastError ? <span>Paused with track controls. Resume Track to continue research.</span> : null}
         {track ? <>
           <span>Pass {track.pass} · {investigated} of {total} investigated · {complete} complete</span>
-          <small>Base priority combines the factors below. Resource breadth and repeat-work rotation can change the next selection.</small>
+          <small>Discovery favors recorded high-value signals and strong impact with reachable proof. Productive engagements continue; two evidence-free checkpoints cool a component.</small>
           {track.surfaces.filter((surface) => surface.status !== 'excluded').map((surface) => <div key={surface.surfaceId} className="workspace-research-track-surface">
-            <strong>{surface.name}</strong><span>{surface.status.replaceAll('_', ' ')} · prior impact {surface.impact} · actionability {surface.actionabilityScore}/100 · {surface.epochs} epochs{surface.validation ? ` · validation ${surface.validation.environment}` : ''}</span>
-            {surface.priority ? <small>Base priority {surface.priority.baseScore}: actionability {surface.priority.actionability}
-              {' · '}prior impact {surface.priority.impactAdjustment >= 0 ? '+' : ''}{surface.priority.impactAdjustment}
-              {surface.priority.surfaceRankingAdjustment ? <> · surface factors {surface.priority.surfaceRankingAdjustment > 0 ? '+' : ''}{surface.priority.surfaceRankingAdjustment}</> : null}
-              {' · '}testable path +{surface.priority.testableAngleBonus}
-              {' · '}validation gap −{surface.priority.targetValidationPenalty}
-              {' · '}stalled work −{surface.priority.noProgressPenalty}</small> : null}
+            <strong>{surface.name}</strong><span>{surface.status.replaceAll('_', ' ')} · prior impact {surface.impact} · {surface.epochs} epochs · {surface.noProgressEpochs} evidence-free{surface.validation ? ` · validation ${surface.validation.environment}` : ''}</span>
+            {surface.revisitAfter ? <small>Cooling until {new Date(surface.revisitAfter).toLocaleString()}</small> : null}
             {surface.angles.length > 0 ? <small>Attacker paths: {surface.angles.map((angle) => `${angle.name} (${angle.status.replaceAll('_', ' ')})`).join(' · ')}</small> : null}
             {surface.nextAction ? <small>{surface.nextAction}</small> : null}
           </div>)}
