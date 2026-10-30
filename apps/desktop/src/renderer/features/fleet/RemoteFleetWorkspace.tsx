@@ -7,6 +7,7 @@ import { WorkspaceSidebar } from '../workspaces/WorkspaceSidebar';
 import { CommentaryView } from '../commentary/CommentaryView';
 import { FleetBrowserSideView } from '../research/FleetBrowserSideView';
 import { SubagentDetailPanel } from '../research/MemorySidePanel';
+import { TrackWorkerCards } from '../research/TrackWorkerCards';
 import { useResearchTrackSessionRunning } from '../../hooks/useResearchTrackSessionRunning';
 import { buildTraceDisplayEventsForAgentPath } from '../../view-models/traceDisplay';
 import { pauseResearchTrackSessionAction, runningResearchTrackDetail } from '../../view-models/researchTrackSession';
@@ -176,9 +177,11 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
     [canonicalRunDetail, researchTrackRunning]);
   const events = useMemo(() => runDetail ? buildTraceDisplayEventsForAgentPath(runDetail, null) : [], [runDetail]);
   const runStatus = runDetail?.run.status ?? remoteRunStatus(session?.status ?? '');
+  const showTrackWorkerSidebar = Boolean(workspaceId && sessionId?.startsWith('track_'));
   const selectedSubagent = useMemo(() => {
     if (!runDetail || !selectedSubagentPath) return null;
-    return subagentSummaries(runDetail.traceEvents ?? [], runStatus, 'commentary')
+    return subagentSummaries(runDetail.traceEvents ?? [], runStatus, 'commentary', [],
+      runDetail.attempts.at(-1)?.id, runDetail.attempts.at(-1)?.startedAt)
       .find((agent) => agent.path === selectedSubagentPath) ?? {
       path: selectedSubagentPath,
       name: selectedSubagentPath.split('/').at(-1) ?? selectedSubagentPath,
@@ -312,7 +315,7 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
         </div> : null}
         {browserAvailable && browserOpen && sessionId && !selectedSubagent ? <div className="remote-fleet-browser">
           <FleetBrowserSideView runId={sessionId} remoteServerId={serverId} visible />
-        </div> : <div className={`main-session-grid ${selectedSubagent ? 'research-details-open' : 'session-main-only'}`} data-session-view-state="session">
+        </div> : <div className={`main-session-grid ${selectedSubagent || showTrackWorkerSidebar ? 'research-details-open' : 'session-main-only'}`} data-session-view-state="session">
           <CommentaryView
             busy={controlBusy}
             detail={runDetail}
@@ -351,6 +354,17 @@ export function RemoteFleetWorkspace({ serverId, serverName, catalog, workspaceI
                 <SubagentDetailPanel detail={runDetail} events={selectedSubagentEvents}
                   providerModelCatalog={providerCatalog} runId={sessionId} subagent={selectedSubagent}
                   backLabel="Session" onBack={onBackToSubagents} />
+              </div>
+            </>
+          ) : showTrackWorkerSidebar && workspaceId && sessionId ? (
+            <>
+              <div className="research-side-resize-handle" aria-hidden="true" />
+              <div className="research-side-column">
+                <aside className="main-session-side session-summary-panel track-summary-panel" aria-label="Session summary">
+                  <TrackWorkerCards workspaceId={workspaceId} sessionId={sessionId} serverId={serverId}
+                    events={runDetail?.traceEvents ?? []} findings={runDetail?.appServerMemory?.findings ?? []}
+                    activeAttemptId={runDetail?.attempts.at(-1)?.id} runStatus={runStatus} />
+                </aside>
               </div>
             </>
           ) : null}

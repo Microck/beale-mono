@@ -2007,7 +2007,8 @@ export function App(): JSX.Element {
   const needsSubagentSummaries = Boolean(selectedSubagentPath);
   const activeSubagents = useMemo(
     () => needsSubagentSummaries
-      ? subagentSummaries(activeTraceEvents, renderedRunDetail?.run.status, 'commentary')
+      ? subagentSummaries(activeTraceEvents, renderedRunDetail?.run.status, 'commentary', [],
+        renderedRunDetail?.attempts.at(-1)?.id, renderedRunDetail?.attempts.at(-1)?.startedAt)
       : [],
     [activeTraceEvents, needsSubagentSummaries, renderedRunDetail?.run.status]
   );
