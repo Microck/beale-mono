@@ -558,7 +558,7 @@ async function handleMcpRequest(
       result = {
         protocolVersion: "2025-11-25",
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "app-server", version: "0.9.5" },
+        serverInfo: { name: "app-server", version: "0.9.6" },
       };
     } else if (method === "tools/list") {
       result = { tools: tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema })) };
