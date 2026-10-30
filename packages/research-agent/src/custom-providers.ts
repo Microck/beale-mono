@@ -11,9 +11,10 @@ export interface CustomProviderDefinition {
   /** Restrict the provider to these model IDs. Empty or absent means every discovered model. */
   modelAllowlist?: string[];
   /**
-   * Per-model effort sent for the off thinking level. A listed model exposes only
-   * off, so endpoints that reject thinking controls never receive those fields
-   * while still getting an effort value they accept.
+   * Per-model effort sent for the off thinking level. A listed model never receives
+   * thinking controls, which endpoints such as Mistral reject outright; it gets a
+   * scalar effort value instead. Listed models also keep the low/high/max ladder,
+   * while minimal and medium stay unavailable because the target APIs reject them.
    */
   modelOffReasoningEfforts?: Record<string, string>;
   /** Enable OpenAI-compatible reasoning controls, with DeepSeek wire semantics for DeepSeek model IDs. */
@@ -133,7 +134,9 @@ export function createCustomProviderModel(
     contextWindow: definition.contextWindow,
     maxTokens: definition.maxTokens,
     ...(offEffort ? {
-      thinkingLevelMap: { off: offEffort, minimal: null, low: null, medium: null, high: null } as const,
+      thinkingLevelMap: {
+        off: offEffort, minimal: null, low: 'low', medium: null, high: 'high', max: 'max',
+      } as const,
     } : deepSeek ? {
       thinkingLevelMap: { minimal: null, low: 'low', medium: null, high: 'high', max: 'max' } as const,
     } : {}),

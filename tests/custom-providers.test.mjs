@@ -235,7 +235,7 @@ test('custom provider off reasoning efforts are validated and scoped to allowed 
   }), /require reasoning/);
 });
 
-test('custom provider off effort overrides expose only off and avoid thinking fields', async () => {
+test('custom provider off effort overrides keep the off scalar and expose the ladder', async () => {
   const requests = [];
   const server = createServer(async (request, response) => {
     requests.push({ body: JSON.parse((await Array.fromAsync(request)).map((chunk) => chunk.toString()).join('')) });
@@ -262,8 +262,10 @@ test('custom provider off effort overrides expose only off and avoid thinking fi
     const model = models.getModel(definition.id, 'deepseek-v4.1-flash');
     assert.ok(model);
     assert.equal(model.compat?.thinkingFormat, undefined);
-    assert.deepEqual(model.thinkingLevelMap, { off: 'none', minimal: null, low: null, medium: null, high: null });
-    assert.deepEqual(getProviderModelCatalog(definition.id)[0].models[0].effortLevels, ['off']);
+    assert.deepEqual(model.thinkingLevelMap, {
+      off: 'none', minimal: null, low: 'low', medium: null, high: 'high', max: 'max',
+    });
+    assert.deepEqual(getProviderModelCatalog(definition.id)[0].models[0].effortLevels, ['off', 'low', 'high', 'max']);
     const result = await models.completeSimple(model, {
       messages: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
     }, { reasoning: 'off' });
@@ -271,6 +273,12 @@ test('custom provider off effort overrides expose only off and avoid thinking fi
     assert.equal(result.content[0].text, 'hi');
     assert.equal(requests[0].body.reasoning_effort, 'none');
     assert.equal('thinking' in requests[0].body, false);
+    const thinking = await models.completeSimple(model, {
+      messages: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
+    }, { reasoning: 'high' });
+    assert.notEqual(thinking.stopReason, 'error', thinking.errorMessage);
+    assert.equal(requests[1].body.reasoning_effort, 'high');
+    assert.equal('thinking' in requests[1].body, false);
   } finally {
     if (priorDefinitions === undefined) delete process.env.APP_SERVER_CUSTOM_PROVIDERS;
     else process.env.APP_SERVER_CUSTOM_PROVIDERS = priorDefinitions;
